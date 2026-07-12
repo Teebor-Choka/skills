@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# pre-commit hook — enforce wiki invariants before every commit
+# Install: git config core.hooksPath .ci
+# Or symlink: ln -sf ../../.ci/pre-commit .git/hooks/pre-commit
+
+exec sh "$(dirname "$0")/check-all.sh"
