@@ -15,7 +15,8 @@ TYPES="source-note concept entity moc synthesis topic"
 STATUSES="raw summarized synthesized"
 
 check_key() {
-  file="$1"; key="$2"
+  file="$1"
+  key="$2"
   if ! awk '/^---/{f++} f==1 && /^'"$key"':/' "$file" | grep -q .; then
     echo "MISSING key '$key': $file"
     return 1
@@ -24,7 +25,9 @@ check_key() {
 }
 
 check_enum() {
-  file="$1"; key="$2"; allowed="$3"
+  file="$1"
+  key="$2"
+  allowed="$3"
   value=$(awk '/^---/{f++} f==1 && /^'"$key"':/{print}' "$file" | sed "s/^$key: *//;s/['\"]//g;s/ *#.*//" | tr -d ' ')
   for v in $allowed; do
     [ "$value" = "$v" ] && return 0

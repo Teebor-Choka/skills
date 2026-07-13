@@ -26,16 +26,16 @@ related: []
 
 ## Public Speaking
 
-- [[public-speaking]] — Winston's lecture rules, vocal delivery, body language, slides *(topic)*
-- [[interpersonal-communication]] — conversational principles, introductions, handling conflict *(topic)*
-- [[communication-habits]] — eight practical daily communication rules *(synthesis)*
-- [[how-to-speak-lecture-notes]] — How to Speak — Patrick Winston *(source-note)*
-- [[vocal-lessons-13-years]] — 13 years of vocal lessons — Vinh Giang *(source-note)*
-- [[communication-how-to]] — how to communicate — Vinh Giang *(source-note)*
-- [[communication-improve-speech]] — how to improve speech *(concept)*
-- [[communication-effective-during-arguments]] — effective communication during arguments *(concept)*
-- [[psychology-communication]] — psychology of communication *(concept)*
-- [[psychology-introductions]] — psychology of introductions *(concept)*
+- [[public-speaking]] — Winston's lecture rules, vocal delivery, body language, slides _(topic)_
+- [[interpersonal-communication]] — conversational principles, introductions, handling conflict _(topic)_
+- [[communication-habits]] — eight practical daily communication rules _(synthesis)_
+- [[how-to-speak-lecture-notes]] — How to Speak — Patrick Winston _(source-note)_
+- [[vocal-lessons-13-years]] — 13 years of vocal lessons — Vinh Giang _(source-note)_
+- [[communication-how-to]] — how to communicate — Vinh Giang _(source-note)_
+- [[communication-improve-speech]] — how to improve speech _(concept)_
+- [[communication-effective-during-arguments]] — effective communication during arguments _(concept)_
+- [[psychology-communication]] — psychology of communication _(concept)_
+- [[psychology-introductions]] — psychology of introductions _(concept)_
 
 ---
 
@@ -71,14 +71,14 @@ related: []
 
 ## Key Entities
 
-- [[alex-hormozi]] — entrepreneur: offer frameworks, sales, life optimisation *(entity)*
-- [[john-rush]] — indie SaaS: validation-first, SEO, product quality *(entity)*
+- [[alex-hormozi]] — entrepreneur: offer frameworks, sales, life optimisation _(entity)_
+- [[john-rush]] — indie SaaS: validation-first, SEO, product quality _(entity)_
 
 ## Finding Ideas
 
-- [[idea-sourcing]] — pain/passion/export-button/trend/community sourcing *(topic)*
-- [[startup-ideation]] — Mom Test, Export Button, 13-step process *(concept)*
-...
+- [[idea-sourcing]] — pain/passion/export-button/trend/community sourcing _(topic)_
+- [[startup-ideation]] — Mom Test, Export Button, 13-step process _(concept)_
+  ...
 
 ## See Also (other areas)
 
@@ -115,17 +115,17 @@ referenced by Psychology and Business.
 
 ## Key Entities
 
-- [[ben-felix]] — evidence-based investing, index funds, 5% rent-vs-own rule *(entity)*
+- [[ben-felix]] — evidence-based investing, index funds, 5% rent-vs-own rule _(entity)_
 
 ## Investing
 
-- [[index-investing]] — Bogle framework, index funds, evidence-based case *(topic)*
-- [[investment-houses-and-rents]] — houses as cash-flow assets; yield, leverage, ROE *(topic)*
+- [[index-investing]] — Bogle framework, index funds, evidence-based case _(topic)_
+- [[investment-houses-and-rents]] — houses as cash-flow assets; yield, leverage, ROE _(topic)_
 
 ## Money Mindset
 
-- [[money-mindset]] — rich/poor mindset differences, concentrate vs. diversify *(topic)*
-- [[psychology-of-making-money]] — psychology of making money — Leila Hormozi *(source-note)*
+- [[money-mindset]] — rich/poor mindset differences, concentrate vs. diversify _(topic)_
+- [[psychology-of-making-money]] — psychology of making money — Leila Hormozi _(source-note)_
 
 ---
 

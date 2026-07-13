@@ -1,0 +1,40 @@
+{
+  "name": "skills",
+  "owner": {
+    "name": "Tibor Csóka",
+    "email": "tibor.csoka@kauki.xyz"
+  },
+  "metadata": {
+    "description": "Public AI agent skills — practical skills for software development, idea validation, and knowledge management.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "forge-idea",
+      "description": "Forge rough ideas into viable ones through cooperative, research-driven iteration.",
+      "source": "./",
+      "skills": ["./tools/forge-idea"],
+      "metadata": {
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "llm-wiki",
+      "description": "Create, maintain, and query a personal knowledge wiki designed for LLM navigation.",
+      "source": "./",
+      "skills": ["./tools/llm-wiki"],
+      "metadata": {
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "rust-engineer",
+      "description": "Enforce Rust code quality and guidelines throughout Rust development.",
+      "source": "./",
+      "skills": ["./engineering/swe/rust-engineer"],
+      "metadata": {
+        "version": "1.0.0"
+      }
+    }
+  ]
+}

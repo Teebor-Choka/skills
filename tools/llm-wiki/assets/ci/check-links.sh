@@ -17,18 +17,18 @@ find "$WIKI" "$REPO_ROOT/raw" -type f \( -name "*.md" -o -name "*.txt" \) 2>/dev
   base=$(basename "$f")
   stem="${base%.*}"
   printf '%s\n' "$stem" | tr '[:upper:]' '[:lower:]' | tr ' ' '-'
-done > "$STEMS_FILE"
+done >"$STEMS_FILE"
 
 # Normalize a wikilink target to a page stem for lookup:
 #   - Strip path prefix (raw/foo.md -> foo.md, Domain/slug -> slug)
 #   - Strip file extension if present (.md, .txt)
 #   - Lowercase, spaces to hyphens
 normalize() {
-  printf '%s' "$1" \
-    | sed 's|.*/||' \
-    | sed 's/\.[a-zA-Z]*$//' \
-    | tr '[:upper:]' '[:lower:]' \
-    | tr ' ' '-'
+  printf '%s' "$1" |
+    sed 's|.*/||' |
+    sed 's/\.[a-zA-Z]*$//' |
+    tr '[:upper:]' '[:lower:]' |
+    tr ' ' '-'
 }
 
 resolve() {
@@ -44,12 +44,12 @@ find "$WIKI" -name "*.md" | sort | while IFS= read -r f; do
   grep -oE '\[\[[^]|]+' "$f" 2>/dev/null | sed 's/^\[\[//' | while IFS= read -r target; do
     if ! resolve "$target"; then
       printf 'BROKEN LINK [[%s]]: %s\n' "$target" "$f"
-      echo x >> "$BROKEN_FILE"
+      echo x >>"$BROKEN_FILE"
     fi
   done
 done
 
-broken_count=$(wc -l < "$BROKEN_FILE" | tr -d ' ')
+broken_count=$(wc -l <"$BROKEN_FILE" | tr -d ' ')
 rm -f "$STEMS_FILE" "$BROKEN_FILE"
 
 if [ "$broken_count" -gt 0 ]; then

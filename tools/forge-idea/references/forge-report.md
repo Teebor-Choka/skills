@@ -19,7 +19,7 @@ the evolution trail, and the persisted ledgers.
 # bootstrap this block only if the file has no frontmatter; leave an existing one alone
 domain: <kebab-domain>
 title: <Idea name>
-state: <raw|explored|decided>   # forge recommends, user sets — never auto-change
+state: <raw|explored|decided> # forge recommends, user sets — never auto-change
 created: <YYYY-MM-DD>
 updated: <YYYY-MM-DD>
 author: <name>
@@ -48,22 +48,24 @@ transition (e.g. "promote raw → explored").>
 
 ## Branch scorecard
 
-| Branch | Verdict | Key finding & adaptation |
-|---|---|---|
+| Branch                 | Verdict                    | Key finding & adaptation                                                      |
+| ---------------------- | -------------------------- | ----------------------------------------------------------------------------- |
 | <load-bearing claim 1> | **VIABLE / ADAPT / PRUNE** | <most damaging evidence + how the idea changed, with source + confidence tag> |
-| <load-bearing claim 2> | ... | ... |
+| <load-bearing claim 2> | ...                        | ...                                                                           |
 
 Tally: **VIABLE ×N · ADAPT ×N · PRUNE ×N**
 
 ## Per-branch findings
 
 ### <Branch 1> — <verdict>
+
 <The attack: named incumbents / prior art / data / dates that falsify or weaken the
 claim, each cited and confidence-tagged. Then the ADAPTATION (grounded, incremental)
 and the SURVIVING EDGE the finding doesn't reach. Distinguish false / true-but-irrelevant
 / true-but-already-owned. If PRUNE, say plainly why it's a dead end.>
 
 ### <Branch 2> — <verdict>
+
 ...
 
 ## Evolution
@@ -104,6 +106,7 @@ not be confirmed and why. The report's value depends on the reader trusting its 
 ## Verdict vocabulary
 
 Per-branch:
+
 - **VIABLE** — holds up against the strongest attack the agent could mount.
 - **ADAPT** — the broad claim doesn't hold, but a reshaped version does; the finding
   tells the idea how to change (grounded, incremental).
@@ -111,6 +114,7 @@ Per-branch:
   can't out-execute. A dead end; record it in the ledger and don't revisit.
 
 Overall recommendation (forge recommends; the user decides the pipeline transition):
+
 - **PROCEED** — the load-bearing branches are VIABLE; build the premise roughly as
   stated. (Recommend `decided: pursue`.)
 - **EVOLVE** — the premise-as-stated is reshaped by the adaptations into a stronger

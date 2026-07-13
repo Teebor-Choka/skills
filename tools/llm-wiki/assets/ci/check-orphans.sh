@@ -17,25 +17,25 @@ find "$WIKI" -name "*.md" | sort | while IFS= read -r f; do
   [ "$stem" = "_MOC" ] && continue
 
   # Find the domain (first subdirectory under wiki/)
-  rel="${f#$WIKI/}"
+  rel="${f#"$WIKI"/}"
   domain=$(printf '%s' "$rel" | cut -d'/' -f1)
   moc="$WIKI/$domain/_MOC.md"
 
   if [ ! -f "$moc" ]; then
     printf 'MISSING MOC for domain %s: %s\n' "$domain" "$f"
-    echo x >> "$ORPHAN_FILE"
+    echo x >>"$ORPHAN_FILE"
     continue
   fi
 
   # Check that [[stem]] or [[stem| or [[Domain/stem]] appears in the MOC.
   # Use word-boundary: stem must be followed by ]] or | (not more slug chars).
-  if ! grep -iE "\[\[($domain/)?$stem(\||\]\])" "$moc" > /dev/null 2>&1; then
+  if ! grep -iE "\[\[($domain/)?$stem(\||\]\])" "$moc" >/dev/null 2>&1; then
     printf 'ORPHAN (not in _MOC.md): %s\n' "$f"
-    echo x >> "$ORPHAN_FILE"
+    echo x >>"$ORPHAN_FILE"
   fi
 done
 
-orphan_count=$(wc -l < "$ORPHAN_FILE" | tr -d ' ')
+orphan_count=$(wc -l <"$ORPHAN_FILE" | tr -d ' ')
 rm -f "$ORPHAN_FILE"
 
 if [ "$orphan_count" -gt 0 ]; then
