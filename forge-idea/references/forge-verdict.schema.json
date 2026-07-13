@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeBranchVerdict",
+  "description": "Structured output returned by one stress-test agent for one load-bearing branch of a forged idea. Use as the StructuredOutput schema when fanning out via the Agent tool or the Workflow tool.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "branch",
+    "verdict",
+    "failure_mode",
+    "most_damaging_finding",
+    "adaptation",
+    "surviving_edge",
+    "opportunity_signals"
+  ],
+  "properties": {
+    "branch": {
+      "type": "string",
+      "description": "The load-bearing claim this agent was assigned to attack, restated in one sharp sentence."
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["VIABLE", "ADAPT", "PRUNE"],
+      "description": "VIABLE = holds against the strongest attack. ADAPT = the broad claim fails but a reshaped version holds; the finding says how to change. PRUNE = falsified, irrelevant, or owned by someone the idea-holder can't out-execute — a dead end."
+    },
+    "failure_mode": {
+      "type": "string",
+      "enum": ["none", "false", "irrelevant", "already-owned"],
+      "description": "How the branch failed (drives the adaptation). 'none' iff verdict is VIABLE. 'false' = factually wrong. 'irrelevant' = true but doesn't change the outcome. 'already-owned' = true but an incumbent/OSS/standard/vendor owns it."
+    },
+    "most_damaging_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim", "source", "confidence"],
+      "properties": {
+        "claim": {
+          "type": "string",
+          "description": "The single most damaging concrete finding — a named product, paper, funding round, regulation with date, or benchmark number."
+        },
+        "source": {
+          "type": "string",
+          "description": "Citation: URL, paper, or named source. Required for every non-obvious claim."
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["Established", "Reported", "Vendor/Projection", "Contested", "Open"],
+          "description": "Established = multi-source. Reported = single/secondary. Vendor/Projection = marketing/forecast. Contested = sources disagree. Open = unresolved."
+        }
+      }
+    },
+    "adaptation": {
+      "type": "string",
+      "description": "How the idea should change given the finding. Grounded and incremental — reshape, do not lurch. Empty allowed only when verdict is VIABLE."
+    },
+    "surviving_edge": {
+      "type": "string",
+      "description": "The strongest version of the claim the damaging finding does not reach — what still stands."
+    },
+    "opportunity_signals": {
+      "type": "array",
+      "description": "Incumbent holes and unmet demand mined from reviews / complaints / forums / churn — wedge openings. May be empty.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["signal", "source"],
+        "properties": {
+          "signal": { "type": "string", "description": "The gap or unmet want, stated sharply." },
+          "source": { "type": "string", "description": "Where it was observed (review site, forum thread, churn post, etc.)." }
+        }
+      }
+    }
+  }
+}
