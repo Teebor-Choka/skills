@@ -17,7 +17,7 @@
       treefmt-nix,
       flake-utils,
     }:
-    flake-utils.lib.eachDefaultSystem (
+    flake-utils.lib.eachSystem [ "aarch64-darwin" "aarch64-linux" "x86_64-linux" ] (
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
