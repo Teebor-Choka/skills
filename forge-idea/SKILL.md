@@ -57,10 +57,11 @@ claim): **[Established]** (multi-source) · **[Reported]** (single/secondary sou
 
 ### 0. Detect context — file or report
 
-If invoked in a repo with an ideas pipeline (a directory of idea markdown files, e.g.
-state subdirectories like `raw/ explored/ decided/` with YAML frontmatter), forge
-operates **on the idea's file** — it reads any prior forge output there and writes its
-result back into that file (step 7). If the target file has no `state` frontmatter,
+If invoked in a repo with an ideas pipeline (a directory of idea markdown files with
+YAML frontmatter — e.g. stage-prefixed flat files like `raw-*.md` / `explored-*.md`, or
+state subdirectories like `raw/ explored/ decided/`), forge operates **on the idea's
+file** — it reads any prior forge output there and writes its result back into that file
+(step 7). If the target file has no `state` frontmatter,
 **bootstrap it**: add the frontmatter and the section structure so the file becomes a
 first-class pipeline artifact. If there is no pipeline at all, forge degrades to a
 standalone report written to the working directory.
