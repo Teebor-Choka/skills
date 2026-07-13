@@ -32,6 +32,7 @@ A structured knowledge graph where every claim cites its source and every page i
 ```
 
 **Ownership rules:**
+
 - `wiki/` — own it entirely. Create, edit, rename, link, merge pages freely.
 - `raw/` — read-only. Reference with `source:` key in frontmatter. Never edit.
 - `resources/` — ignore during normal operations.
@@ -42,6 +43,7 @@ A structured knowledge graph where every claim cites its source and every page i
 ## Area organisation
 
 The top level of `wiki/` is a set of thematic **areas** (e.g. Business, Marketing, Psychology). Each area has:
+
 - One `_MOC.md` (Map of Content) — the hub for that area; every page in the area must be linked from it.
 - Sub-topic folders for human organisation (CI-invisible — only the first path segment matters for orphan checks).
 
@@ -66,20 +68,20 @@ source: <url / "Author Name" / "original">
 date: YYYY-MM-DD
 status: raw | summarized | synthesized
 related: ["[[Page-Slug]]"]
-conflicts: true   # optional — only present when a ⚠ Conflicting Views section exists
+conflicts: true # optional — only present when a ⚠ Conflicting Views section exists
 ---
 ```
 
 ### Page types
 
-| Type | Purpose |
-|------|---------|
-| `source-note` | Distilled notes from one external source (book, article, video, email). |
-| `concept` | A framework, idea, or technique that recurs across sources. |
-| `entity` | A named person, company, product, or book with its own identity. |
-| `moc` | Map of Content — one per area (filename `_MOC.md`). Hub for the area. |
-| `synthesis` | Cross-source essay or comparison written from first principles. Original, uncited content is honest as `synthesis`. |
-| `topic` | Atomic topic hub aggregating claims across multiple source notes. Cites every claim inline via `[[source]]` wikilinks. Ends with `## Sources in This Wiki` and `## See Also`. Where sources disagree, adds `## ⚠ Conflicting Views` + `conflicts: true`. |
+| Type          | Purpose                                                                                                                                                                                                                                                  |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `source-note` | Distilled notes from one external source (book, article, video, email).                                                                                                                                                                                  |
+| `concept`     | A framework, idea, or technique that recurs across sources.                                                                                                                                                                                              |
+| `entity`      | A named person, company, product, or book with its own identity.                                                                                                                                                                                         |
+| `moc`         | Map of Content — one per area (filename `_MOC.md`). Hub for the area.                                                                                                                                                                                    |
+| `synthesis`   | Cross-source essay or comparison written from first principles. Original, uncited content is honest as `synthesis`.                                                                                                                                      |
+| `topic`       | Atomic topic hub aggregating claims across multiple source notes. Cites every claim inline via `[[source]]` wikilinks. Ends with `## Sources in This Wiki` and `## See Also`. Where sources disagree, adds `## ⚠ Conflicting Views` + `conflicts: true`. |
 
 ### Status levels
 
@@ -179,12 +181,14 @@ Five checks enforced by `bash .ci/check-all.sh` (scripts in `assets/ci/`):
 Run `bash .ci/check-all.sh` before every commit. Install as a pre-commit hook so it runs automatically.
 
 **To bootstrap CI in a new repo:**
+
 ```bash
 mkdir -p .ci
 cp <skill-assets>/ci/* .ci/
 chmod +x .ci/*.sh .ci/pre-commit
 git config core.hooksPath .ci
 ```
+
 The CI scripts are in `assets/ci/` bundled with this skill.
 
 ---
@@ -211,7 +215,7 @@ related: []
 
 ## Sub-topic Name
 
-- [[page-slug]] — one-liner description *(type)*
+- [[page-slug]] — one-liner description _(type)_
 
 ---
 
@@ -234,6 +238,7 @@ Content catalog — one line per page, grouped by area.
 ## <Area>
 
 ### Sub-topic
+
 - [[slug]] — one-liner (type/status)
 ```
 
@@ -242,6 +247,7 @@ Content catalog — one line per page, grouped by area.
 ## `log.md` format
 
 Append-only. Each entry:
+
 ```
 ## [YYYY-MM-DD] <operation> | <subject>
 

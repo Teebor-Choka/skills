@@ -291,9 +291,9 @@ Run at the end of each code iteration:
 4. `cargo test`
 
 **Bump crate versions per PR** following semver:
+
 - **Patch** (1.2.x → 1.2.y): bug fixes, internal changes
 - **Minor** (1.2.x → 1.3.0): new features, **deprecations**
 - **Major** (1.x → 2.0.0): breaking changes
-
 
 **Minimal scope** — only touch crates you changed with cargo utilities.

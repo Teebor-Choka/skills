@@ -2,19 +2,17 @@
 name: forge-idea
 description: >
   Forge a rough idea, thesis, or plan into a viable one through cooperative,
-  research-driven iteration. It interrogates the premise hard, reduces it to a
-  sharp minimal kernel, decomposes that kernel into load-bearing branches, fans
-  out independent agents to stress-test each branch, then prunes the dead branches
-  and reshapes the rest with what the research found — looping with the user until
-  the idea stabilizes or they stop. Use whenever the user wants to pressure-test,
-  validate, red-team, kill-test, gut-check, poke holes in, evolve, refine, or find
-  the viable version of a business thesis, product direction, technical architecture
+  research-driven iteration. Reduces it to a sharp minimal kernel, fans out
+  independent agents to stress-test each branch, then prunes dead branches and
+  reshapes the rest with what research found — looping until the idea stabilizes
+  or the user stops. Use whenever the user wants to pressure-test, validate,
+  red-team, kill-test, gut-check, poke holes in, evolve, refine, or find the
+  viable version of a business thesis, product direction, technical architecture
   choice, strategy, or research hypothesis — especially when they say "will this
   actually work", "is this defensible", "tear this apart", "why would this fail",
-  "how do I make this work", "what's the wedge", or "should we build X". Also trigger
-  when a premise developed in the conversation is ready to be tested against reality.
-  Prefer this over an ad-hoc research pass whenever the goal is to harden or reshape
-  a specific premise, not open-ended learning.
+  "how do I make this work", "what's the wedge", or "should we build X". Also
+  trigger when a premise developed in the conversation is ready to be tested
+  against reality.
 ---
 
 # Forge Idea
@@ -67,19 +65,19 @@ first-class pipeline artifact. If there is no pipeline at all, forge degrades to
 standalone report written to the working directory.
 
 Forge is pipeline-**aware** but pipeline-**passive**: it reads and writes file
-*content*, but it **never mutates `state` or `verdict` frontmatter**. Promoting an idea
+_content_, but it **never mutates `state` or `verdict` frontmatter**. Promoting an idea
 `raw → explored → decided` (and writing a `pursue/park/kill` verdict) is always the
-user's manual call at the smith checkpoint. Forge only *recommends* the transition.
+user's manual call at the smith checkpoint. Forge only _recommends_ the transition.
 
 ### 1. Interrogate → reduce to the kernel
 
 Do **not** just restate the premise and ask for a nod. Interrogate until it is sharp,
 pushing back on every soft answer:
 
-- **Target** — who or what is this *for*? Name it explicitly. (Not necessarily a
+- **Target** — who or what is this _for_? Name it explicitly. (Not necessarily a
   paying buyer — the idea may be a research bet or an internal tool; but the target
   must be named.)
-- **Why / mechanism** — *why* does this actually work? What has to be true for the
+- **Why / mechanism** — _why_ does this actually work? What has to be true for the
   value to exist at all? The Why must come out of the interrogation.
 - **Success metric** — what observable outcome would prove it worked?
 - **Riskiest belief** — which single assumption, if wrong, collapses everything?
@@ -92,7 +90,7 @@ what localizes the research: a broad premise gives the agents no coordinates and
 return a generic landscape; a sharp kernel gives them a specific target they can
 falsify. Reduction is **focus, not amputation** — the scope you strip off is **parked**
 as an `## Expansion (parked)` note in the file, never deleted. Nothing is cut without
-evidence; the kernel is only what you test *first*.
+evidence; the kernel is only what you test _first_.
 
 - **Interactive mode** (user is present): multi-turn grill, iterate on the kernel
   until it holds up.
@@ -152,9 +150,10 @@ the schema above as the agents' `StructuredOutput` — this skill authorizes it.
 
 **Cost guardrail.** Watch the double fan-out (grounding deep-research + per-branch
 agents each possibly invoking deep-research):
-- *Gut-check:* 1 branch, 1 round, **no** nested deep-research.
-- *Thorough:* 5–6 branches, Workflow, nested deep-research allowed.
-The confirm-the-kernel gate exists so a mis-aimed kernel never burns a full fan-out.
+
+- _Gut-check:_ 1 branch, 1 round, **no** nested deep-research.
+- _Thorough:_ 5–6 branches, Workflow, nested deep-research allowed.
+  The confirm-the-kernel gate exists so a mis-aimed kernel never burns a full fan-out.
 
 ### 5. Prune & reshape — grounded, plural, not radical
 

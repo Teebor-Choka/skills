@@ -43,7 +43,13 @@
         },
         "confidence": {
           "type": "string",
-          "enum": ["Established", "Reported", "Vendor/Projection", "Contested", "Open"],
+          "enum": [
+            "Established",
+            "Reported",
+            "Vendor/Projection",
+            "Contested",
+            "Open"
+          ],
           "description": "Established = multi-source. Reported = single/secondary. Vendor/Projection = marketing/forecast. Contested = sources disagree. Open = unresolved."
         }
       }
@@ -64,8 +70,14 @@
         "additionalProperties": false,
         "required": ["signal", "source"],
         "properties": {
-          "signal": { "type": "string", "description": "The gap or unmet want, stated sharply." },
-          "source": { "type": "string", "description": "Where it was observed (review site, forum thread, churn post, etc.)." }
+          "signal": {
+            "type": "string",
+            "description": "The gap or unmet want, stated sharply."
+          },
+          "source": {
+            "type": "string",
+            "description": "Where it was observed (review site, forum thread, churn post, etc.)."
+          }
         }
       }
     }
