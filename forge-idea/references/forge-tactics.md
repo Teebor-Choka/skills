@@ -12,11 +12,13 @@ never at the idea as a whole.
 > You are assigned ONE load-bearing branch of this idea. Attack it hard: try to prove
 > the underlying claim false, irrelevant, or already-owned, and cut it without mercy
 > if it cannot be defended. But your job is to make the idea *better*, not to kill it.
-> For whatever you find, return four things: (1) the verdict — SURVIVES / ADAPT /
-> PRUNE; (2) the single most damaging cited finding; (3) the adaptation — how the idea
-> should change given what you found; (4) the surviving edge the finding doesn't reach.
-> Ground every non-obvious assertion in a real, cited source. Prune dead branches
-> aggressively; never prune the idea itself.
+> Return the structured verdict (`references/forge-verdict.schema.json`): the verdict
+> — VIABLE / ADAPT / PRUNE — with its failure mode; the single most damaging cited
+> finding; the adaptation (how the idea should change given what you found, grounded
+> and incremental — reshape, don't lurch); the surviving edge the finding doesn't
+> reach; and any opportunity signals. Ground every non-obvious assertion in a real,
+> cited source with a confidence tag. Prune dead branches aggressively; never prune
+> the idea itself.
 
 ## The three ways a branch fails
 
@@ -74,10 +76,14 @@ opinion. When they split, the split *is* the finding — surface it, don't avera
 
 ## Honesty discipline
 
-- Cite every non-obvious claim. Aggregator/press/vendor figures are fine but flag as
-  approximate; the *direction* should be robust across independent sources.
+- Cite every non-obvious claim, and tag its confidence: **[Established]** (multi-source)
+  · **[Reported]** (single/secondary) · **[Vendor/Projection]** (marketing/forecast) ·
+  **[Contested]** · **[Open]** (unresolved). Aggregator/press/vendor figures are fine
+  but tag them accordingly; the *direction* should be robust across independent sources.
 - Distinguish verified from inferred. An inferred white space is a lead to validate
-  with buyer conversations, not a proven fact — say so.
+  with real conversations, not a proven fact — say so, and tag it [Open].
+- Stay sharp. Word every claim so its intent is unambiguous; carry uncertainty in the
+  confidence tag, never by softening the claim into fuzz.
 - Never manufacture a prune, and never manufacture a save. If a branch genuinely
-  survives, SURVIVES is the honest verdict; if it's genuinely dead, cut it. The
+  survives, VIABLE is the honest verdict; if it's genuinely dead, cut it. The
   squad's credibility depends on being willing to land on either.
