@@ -36,7 +36,8 @@ def validate_skill(skill_dir):
     errors = []
     skill_md = os.path.join(skill_dir, "SKILL.md")
     try:
-        content = open(skill_md, encoding="utf-8").read()
+        with open(skill_md, encoding="utf-8") as f:
+            content = f.read()
     except OSError as exc:
         return [f"Cannot read SKILL.md: {exc}"]
 
