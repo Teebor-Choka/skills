@@ -83,6 +83,14 @@ pushing back on every soft answer:
 - **Riskiest belief** — which single assumption, if wrong, collapses everything?
 - **Hidden assumptions** — what is taken for granted about demand, cost, timing, or
   capability?
+- **Fit criteria (the worth-it bar)** — _conditional: only when the idea is being
+  pursued for a target that already has a strategy, mandate, or constraint set._ Name
+  the criteria that make an idea worth _this_ holder's time and capital: their
+  validation bar, unit economics, capability/scale limits, timing window, and what
+  they deliberately refuse to build. An idea can be fully viable in the world yet not
+  worth pursuing for _this_ holder — capturing these criteria now is what lets step 5
+  score strategic fit. If no such target exists (an open-ended bet), skip it; fit then
+  degrades to a caveat rather than a scored dimension.
 
 Then **reduce to the kernel**: the single sharpest, minimal, falsifiable form of the
 idea — the smallest claim that, if it survives, keeps the idea alive. The kernel is
@@ -165,10 +173,33 @@ where agents converged (high confidence) and where they split (the split is itse
 finding — surface it, don't average it). The reshaping proposes; the smith checkpoint
 decides which option to converge on.
 
+**Then diverge — generate the out-of-the-box variants.** Incremental reshaping keeps the
+primary premise honest, but the highest-value output is often a reframe the literal idea
+never named. Beyond the grounded reshaping, generate **2–4 non-obvious variants anchored to
+the holder's actual assets and target** — an adjacent wedge, a different buyer, the B2B cut
+of a B2C idea, the pick-and-shovel play beside the gold rush. This is **especially** the
+move when the idea is a MISFIT (below): the literal framing may be wrong for this holder
+while an adjacent framing they _can_ execute is hiding one step away — often inside the
+opportunity signals the agents mined. Bold exploration lives in `## Viable variants` (label
+each inference-only vs analyst-confirmed, with one concrete validation step); the primary
+premise stays disciplined. Never manufacture a variant — if nothing adjacent is real, say so.
+
+**Score strategic fit (conditional, cross-cutting — never a gate).** If step 1 captured
+fit criteria (a target with a defined worth-it bar), score the surviving/reshaped idea
+against them here: rate each criterion **FIT / STRETCH / MISFIT** with the specific idea
+trait that meets or misses it, and land a one-line fit verdict. This is a **synthesis the
+forge computes** — the fan-out agents stayed blind to the target so the world-viability
+signal is uncontaminated; fit is a separate axis laid beside it. A world-VIABLE idea can
+be a MISFIT, and a modest idea can be a strong FIT — report both honestly and **never let
+fit silently prune a branch or drop the idea**. The smith weighs the two axes. If no fit
+criteria were captured, skip the score and carry fit as a caveat.
+
 ### 6. Smith checkpoint — hand it back to the user
 
 Present, concisely: the evolved premise (and the grounded options from step 5), what
-was pruned and why, emergent variants/wedges, the open questions, **and a recommended
+was pruned and why, emergent variants/wedges, the open questions, **the strategic-fit
+verdict against the target** (if one was captured — stated as a distinct axis from
+world-viability, so "viable but a MISFIT for you" reads clearly), **and a recommended
 pipeline transition** (e.g. "promote raw → explored", "this reads like decided:kill").
 Then the user decides:
 
@@ -187,6 +218,8 @@ untouched:
 
 - evolved premise + the current kernel
 - `## Branch scorecard`
+- `## Strategic fit` — the scored fit-against-target block (only if fit criteria were
+  captured; omit the section entirely for open-ended bets)
 - `## Evolution` — the v0 → v1 → … trail (what each round changed and why)
 - `## Dead ends` — the pruned-branch ledger, so they aren't revisited
 - `## Viable variants` — ranked, most-alive first
@@ -199,9 +232,11 @@ restarting.
 ### 8. Iterate
 
 If continuing, re-test only the **materially-changed or newly-introduced** branches
-(carry forward what already came back VIABLE). Loop steps 4–6 until the premise
-stabilizes (a full round changes nothing) or the user stops. The idea file body is the
-living report.
+(carry forward what already came back VIABLE). **If the smith redirected to a variant,
+re-confirm the fit target before re-testing** — a redirect can change who the idea is
+_for_ (and how success is even measured), so a fit score against the old target measures
+against the wrong bar. Loop steps 4–6 until the premise stabilizes (a full round changes
+nothing) or the user stops. The idea file body is the living report.
 
 ## What makes this different from a normal research pass
 

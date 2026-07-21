@@ -41,10 +41,12 @@ research was aimed at.>
 ## Bottom line
 
 <2–4 sentences. Lead with the recommendation — PROCEED / EVOLVE / DROP. Say whether the
-agents converged or split, how far the idea moved, and the recommended pipeline
+agents converged or split, how far the idea moved, the strategic-fit verdict against the
+target if one was captured (FIT / STRETCH / MISFIT — stated as a distinct axis, so
+"world-viable but a MISFIT for this holder" reads clearly), and the recommended pipeline
 transition (e.g. "promote raw → explored").>
 
-> **<RECOMMENDATION> — <one-line reason>**
+> **<RECOMMENDATION> — <one-line reason>** · fit: **<FIT / STRETCH / MISFIT>** _(omit if no target)_
 
 ## Branch scorecard
 
@@ -54,6 +56,25 @@ transition (e.g. "promote raw → explored").>
 | <load-bearing claim 2> | ...                        | ...                                                                           |
 
 Tally: **VIABLE ×N · ADAPT ×N · PRUNE ×N**
+
+## Strategic fit
+
+<Include ONLY if step 1 captured a target with a worth-it bar; omit the whole section for
+open-ended bets. Score the surviving/reshaped idea against that target's fit criteria —
+NOT against world-viability, which the scorecard already covers. This is a synthesis the
+forge computes; the fan-out agents stayed blind to the target. Fit is reported, never a
+gate — a world-VIABLE idea can land MISFIT and the smith still decides.>
+
+| Fit criterion (from the target)    | Rating                     | Why — the idea trait that meets / misses it |
+| ---------------------------------- | -------------------------- | ------------------------------------------- |
+| <validation bar>                   | **FIT / STRETCH / MISFIT** | <...>                                       |
+| <unit economics>                   | ...                        | ...                                         |
+| <capability / scale limit>         | ...                        | ...                                         |
+| <timing window>                    | ...                        | ...                                         |
+| <what the holder refuses to build> | ...                        | ...                                         |
+
+Fit verdict: **FIT / STRETCH / MISFIT** — <one line: is this worth the holder's time and
+capital, independent of whether it works in the world?>
 
 ## Per-branch findings
 
@@ -123,3 +144,13 @@ Overall recommendation (forge recommends; the user decides the pipeline transiti
   shelved.)
 - **DROP** — nothing load-bearing survives and no variant is worth the hours.
   (Recommend `decided: kill` — but only the user writes it.)
+
+Strategic fit (a **separate axis**, reported never gated — the smith weighs it against
+viability; only present when a target with a worth-it bar was captured):
+
+- **FIT** — clears the target's worth-it bar; world-viability is the only open question.
+- **STRETCH** — misses some criteria but reachable by a reframe the holder could plausibly
+  run with the assets they have.
+- **MISFIT** — viable in the world, but not worth _this_ holder's time, capital, or
+  constraints (wrong economics, wrong scale, or something they deliberately refuse to
+  build). Report it plainly; the smith decides whether to pursue anyway or drop.
