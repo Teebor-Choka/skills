@@ -43,6 +43,8 @@
             "flake.lock"
             "**/package-lock.json"
             "**/node_modules/**"
+            # Verbatim upstream snapshot (hoprnet/rfc SUMMARY.md); kept byte-faithful for clean re-syncs.
+            "tools/hopr-debug/references/hopr-protocol-summary.md"
           ];
         };
       in

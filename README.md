@@ -9,6 +9,7 @@ Public AI agent skills for [Claude Code](https://claude.ai/code) and compatible 
 | [forge-idea](./tools/forge-idea/SKILL.md)                 | Forge rough ideas into viable ones through cooperative, research-driven iteration |
 | [llm-wiki](./tools/llm-wiki/SKILL.md)                     | Create, maintain, and query a personal knowledge wiki designed for LLM navigation |
 | [rust-engineer](./engineering/swe/rust-engineer/SKILL.md) | Enforce Rust code quality and guidelines throughout Rust development              |
+| [hopr-debug](./tools/hopr-debug/SKILL.md)                 | HOPR mixnet debugging aid — loads ground-truth protocol knowledge (RFC-0001–0014) |
 
 ## Install
 
@@ -30,6 +31,7 @@ Skills are grouped into thematic categories for source organization. The groupin
 tools/
   forge-idea/           # skill: forge-idea
   llm-wiki/             # skill: llm-wiki
+  hopr-debug/           # skill: hopr-debug
 engineering/swe/
   rust-engineer/        # skill: rust-engineer
 ```
