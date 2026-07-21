@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills — practical skills for software development, idea validation, and knowledge management.",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "plugins": [
     {
@@ -32,6 +32,15 @@
       "description": "Enforce Rust code quality and guidelines throughout Rust development.",
       "source": "./",
       "skills": ["./engineering/swe/rust-engineer"],
+      "metadata": {
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "hopr-debug",
+      "description": "HOPR mixnet debugging aid — loads ground-truth protocol knowledge (RFC-0001–0014) for correct network debugging.",
+      "source": "./",
+      "skills": ["./tools/hopr-debug"],
       "metadata": {
         "version": "1.0.0"
       }
