@@ -32,6 +32,11 @@ method: "N independent agents, one per branch, each attacking its branch and ret
 a structured adaptation; every non-obvious claim source-cited and confidence-tagged;
 M rounds of forging.">
 
+<!-- If this idea was forked from another during forging (a drift that crossed
+target/customer/domain), add a lineage pointer so the tree stays navigable: -->
+
+> **Lineage:** spun out of [<parent idea>](parent-file.md) because <one-line reason>.
+
 ## Kernel
 
 <The current minimal falsifiable kernel — the sharpest one-sentence form of the idea:
@@ -56,6 +61,19 @@ transition (e.g. "promote raw → explored").>
 | <load-bearing claim 2> | ...                        | ...                                                                           |
 
 Tally: **VIABLE ×N · ADAPT ×N · PRUNE ×N**
+
+<!-- In COMPARATIVE / judge-panel mode (choosing among N options — see SKILL step 3b), use this
+scorecard INSTEAD of the branch scorecard above: rank candidates by score, don't prune. -->
+
+## Comparative scorecard (judge-panel mode)
+
+| Candidate  | Score   | Key evidence & criteria read                                         | Recommendation                |
+| ---------- | ------- | -------------------------------------------------------------------- | ----------------------------- |
+| <option 1> | <0–100> | <the decisive evidence + how it rates on the shared criteria, cited> | **PURSUE / RUNNER_UP / DROP** |
+| <option 2> | ...     | ...                                                                  | ...                           |
+
+**Winner: <option>** — <one-line why>. **Tie-breaker (decider agent):** <the single cross-cutting
+criterion — budget-now / reachability / distribution / defensibility — that actually chose it>.
 
 ## Strategic fit
 
