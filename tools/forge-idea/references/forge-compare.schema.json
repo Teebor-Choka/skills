@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ForgeCandidateScore",
+  "description": "Structured output returned by one agent evaluating ONE candidate option in comparative / judge-panel mode (choosing among N alternatives — beachheads, wedges, entry angles, domains, monetization models). Use instead of ForgeBranchVerdict when the question is 'which option wins', not 'does this claim hold'. One object per candidate; all candidates in a round are scored on the SAME shared criteria so scores are comparable. (The cross-cutting 'decider' agent does not use this per-candidate schema — it returns a brief ranked list of the options on its tie-break dimension; see SKILL step 3b.)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "candidate",
+    "score",
+    "criteria",
+    "rank_rationale",
+    "recommendation",
+    "most_damaging_finding"
+  ],
+  "properties": {
+    "candidate": {
+      "type": "string",
+      "description": "The option this agent evaluated, restated in one sharp sentence."
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Overall strength as THE option to pursue, 0-100. Must be comparable across agents in the same round — anchor it to the shared criteria, not to a private scale."
+    },
+    "criteria": {
+      "type": "array",
+      "description": "Rating on each of the round's shared criteria — the SAME criteria for every candidate (e.g. budget-now, reachability, moat/neutrality, fit, timing).",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "rating", "why"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The shared criterion, e.g. 'budget-now', 'reachability', 'moat'."
+          },
+          "rating": {
+            "type": "string",
+            "enum": ["strong", "mixed", "weak"],
+            "description": "How this candidate rates on the criterion."
+          },
+          "why": {
+            "type": "string",
+            "description": "One-line justification, cited where non-obvious."
+          }
+        }
+      }
+    },
+    "rank_rationale": {
+      "type": "string",
+      "description": "Why this candidate should rank where it does relative to the alternatives — the comparative claim, not just an absolute description."
+    },
+    "recommendation": {
+      "type": "string",
+      "enum": ["PURSUE", "RUNNER_UP", "DROP"],
+      "description": "PURSUE = the best entry / the wedge. RUNNER_UP = viable but not first. DROP = not worth entering via this option."
+    },
+    "most_damaging_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim", "source", "confidence"],
+      "properties": {
+        "claim": {
+          "type": "string",
+          "description": "The single most decisive concrete finding for or against this candidate — a named competitor, funding round, budget/market number, regulation with date, or benchmark."
+        },
+        "source": {
+          "type": "string",
+          "description": "Citation: URL, paper, or named source. Required for every non-obvious claim."
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "Established",
+            "Reported",
+            "Vendor/Projection",
+            "Contested",
+            "Open"
+          ],
+          "description": "Established = multi-source. Reported = single/secondary. Vendor/Projection = marketing/forecast. Contested = sources disagree. Open = unresolved."
+        }
+      }
+    },
+    "opportunity_signals": {
+      "type": "array",
+      "description": "Openings specific to this candidate — unmet demand, incumbent holes, timing tailwinds. May be empty.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["signal", "source"],
+        "properties": {
+          "signal": {
+            "type": "string",
+            "description": "The opening, stated sharply."
+          },
+          "source": {
+            "type": "string",
+            "description": "Where it was observed."
+          }
+        }
+      }
+    }
+  }
+}

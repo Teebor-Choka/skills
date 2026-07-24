@@ -74,6 +74,13 @@ Run agents independently — never let them see each other's work mid-flight. Wh
 independent skeptics converge without coordinating, that is far stronger than one
 opinion. When they split, the split _is_ the finding — surface it, don't average it.
 
+Convergence also operates **across rounds**, not just within a fan-out. A variant that was
+parked or set aside in one round and then **independently reappears from a different attack
+angle** in a later round is _triangulation_ — the highest-confidence signal the harness can
+produce, stronger than any single-round agreement. Watch the `## Viable variants` and
+`## Expansion (parked)` ledgers for recurrence; a survivor that keeps re-emerging on its own is
+usually the real idea, and should be elevated over anything freshly generated.
+
 ## Honesty discipline
 
 - Cite every non-obvious claim, and tag its confidence: **[Established]** (multi-source)
