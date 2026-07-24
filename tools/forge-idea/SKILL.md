@@ -169,9 +169,8 @@ the structured verdict in `references/forge-verdict.schema.json`:
 - **opportunity_signals** — incumbent holes mined from reviews / complaints / forums /
   churn, unmet demand, wedge openings.
 
-The mandate to put in every agent's brief is verbatim in `forge-tactics.md`. (This structure is
-branch mode; in **comparative mode** each agent instead returns `forge-compare.schema.json` — see
-step 3b.)
+The mandate to put in every agent's brief is verbatim in `forge-tactics.md`. (Comparative mode
+returns `forge-compare.schema.json` instead — see step 3b.)
 
 **Engine scales by rigor.** Default: `general-purpose` Agent fan-out (they web-research
 and can invoke `deep-research` scoped to their branch). For a deep "be thorough" run,
@@ -216,13 +215,19 @@ be a MISFIT, and a modest idea can be a strong FIT — report both honestly and 
 fit silently prune a branch or drop the idea**. The smith weighs the two axes. If no fit
 criteria were captured, skip the score and carry fit as a caveat.
 
+**In comparative mode** (step 3b) this step is a _ranking_, not a pruning: there are no branches
+to cut — order the scored candidates, let the decider's tie-breaker settle close calls, and fold
+strategic fit into the shared criteria rather than running a separate FIT/STRETCH pass.
+
 ### 6. Smith checkpoint — hand it back to the user
 
 Present, concisely: the evolved premise (and the grounded options from step 5), what
 was pruned and why, emergent variants/wedges, the open questions, **the strategic-fit
 verdict against the target** (if one was captured — stated as a distinct axis from
 world-viability, so "viable but a MISFIT for you" reads clearly), **and a recommended
-pipeline transition** (e.g. "promote raw → explored", "this reads like decided:kill").
+pipeline transition** (e.g. "promote raw → explored", "this reads like decided:kill"). _(In
+comparative mode, present the ranking and the winner's rationale — what ranked where and why —
+rather than what was pruned.)_
 Then the user decides:
 
 - **Stop** — the idea is viable enough, or clearly dead.
@@ -238,7 +243,8 @@ Write the result into the idea file (or standalone report if no pipeline), follo
 `references/forge-report.md`. Body sections — the frontmatter `state`/`verdict` stay
 untouched:
 
-- evolved premise + the current kernel
+- evolved premise + the current kernel (with a `**Lineage:**` pointer if this idea was forked
+  from another — see `references/forge-report.md`)
 - `## Branch scorecard`
 - `## Strategic fit` — the scored fit-against-target block (only if fit criteria were
   captured; omit the section entirely for open-ended bets)
@@ -261,17 +267,15 @@ The idea file body is the living report. Each round:
 - **Reconfirm the target on redirect.** If the smith redirected to a variant, re-confirm the fit
   target before re-testing — a redirect can change who the idea is _for_ (and how success is even
   measured), so a fit score against the old target measures against the wrong bar.
-- **Watch for triangulation.** Track recurring survivors across rounds: a variant that was parked
-  or set aside and then **independently reappears from a different attack angle** is the
-  highest-confidence signal the harness produces — stronger than any single round. Elevate it
-  over freshly-generated options.
+- **Watch for triangulation.** A parked variant that independently reappears from a different
+  attack angle is the strongest signal there is — elevate it over freshly-generated options (the
+  cross-round convergence principle lives in `forge-tactics.md`).
 - **Stabilizing vs drifting — and fork on drift.** Distinguish **converging** (reshapes get
   smaller each round → keep looping) from **drifting** (each round crosses a different
-  target / customer / domain and spawns a fresh premise). A string of redirects that keep drifting
-  is itself a signal. When a reshape crosses target/customer/domain, **fork a new idea file with a
-  lineage pointer back to the parent** (per steps 0/7) rather than mutating the parent into
-  something it no longer is — the parent stays a coherent record; the child carries the new
-  direction.
+  target / customer / domain and spawns a fresh premise). When a reshape crosses
+  target/customer/domain, **fork a new idea file** — a new stage-prefixed file carrying the
+  `**Lineage:**` pointer from `references/forge-report.md` — rather than mutating the parent into
+  something it no longer is.
 - **Step back periodically** (every few rounds, or whenever the premise keeps drifting):
   synthesize across the `## Dead ends` and surviving-edge ledgers — _what do all the survivors
   share? what do all the prunes share?_ The through-line is often the real idea; this is how the
