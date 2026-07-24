@@ -38,7 +38,8 @@ Scale rigor to the ask. Quick gut-check = one branch (the riskiest), one round, 
 fan-out. "Tear this apart / thoroughly / keep going" = 5–6 branches and multiple
 rounds. Read `references/forge-tactics.md` before briefing agents and
 `references/forge-report.md` before persisting the result. The verdict schema agents
-return is `references/forge-verdict.schema.json`.
+return is `references/forge-verdict.schema.json`; for comparative
+(which-option-wins) rounds they return `references/forge-compare.schema.json` (step 3b).
 
 ## Writing discipline (applies to the whole idea file)
 
@@ -132,6 +133,26 @@ feasibility/team, second-order failure modes) — pick the ones this kernel rest
 - **Async gut-check:** test the **single riskiest branch first**; only fan out the
   rest if it survives. Serial, cheap, fails fast.
 
+### 3b. Choose the fan-out mode — branch vs comparative
+
+The decompose→fan-out machinery runs in one of two modes; pick by the shape of the question.
+
+- **Branch mode (default).** The question is _"is this premise viable?"_ One load-bearing
+  **claim** per agent; each returns the `VIABLE / ADAPT / PRUNE` verdict in
+  `references/forge-verdict.schema.json`. Steps 3–8 are written for this mode.
+- **Comparative / judge-panel mode.** The question is _"which of N options wins?"_ — a beachhead,
+  a wedge, an entry angle, a domain, a monetization model. One **candidate** per agent, each
+  scored on the **same shared criteria**, returning `references/forge-compare.schema.json`. Add
+  **one cross-cutting _decider_ agent** that ranks all options on the single criterion most likely
+  to break the tie (budget-now, reachability, distribution, defensibility) and returns a brief
+  **ranked list** of the options on that one dimension (prose — not the per-candidate schema); in
+  practice the decider, not the per-candidate agents, picks the winner. The synthesis **ranks**; it does not
+  prune. Do **not** force `VIABLE/ADAPT/PRUNE` onto options — that axis measures "does a claim
+  hold," not "which is best," and collapses to a useless all-`ADAPT` result when misapplied.
+
+The modes compose across rounds: a branch-mode forge often ends by surfacing several viable
+variants, and choosing among them is a comparative-mode round.
+
 ### 4. Fan out the stress-test squad (independent, structured)
 
 Spawn one agent per branch **in a single message so they run concurrently** and
@@ -149,7 +170,8 @@ the structured verdict in `references/forge-verdict.schema.json`:
 - **opportunity_signals** — incumbent holes mined from reviews / complaints / forums /
   churn, unmet demand, wedge openings.
 
-The mandate to put in every agent's brief is verbatim in `forge-tactics.md`.
+The mandate to put in every agent's brief is verbatim in `forge-tactics.md`. (Comparative mode
+returns `forge-compare.schema.json` instead — see step 3b.)
 
 **Engine scales by rigor.** Default: `general-purpose` Agent fan-out (they web-research
 and can invoke `deep-research` scoped to their branch). For a deep "be thorough" run,
@@ -194,18 +216,27 @@ be a MISFIT, and a modest idea can be a strong FIT — report both honestly and 
 fit silently prune a branch or drop the idea**. The smith weighs the two axes. If no fit
 criteria were captured, skip the score and carry fit as a caveat.
 
+**In comparative mode** (step 3b) this step is a _ranking_, not a pruning: there are no branches
+to cut — order the scored candidates, let the decider's tie-breaker settle close calls, and fold
+strategic fit into the shared criteria rather than running a separate FIT/STRETCH pass.
+
 ### 6. Smith checkpoint — hand it back to the user
 
 Present, concisely: the evolved premise (and the grounded options from step 5), what
 was pruned and why, emergent variants/wedges, the open questions, **the strategic-fit
 verdict against the target** (if one was captured — stated as a distinct axis from
 world-viability, so "viable but a MISFIT for you" reads clearly), **and a recommended
-pipeline transition** (e.g. "promote raw → explored", "this reads like decided:kill").
+pipeline transition** (e.g. "promote raw → explored", "this reads like decided:kill"). _(In
+comparative mode, present the ranking and the winner's rationale — what ranked where and why —
+rather than what was pruned.)_
 Then the user decides:
 
 - **Stop** — the idea is viable enough, or clearly dead.
 - **Keep this direction** — forge another round on the evolved premise.
 - **Redirect** — pursue one of the variants/options instead.
+- **Fork** — the premise has drifted into a genuinely different idea (crossed
+  target/customer/domain); spin it out as a new lineage-linked file (step 8) and leave the
+  parent as-is.
 
 Forge does not apply the transition or write a verdict itself — the user does. This
 checkpoint is the cooperative core; the user's steer drives the next round.
@@ -216,10 +247,12 @@ Write the result into the idea file (or standalone report if no pipeline), follo
 `references/forge-report.md`. Body sections — the frontmatter `state`/`verdict` stay
 untouched:
 
-- evolved premise + the current kernel
-- `## Branch scorecard`
+- evolved premise + the current kernel (with a `**Lineage:**` pointer if this idea was forked
+  from another — see `references/forge-report.md`)
+- `## Branch scorecard` (comparative mode: a `## Comparative scorecard` instead — see step 3b)
 - `## Strategic fit` — the scored fit-against-target block (only if fit criteria were
-  captured; omit the section entirely for open-ended bets)
+  captured; omit for open-ended bets, and in comparative mode — fit folds into the shared
+  criteria)
 - `## Evolution` — the v0 → v1 → … trail (what each round changed and why)
 - `## Dead ends` — the pruned-branch ledger, so they aren't revisited
 - `## Viable variants` — ranked, most-alive first
@@ -231,12 +264,28 @@ restarting.
 
 ### 8. Iterate
 
-If continuing, re-test only the **materially-changed or newly-introduced** branches
-(carry forward what already came back VIABLE). **If the smith redirected to a variant,
-re-confirm the fit target before re-testing** — a redirect can change who the idea is
-_for_ (and how success is even measured), so a fit score against the old target measures
-against the wrong bar. Loop steps 4–6 until the premise stabilizes (a full round changes
-nothing) or the user stops. The idea file body is the living report.
+Loop steps 4–6 until the premise stabilizes (a full round changes nothing) or the user stops.
+The idea file body is the living report. Each round:
+
+- **Re-test only what changed.** Carry forward branches that already came back VIABLE; re-test
+  only the materially-changed or newly-introduced ones.
+- **Reconfirm the target on redirect.** If the smith redirected to a variant, re-confirm the fit
+  target before re-testing — a redirect can change who the idea is _for_ (and how success is even
+  measured), so a fit score against the old target measures against the wrong bar.
+- **Watch for triangulation.** A parked variant that independently reappears from a different
+  attack angle is the strongest signal there is — elevate it over freshly-generated options (the
+  cross-round convergence principle lives in `forge-tactics.md`).
+- **Stabilizing vs drifting — and fork on drift.** Distinguish **converging** (reshapes get
+  smaller each round → keep looping) from **drifting** (each round crosses a different
+  target / customer / domain and spawns a fresh premise). When a reshape crosses
+  target/customer/domain, **recommend forking** at the checkpoint (step 6) — spin out a new
+  stage-prefixed file carrying the `**Lineage:**` pointer from `references/forge-report.md`,
+  rather than mutating the parent into something it no longer is. The fork is the smith's call,
+  like every transition.
+- **Step back periodically** (every few rounds, or whenever the premise keeps drifting):
+  synthesize across the `## Dead ends` and `## Viable variants` ledgers — _what do all the
+  survivors share? what do all the prunes share?_ The through-line is often the real idea; this is how the
+  strongest thesis in a long run tends to surface.
 
 ## What makes this different from a normal research pass
 
@@ -251,3 +300,7 @@ nothing) or the user stops. The idea file body is the living report.
 - **Willing to conclude either way.** A branch that survives the strongest attack is
   VIABLE, honestly. An idea with no surviving branch and no live variant is DROP,
   honestly. Never manufacture a prune, never manufacture a save.
+- **More than one round, more than one mode.** Comparative mode chooses among options when the
+  question is "which wins" (not "does this hold"); triangulation across rounds beats fresh
+  generation; the idea forks — with lineage — when it drifts into a new premise; and a periodic
+  step-back over the ledgers surfaces the through-line.

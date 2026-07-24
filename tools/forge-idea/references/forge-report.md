@@ -32,6 +32,11 @@ method: "N independent agents, one per branch, each attacking its branch and ret
 a structured adaptation; every non-obvious claim source-cited and confidence-tagged;
 M rounds of forging.">
 
+<!-- If this idea was forked from another during forging (a drift that crossed
+target/customer/domain), add a lineage pointer so the tree stays navigable: -->
+
+> **Lineage:** spun out of [<parent idea>](parent-file.md) because <one-line reason>.
+
 ## Kernel
 
 <The current minimal falsifiable kernel — the sharpest one-sentence form of the idea:
@@ -57,10 +62,24 @@ transition (e.g. "promote raw → explored").>
 
 Tally: **VIABLE ×N · ADAPT ×N · PRUNE ×N**
 
+<!-- In COMPARATIVE / judge-panel mode (choosing among N options — see SKILL step 3b), use this
+scorecard INSTEAD of the branch scorecard above: rank candidates by score, don't prune. -->
+
+## Comparative scorecard (judge-panel mode)
+
+| Candidate  | Score   | Key evidence & criteria read                                         | Recommendation                |
+| ---------- | ------- | -------------------------------------------------------------------- | ----------------------------- |
+| <option 1> | <0–100> | <the decisive evidence + how it rates on the shared criteria, cited> | **PURSUE / RUNNER_UP / DROP** |
+| <option 2> | ...     | ...                                                                  | ...                           |
+
+**Winner: <option>** — <one-line why>. **Tie-breaker (decider agent):** <the single cross-cutting
+criterion — budget-now / reachability / distribution / defensibility — that actually chose it>.
+
 ## Strategic fit
 
 <Include ONLY if step 1 captured a target with a worth-it bar; omit the whole section for
-open-ended bets. Score the surviving/reshaped idea against that target's fit criteria —
+open-ended bets, and in comparative / judge-panel mode (fit folds into the shared criteria —
+see SKILL step 5). Score the surviving/reshaped idea against that target's fit criteria —
 NOT against world-viability, which the scorecard already covers. This is a synthesis the
 forge computes; the fan-out agents stayed blind to the target. Fit is reported, never a
 gate — a world-VIABLE idea can land MISFIT and the smith still decides.>
