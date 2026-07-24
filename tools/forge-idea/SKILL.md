@@ -144,8 +144,9 @@ The decompose→fan-out machinery runs in one of two modes; pick by the shape of
   a wedge, an entry angle, a domain, a monetization model. One **candidate** per agent, each
   scored on the **same shared criteria**, returning `references/forge-compare.schema.json`. Add
   **one cross-cutting _decider_ agent** that ranks all options on the single criterion most likely
-  to break the tie (budget-now, reachability, distribution, defensibility) — in practice the
-  decider, not the per-candidate agents, picks the winner. The synthesis **ranks**; it does not
+  to break the tie (budget-now, reachability, distribution, defensibility) and returns a brief
+  **ranked list** of the options on that one dimension (prose — not the per-candidate schema); in
+  practice the decider, not the per-candidate agents, picks the winner. The synthesis **ranks**; it does not
   prune. Do **not** force `VIABLE/ADAPT/PRUNE` onto options — that axis measures "does a claim
   hold," not "which is best," and collapses to a useless all-`ADAPT` result when misapplied.
 
@@ -233,6 +234,9 @@ Then the user decides:
 - **Stop** — the idea is viable enough, or clearly dead.
 - **Keep this direction** — forge another round on the evolved premise.
 - **Redirect** — pursue one of the variants/options instead.
+- **Fork** — the premise has drifted into a genuinely different idea (crossed
+  target/customer/domain); spin it out as a new lineage-linked file (step 8) and leave the
+  parent as-is.
 
 Forge does not apply the transition or write a verdict itself — the user does. This
 checkpoint is the cooperative core; the user's steer drives the next round.
@@ -245,9 +249,10 @@ untouched:
 
 - evolved premise + the current kernel (with a `**Lineage:**` pointer if this idea was forked
   from another — see `references/forge-report.md`)
-- `## Branch scorecard`
+- `## Branch scorecard` (comparative mode: a `## Comparative scorecard` instead — see step 3b)
 - `## Strategic fit` — the scored fit-against-target block (only if fit criteria were
-  captured; omit the section entirely for open-ended bets)
+  captured; omit for open-ended bets, and in comparative mode — fit folds into the shared
+  criteria)
 - `## Evolution` — the v0 → v1 → … trail (what each round changed and why)
 - `## Dead ends` — the pruned-branch ledger, so they aren't revisited
 - `## Viable variants` — ranked, most-alive first
@@ -273,12 +278,13 @@ The idea file body is the living report. Each round:
 - **Stabilizing vs drifting — and fork on drift.** Distinguish **converging** (reshapes get
   smaller each round → keep looping) from **drifting** (each round crosses a different
   target / customer / domain and spawns a fresh premise). When a reshape crosses
-  target/customer/domain, **fork a new idea file** — a new stage-prefixed file carrying the
-  `**Lineage:**` pointer from `references/forge-report.md` — rather than mutating the parent into
-  something it no longer is.
+  target/customer/domain, **recommend forking** at the checkpoint (step 6) — spin out a new
+  stage-prefixed file carrying the `**Lineage:**` pointer from `references/forge-report.md`,
+  rather than mutating the parent into something it no longer is. The fork is the smith's call,
+  like every transition.
 - **Step back periodically** (every few rounds, or whenever the premise keeps drifting):
-  synthesize across the `## Dead ends` and surviving-edge ledgers — _what do all the survivors
-  share? what do all the prunes share?_ The through-line is often the real idea; this is how the
+  synthesize across the `## Dead ends` and `## Viable variants` ledgers — _what do all the
+  survivors share? what do all the prunes share?_ The through-line is often the real idea; this is how the
   strongest thesis in a long run tends to surface.
 
 ## What makes this different from a normal research pass

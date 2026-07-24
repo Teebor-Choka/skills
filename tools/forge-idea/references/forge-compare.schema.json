@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ForgeCandidateScore",
-  "description": "Structured output returned by one agent evaluating ONE candidate option in comparative / judge-panel mode (choosing among N alternatives — beachheads, wedges, entry angles, domains, monetization models). Use instead of ForgeBranchVerdict when the question is 'which option wins', not 'does this claim hold'. One object per candidate; all candidates in a round are scored on the SAME shared criteria so scores are comparable. A cross-cutting 'decider' agent may reuse this schema with `candidate` set to the deciding dimension and `criteria` listing the options ranked on it.",
+  "description": "Structured output returned by one agent evaluating ONE candidate option in comparative / judge-panel mode (choosing among N alternatives — beachheads, wedges, entry angles, domains, monetization models). Use instead of ForgeBranchVerdict when the question is 'which option wins', not 'does this claim hold'. One object per candidate; all candidates in a round are scored on the SAME shared criteria so scores are comparable. (The cross-cutting 'decider' agent does not use this per-candidate schema — it returns a brief ranked list of the options on its tie-break dimension; see SKILL step 3b.)",
   "type": "object",
   "additionalProperties": false,
   "required": [

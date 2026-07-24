@@ -78,7 +78,8 @@ criterion — budget-now / reachability / distribution / defensibility — that 
 ## Strategic fit
 
 <Include ONLY if step 1 captured a target with a worth-it bar; omit the whole section for
-open-ended bets. Score the surviving/reshaped idea against that target's fit criteria —
+open-ended bets, and in comparative / judge-panel mode (fit folds into the shared criteria —
+see SKILL step 5). Score the surviving/reshaped idea against that target's fit criteria —
 NOT against world-viability, which the scorecard already covers. This is a synthesis the
 forge computes; the fan-out agents stayed blind to the target. Fit is reported, never a
 gate — a world-VIABLE idea can land MISFIT and the smith still decides.>
