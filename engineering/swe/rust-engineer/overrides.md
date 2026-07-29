@@ -281,6 +281,37 @@ ticket_index: self.ticket_index.min(MAX_TICKET_INDEX), // bug hidden
 
 ---
 
+## 13. Blanket Impls for Smart Pointers
+
+**Use `#[auto_impl::auto_impl(&, Box, Arc)]`** on traits that should work transparently through reference-like wrappers, instead of writing three identical blanket impls by hand:
+
+```rust
+// Do — one attribute generates &T, Box<T>, Arc<T> impls automatically
+#[auto_impl::auto_impl(&, Box, Arc)]
+pub trait Logger {
+    fn log(&self, msg: &str);
+}
+
+// Don't — repetitive boilerplate that drifts when the trait changes
+impl<T: Logger> Logger for &T     { fn log(&self, msg: &str) { (**self).log(msg) } }
+impl<T: Logger> Logger for Box<T> { fn log(&self, msg: &str) { (**self).log(msg) } }
+impl<T: Logger> Logger for Arc<T> { fn log(&self, msg: &str) { (**self).log(msg) } }
+```
+
+For **static methods** (no `self` receiver), add `where Self: Sized` so `auto_impl` can delegate to the inner type:
+
+```rust
+#[auto_impl::auto_impl(&, Box, Arc)]
+pub trait Protocol {
+    fn version() -> u32 where Self: Sized;
+    fn send(&self, payload: &[u8]);
+}
+```
+
+Add the dependency once per workspace: `auto_impl = "1"`.
+
+---
+
 ## 12. Build & Release Workflow
 
 Run at the end of each code iteration:
