@@ -39,17 +39,52 @@ decides what to do about it.
    diff — do not install anything silently.
 4. **Run `assets/run.sh <path>`** rather than assembling tool invocations from
    memory. It is a plain, deterministic shell script — no LLM involved — that
-   detects the language, dispatches to `assets/<language>.sh`, and runs that
-   language's tool chain in the order `references/<language>.md` specifies
-   (cheapest / fewest prerequisites first). It exits nonzero and names what's
-   missing if a required tool isn't on `PATH`; it does not install anything.
-   Being plain shell, it's callable identically by a human, CI, or any other
-   agent — not just this skill.
-5. **Report findings** as a structured list: file, function/line, metric, score,
+   detects the language and dispatches to `assets/<language>/run.sh`, which
+   itself does three things: **discovery** (checks which metrics have their
+   required tools on `PATH`, prints a minireport of available vs. missing
+   before anything runs), **fan-out** (each available metric runs as its own
+   independent process, in parallel with the others — see
+   `references/<language>.md` for the one case, CRAP, that isn't fully
+   independent), and **summary** (every branch's report, printed together).
+   It exits nonzero and names what's missing if a required tool isn't on
+   `PATH`; it does not install anything. Being plain shell, it's callable
+   identically by a human, CI, or any other agent — not just this skill.
+5. **Spot-check before reporting.** For at least the highest-scoring finding
+   per metric, read the actual file/function named — a raw threshold crossing
+   is not the same as a confirmed risk. See "Running this across agent hosts"
+   below for the fuller adversarial-verification version of this step.
+6. **Report findings** as a structured list: file, function/line, metric, score,
    threshold, severity. No silent caps — if scope was limited (one package, a changed-file
    subset), say so in the report.
-6. **Hand the findings off.** This skill does not fix anything. Pass the report to
+7. **Hand the findings off.** This skill does not fix anything. Pass the report to
    the relevant engineering skill/session, or to the user, to act on.
+
+## Running this across agent hosts
+
+`assets/run.sh` is the one thing every host runs identically — plain shell,
+no LLM dependency, does discovery + parallel fan-out + summary on its own.
+What differs across hosts is the _verification_ layer on top of it: fanning
+out one skeptic subagent per flagged finding (mirrors this org's own
+code-review pattern — parallel reviewers, then a confidence-scored filter
+before anything gets reported) needs each host's own orchestration
+primitives, since there's no cross-host standard for that part.
+
+- **Claude Code**: `assets/measure.workflow.js` is a self-contained
+  `Workflow` tool script — run metrics, extract findings, then verify each
+  in parallel with a skeptic subagent (default-low-confidence, filtered at
+  ≥80). It's opt-in, not run automatically: only pass it to the `Workflow`
+  tool when the user has actually asked for multi-agent orchestration (per
+  that tool's own usage rules). Invoke with
+  `Workflow({script: <contents of assets/measure.workflow.js>, args: {manifestDir: <path>}})`.
+- **OpenCode**: `opencode/command/measure.md` + `opencode/agent/measure-verify.md`
+  are the equivalent pair, expressed in OpenCode's own command/subagent
+  format (verified against `opencode.ai/docs/agents` and `.../commands`, but
+  not executed end-to-end — no OpenCode install was available to test
+  against when these were written. Treat as best-effort until someone runs
+  it for real).
+- **Any other host**: fall back to `assets/run.sh` directly and do the
+  verification step yourself per item 5 above — every host can at least do
+  that much.
 
 ## When to run this
 

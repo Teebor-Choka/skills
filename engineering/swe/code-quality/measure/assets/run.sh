@@ -10,7 +10,7 @@ dir="${1:-.}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -f "$dir/Cargo.toml" ]; then
-  exec "$script_dir/rust.sh" "$dir/Cargo.toml"
+  exec "$script_dir/rust/run.sh" "$dir/Cargo.toml"
 fi
 
 echo "code-quality:measure: no runner for this project yet (checked: Cargo.toml)." >&2

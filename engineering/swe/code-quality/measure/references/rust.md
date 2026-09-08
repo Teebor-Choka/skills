@@ -78,21 +78,41 @@ team, `cargo-llvm-cov` is the one coverage path that works everywhere, so the
 
 ## Invocation / run order
 
-Run `../assets/run.sh <path-to-Cargo.toml's-dir>` — it dispatches here and runs the
-chain below in order. It's plain shell, not Claude-specific: a human or CI can call
-it the same way. Cheapest and fewest-prerequisites first:
+Run `../assets/run.sh <path-to-Cargo.toml's-dir>` — it dispatches to
+`assets/rust/run.sh`, which does three things, all deterministic (no LLM
+involved):
+
+1. **Discovery** — checks which metrics have their required tools on `PATH`
+   and prints a minireport before anything runs, e.g.:
+   ```
+   == code-quality:measure discovery (rust) ==
+     [available] filerisk
+     [missing]   crap (needs: cargo-llvm-cov cargo-crap) -- see ../../references/rust.md
+   ```
+2. **Fan-out** — each _available_ metric runs as its own process, in
+   parallel with the others: `assets/rust/filerisk.sh` and
+   `assets/rust/crap.sh`. Note CRAP isn't fully independent the way FileRisk
+   is — it mathematically needs a coverage report first, so `crap.sh` runs
+   `cargo llvm-cov` then `cargo crap` sequentially _inside itself_. That
+   two-tool pipeline is still fanned out as a single parallel branch
+   alongside FileRisk; the internal sequencing is an inherent constraint of
+   the tools, not something a design change removes.
+3. **Summary** — every branch's report is printed together, labeled by
+   metric.
+
+Each metric script is also directly runnable on its own — useful for a human
+or CI that only wants one metric:
 
 ```sh
-# 1. No prerequisites — static analysis only, fails fast on structural rot.
-cargo iceberg4rust --manifest-path Cargo.toml --workspace
+# FileRisk alone — no prerequisites beyond the tool itself.
+assets/rust/filerisk.sh Cargo.toml
 
-# 2. Generate coverage once.
-cargo llvm-cov --manifest-path Cargo.toml --workspace --lcov --output-path lcov.info
+# CRAP alone — runs its own coverage pass first.
+assets/rust/crap.sh Cargo.toml
 
-# 3. Gate on CRAP. Use --format sarif/github for CI code-scanning/annotations
-#    instead of a plain pass/fail — the script prints the plain-text report;
-#    call cargo-crap directly for other output formats.
-cargo crap --manifest-path Cargo.toml --workspace --lcov lcov.info --fail-above
+# Gate on CRAP specifically in CI, with SARIF/GitHub annotation output
+# instead of the plain-text report the script prints:
+cargo crap --manifest-path Cargo.toml --workspace --lcov lcov.info --fail-above --format sarif
 ```
 
 ## Open — not yet verified to the same standard as the above
