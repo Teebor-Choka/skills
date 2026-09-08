@@ -2,13 +2,17 @@
 name: measure
 description: >
   Audits code for risk using complexity, coverage, and structural metrics (CRAP score,
-  file-level hidden complexity, mutation testing) instead of a line-by-line read.
-  Use before a commit or PR, as a periodic codebase health-check, or whenever asked to
-  audit, gate, or score code quality/risk — especially code written by AI agents.
-  Language-aware: detects the project's language and dispatches to the matching
-  reference for concrete tools, prerequisites, and thresholds. Distinct from
-  language-specific engineering skills (e.g. rust-engineer) — this skill verifies after
-  the fact and reports findings; it never writes or fixes code itself.
+  file-level hidden complexity) instead of a line-by-line read. Use this whenever the
+  user asks how risky, complex, or well-tested a change is, wants a codebase health
+  check, is deciding whether code is safe to merge or ship, or wants AI-generated code
+  audited before trusting it — even if they don't name a specific metric or say
+  "code quality" outright (e.g. "is this function too complicated", "how confident
+  should I be in this PR", "did the agent leave a mess anywhere"). Language-aware:
+  detects the project's language and dispatches to the matching reference for concrete
+  tools, prerequisites, and thresholds — say so and stop rather than guessing a tool
+  chain for a language with no reference yet. Distinct from language-specific
+  engineering skills (e.g. rust-engineer) — this skill verifies after the fact and
+  reports findings; it never writes or fixes code itself.
 ---
 
 # code-quality:measure
