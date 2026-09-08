@@ -6,11 +6,17 @@
 # other metrics, and fanned out in parallel with them by run.sh.
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=tools.sh disable=SC1091
+source "$script_dir/tools.sh"
+
 manifest="${1:-Cargo.toml}"
 
-if ! command -v cargo-iceberg4rust >/dev/null 2>&1; then
-  echo "code-quality:measure/rust/filerisk: cargo-iceberg4rust not on PATH." >&2
-  echo "See ../../references/rust.md for how to add it to the nix devshell." >&2
+# shellcheck disable=SC2154 # tools_filerisk comes from sourced tools.sh
+missing="$(missing_tools "${tools_filerisk[@]}")"
+if [ -n "$missing" ]; then
+  echo "code-quality:measure/rust/filerisk: missing required tools: $missing" >&2
+  echo "See ../../references/rust.md for how to add them to the nix devshell." >&2
   exit 3
 fi
 

@@ -69,12 +69,20 @@ const VERDICT_SCHEMA = {
   required: ["confidence", "reasoning"],
 };
 
-phase("Run metrics");
+phase(meta.phases[0].title);
 const target = (args && args.manifestDir) || ".";
+// Workflow scripts can't read the filesystem directly, only agents can — so
+// locating this skill's own assets/run.sh normally means asking an agent to
+// search likely install paths. Pass args.skillRoot (the directory containing
+// this SKILL.md, which the caller already knows) to skip that search.
+const skillRoot = args && args.skillRoot;
+const runInstruction = skillRoot
+  ? `Run \`${skillRoot}/assets/run.sh ${target}\`.`
+  : `Locate the code-quality:measure skill's own directory — it contains assets/rust/run.sh
+     under a code-quality/measure path (check .claude/skills/measure, ~/.claude/skills/measure,
+     or search for a directory matching that layout) — and run \`assets/run.sh ${target}\`.`;
 const report = await agent(
-  `Locate the code-quality:measure skill's own directory — it contains assets/rust/run.sh
-   under a code-quality/measure path (check .claude/skills/measure, ~/.claude/skills/measure,
-   or search for a directory matching that layout) — and run \`assets/run.sh ${target}\`.
+  `${runInstruction}
 
    That script prints a discovery minireport (which metrics are [available] vs [missing]),
    then runs every available metric in parallel, then a per-metric summary. Read its output
@@ -84,17 +92,21 @@ const report = await agent(
 
    Do not fabricate a finding for a metric the discovery step reported [missing] — note that
    in scope_note instead. If nothing crossed a threshold, return an empty findings array.`,
-  { label: "run-and-parse", phase: "Run metrics", schema: FINDINGS_SCHEMA },
+  {
+    label: "run-and-parse",
+    phase: meta.phases[0].title,
+    schema: FINDINGS_SCHEMA,
+  },
 );
 
-phase("Verify findings");
+phase(meta.phases[1].title);
 const verified = await parallel(
   report.findings.map((f) => async () => {
     const verdict = await agent(
       `Judge this code-quality:measure finding with a skeptic's eye. Default to LOW confidence
        unless you have good reason to trust it.
 
-       Metric: ${f.metric}. File: ${f.file}. Function: ${f.function || "n/a"}. Line: ${f.line ?? "n/a"}.
+       Project root: ${target}. Metric: ${f.metric}. File: ${f.file}. Function: ${f.function || "n/a"}. Line: ${f.line ?? "n/a"}.
        Score: ${f.score} (threshold ${f.threshold}).
 
        Read the actual file/function this finding names. Score confidence 0-100 that this is a
@@ -102,7 +114,7 @@ const verified = await parallel(
        positive. Give one sentence of reasoning.`,
       {
         label: `verify:${f.file}`,
-        phase: "Verify findings",
+        phase: meta.phases[1].title,
         schema: VERDICT_SCHEMA,
       },
     );

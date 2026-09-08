@@ -62,8 +62,11 @@ orchestration standard for this part:
 
 - **Claude Code** — `assets/measure.workflow.js`, a self-contained `Workflow`
   tool script. Opt-in only: pass it to `Workflow` when the user has actually
-  asked for multi-agent orchestration, per that tool's own usage rules. Invoke
-  with `Workflow({script: <contents of assets/measure.workflow.js>, args: {manifestDir: <path>}})`.
+  asked for multi-agent orchestration, per that tool's own usage rules. Resolve
+  this skill's own directory (the one containing this SKILL.md) first and pass
+  it as `skillRoot` — the workflow can't locate its own assets itself, only an
+  agent can, and you already know the path. Invoke with
+  `Workflow({script: <contents of assets/measure.workflow.js>, args: {manifestDir: <path>, skillRoot: <this skill's directory>}})`.
 - **OpenCode** — `opencode/command/measure.md` + `opencode/agent/measure-verify.md`,
   the equivalent pair, written against OpenCode's documented command/agent
   schema but not run end-to-end (no OpenCode install available to test against).

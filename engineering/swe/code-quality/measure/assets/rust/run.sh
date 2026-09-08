@@ -12,30 +12,27 @@ set -euo pipefail
 
 manifest="${1:-Cargo.toml}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-metrics=(filerisk crap)
-# shellcheck disable=SC2034 # read indirectly below via ${!tools_var}
-tools_filerisk="cargo-iceberg4rust"
-# shellcheck disable=SC2034 # read indirectly below via ${!tools_var}
-tools_crap="cargo-llvm-cov cargo-crap"
+# shellcheck source=tools.sh disable=SC1091
+source "$script_dir/tools.sh"
 
 # --- Phase 1: discovery ---
 echo "== code-quality:measure discovery (rust) =="
 available=()
-for metric in "${metrics[@]}"; do
-  tools_var="tools_${metric}"
-  missing=()
-  # shellcheck disable=SC2086 # intentional word-splitting of a space-separated tool list
-  for tool in ${!tools_var}; do
-    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
-  done
-  if [ "${#missing[@]}" -eq 0 ]; then
+check_metric() {
+  local metric="$1" missing
+  shift
+  missing="$(missing_tools "$@")"
+  if [ -z "$missing" ]; then
     echo "  [available] $metric"
     available+=("$metric")
   else
-    echo "  [missing]   $metric (needs: ${missing[*]}) -- see ../../references/rust.md"
+    echo "  [missing]   $metric (needs: $missing) -- see ../../references/rust.md"
   fi
-done
+}
+# shellcheck disable=SC2154 # tools_filerisk/tools_crap come from sourced tools.sh
+check_metric filerisk "${tools_filerisk[@]}"
+# shellcheck disable=SC2154
+check_metric crap "${tools_crap[@]}"
 echo
 
 if [ "${#available[@]}" -eq 0 ]; then
