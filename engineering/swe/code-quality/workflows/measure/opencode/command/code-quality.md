@@ -11,11 +11,14 @@ search for a directory matching that layout). Call it `$SKILL_DIR`.
 
 What's available:
 
-- **`$SKILL_DIR/assets/run.sh <manifest-path>`** — plain, deterministic shell. Detects
-  the language, discovers which metrics have their tools installed, runs each
-  available one in parallel, and prints a summary. Run it directly for a full pass,
-  or call one of the language-specific per-metric scripts under
-  `$SKILL_DIR/assets/<language>/` to run just one metric — see
+- **`$SKILL_DIR/assets/run.sh <manifest-path> [<manifest-path> ...]`** — plain,
+  deterministic shell. Detects each manifest's language, discovers which metrics have
+  their tools installed, runs every available one across every detected language in
+  one parallel batch, and prints a summary. Pass every manifest a project has in one
+  call (e.g. both `Cargo.toml` and `pyproject.toml` for a mixed-language repo) to get
+  the combined fan-out, not one command per language. Run it directly for a full
+  pass, or call one of the language-specific per-metric scripts under
+  `$SKILL_DIR/assets/lang/<language>/` to run just one metric — see
   `$SKILL_DIR/references/<language>.md` for what's actually available; don't guess
   a tool chain for a language with no reference yet.
 - **The `measure-verify` subagent** — give it one finding (metric, file, function,

@@ -46,6 +46,7 @@ const FINDINGS_SCHEMA = {
       items: {
         type: "object",
         properties: {
+          manifest: { type: "string" },
           metric: { type: "string" },
           file: { type: "string" },
           function: { type: ["string", "null"] },
@@ -53,7 +54,7 @@ const FINDINGS_SCHEMA = {
           score: { type: "number" },
           threshold: { type: "number" },
         },
-        required: ["metric", "file", "score", "threshold"],
+        required: ["manifest", "metric", "file", "score", "threshold"],
       },
     },
   },
@@ -71,36 +72,41 @@ const VERDICT_SCHEMA = {
 
 phase(meta.phases[0].title);
 // No Rust-specific (or any language-specific) default here on purpose — by the
-// time SKILL.md decides to invoke this workflow, it has already detected the
-// language and its manifest (step 1 of the Process section). Guessing a
-// filename here would bake one language's convention into a script meant to
-// work identically for all of them.
-const target = args && args.manifestPath;
-if (!target) {
+// time SKILL.md decides to invoke this workflow, it has already detected every
+// language present and their manifests (step 1 of the Process section, which
+// explicitly covers multi-language projects). Guessing a filename, or assuming
+// exactly one manifest, would bake one language's convention into a script
+// meant to work identically for all of them and for a project mixing several.
+const targets = args && args.manifestPaths;
+if (!Array.isArray(targets) || targets.length === 0) {
   throw new Error(
-    "measure.workflow.js requires args.manifestPath — the manifest SKILL.md's own language-detection step already found.",
+    "measure.workflow.js requires args.manifestPaths (a non-empty array) — the manifests SKILL.md's own language-detection step already found.",
   );
 }
+const quotedTargets = targets.map((t) => `"${t}"`).join(" ");
 // Workflow scripts can't read the filesystem directly, only agents can — so
 // locating this skill's own assets/run.sh normally means asking an agent to
 // search likely install paths. Pass args.skillRoot (the directory containing
 // this SKILL.md, which the caller already knows) to skip that search.
 const skillRoot = args && args.skillRoot;
 const runInstruction = skillRoot
-  ? `Run \`${skillRoot}/assets/run.sh ${target}\`.`
+  ? `Run \`${skillRoot}/assets/run.sh ${quotedTargets}\`.`
   : `Locate the code-quality:measure skill's own directory — it contains assets/run.sh
      under a code-quality/workflows/measure path (check .claude/skills/measure,
      ~/.claude/skills/measure, or search for a directory matching that layout) — and run
-     \`assets/run.sh ${target}\`.`;
+     \`assets/run.sh ${quotedTargets}\`.`;
 const report = await agent(
   `${runInstruction}
 
    That script prints a discovery minireport (which metrics are [available] vs [missing]),
-   then runs every available metric in parallel, then a per-metric summary. Metric names and
+   then runs every available metric in parallel, then a per-metric summary, each result
+   labeled "language:metric" since two languages can share a metric name. Metric names and
    thresholds vary by language — don't assume any specific ones, read whatever the script's own
    output names and use its own printed threshold for each. Extract every finding that crossed
-   its metric's threshold. For each finding return: metric, file, function (null if not
-   applicable), line (null if not applicable), score, threshold.
+   its metric's threshold. For each finding return: manifest (which of the paths above this
+   finding's language resolved from — needed to locate its file when more than one manifest
+   was passed), metric, file, function (null if not applicable), line (null if not
+   applicable), score, threshold.
 
    Do not fabricate a finding for a metric the discovery step reported [missing] — note that
    in scope_note instead. If nothing crossed a threshold, return an empty findings array.`,
@@ -125,7 +131,7 @@ const verified = await parallel(
     const verdict = await agent(
       `${rubricInstruction}
 
-       Manifest: ${target}. Metric: ${f.metric}. File: ${f.file}. Function: ${f.function || "n/a"}. Line: ${f.line ?? "n/a"}.
+       Manifest: ${f.manifest}. Metric: ${f.metric}. File: ${f.file}. Function: ${f.function || "n/a"}. Line: ${f.line ?? "n/a"}.
        Score: ${f.score} (threshold ${f.threshold}).`,
       {
         label: `verify:${f.file}`,

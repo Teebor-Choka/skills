@@ -11,6 +11,8 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../_common.sh disable=SC1091
+source "$script_dir/../_common.sh"
 # shellcheck source=tools.sh disable=SC1091
 source "$script_dir/tools.sh"
 
@@ -20,11 +22,11 @@ supplied_lcov="${2:-}"
 if [ -n "$supplied_lcov" ]; then
   missing="$(missing_tools cargo-crap)"
 else
-  # shellcheck disable=SC2154 # tools_crap comes from sourced tools.sh
-  missing="$(missing_tools "${tools_crap[@]}")"
+  # shellcheck disable=SC2154 # rust_tools_crap comes from sourced tools.sh
+  missing="$(missing_tools "${rust_tools_crap[@]}")"
 fi
 if [ "$missing" != "[]" ]; then
-  echo "code-quality:measure/rust/crap: missing required tools: $missing" >&2
+  echo "code-quality:measure/lang/rust/crap: missing required tools: $missing" >&2
   echo "See the code-quality:measure skill's references/rust.md for how to add" >&2
   echo "them." >&2
   exit 3
@@ -41,4 +43,4 @@ else
   cargo llvm-cov --manifest-path "$manifest" --workspace --lcov --output-path "$lcov_path" 1>&2
 fi
 
-cargo crap --manifest-path "$manifest" --workspace --lcov "$lcov_path"
+cargo crap --path "$(dirname "$manifest")" --lcov "$lcov_path"

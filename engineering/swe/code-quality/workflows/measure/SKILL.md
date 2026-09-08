@@ -1,5 +1,5 @@
 ---
-name: measure
+name: code-quality
 description: >
   Audits code for risk using complexity, coverage, and structural metrics instead of
   a line-by-line read. Use whenever asked how risky, complex, or well-tested a change
@@ -11,11 +11,13 @@ description: >
   writes or fixes code.
 ---
 
-# code-quality:measure
+# code-quality
 
 Audits code for risk using metrics, not a read-through. Reports findings, never edits
-code. First skill in the `code-quality` family — the `measure` workflow here; siblings
-(e.g. a future `fix` workflow) can join the same plugin without restructuring this one.
+code. Currently runs one workflow, `measure` (this file documents it; the
+implementation is `assets/measure.workflow.js` for Claude Code and the `opencode/`
+files for OpenCode) — a future workflow (e.g. `fix`) would be documented the same way,
+as a new section here plus new assets, not as a separate skill.
 
 ## Why separate from the engineering skill
 
@@ -24,21 +26,26 @@ expensive, batch-shaped checks, so it belongs at a deliberate checkpoint instead
 before a commit, before a PR, or as a periodic health check, never on every edit. It
 only reports; a human or the engineering skill decides what to do about a finding.
 
-## Process
+## Process (the `measure` workflow)
 
-1. **Detect the language** from the target's manifest — `Cargo.toml` → Rust,
-   `package.json` → JS/TS, `pyproject.toml`/`setup.py` → Python, `go.mod` → Go, etc.
-2. **Read `references/<language>.md`** for the tool chain, formulas, and thresholds.
-   No reference yet → say so and stop; don't invent tooling on the spot.
+1. **Detect the language(s)** from the target's manifest(s) — `Cargo.toml` → Rust,
+   `pyproject.toml`/`setup.py` → Python, etc. A project can have more than one (a repo
+   with both a `Cargo.toml` and a `pyproject.toml` detects both, not one-or-the-other).
+2. **Read `references/<language>.md`** for each detected language's tool chain,
+   formulas, and thresholds. No reference yet for a detected language → say so and
+   stop for that one; don't invent tooling on the spot.
 3. **Find out what's actually installed.** Check each required tool's presence on
    `PATH` — don't assume any particular way they got there (nix, a system package
    manager, a language-native installer). Missing → say what's missing and how the
    reference suggests getting it; don't install anything yourself.
-4. **Run `assets/run.sh <manifest-path>`** — plain, deterministic shell, no LLM
-   involved. It detects the language from the manifest, dispatches to
-   `assets/<language>/run.sh`, and does discovery (what's available), parallel
-   fan-out (each available metric, independently), and a summary. Callable
-   identically by a human, CI, or any other agent, not just this skill.
+4. **Run `assets/run.sh <manifest-path> [<manifest-path> ...]`** — one path per
+   detected language. Plain, deterministic shell, no LLM involved: it detects each
+   manifest's language, and itself does discovery (what's available, across every
+   detected language), parallel fan-out (every available metric from every language,
+   in one batch — not one batch per language), and a combined summary. Callable
+   identically by a human, CI, or any other agent, not just this skill. Metrics are
+   labeled `language:metric` (e.g. `python:crap`) since two languages can share a
+   metric name.
 5. **Spot-check the highest-scoring finding per metric** by reading the actual
    file/function — a threshold crossing isn't a confirmed risk on its own. See
    "Verifying findings across hosts" for the fuller version of this step.
@@ -58,11 +65,11 @@ there's no cross-host orchestration standard for this part:
   only, per that tool's own usage rules. Resolve this skill's own directory first
   and pass it as `skillRoot` — the workflow can't locate its own assets itself, only
   an agent can. Invoke with `Workflow({script: <contents of
-assets/measure.workflow.js>, args: {manifestPath: <path>, skillRoot: <this skill's
-directory>}})`.
-- **OpenCode** — same underlying pieces, different address: `code-quality:measure`
-  is a Claude Skills convention OpenCode doesn't share, so there it's the `/code-quality`
-  command (`opencode/command/code-quality.md`) plus the `measure-verify` subagent
+assets/measure.workflow.js>, args: {manifestPaths: [<path>, ...], skillRoot: <this
+skill's directory>}})`.
+- **OpenCode** — same underlying pieces, addressed OpenCode's own way (it has no
+  equivalent to Claude Skills' plugin:skill addressing): the `/code-quality` command
+  (`opencode/command/code-quality.md`) plus the `measure-verify` subagent
   (`opencode/agent/measure-verify.md`). Unlike the Claude Code workflow, the command
   isn't a fixed pipeline — it describes the available tools and lets the agent use
   whichever the request calls for (a full audit, one metric, a spot-check). Written
@@ -72,7 +79,8 @@ directory>}})`.
 
 ## Language reference index
 
-| Language | Reference                                | Status                                |
-| -------- | ---------------------------------------- | ------------------------------------- |
-| Rust     | [references/rust.md](references/rust.md) | Covered                               |
-| Others   | —                                        | Not yet researched — ask, don't guess |
+| Language | Reference                                    | Status                                |
+| -------- | -------------------------------------------- | ------------------------------------- |
+| Rust     | [references/rust.md](references/rust.md)     | Covered                               |
+| Python   | [references/python.md](references/python.md) | Covered                               |
+| Others   | —                                            | Not yet researched — ask, don't guess |
