@@ -60,9 +60,14 @@ there's no cross-host orchestration standard for this part:
   an agent can. Invoke with `Workflow({script: <contents of
 assets/measure.workflow.js>, args: {manifestPath: <path>, skillRoot: <this skill's
 directory>}})`.
-- **OpenCode** — `opencode/command/measure.md` + `opencode/agent/measure-verify.md`,
-  the equivalent pair, written against OpenCode's documented schema but not run
-  end-to-end (no OpenCode install available to test against).
+- **OpenCode** — same underlying pieces, different address: `code-quality:measure`
+  is a Claude Skills convention OpenCode doesn't share, so there it's the `/code-quality`
+  command (`opencode/command/code-quality.md`) plus the `measure-verify` subagent
+  (`opencode/agent/measure-verify.md`). Unlike the Claude Code workflow, the command
+  isn't a fixed pipeline — it describes the available tools and lets the agent use
+  whichever the request calls for (a full audit, one metric, a spot-check). Written
+  against OpenCode's documented schema but not run end-to-end (no OpenCode install
+  available to test against).
 - **Any other host** — fall back to step 5 above.
 
 ## Language reference index
