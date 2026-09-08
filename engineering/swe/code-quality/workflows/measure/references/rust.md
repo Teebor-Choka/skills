@@ -85,14 +85,6 @@ engine is Linux-only. Cognitive Complexity and Hotspots both need
 package manager) to join its churn/complexity data, and a real, non-shallow git
 working copy for the target project (see Known limitation below).
 
-Nix is one way to provision these, not the only one — treat it as an example, not a
-requirement: `cargo-crap` ships prebuilt release binaries (a plain `fetchurl`
-derivation); `cargo-iceberg4rust` has none, so `rustPlatform.buildRustPackage` against
-its crates.io source; `llvm-tools-preview` needs a toolchain built via
-`fenix`/`rust-overlay` (plain `nixpkgs.rustc` doesn't ship it). Whatever the project
-uses instead — asdf, system packages, a container image — `assets/run.sh` only cares
-that the tools end up on `PATH`.
-
 ## Invocation
 
 `assets/run.sh <manifest-path>` (the generic entrypoint — see SKILL.md; it also
