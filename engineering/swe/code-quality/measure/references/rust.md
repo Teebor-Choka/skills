@@ -21,20 +21,16 @@ functions, `Cᵢ` their complexity, `D`/`B` private data-only/behavioural helper
 
 ## Tool choices, and why
 
-**`cargo-crap` over `crap4rust`** — `crap4rust` shells out to `cargo llvm-cov` itself
-and hard-requires the `llvm-tools` rustup component to do it automatically, coupling
-the CRAP scorer to one specific coverage-generation path. `cargo-crap` only consumes
-an `--lcov` file — it doesn't care how it was produced — and ships prebuilt release
-binaries (including `aarch64-apple-darwin`), so it can be packaged as a plain
-`fetchurl` derivation with no Rust compilation in the build sandbox. `crap4rust` has
-no prebuilt binaries; packaging it means `buildRustPackage` + a `cargoHash` to
-maintain. `cargo-crap` is also the more CI-mature tool: `--format sarif/github/pr-comment`,
-JSON-schema-versioned output, `--baseline`/`--fail-regression` gating.
+**`cargo-crap` over `crap4rust`** — `crap4rust` couples itself to one coverage
+path: it shells out to `cargo llvm-cov` itself and requires the `llvm-tools`
+rustup component. `cargo-crap` just consumes an `--lcov` file, ships prebuilt
+binaries (including `aarch64-apple-darwin` — packaging is a plain `fetchurl`
+derivation, no `cargoHash` to maintain), and has more CI-mature output
+(`--format sarif/github/pr-comment`, `--baseline`/`--fail-regression`).
 
 **`cargo-iceberg4rust`** — pure static `syn`-AST analysis. No build step, no
-coverage input, no `llvm-tools` dependency at all — the cheapest and least
-prerequisite-laden of everything here. Complements CRAP by catching mess at the
-file level that per-function complexity checks structurally cannot see.
+coverage input, no `llvm-tools` dependency — the cheapest tool here. Complements
+CRAP by catching file-level mess per-function complexity checks can't see.
 
 ## Ruled out
 
@@ -61,10 +57,9 @@ file level that per-function complexity checks structurally cannot see.
 | `cargo-crap` binary                                                      | CRAP score          | No nixpkgs package. Prebuilt release binaries exist for `aarch64-apple-darwin`/`x86_64-apple-darwin`/Linux — package via `fetchurl`. Building from source needs Rust stable ≥1.88. |
 | `cargo-iceberg4rust` binary                                              | FileRisk score      | No nixpkgs package, no prebuilt binaries — `rustPlatform.buildRustPackage` from the crates.io source with a pinned `cargoHash`.                                                    |
 
-`cargo-tarpaulin` is in nixpkgs and avoids the `llvm-tools-preview` problem, but its
-ptrace-based coverage engine is Linux-only — not viable on macOS. On a mixed-platform
-team, `cargo-llvm-cov` is the one coverage path that works everywhere, so the
-`llvm-tools-preview` prerequisite above is not avoidable in general.
+`cargo-tarpaulin` avoids the `llvm-tools-preview` problem, but its ptrace-based
+engine is Linux-only, not viable on macOS — so on a mixed-platform team,
+`llvm-tools-preview` isn't avoidable.
 
 ## Nix integration order
 
@@ -89,14 +84,13 @@ involved):
      [available] filerisk
      [missing]   crap (needs: cargo-llvm-cov cargo-crap) -- see ../../references/rust.md
    ```
-2. **Fan-out** — each _available_ metric runs as its own process, in
-   parallel with the others: `assets/rust/filerisk.sh` and
-   `assets/rust/crap.sh`. Note CRAP isn't fully independent the way FileRisk
-   is — it mathematically needs a coverage report first, so `crap.sh` runs
-   `cargo llvm-cov` then `cargo crap` sequentially _inside itself_. That
-   two-tool pipeline is still fanned out as a single parallel branch
-   alongside FileRisk; the internal sequencing is an inherent constraint of
-   the tools, not something a design change removes.
+2. **Fan-out** — each _available_ metric runs independently and in parallel:
+   `assets/rust/filerisk.sh` and `assets/rust/crap.sh`. CRAP isn't fully
+   independent like FileRisk — it needs a coverage report first, so
+   `crap.sh` runs `cargo llvm-cov` then `cargo crap` sequentially inside
+   itself. That two-tool pipeline is still one parallel branch alongside
+   FileRisk; the sequencing is an inherent tool constraint, not a design
+   choice.
 3. **Summary** — every branch's report is printed together, labeled by
    metric.
 
