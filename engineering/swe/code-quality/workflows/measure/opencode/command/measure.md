@@ -4,7 +4,7 @@ agent: build
 ---
 
 Locate the code-quality:measure skill's own directory — call it `$SKILL_DIR`. It contains
-`assets/rust/run.sh` under a `code-quality/measure` path (check `.opencode/skills/`,
+`assets/rust/run.sh` under a `code-quality/workflows/measure` path (check `.opencode/skills/`,
 `~/.config/opencode/skills/`, `.claude/skills/measure`, or `~/.claude/skills/measure`) — then run,
 anchored to that directory, not the current one:
 

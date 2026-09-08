@@ -79,8 +79,9 @@ const skillRoot = args && args.skillRoot;
 const runInstruction = skillRoot
   ? `Run \`${skillRoot}/assets/run.sh ${target}\`.`
   : `Locate the code-quality:measure skill's own directory — it contains assets/rust/run.sh
-     under a code-quality/measure path (check .claude/skills/measure, ~/.claude/skills/measure,
-     or search for a directory matching that layout) — and run \`assets/run.sh ${target}\`.`;
+     under a code-quality/workflows/measure path (check .claude/skills/measure,
+     ~/.claude/skills/measure, or search for a directory matching that layout) — and run
+     \`assets/run.sh ${target}\`.`;
 const report = await agent(
   `${runInstruction}
 
