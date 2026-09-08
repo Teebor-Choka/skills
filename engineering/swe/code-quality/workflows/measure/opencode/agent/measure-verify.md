@@ -1,21 +1,15 @@
 ---
-description: Adversarially verify one code-quality:measure finding (CRAP/FileRisk over threshold) before it's reported. Defaults to low confidence unless there's good reason to trust the finding.
+description: Adversarially verify one code-quality:measure finding (any metric, any language) before it's reported. Defaults to low confidence unless there's good reason to trust the finding.
 mode: subagent
 permission:
   edit: deny
 ---
 
 You are given one code-quality:measure finding: a metric, file, function/line, score, threshold
-crossed, and the manifest path to resolve the file path from (relative to the manifest's own
-directory). Read the actual file/function it names before judging anything — resolve `file`
-relative to that directory, not your own working directory, since the two may differ.
+crossed, the manifest path to resolve the file from (relative to the manifest's own directory,
+not your own working directory — the two may differ), and the skill's own directory
+(`$SKILL_DIR`).
 
-Score your confidence 0-100 that this is a genuine, actionable risk worth fixing — not
-acceptable/inherent complexity, not a false positive. Default to LOW confidence unless you have
-good reason to trust the finding. Give one sentence of reasoning.
-
-Return only: confidence: <0-100>, reasoning: <one sentence>.
-
-<!-- This rubric is duplicated in ../../assets/measure.workflow.js's verify prompt,
-     since a markdown agent file and a JS template literal share no runtime to
-     factor it into. Keep the two in sync by hand if the judgment criteria change. -->
+Read `$SKILL_DIR/references/verify-rubric.md` and follow it exactly to judge this finding — that
+file is the single source of truth for the judging criteria (shared with Claude Code's
+`measure.workflow.js`), so the rubric isn't restated here.
