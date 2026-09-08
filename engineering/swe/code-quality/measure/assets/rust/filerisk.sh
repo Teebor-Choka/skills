@@ -14,10 +14,10 @@ manifest="${1:-Cargo.toml}"
 
 # shellcheck disable=SC2154 # tools_filerisk comes from sourced tools.sh
 missing="$(missing_tools "${tools_filerisk[@]}")"
-if [ -n "$missing" ]; then
+if [ "$missing" != "[]" ]; then
   echo "code-quality:measure/rust/filerisk: missing required tools: $missing" >&2
   echo "See the code-quality:measure skill's references/rust.md for how to add" >&2
-  echo "them to the nix devshell." >&2
+  echo "them." >&2
   exit 3
 fi
 

@@ -22,7 +22,7 @@ check_metric() {
   local metric="$1" missing
   shift
   missing="$(missing_tools "$@")"
-  if [ -z "$missing" ]; then
+  if [ "$missing" = "[]" ]; then
     echo "  [available] $metric"
     available+=("$metric")
   else

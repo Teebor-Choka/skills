@@ -6,9 +6,9 @@ permission:
 ---
 
 You are given one code-quality:measure finding: a metric, file, function/line, score, threshold
-crossed, and the project root to resolve the file path from. Read the actual file/function it
-names before judging anything — resolve `file` relative to the given project root, not your own
-working directory, since the two may differ.
+crossed, and the manifest path to resolve the file path from (relative to the manifest's own
+directory). Read the actual file/function it names before judging anything — resolve `file`
+relative to that directory, not your own working directory, since the two may differ.
 
 Score your confidence 0-100 that this is a genuine, actionable risk worth fixing — not
 acceptable/inherent complexity, not a false positive. Default to LOW confidence unless you have

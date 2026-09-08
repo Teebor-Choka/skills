@@ -70,7 +70,7 @@ const VERDICT_SCHEMA = {
 };
 
 phase(meta.phases[0].title);
-const target = (args && args.manifestDir) || ".";
+const target = (args && args.manifestPath) || "Cargo.toml";
 // Workflow scripts can't read the filesystem directly, only agents can — so
 // locating this skill's own assets/run.sh normally means asking an agent to
 // search likely install paths. Pass args.skillRoot (the directory containing
@@ -109,7 +109,7 @@ const verified = await parallel(
       `Judge this code-quality:measure finding with a skeptic's eye. Default to LOW confidence
        unless you have good reason to trust it.
 
-       Project root: ${target}. Metric: ${f.metric}. File: ${f.file}. Function: ${f.function || "n/a"}. Line: ${f.line ?? "n/a"}.
+       Manifest: ${target}. Metric: ${f.metric}. File: ${f.file}. Function: ${f.function || "n/a"}. Line: ${f.line ?? "n/a"}.
        Score: ${f.score} (threshold ${f.threshold}).
 
        Read the actual file/function this finding names. Score confidence 0-100 that this is a

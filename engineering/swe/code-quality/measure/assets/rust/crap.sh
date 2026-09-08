@@ -3,9 +3,11 @@
 #
 # Not fully independent like filerisk.sh: CRAP mathematically needs a
 # coverage report as input, so this script runs that pair sequentially
-# inside itself. It's still fanned out as one parallel branch alongside
-# filerisk.sh by run.sh — the sequencing is an inherent tool constraint,
-# not something a design change here removes.
+# inside itself, unless a pre-generated lcov file is supplied as a second
+# argument — e.g. one a cached build already produced, which skips
+# regenerating coverage here. It's still fanned out as one parallel branch
+# alongside filerisk.sh by run.sh — the sequencing is an inherent tool
+# constraint, not something a design change here removes.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,20 +15,30 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$script_dir/tools.sh"
 
 manifest="${1:-Cargo.toml}"
+supplied_lcov="${2:-}"
 
-# shellcheck disable=SC2154 # tools_crap comes from sourced tools.sh
-missing="$(missing_tools "${tools_crap[@]}")"
-if [ -n "$missing" ]; then
+if [ -n "$supplied_lcov" ]; then
+  missing="$(missing_tools cargo-crap)"
+else
+  # shellcheck disable=SC2154 # tools_crap comes from sourced tools.sh
+  missing="$(missing_tools "${tools_crap[@]}")"
+fi
+if [ "$missing" != "[]" ]; then
   echo "code-quality:measure/rust/crap: missing required tools: $missing" >&2
   echo "See the code-quality:measure skill's references/rust.md for how to add" >&2
-  echo "them to the nix devshell." >&2
+  echo "them." >&2
   exit 3
 fi
 
-lcov_path="$(mktemp -t code-quality-measure.XXXXXX)"
-trap 'rm -f "$lcov_path"' EXIT
+if [ -n "$supplied_lcov" ]; then
+  lcov_path="$supplied_lcov"
+else
+  lcov_path="$(mktemp -t code-quality-measure.XXXXXX)"
+  trap 'rm -f "$lcov_path"' EXIT
+  # cargo-llvm-cov's own progress output goes to stderr so stdout carries
+  # only the CRAP report — run.sh captures each branch's stdout for the
+  # summary.
+  cargo llvm-cov --manifest-path "$manifest" --workspace --lcov --output-path "$lcov_path" 1>&2
+fi
 
-# cargo-llvm-cov's own progress output goes to stderr so stdout carries only
-# the CRAP report — run.sh captures each branch's stdout for the summary.
-cargo llvm-cov --manifest-path "$manifest" --workspace --lcov --output-path "$lcov_path" 1>&2
 cargo crap --manifest-path "$manifest" --workspace --lcov "$lcov_path"

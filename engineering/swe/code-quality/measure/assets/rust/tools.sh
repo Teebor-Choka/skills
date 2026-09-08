@@ -9,12 +9,20 @@ tools_filerisk=(cargo-iceberg4rust)
 # shellcheck disable=SC2034
 tools_crap=(cargo-llvm-cov cargo-crap)
 
-# Prints the space-separated subset of the given tool names that are not on
-# PATH. Empty output means all are present.
+# Prints the subset of the given tool names that are not on PATH, as a JSON
+# array (e.g. ["cargo-llvm-cov","cargo-crap"], or [] if all present) — a
+# human, CI, or an agent can all parse it the same way. Safe to build by
+# hand: tool names are plain identifiers, never containing characters that
+# need JSON escaping.
 missing_tools() {
   local tool missing=()
   for tool in "$@"; do
-    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+    command -v "$tool" >/dev/null 2>&1 || missing+=("\"$tool\"")
   done
-  [ "${#missing[@]}" -eq 0 ] || echo "${missing[*]}"
+  local joined=""
+  [ "${#missing[@]}" -eq 0 ] || joined="$(
+    IFS=,
+    echo "${missing[*]}"
+  )"
+  printf '[%s]' "$joined"
 }
