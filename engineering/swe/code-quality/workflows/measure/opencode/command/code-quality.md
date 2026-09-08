@@ -1,5 +1,5 @@
 ---
-description: Code-quality toolkit for this project — audit risk via complexity/coverage/structural metrics, verify a specific finding, or answer a question about a file/function/diff's risk. Tools and metrics vary by language. Not a single fixed pipeline — use whichever piece the request calls for.
+description: Code-quality toolkit for this project — audit risk via complexity/coverage/structural metrics, verify a specific finding, judge comment quality, or answer a question about a file/function/diff's risk. Tools and metrics vary by language. Not a single fixed pipeline — use whichever piece the request calls for.
 agent: build
 ---
 
@@ -26,6 +26,13 @@ What's available:
   `$SKILL_DIR` so it can read the shared verify rubric) and it scores confidence
   0-100 that the finding is a genuine risk, defaulting to skepticism. Use it on any
   specific finding, not only ones a full run surfaced.
+- **The `comment-quality` subagent** — give it one file path (plus `$SKILL_DIR` so
+  it can read the shared comment rubric, and which lines changed if this is a diff)
+  and it flags comments that restate the obvious, ramble, are missing where required
+  (undocumented public API), or contradict/hedge against the code — each with a
+  concrete proposed fix, not just a description of the problem. Qualitative, not a
+  metric: no threshold, no score. Dispatch one per file, in parallel, for a
+  multi-file review.
 
 Use whichever of these the request actually needs — a full audit, one metric, a
 spot-check on a single function, or just an explanation of what a score means. Don't

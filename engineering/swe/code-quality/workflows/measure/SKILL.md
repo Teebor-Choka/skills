@@ -13,11 +13,14 @@ description: >
 
 # code-quality
 
-Audits code for risk using metrics, not a read-through. Reports findings, never edits
-code. Currently runs one workflow, `measure` (this file documents it; the
-implementation is `assets/measure.workflow.js` for Claude Code and the `opencode/`
-files for OpenCode) — a future workflow (e.g. `fix`) would be documented the same way,
-as a new section here plus new assets, not as a separate skill.
+Audits code for risk. Reports findings, never edits code. Runs two workflows:
+`measure` (numeric metrics — complexity, coverage, duplication, structure — backed by
+real tools) and `comments` (a qualitative check on comment quality, since not every
+form of code risk is a number). Each is documented in its own section below, with its
+own assets — `assets/measure.workflow.js` / `opencode/agent/measure-verify.md` for
+`measure`, `assets/comments.workflow.js` / `opencode/agent/comment-quality.md` for
+`comments`. A future workflow would be added the same way: a new section here plus
+new assets, not a separate skill.
 
 ## Why separate from the engineering skill
 
@@ -48,13 +51,14 @@ only reports; a human or the engineering skill decides what to do about a findin
    metric name.
 5. **Spot-check the highest-scoring finding per metric** by reading the actual
    file/function — a threshold crossing isn't a confirmed risk on its own. See
-   "Verifying findings across hosts" for the fuller version of this step.
+   "Running `measure`'s verify step across hosts" for the fuller version of this
+   step.
 6. **Report findings**: file, function/line, metric, score, threshold, severity.
    Say so if scope was limited.
 7. **Hand off.** Never fixes anything — pass the report to the engineering skill or
    the user.
 
-## Verifying findings across hosts
+## Running `measure`'s verify step across hosts
 
 `assets/run.sh` runs identically everywhere. What differs is the verification layer
 on top — fanning a skeptic subagent out per flagged finding, filtered by confidence,
@@ -77,7 +81,48 @@ skill's directory>}})`.
   available to test against).
 - **Any other host** — fall back to step 5 above.
 
+## Process (the `comments` workflow)
+
+Unlike `measure`, there's no deterministic tool to run first — judging whether a
+comment is necessary, verbose, or missing where required is inherently a
+read-through, not a formula. So this workflow is just: read files, judge, report.
+
+1. **Pick the target files.** Usually the files a change actually touched (a diff,
+   the files edited this session), not a whole codebase sweep — comment quality
+   matters most on new/changed code, and a full-repo pass is expensive for
+   comparatively low value on code nobody's touching. Fall back to the full file
+   list only if the request is explicitly a broader audit.
+2. **Dispatch one subagent per file, in parallel** — each reads
+   `references/comment-rubric.md` (the single source of truth for the rule; not
+   restated here) and judges that one file against it. See "Running `comments`
+   across hosts" for the per-host invocation.
+3. **Report violations**: file, line, the comment's excerpt, which failure it is
+   (restates the obvious, could be shorter, missing where required, or
+   contradicts/hedges against the code), and a concrete proposed fix — the actual
+   replacement wording or doc comment to add, not just a description of the
+   problem. No violations is a valid, common result — don't manufacture one.
+4. **Hand off.** Never applies a fix itself, even though it proposes one — pass the
+   report to the engineering skill or the user, same as `measure`.
+
+## Running `comments` across hosts
+
+- **Claude Code** — `assets/comments.workflow.js`, a `Workflow` tool script, one
+  subagent per file in parallel. Same `skillRoot`-passing requirement as `measure`'s
+  workflow. Invoke with `Workflow({script: <contents of
+assets/comments.workflow.js>, args: {filePaths: [<path>, ...], skillRoot: <this
+skill's directory>}})`.
+- **OpenCode** — the `comment-quality` subagent (`opencode/agent/comment-quality.md`),
+  dispatched once per file from the `/code-quality` command or directly. Written
+  against OpenCode's documented schema but not run end-to-end (no OpenCode install
+  available to test against).
+- **Any other host** — dispatch a subagent per file directly, pointed at
+  `references/comment-rubric.md`; there's no deterministic fallback the way
+  `measure` has one (step 5 there), since this workflow has no non-agent step at all.
+
 ## Language reference index
+
+For `measure` only — `comments` applies the same rubric to every language, so it has
+no per-language references.
 
 | Language | Reference                                    | Status                                |
 | -------- | -------------------------------------------- | ------------------------------------- |
