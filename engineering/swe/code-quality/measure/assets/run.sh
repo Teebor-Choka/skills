@@ -14,5 +14,6 @@ if [ -f "$dir/Cargo.toml" ]; then
 fi
 
 echo "code-quality:measure: no runner for this project yet (checked: Cargo.toml)." >&2
-echo "See ../SKILL.md — do not guess a tool chain for an unsupported language." >&2
+echo "See the code-quality:measure skill's SKILL.md — do not guess a tool chain" >&2
+echo "for an unsupported language." >&2
 exit 2

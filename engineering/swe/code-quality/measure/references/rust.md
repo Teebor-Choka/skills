@@ -82,7 +82,7 @@ involved):
    ```
    == code-quality:measure discovery (rust) ==
      [available] filerisk
-     [missing]   crap (needs: cargo-llvm-cov cargo-crap) -- see ../../references/rust.md
+     [missing]   crap (needs: cargo-llvm-cov cargo-crap) -- see the skill's references/rust.md
    ```
 2. **Fan-out** — each _available_ metric runs independently and in parallel:
    `assets/rust/filerisk.sh` and `assets/rust/crap.sh`. CRAP isn't fully
@@ -108,6 +108,19 @@ assets/rust/crap.sh Cargo.toml
 # instead of the plain-text report the script prints:
 cargo crap --manifest-path Cargo.toml --workspace --lcov lcov.info --fail-above --format sarif
 ```
+
+## Known limitation: finding extraction reads tables, not JSON
+
+The verify workflows (`assets/measure.workflow.js`, `opencode/`) extract findings by
+having an LLM read `cargo-crap`/`cargo-iceberg4rust`'s plain human-readable output
+(the ✗/▲/✓-marked table, the "Offender detail" section) rather than requesting
+`--format json`/`--json`. This is deliberate for now, not an oversight: `cargo-crap`'s
+JSON schema is fully documented (`schemas/report-v1.json`) and safe to switch to, but
+`cargo-iceberg4rust`'s exact JSON field names haven't been verified here — inventing a
+parser against an unconfirmed schema would repeat the exact mistake this whole skill
+exists to catch (plausible-looking code built on an unverified claim). The table-based
+approach works today per its own tools' output conventions; revisit once
+`cargo-iceberg4rust --json`'s real shape has been checked against actual output.
 
 ## Open — not yet verified to the same standard as the above
 

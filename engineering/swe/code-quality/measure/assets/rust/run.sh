@@ -26,7 +26,7 @@ check_metric() {
     echo "  [available] $metric"
     available+=("$metric")
   else
-    echo "  [missing]   $metric (needs: $missing) -- see ../../references/rust.md"
+    echo "  [missing]   $metric (needs: $missing) -- see the skill's references/rust.md"
   fi
 }
 # shellcheck disable=SC2154 # tools_filerisk/tools_crap come from sourced tools.sh

@@ -15,3 +15,7 @@ acceptable/inherent complexity, not a false positive. Default to LOW confidence 
 good reason to trust the finding. Give one sentence of reasoning.
 
 Return only: confidence: <0-100>, reasoning: <one sentence>.
+
+<!-- This rubric is duplicated in ../../assets/measure.workflow.js's verify prompt,
+     since a markdown agent file and a JS template literal share no runtime to
+     factor it into. Keep the two in sync by hand if the judgment criteria change. -->

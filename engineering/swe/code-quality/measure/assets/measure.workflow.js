@@ -100,6 +100,9 @@ const report = await agent(
 );
 
 phase(meta.phases[1].title);
+// This rubric is duplicated in ../opencode/agent/measure-verify.md, since a JS
+// template literal and a markdown agent file share no runtime to factor it
+// into. Keep the two in sync by hand if the judgment criteria change.
 const verified = await parallel(
   report.findings.map((f) => async () => {
     const verdict = await agent(
