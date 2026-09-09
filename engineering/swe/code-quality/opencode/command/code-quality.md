@@ -3,11 +3,11 @@ description: Code-quality toolkit for this project — audit risk via complexity
 agent: build
 ---
 
-This is the code-quality toolkit for this project. Locate the `code-quality:measure`
-skill's own directory first — it contains `assets/run.sh` under a
-`code-quality/workflows/measure` path (check `.opencode/skills/`,
-`~/.config/opencode/skills/`, `.claude/skills/measure`, `~/.claude/skills/measure`, or
-search for a directory matching that layout). Call it `$SKILL_DIR`.
+This is the code-quality toolkit for this project. Locate the `code-quality` skill's
+own directory first — it contains `assets/run.sh` (check `.opencode/skills/`,
+`~/.config/opencode/skills/`, `.claude/skills/code-quality`,
+`~/.claude/skills/code-quality`, or search for a directory matching that layout).
+Call it `$SKILL_DIR`.
 
 What's available:
 
