@@ -146,7 +146,22 @@
                 export CARGO_HOME="$TMPDIR/cargo-home"
                 export LLVM_COV="${pkgs.llvm}/bin/llvm-cov"
                 export LLVM_PROFDATA="${pkgs.llvm}/bin/llvm-profdata"
-                cd ${self}/engineering/swe/code-quality
+
+                # assets/*.sh use `#!/usr/bin/env bash` shebangs, fine on a
+                # normal system but unresolvable as-is on Linux's Nix
+                # sandbox -- unlike Darwin's sandbox-exec profile (which
+                # allowlists a small set of host paths, /bin/bash among
+                # them), the Linux sandbox is a full container with nothing
+                # from the host filesystem, so `/usr/bin/env` itself doesn't
+                # exist there. `${self}` is also read-only, so shebangs get
+                # patched on a writable copy instead of in place. Found by
+                # this exact check failing only on CI's x86_64-linux runner,
+                # not the aarch64-darwin this was developed and verified on.
+                cp -r ${self}/engineering/swe/code-quality "$TMPDIR/code-quality"
+                chmod -R u+w "$TMPDIR/code-quality"
+                patchShebangs "$TMPDIR/code-quality"
+                cd "$TMPDIR/code-quality"
+
                 python3 -m pytest tests/ -v -p no:cacheprovider
                 touch $out
               '';
