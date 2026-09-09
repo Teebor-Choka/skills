@@ -19,9 +19,17 @@ project_dir="$(project_dir_of "$manifest")"
 # shellcheck disable=SC2154 # python_tools_iad comes from sourced tools.sh
 require_tools python iad "${python_tools_iad[@]}"
 
-# pyscn's own progress/summary output goes to stderr; --output - routes the
-# JSON report to stdout instead of a .pyscn/reports/ file.
-raw="$(pyscn analyze --json --output - --skip-clones "$project_dir" 2>/dev/null)"
+# pyscn's own progress/summary output normally goes to stderr; --output -
+# routes the JSON report to stdout instead of a .pyscn/reports/ file. Kept
+# on stdout (not redirected away) so a pyscn failure surfaces its own
+# message here instead of a downstream jq parse error with no context.
+raw="$(pyscn analyze --json --output - --skip-clones "$project_dir")"
+
+if ! jq -e . >/dev/null 2>&1 <<<"$raw"; then
+  echo "iad: pyscn did not produce valid JSON on stdout:" >&2
+  echo "$raw" >&2
+  exit 1
+fi
 
 rows="$(jq '[.system.dependency_analysis.module_metrics // {} | to_entries[] | {
   module: .key,
