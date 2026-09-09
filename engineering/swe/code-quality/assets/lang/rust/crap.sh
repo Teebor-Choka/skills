@@ -26,8 +26,16 @@ else
   require_tools rust crap "${rust_tools_crap[@]}"
 fi
 
+# Resolved to absolute: cargo-crap's own `.file` field in --format json is
+# reported relative to whatever `--path` was given verbatim — an absolute
+# `--path` (e.g. when the caller passed an absolute manifest path) makes
+# every reported file absolute too, inconsistent with every other metric's
+# relative paths. cd-ing into project_dir first and passing `--path .`
+# makes the output consistent regardless of how the manifest was passed.
+project_dir="$(project_dir_of "$manifest")"
+
 if [ -n "$supplied_lcov" ]; then
-  lcov_path="$supplied_lcov"
+  lcov_path="$(cd "$(dirname "$supplied_lcov")" && pwd)/$(basename "$supplied_lcov")"
 else
   lcov_path="$(mktemp -t code-quality-measure.XXXXXX)"
   trap 'rm -f "$lcov_path"' EXIT
@@ -37,4 +45,21 @@ else
   cargo llvm-cov --manifest-path "$manifest" --workspace --lcov --output-path "$lcov_path" 1>&2
 fi
 
-cargo crap --path "$(dirname "$manifest")" --lcov "$lcov_path"
+threshold=30
+raw="$(cd "$project_dir" && cargo crap --path . --lcov "$lcov_path" --format json --threshold "$threshold")"
+
+rows="$(jq --argjson threshold "$threshold" '[.entries[] | {
+  function,
+  file: (.file | sub("^\\./"; "")),
+  line,
+  cc: .cyclomatic,
+  coverage,
+  crap,
+  flagged: (.crap > $threshold)
+}]' <<<"$raw")"
+summary="$(jq --argjson threshold "$threshold" '{
+  analyzed: (.entries | length),
+  flagged: ([.entries[] | select(.crap > $threshold)] | length)
+}' <<<"$raw")"
+
+emit_json crap rust '"score"' "$threshold" "$rows" "$summary"

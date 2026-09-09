@@ -10,15 +10,26 @@
 # already knows which manifests exist (SKILL.md's own language-detection
 # step, or a human/CI that knows their own project).
 #
+# stdout carries ONLY the final combined JSON — every metric script's own
+# canonical output (see assets/lang/_common.sh's emit_json), collected
+# under one object. Nothing else goes to stdout: an agent (the primary
+# consumer — see SKILL.md) can pipe this straight into a JSON parser
+# without stripping banners or table borders first. All narration
+# (discovery progress, per-job markers, each tool's own stderr chatter)
+# goes to stderr instead — visible to a human watching the terminal,
+# irrelevant to something parsing stdout. The `report` workflow (assets/
+# report.sh) is what turns this JSON into a human-readable table; this
+# script doesn't format anything itself.
+#
 # Three phases, all deterministic — no LLM involved, and none of this is
 # language-specific:
 #   1. Discovery — for every (language, metric) pair across every detected
-#      language, checks required tools on PATH, prints a minireport before
-#      anything runs. Metrics are labeled "language:metric" (e.g.
-#      "python:crap") since two languages can share a metric name.
+#      language, checks required tools on PATH. Metrics are labeled
+#      "language:metric" (e.g. "python:crap") since two languages can
+#      share a metric name.
 #   2. Fan-out — every available job across ALL detected languages runs in
 #      one parallel batch, not one batch per language.
-#   3. Summary — every branch's report, printed together.
+#   3. Collect — every branch's JSON, combined into one object.
 #
 # Only the literal tool invocations in assets/lang/<language>/*.sh are
 # language-specific. Adding a language means: a new assets/lang/<language>/
@@ -99,22 +110,24 @@ done
 # One array of "lang:metric" job labels, not two index-parallel arrays kept
 # in sync by convention — a job's lang/metric are recovered from its own
 # label (parameter expansion, no subshell) wherever needed below.
-echo "== code-quality:measure discovery =="
+echo "== code-quality:measure discovery ==" >&2
 available_jobs=()
+missing_entries=()
 for lang in "${langs[@]}"; do
   for metric in $(metrics_for "$lang"); do
     label="$lang:$metric"
     mapfile -t job_tools < <(tools_for_job "$lang" "$metric")
     missing="$(missing_tools "${job_tools[@]}")"
     if [ "$missing" = "[]" ]; then
-      echo "  [available] $label"
+      echo "  [available] $label" >&2
       available_jobs+=("$label")
     else
-      echo "  [missing]   $label (needs: $missing) -- see the skill's references/$lang.md"
+      echo "  [missing]   $label (needs: $missing) -- see the skill's references/$lang.md" >&2
+      missing_entries+=("$(jq -n --arg label "$label" --argjson needs "$missing" '{label: $label, needs: $needs}')")
     fi
   done
 done
-echo
+echo >&2
 
 if [ "${#available_jobs[@]}" -eq 0 ]; then
   echo "code-quality:measure: no metric tools available, nothing to run." >&2
@@ -141,17 +154,27 @@ for pid in "${pids[@]}"; do
   wait "$pid" || status=1
 done
 
-# --- Phase 3: summary ---
-echo "== code-quality:measure summary =="
+# --- Phase 3: collect ---
+echo "== code-quality:measure collect ==" >&2
+results="{}"
 for label in "${available_jobs[@]}"; do
   safe_label="${label/:/_}"
-  echo
-  echo "--- $label ---"
-  cat "$tmp_dir/$safe_label.out"
+  echo "--- $label ---" >&2
   if [ -s "$tmp_dir/$safe_label.err" ]; then
-    echo "--- $label (stderr) ---" >&2
     cat "$tmp_dir/$safe_label.err" >&2
   fi
+  job_json="$(cat "$tmp_dir/$safe_label.out")"
+  results="$(jq --arg k "$label" --argjson v "$job_json" '. + {($k): $v}' <<<"$results")"
 done
+
+available_json="$(printf '%s\n' "${available_jobs[@]}" | jq -R . | jq -s .)"
+missing_json="[]"
+[ "${#missing_entries[@]}" -eq 0 ] || missing_json="$(printf '%s\n' "${missing_entries[@]}" | jq -s .)"
+
+jq -n \
+  --argjson available "$available_json" \
+  --argjson missing "$missing_json" \
+  --argjson results "$results" \
+  '{discovery: {available: $available, missing: $missing}, results: $results}'
 
 exit "$status"

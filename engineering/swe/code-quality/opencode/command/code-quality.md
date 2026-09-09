@@ -14,13 +14,19 @@ What's available:
 - **`$SKILL_DIR/assets/run.sh <manifest-path> [<manifest-path> ...]`** — plain,
   deterministic shell. Detects each manifest's language, discovers which metrics have
   their tools installed, runs every available one across every detected language in
-  one parallel batch, and prints a summary. Pass every manifest a project has in one
+  one parallel batch, and prints **pure JSON on stdout, nothing else** —
+  `{discovery: {available, missing}, results: {"language:metric": {metric, language,
+unit, threshold, rows, summary}, ...}}`. Pass every manifest a project has in one
   call (e.g. both `Cargo.toml` and `pyproject.toml` for a mixed-language repo) to get
   the combined fan-out, not one command per language. Run it directly for a full
   pass, or call one of the language-specific per-metric scripts under
   `$SKILL_DIR/assets/lang/<language>/` to run just one metric — see
   `$SKILL_DIR/references/<language>.md` for what's actually available; don't guess
   a tool chain for a language with no reference yet.
+- **`$SKILL_DIR/assets/report.sh <manifest-path> [<manifest-path> ...]`** — same
+  arguments, but runs `run.sh` internally and renders its JSON as human-readable
+  tables instead. Use this when a person wants to read the output in a terminal;
+  use `run.sh` directly when parsing the result yourself.
 - **The `measure-verify` subagent** — give it one finding (metric, file, function,
   line, score, threshold, the manifest path so it can resolve the file, and
   `$SKILL_DIR` so it can read the shared verify rubric) and it scores confidence
@@ -39,9 +45,10 @@ spot-check on a single function, or just an explanation of what a score means. D
 force a rigid "run everything, then verify everything" sequence unless that's what
 was asked for.
 
-If a full audit is what's wanted: run `assets/run.sh`, extract every finding that
-crossed its own printed threshold from the output (don't fabricate one for a metric
-the discovery step reported `[missing]`), dispatch `measure-verify` on each, and
-report confirmed findings (confidence ≥ 80, with the reasoning it gave) plus how many
-were filtered out — anything below that threshold is a false positive or acceptable
-complexity, not an error worth surfacing.
+If a full audit is what's wanted: run `assets/run.sh`, extract every finding from its
+JSON (a row's own `flagged` field if present, else compare its primary value against
+the envelope's `threshold`, else — for a threshold-less metric — judge which rows
+stand out; don't fabricate one for a metric `discovery.missing` lists), dispatch
+`measure-verify` on each, and report confirmed findings (confidence ≥ 80, with the
+reasoning it gave) plus how many were filtered out — anything below that threshold is
+a false positive or acceptable complexity, not an error worth surfacing.

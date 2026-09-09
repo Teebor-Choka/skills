@@ -36,20 +36,19 @@ done < <(find "$tmp_dir" -name '*.json' -exec cat {} + | jq -s -r --arg prefix "
   .[] | [(.metrics.cognitive.sum // 0 | tostring), (.name | ltrimstr($prefix))] | @tsv
 ')
 
-{
-  echo -e "Hotspot\tTouches\tCognitive\tFile"
+rows="$({
   while IFS=$'\t' read -r count path; do
     case "$path" in
     *.rs) ;;
     *) continue ;;
     esac
     [ -f "$project_dir/$path" ] || continue
-    cognitive="${cognitive_by_file[$path]:-0}"
-    hotspot="$(awk -v c="$count" -v x="$cognitive" 'BEGIN { printf "%.1f", c * x }')"
-    echo -e "$hotspot\t$count\t$cognitive\t$path"
+    complexity="${cognitive_by_file[$path]:-0}"
+    hotspot="$(awk -v c="$count" -v x="$complexity" 'BEGIN { printf "%.1f", c * x }')"
+    jq -n --arg file "$path" --argjson touches "$count" --argjson complexity "$complexity" --argjson hotspot "$hotspot" \
+      '{file: $file, touches: $touches, complexity: $complexity, hotspot: $hotspot}'
   done < <(churn_counts "$project_dir")
-} | (
-  IFS=$'\t' read -r header
-  echo "$header"
-  sort -t $'\t' -k1,1 -rn
-)
+} | jq -s 'sort_by(-.hotspot)')"
+summary="$(jq '{analyzed: length}' <<<"$rows")"
+
+emit_json hotspots rust '"score"' null "$rows" "$summary"

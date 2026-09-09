@@ -95,15 +95,25 @@ import) and produced the expected values.
 ## Invocation
 
 `assets/run.sh <pyproject.toml-path>` (or combined with a Rust manifest for a
-multi-language repo: `assets/run.sh Cargo.toml pyproject.toml`). `crap.sh` accepts a
-pre-generated lcov file as a second argument to skip regenerating coverage, same as
-Rust's. Each metric script under `assets/lang/python/` is also independently
-runnable.
+multi-language repo: `assets/run.sh Cargo.toml pyproject.toml`) prints one combined
+JSON object on stdout — nothing else. `crap.sh` accepts a pre-generated lcov file as
+a second argument to skip regenerating coverage, same as Rust's. Each metric script
+under `assets/lang/python/` is also independently runnable, and each one's own
+stdout is that same JSON shape on its own. Want a table instead of JSON?
+`assets/report.sh` runs `run.sh` and formats its output.
 
 ## Known limitations
 
 - **No FileRisk equivalent.** Open gap, not guessed at — extend this reference once
   a real tool is verified, the same standard CRAP and FileRisk were held to for Rust.
+- **`crap4py` has no JSON output at all** — checked its own `--help` directly, no
+  `--format`/`--json` flag exists. Its only output is the column-aligned table this
+  skill already read for the human view; `crap.sh` now parses that same table (on 2+
+  space runs — safe here since none of its columns ever contain repeated spaces) into
+  the same JSON shape every other metric produces, rather than passing the table
+  through as-is. It also has no line-number column, so `python:crap` rows always
+  carry `"line": null` — a real gap in the tool's own output, not something this
+  script could recover.
 - **`pytest-cov` presence isn't verifiable via `command -v`.** It's a pytest plugin,
   not a standalone binary — discovery can report `[available]` for `python:crap` even
   when `pytest-cov` specifically is missing, and the actual failure only surfaces at

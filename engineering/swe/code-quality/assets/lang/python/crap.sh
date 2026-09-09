@@ -43,4 +43,24 @@ else
   (cd "$project_dir" && pytest --cov=. --cov-branch --cov-report="lcov:$lcov_path") 1>&2
 fi
 
-(cd "$project_dir" && crap4py . --lcov "$lcov_path")
+threshold=30
+raw_table="$(cd "$project_dir" && crap4py . --lcov "$lcov_path")"
+
+# crap4py has no --json/--format flag at all (checked its own --help
+# directly) — its only output is this column-aligned table, no line number
+# included. Parsed on 2+ space runs, which is safe here since none of
+# crap4py's own columns (function/module names, then plain numbers) ever
+# contain repeated spaces themselves.
+rows="$(tail -n +5 <<<"$raw_table" | awk -F'  +' -v threshold="$threshold" '
+  NF >= 5 {
+    cov = $4; gsub(/%/, "", cov)
+    flagged = ($5 + 0 > threshold) ? "true" : "false"
+    printf "{\"function\":\"%s\",\"file\":\"%s\",\"line\":null,\"cc\":%s,\"coverage\":%s,\"crap\":%s,\"flagged\":%s}\n", $1, $2, $3, cov, $5, flagged
+  }
+' | jq -s .)"
+summary="$(jq --argjson threshold "$threshold" '{
+  analyzed: length,
+  flagged: ([.[] | select(.crap > $threshold)] | length)
+}' <<<"$rows")"
+
+emit_json crap python '"score"' "$threshold" "$rows" "$summary"

@@ -20,4 +20,4 @@ manifest="${1:-Cargo.toml}"
 # shellcheck disable=SC2154 # rust_tools_duplication comes from sourced tools.sh
 require_tools rust duplication "${rust_tools_duplication[@]}"
 
-run_duplication "$(dirname "$manifest")"
+emit_duplication_json rust "$(dirname "$manifest")"

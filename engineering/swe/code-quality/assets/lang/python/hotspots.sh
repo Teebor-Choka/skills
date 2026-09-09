@@ -36,8 +36,7 @@ while IFS=$'\t' read -r complexity path; do
   complexity_by_file["$path"]="$complexity"
 done < <(jq -r 'group_by(.path) | map({path: .[0].path, complexity: (map(.complexity) | add)}) | .[] | [(.complexity | tostring), .path] | @tsv' "$tmp_json")
 
-{
-  echo -e "Hotspot\tTouches\tComplexity\tFile"
+rows="$({
   while IFS=$'\t' read -r count path; do
     case "$path" in
     *.py) ;;
@@ -46,10 +45,10 @@ done < <(jq -r 'group_by(.path) | map({path: .[0].path, complexity: (map(.comple
     [ -f "$project_dir/$path" ] || continue
     complexity="${complexity_by_file[$path]:-0}"
     hotspot="$(awk -v c="$count" -v x="$complexity" 'BEGIN { printf "%.1f", c * x }')"
-    echo -e "$hotspot\t$count\t$complexity\t$path"
+    jq -n --arg file "$path" --argjson touches "$count" --argjson complexity "$complexity" --argjson hotspot "$hotspot" \
+      '{file: $file, touches: $touches, complexity: $complexity, hotspot: $hotspot}'
   done < <(churn_counts "$project_dir")
-} | (
-  IFS=$'\t' read -r header
-  echo "$header"
-  sort -t $'\t' -k1,1 -rn
-)
+} | jq -s 'sort_by(-.hotspot)')"
+summary="$(jq '{analyzed: length}' <<<"$rows")"
+
+emit_json hotspots python '"score"' null "$rows" "$summary"

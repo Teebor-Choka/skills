@@ -13,14 +13,22 @@ description: >
 
 # code-quality
 
-Audits code for risk. Reports findings, never edits code. Runs two workflows:
+Audits code for risk. Reports findings, never edits code. Runs three workflows:
 `measure` (numeric metrics — complexity, coverage, duplication, structure — backed by
-real tools) and `comments` (a qualitative check on comment quality, since not every
-form of code risk is a number). Each is documented in its own section below, with its
-own assets — `assets/measure.workflow.js` / `opencode/agent/measure-verify.md` for
-`measure`, `assets/comments.workflow.js` / `opencode/agent/comment-quality.md` for
-`comments`. A future workflow would be added the same way: a new section here plus
-new assets, not a separate skill.
+real tools, output as JSON), `report` (a human-readable table rendered from
+`measure`'s own JSON, for when a person is watching rather than an agent), and
+`comments` (a qualitative check on comment quality, since not every form of code risk
+is a number). Each is documented in its own section below, with its own assets —
+`assets/run.sh` / `assets/measure.workflow.js` / `opencode/agent/measure-verify.md`
+for `measure`, `assets/report.sh` for `report`, `assets/comments.workflow.js` /
+`opencode/agent/comment-quality.md` for `comments`. A future workflow would be added
+the same way: a new section here plus new assets, not a separate skill.
+
+`measure` is written primarily for agents to consume — its JSON is the primary
+interface, meant to feed back into an agent's own judgment of how well it (or another
+agent) is generating code, not just to be looked at by a person. `report` exists
+specifically for the secondary case, a human reading a terminal, so `measure`'s own
+output never has to compromise between the two audiences.
 
 ## Why separate from the engineering skill
 
@@ -46,9 +54,12 @@ only reports; a human or the engineering skill decides what to do about a findin
    manifest's language, and itself does discovery (what's available, across every
    detected language), parallel fan-out (every available metric from every language,
    in one batch — not one batch per language), and a combined summary. Callable
-   identically by a human, CI, or any other agent, not just this skill. Metrics are
+   identically by a human, CI, or any other agent, not just this skill. **stdout is
+   pure JSON, nothing else** — `{discovery: {available, missing}, results: {
+"language:metric": {metric, language, unit, threshold, rows, summary}, ...}}` —
+   parse it directly; there's no table to read or banner text to strip. Metrics are
    labeled `language:metric` (e.g. `python:crap`) since two languages can share a
-   metric name.
+   metric name. Want the human-readable version instead? That's `report`, below.
 5. **Spot-check the highest-scoring finding per metric** by reading the actual
    file/function — a threshold crossing isn't a confirmed risk on its own. See
    "Running `measure`'s verify step across hosts" for the fuller version of this
@@ -80,6 +91,21 @@ skill's directory>}})`.
   against OpenCode's documented schema but not run end-to-end (no OpenCode install
   available to test against).
 - **Any other host** — fall back to step 5 above.
+
+## Process (the `report` workflow)
+
+Depends on `measure` — this workflow doesn't compute anything itself, it runs
+`measure` and formats the result. No agent, no per-host divergence: it's exactly as
+deterministic as `measure`'s own `assets/run.sh`, so there's nothing to document
+per-host the way `measure`'s verify step and `comments` need.
+
+1. **Run `assets/report.sh <manifest-path> [<manifest-path> ...]`** — same arguments
+   as `assets/run.sh`, because it calls that script internally and formats its JSON
+   into the discovery banner + per-metric tables a person would want to read in a
+   terminal. Column set and order come straight from each metric's own JSON rows, so
+   the table can never drift out of sync with what `measure` actually reports.
+2. **Hand off** exactly like `measure` does — `report` doesn't fix anything either,
+   it's a presentation layer over the same data.
 
 ## Process (the `comments` workflow)
 

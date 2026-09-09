@@ -21,11 +21,16 @@ require_tools python iad "${python_tools_iad[@]}"
 
 # pyscn's own progress/summary output goes to stderr; --output - routes the
 # JSON report to stdout instead of a .pyscn/reports/ file.
-pyscn analyze --json --output - --skip-clones "$project_dir" 2>/dev/null | jq -r '
-  .system.dependency_analysis.module_metrics // {}
-  | to_entries
-  | (["Module", "Ca", "Ce", "I", "A", "D"],
-     (.[] | [.key, (.value.afferent_coupling|tostring), (.value.efferent_coupling|tostring),
-             (.value.instability|tostring), (.value.abstractness|tostring), (.value.distance|tostring)]))
-  | @tsv
-'
+raw="$(pyscn analyze --json --output - --skip-clones "$project_dir" 2>/dev/null)"
+
+rows="$(jq '[.system.dependency_analysis.module_metrics // {} | to_entries[] | {
+  module: .key,
+  ca: .value.afferent_coupling,
+  ce: .value.efferent_coupling,
+  instability: .value.instability,
+  abstractness: .value.abstractness,
+  distance: .value.distance
+}]' <<<"$raw")"
+summary="$(jq '{modules: length}' <<<"$rows")"
+
+emit_json iad python null null "$rows" "$summary"

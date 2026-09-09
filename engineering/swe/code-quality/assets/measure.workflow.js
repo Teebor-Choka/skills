@@ -7,9 +7,9 @@
 //
 // Two phases:
 //   1. Run metrics — one agent locates the skill's own assets/run.sh
-//      (discovery + parallel per-metric fan-out + summary all happen
-//      inside that deterministic script, not here) and extracts every
-//      finding that crossed its metric's own printed threshold.
+//      (discovery + parallel per-metric fan-out all happen inside that
+//      deterministic script, not here — its stdout is pure JSON) and
+//      extracts every finding that crosses its metric's own threshold.
 //   2. Verify findings — one skeptic subagent per finding, in parallel,
 //      scoring confidence that it's a genuine risk rather than a false
 //      positive or acceptable complexity. Mirrors the fan-out-then-verify
@@ -99,18 +99,29 @@ const runInstruction = `Run \`${skillRoot}/assets/run.sh ${quotedTargets}\`.`;
 const report = await agent(
   `${runInstruction}
 
-   That script prints a discovery minireport (which metrics are [available] vs [missing]),
-   then runs every available metric in parallel, then a per-metric summary, each result
-   labeled "language:metric" since two languages can share a metric name. Metric names and
-   thresholds vary by language — don't assume any specific ones, read whatever the script's own
-   output names and use its own printed threshold for each. Extract every finding that crossed
-   its metric's threshold. For each finding return: manifest (which of the paths above this
-   finding's language resolved from — needed to locate its file when more than one manifest
-   was passed), metric, file, function (null if not applicable), line (null if not
-   applicable), score, threshold.
+   That script's stdout is pure JSON, nothing else mixed in: {discovery: {available,
+   missing}, results: {"language:metric": {metric, language, unit, threshold, rows,
+   summary}, ...}}. Parse it directly — there's no table or banner text to read.
 
-   Do not fabricate a finding for a metric the discovery step reported [missing] — note that
-   in scope_note instead. If nothing crossed a threshold, return an empty findings array.`,
+   For each entry in "results", decide which rows are findings worth reporting:
+   - if a row has its own "flagged" field (CRAP does), use it as-is
+   - else if the envelope's "threshold" is not null, flag rows whose primary numeric
+     value exceeds it
+   - FileRisk's rows are pre-filtered by the tool itself to only include files already
+     at or above its threshold — treat every FileRisk row as flagged, don't re-compare
+   - for a metric with no threshold at all (Cognitive Complexity, Hotspots, I/A/D), use
+     judgment: flag rows that stand out from the rest of that same metric's own rows,
+     not every row
+
+   For each finding return: manifest (which of the paths above this finding's language
+   resolved from — needed to locate its file when more than one manifest was passed),
+   metric, file (the row's own file/module field), function (the row's own
+   function/module field if present, else null), line (the row's own line field if
+   present, else null), score (the row's primary numeric value), threshold (the
+   envelope's own threshold, or null).
+
+   Note any metric listed in "discovery.missing" in scope_note instead of fabricating
+   a finding for it. If nothing qualifies as a finding, return an empty findings array.`,
   {
     label: "run-and-parse",
     phase: meta.phases[0].title,

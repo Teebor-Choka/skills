@@ -89,18 +89,30 @@ working copy for the target project (see Known limitation below).
 `assets/run.sh <manifest-path>` (the generic entrypoint — see SKILL.md; it also
 accepts other languages' manifests alongside this one for multi-language projects)
 does discovery (what's on `PATH`), fan-out (each available metric, in parallel), and
-a summary. CRAP isn't fully independent the way FileRisk is — it needs its own
-coverage pass first — but still runs as one parallel branch. Pass a pre-generated
-lcov file as `assets/lang/rust/crap.sh`'s second argument to skip regenerating
-coverage (e.g. one a cached build already produced). Each metric script under
-`assets/lang/rust/` is also independently runnable.
+prints one combined JSON object on stdout — nothing else. CRAP isn't fully
+independent the way FileRisk is — it needs its own coverage pass first — but still
+runs as one parallel branch. Pass a pre-generated lcov file as
+`assets/lang/rust/crap.sh`'s second argument to skip regenerating coverage (e.g. one
+a cached build already produced). Each metric script under `assets/lang/rust/` is
+also independently runnable, and each one's own stdout is that same JSON shape on
+its own — `assets/run.sh` just collects them. Want a table instead of JSON?
+`assets/report.sh` runs `run.sh` and formats its output.
 
 ## Known limitation
 
-Finding extraction reads `cargo-crap`/`cargo-iceberg4rust`'s human-readable tables,
-not `--format json`/`--json`. `cargo-crap`'s JSON schema is documented and safe to
-adopt; `cargo-iceberg4rust`'s real field names haven't been verified against actual
-output, so switching would mean guessing a schema — revisit once that's checked.
+**`cargo-crap --format json` and `cargo-iceberg4rust --json` are both real and
+verified** — confirmed directly against live output, not assumed from `--help` text.
+`cargo-crap`'s schema: `{entries: [{file, function, line, cyclomatic, coverage,
+crap, uncovered}], diagnostics}`. `cargo-iceberg4rust`'s: `{threshold, scored_files,
+visible_files, total_risk, files: [{relative_file, risk_score,
+private_function_count, private_complexity_sum, ...}]}`.
+
+**`cargo-iceberg4rust` exits 2, not 0, whenever anything crosses `--threshold`** — a
+CI-gate convention, not an error. `filerisk.sh` explicitly captures the exit code and
+treats 0 and 2 as equally valid rather than trusting `set -e` — a naive invocation
+silently produced empty output on every real finding until this was caught by
+testing against a fixture deliberately built to trigger one, not just a "no findings"
+fixture.
 
 **FileRisk in a Cargo workspace.** `cargo-iceberg4rust` resolves `--manifest-path` via
 `cargo_metadata`, which reports the _whole_ workspace's package list even when pointed

@@ -30,8 +30,33 @@ if grep -q '^\[package\]' "$manifest"; then
   package_name="$(awk -F'"' '/^\[package\]/{p=1; next} /^\[/{p=0} p && /^name[[:space:]]*=/{print $2; exit}' "$manifest")"
 fi
 
-if [ -n "$package_name" ]; then
-  cargo iceberg4rust --manifest-path "$manifest" --package "$package_name"
-else
-  cargo iceberg4rust --manifest-path "$manifest"
+args=(--manifest-path "$manifest" --json)
+[ -n "$package_name" ] && args+=(--package "$package_name")
+
+# Exits 2 (not 0) whenever anything crosses --threshold — a CI-gate
+# convention, not a tool error. `set -e` would otherwise abort this script
+# before printing anything on every real finding, which is exactly the
+# case that matters — found by testing directly against a fixture designed
+# to trigger a real finding, not caught by earlier "no findings" fixtures.
+set +e
+raw="$(cargo iceberg4rust "${args[@]}")"
+status=$?
+set -e
+if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+  echo "code-quality:measure/lang/rust/filerisk: cargo-iceberg4rust exited $status unexpectedly" >&2
+  exit 1
 fi
+
+rows="$(jq '[.files[] | {
+  file: .relative_file,
+  risk: .risk_score,
+  effective_loc,
+  private_function_count,
+  private_complexity_sum,
+  data_struct_count: .data_private_struct_count,
+  behavioral_struct_count: .behavioral_private_struct_count
+}]' <<<"$raw")"
+summary="$(jq '{scored_files, visible_files, total_risk}' <<<"$raw")"
+threshold="$(jq '.threshold' <<<"$raw")"
+
+emit_json filerisk rust '"score"' "$threshold" "$rows" "$summary"

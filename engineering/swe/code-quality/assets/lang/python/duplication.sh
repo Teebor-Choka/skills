@@ -20,4 +20,4 @@ manifest="${1:-pyproject.toml}"
 # shellcheck disable=SC2154 # python_tools_duplication comes from sourced tools.sh
 require_tools python duplication "${python_tools_duplication[@]}"
 
-run_duplication "$(dirname "$manifest")"
+emit_duplication_json python "$(dirname "$manifest")"
