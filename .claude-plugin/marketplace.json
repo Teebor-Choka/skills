@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills — practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "plugins": [
     {
@@ -41,6 +41,15 @@
       "description": "HOPR mixnet debugging aid — loads ground-truth protocol knowledge (RFC-0001–0014) for correct network debugging.",
       "source": "./",
       "skills": ["./tools/hopr-debug"],
+      "metadata": {
+        "version": "1.1.0"
+      }
+    },
+    {
+      "name": "code-quality",
+      "description": "Audits code for risk using complexity, coverage, structural metrics, and comment quality instead of a line-by-line read.",
+      "source": "./",
+      "skills": ["./engineering/swe/code-quality"],
       "metadata": {
         "version": "1.1.0"
       }
