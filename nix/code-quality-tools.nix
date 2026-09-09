@@ -136,5 +136,18 @@ rec {
       format = "wheel";
       src = pkgs.fetchurl { inherit (info) url hash; };
       doCheck = false;
+      # The wheel bundles a standalone prebuilt pyscn-linux-amd64 executable
+      # (invoked directly via subprocess, unlike complexipy's dlopen()'d .so
+      # extension above) -- its ELF PT_INTERP header hardcodes a glibc
+      # loader path (e.g. /lib64/ld-linux-x86-64.so.2) that doesn't exist in
+      # Nix's store, so the kernel's execve() returns ENOENT for the
+      # binary's own path, confusingly identical to the binary being
+      # missing entirely. autoPatchelfHook rewrites that header to Nix's
+      # own dynamic linker. Found by diagnosing directly in CI: the binary
+      # was confirmed present with correct permissions right before pytest
+      # invoked it and still got ENOENT from pyscn's own subprocess call.
+      nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+        pkgs.autoPatchelfHook
+      ];
     };
 }
