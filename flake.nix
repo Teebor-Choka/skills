@@ -162,6 +162,8 @@
                 patchShebangs "$TMPDIR/code-quality"
                 cd "$TMPDIR/code-quality"
 
+                python3 -c "import pyscn, pathlib; p = pathlib.Path(pyscn.__file__).parent; print('pyscn pkg dir:', p); [print(' ', f, oct(f.stat().st_mode)) for f in sorted(p.rglob('*'))]"
+
                 python3 -m pytest tests/ -v -p no:cacheprovider
                 touch $out
               '';
