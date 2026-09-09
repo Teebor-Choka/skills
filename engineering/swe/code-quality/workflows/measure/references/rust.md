@@ -28,10 +28,9 @@ Hotspot   = touches × cognitive-complexity-sum, per file
 functions, `Cᵢ` their complexity, `D`/`B` private data-only/behavioural helper structs.
 Cognitive Complexity has no closed-form formula the way CRAP/FileRisk do — it's an
 algorithm (nesting-weighted control-flow walk) defined in G. Ann Campbell's original
-SonarSource whitepaper, not a short equation. Hotspots isn't from a single tool: it's
-the same manual join Adam Tornhill's own `code-maat` documents in its README (join a
-churn count against a separately-computed complexity source by hand) — `touches` comes
-from `git log`, `cognitive-complexity-sum` from this same language's own tool above.
+SonarSource whitepaper, not a short equation. `touches` comes from `git log`,
+`cognitive-complexity-sum` from this same language's own tool above — see Tool
+choices below for why Hotspots is a join rather than a dedicated tool.
 
 ## Tool choices, and why
 
@@ -58,12 +57,12 @@ single consistent percentage, rather than a separate per-language tool. Confirme
 its own `FORMATS.md` to support `.rs` as a first-class format, not just JS/TS despite
 the name.
 
-**Hotspots has no dedicated tool** — Tornhill's own reference implementation,
-`code-maat`, only measures churn itself; its README documents joining that against a
-separately-computed complexity source by hand, the same join done here. `code-maat`
-was ruled out as a dependency (JVM/Clojure, slow-moving) in favor of a plain `git log`
-churn count joined against `rust-code-analysis-cli`'s own per-file complexity sum —
-zero new tool needed beyond what Cognitive Complexity already requires.
+**Hotspots has no dedicated tool.** `assets/lang/shared/hotspots.sh` (shared with
+Python) explains why and documents the join; `code-maat`, the closest thing to a
+reference implementation, was ruled out as a dependency (JVM/Clojure, slow-moving)
+in favor of the plain `git log` churn count it uses joined against
+`rust-code-analysis-cli`'s own per-file complexity sum — zero new tool needed beyond
+what Cognitive Complexity already requires.
 
 ## Ruled out
 

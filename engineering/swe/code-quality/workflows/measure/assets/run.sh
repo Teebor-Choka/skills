@@ -96,9 +96,11 @@ for manifest in "$@"; do
 done
 
 # --- Phase 1: discovery, across every detected language together ---
+# One array of "lang:metric" job labels, not two index-parallel arrays kept
+# in sync by convention — a job's lang/metric are recovered from its own
+# label (parameter expansion, no subshell) wherever needed below.
 echo "== code-quality:measure discovery =="
-available_langs=()
-available_metrics=()
+available_jobs=()
 for lang in "${langs[@]}"; do
   for metric in $(metrics_for "$lang"); do
     label="$lang:$metric"
@@ -106,8 +108,7 @@ for lang in "${langs[@]}"; do
     missing="$(missing_tools "${job_tools[@]}")"
     if [ "$missing" = "[]" ]; then
       echo "  [available] $label"
-      available_langs+=("$lang")
-      available_metrics+=("$metric")
+      available_jobs+=("$label")
     else
       echo "  [missing]   $label (needs: $missing) -- see the skill's references/$lang.md"
     fi
@@ -115,7 +116,7 @@ for lang in "${langs[@]}"; do
 done
 echo
 
-if [ "${#available_metrics[@]}" -eq 0 ]; then
+if [ "${#available_jobs[@]}" -eq 0 ]; then
   echo "code-quality:measure: no metric tools available, nothing to run." >&2
   exit 3
 fi
@@ -125,11 +126,11 @@ tmp_dir="$(mktemp -d -t code-quality-measure.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 pids=()
-for i in "${!available_metrics[@]}"; do
-  lang="${available_langs[$i]}"
-  metric="${available_metrics[$i]}"
+for label in "${available_jobs[@]}"; do
+  lang="${label%%:*}"
+  metric="${label#*:}"
   manifest="${manifest_of[$lang]}"
-  safe_label="${lang}_${metric}"
+  safe_label="${label/:/_}"
   "$script_dir/lang/$lang/$metric.sh" "$manifest" \
     >"$tmp_dir/$safe_label.out" 2>"$tmp_dir/$safe_label.err" &
   pids+=("$!")
@@ -142,11 +143,8 @@ done
 
 # --- Phase 3: summary ---
 echo "== code-quality:measure summary =="
-for i in "${!available_metrics[@]}"; do
-  lang="${available_langs[$i]}"
-  metric="${available_metrics[$i]}"
-  label="$lang:$metric"
-  safe_label="${lang}_${metric}"
+for label in "${available_jobs[@]}"; do
+  safe_label="${label/:/_}"
   echo
   echo "--- $label ---"
   cat "$tmp_dir/$safe_label.out"

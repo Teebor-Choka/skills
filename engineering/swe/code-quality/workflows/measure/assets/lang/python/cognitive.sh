@@ -14,12 +14,6 @@ source "$script_dir/tools.sh"
 manifest="${1:-pyproject.toml}"
 
 # shellcheck disable=SC2154 # python_tools_cognitive comes from sourced tools.sh
-missing="$(missing_tools "${python_tools_cognitive[@]}")"
-if [ "$missing" != "[]" ]; then
-  echo "code-quality:measure/lang/python/cognitive: missing required tools: $missing" >&2
-  echo "See the code-quality:measure skill's references/python.md for how to add" >&2
-  echo "them." >&2
-  exit 3
-fi
+require_tools python cognitive "${python_tools_cognitive[@]}"
 
 complexipy "$(dirname "$manifest")"

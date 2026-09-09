@@ -85,16 +85,17 @@ if (!Array.isArray(targets) || targets.length === 0) {
 }
 const quotedTargets = targets.map((t) => `"${t}"`).join(" ");
 // Workflow scripts can't read the filesystem directly, only agents can — so
-// locating this skill's own assets/run.sh normally means asking an agent to
-// search likely install paths. Pass args.skillRoot (the directory containing
-// this SKILL.md, which the caller already knows) to skip that search.
+// this can't locate its own assets/run.sh itself. SKILL.md documents
+// resolving the skill's own directory and passing it as args.skillRoot as a
+// precondition for invoking this workflow at all, so it's required here
+// like every other arg, not a silently-degrading fallback.
 const skillRoot = args && args.skillRoot;
-const runInstruction = skillRoot
-  ? `Run \`${skillRoot}/assets/run.sh ${quotedTargets}\`.`
-  : `Locate the code-quality:measure skill's own directory — it contains assets/run.sh
-     under a code-quality/workflows/measure path (check .claude/skills/measure,
-     ~/.claude/skills/measure, or search for a directory matching that layout) — and run
-     \`assets/run.sh ${quotedTargets}\`.`;
+if (!skillRoot) {
+  throw new Error(
+    "measure.workflow.js requires args.skillRoot — resolve this skill's own directory first (see SKILL.md) and pass it.",
+  );
+}
+const runInstruction = `Run \`${skillRoot}/assets/run.sh ${quotedTargets}\`.`;
 const report = await agent(
   `${runInstruction}
 
@@ -122,10 +123,7 @@ phase(meta.phases[1].title);
 // runtime by both this workflow's verify agent and OpenCode's measure-verify.md,
 // instead of being copy-pasted into each (a JS template literal and a markdown
 // agent file share no runtime that could import a common module).
-const rubricInstruction = skillRoot
-  ? `Read \`${skillRoot}/references/verify-rubric.md\` and follow it exactly.`
-  : `Locate the code-quality:measure skill's own directory (same lookup as above)
-     and read \`references/verify-rubric.md\` from it, then follow it exactly.`;
+const rubricInstruction = `Read \`${skillRoot}/references/verify-rubric.md\` and follow it exactly.`;
 const verified = await parallel(
   report.findings.map((f) => async () => {
     const verdict = await agent(

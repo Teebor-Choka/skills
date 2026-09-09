@@ -16,25 +16,20 @@ manifest="${1:-pyproject.toml}"
 supplied_lcov="${2:-}"
 
 # shellcheck disable=SC2154 # python_tools_crap comes from sourced tools.sh
-missing="$(missing_tools "${python_tools_crap[@]}")"
-if [ "$missing" != "[]" ]; then
-  echo "code-quality:measure/lang/python/crap: missing required tools: $missing" >&2
-  echo "See the code-quality:measure skill's references/python.md for how to add" >&2
-  echo "them." >&2
-  exit 3
-fi
+require_tools python crap "${python_tools_crap[@]}"
 
 # No pyproject.toml parsing to guess a src/ layout — the manifest's own
 # directory is treated as the project root for both test discovery and
 # coverage measurement. Documented as an explicit assumption in
 # ../../references/python.md, not a guessed convention.
 #
-# Resolved to an absolute path: pytest and crap4py must both compute their
-# relative paths from the SAME cwd for the LCOV file's SF: entries to match
-# what crap4py looks up, or coverage silently reads back as N/A instead of
-# erroring — found by running this against a real fixture from a different
-# starting directory than the manifest's own.
-project_dir="$(cd "$(dirname "$manifest")" && pwd)"
+# pytest and crap4py must both compute their relative paths from the SAME
+# cwd for the LCOV file's SF: entries to match what crap4py looks up, or
+# coverage silently reads back as N/A instead of erroring — found by running
+# this against a real fixture from a different starting directory than the
+# manifest's own. project_dir_of's absolute resolution is what makes that
+# cwd stable regardless of where this script itself was invoked from.
+project_dir="$(project_dir_of "$manifest")"
 
 if [ -n "$supplied_lcov" ]; then
   lcov_path="$(cd "$(dirname "$supplied_lcov")" && pwd)/$(basename "$supplied_lcov")"

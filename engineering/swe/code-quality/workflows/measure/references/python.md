@@ -28,11 +28,11 @@ reimplementation, so CRAP scores are comparable across a repo with both language
 `CC` cyclomatic complexity, `cov` fraction covered (branch coverage, not just line —
 see Getting the tools below for why that distinction matters here). Cognitive
 Complexity has no closed-form formula — it's an algorithm (nesting-weighted
-control-flow walk) from G. Ann Campbell's original SonarSource whitepaper. Hotspots
-isn't from one tool: the same manual join Adam Tornhill's `code-maat` documents doing
-by hand (churn count × a separately-computed complexity source) — `touches` from
-`git log`, the complexity term from `complexipy`. `Ca`/`Ce` are afferent/efferent
-coupling (how many other modules depend on this one / how many this one depends on).
+control-flow walk) from G. Ann Campbell's original SonarSource whitepaper. `touches`
+comes from `git log`, the complexity term from `complexipy` — see
+`assets/lang/shared/hotspots.sh` for why Hotspots is a join rather than a dedicated
+tool. `Ca`/`Ce` are afferent/efferent coupling (how many other modules depend on this
+one / how many this one depends on).
 
 ## Tool choice, and why
 

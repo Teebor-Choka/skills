@@ -55,17 +55,17 @@ if (!Array.isArray(filePaths) || filePaths.length === 0) {
   );
 }
 // Workflow scripts can't read the filesystem directly, only agents can — so
-// locating this skill's own references/comment-rubric.md normally means asking an
-// agent to search likely install paths. Pass args.skillRoot (the directory
-// containing this SKILL.md, which the caller already knows) to skip that search.
+// this can't locate its own references/comment-rubric.md itself. SKILL.md
+// documents resolving the skill's own directory and passing it as
+// args.skillRoot as a precondition for invoking this workflow at all, so
+// it's required here like args.filePaths, not a silently-degrading fallback.
 const skillRoot = args && args.skillRoot;
-const rubricInstruction = skillRoot
-  ? `Read \`${skillRoot}/references/comment-rubric.md\` and follow it exactly.`
-  : `Locate the code-quality:measure skill's own directory — it contains
-     references/comment-rubric.md under a code-quality/workflows/measure path (check
-     .claude/skills/measure, ~/.claude/skills/measure, or search for a directory
-     matching that layout) — and read references/comment-rubric.md from it, then
-     follow it exactly.`;
+if (!skillRoot) {
+  throw new Error(
+    "comments.workflow.js requires args.skillRoot — resolve this skill's own directory first (see SKILL.md) and pass it.",
+  );
+}
+const rubricInstruction = `Read \`${skillRoot}/references/comment-rubric.md\` and follow it exactly.`;
 
 const results = await parallel(
   filePaths.map((file) => async () => {
