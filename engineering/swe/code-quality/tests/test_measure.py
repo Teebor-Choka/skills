@@ -1,10 +1,12 @@
 """Regression tests for code-quality:measure against the fixtures in tests/fixtures/.
 
-Not part of `nix flake check` — these need real Rust and Python toolchains
-(cargo-crap, cargo-iceberg4rust, rust-code-analysis-cli, crap4py, complexipy,
-pyscn, jscpd, jq, git) that the repo's own devShell doesn't provision, since
-`cargo install`/`pip install` need network access Nix's sandboxed builds
-don't allow. Run manually with those tools on PATH: `pytest tests/`.
+Wired into `nix flake check` (see flake.nix's `code-quality-tests` check and
+nix/code-quality-tools.nix) on aarch64-darwin and x86_64-linux, where every
+required tool (cargo-crap, cargo-iceberg4rust, rust-code-analysis-cli,
+crap4py, complexipy, pyscn, jscpd, jq, git) is provisioned hermetically —
+either straight from nixpkgs or from a pinned fetch for tools nixpkgs
+doesn't package. Can also be run directly with those tools on PATH some
+other way: `pytest tests/`.
 
 Each required tool's presence is checked explicitly and the whole module is
 skipped (not failed) if any are missing, per the skill's own philosophy in
@@ -24,6 +26,7 @@ assertion, don't just make the failure go away.
 import json
 import os
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -57,6 +60,19 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _make_writable(root: Path) -> None:
+    """shutil.copytree preserves the source's permission bits, including on
+    the directories themselves — when the source is a Nix store path (this
+    module's own fixtures/, read-only by design), the copy comes out
+    read-only too, and `git init` can't create .git/ inside it. Found by
+    running this suite under `nix build` specifically, since every other
+    way of exercising these fixtures this project used copied them from a
+    normal writable filesystem instead, where copytree's permission
+    preservation was a no-op."""
+    for path in [root, *root.rglob("*")]:
+        path.chmod(path.stat().st_mode | stat.S_IWUSR)
+
+
 def _git_commit(repo: Path, message: str) -> None:
     env = {
         **os.environ,
@@ -78,6 +94,7 @@ def rust_manifest(tmp_path_factory) -> Path:
     keyed to this exact count."""
     project_dir = tmp_path_factory.mktemp("rust-sample")
     shutil.copytree(FIXTURES_DIR / "rust-sample", project_dir, dirs_exist_ok=True)
+    _make_writable(project_dir)
     subprocess.run(["git", "init", "-q"], cwd=project_dir, check=True)
     _git_commit(project_dir, "initial")
     for i in range(2):
@@ -94,6 +111,7 @@ def python_manifest(tmp_path_factory) -> Path:
     core.py touches=2 is keyed to this exact count."""
     project_dir = tmp_path_factory.mktemp("python-sample")
     shutil.copytree(FIXTURES_DIR / "python-sample", project_dir, dirs_exist_ok=True)
+    _make_writable(project_dir)
     subprocess.run(["git", "init", "-q"], cwd=project_dir, check=True)
     _git_commit(project_dir, "initial")
     with (project_dir / "pkg" / "core.py").open("a") as f:

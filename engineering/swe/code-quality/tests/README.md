@@ -1,7 +1,12 @@
 # code-quality:measure regression tests
 
-Not part of `nix flake check` — see `test_measure.py`'s own module docstring for
-why (needs real Rust/Python toolchains the repo's devShell doesn't provision).
+Runs as part of `nix flake check` (the `code-quality-tests` check, aarch64-darwin and
+x86_64-linux only) — every required tool is provisioned hermetically, either from
+nixpkgs directly or pinned in `../../../../nix/code-quality-tools.nix` for tools
+nixpkgs doesn't package. No setup needed: `nix flake check`, or build just this one
+with `nix build .#checks.<system>.code-quality-tests`.
+
+Can also run directly with those tools on PATH some other way:
 
 ```bash
 pip install crap4py pytest pytest-cov complexipy pyscn   # python side
