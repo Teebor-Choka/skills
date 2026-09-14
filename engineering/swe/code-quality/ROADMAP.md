@@ -31,7 +31,11 @@ The survey overturned three claims the reference currently makes:
 
 Apply these edits as part of Phase 0/1, not as a separate pass.
 
-## Phase 0 — Verify & harden (no new tools)
+## Phase 0 — Verify & harden (no new tools) ✅ landed
+
+Shipped as `rust:mi`, `rust:halstead`, `rust:loc`, `rust:nom`, all sharing one
+`rust-code-analysis-cli` run (`assets/lang/rust/rca.sh`). The tool emits `null` (not
+NaN) for values it can't compute, so no sanitizing was needed.
 
 1. **Confirm the baseline works.** Run `tests/test_measure.py` against the Rust +
    Python fixtures; confirm every currently-claimed metric still runs.
@@ -69,7 +73,12 @@ relationship. As-built notes:
   pre-pass for macro-heavy crates; pin the version and snapshot-test the JSON shape
   (young 0.x, schema may shift).
 
-### 1.2 Mutation testing — `assets/lang/rust/mutation.sh`
+### 1.2 Mutation testing — `assets/lang/rust/mutation.sh` ✅ landed
+
+Implemented as `rust:mutation`. cargo-mutants 27.1.0 pinned; because it reruns the whole
+test suite per mutant, run.sh keeps it OUT of the default sweep unless
+`CODE_QUALITY_ENABLE_MUTATION` is set, and it's bounded on large repos via
+`CODE_QUALITY_MUTATION_ARGS` (`--in-diff`, `-j`). As-built notes:
 
 - Tool: `cargo install --locked cargo-mutants`.
 - Invocation (bounded — this is a checkpoint tool, not inner-loop):
@@ -81,29 +90,30 @@ relationship. As-built notes:
 - Per-file/function breakdown from each mutant's `scenario`. Pin the version (on-disk
   schema is explicitly allowed to change).
 
-### 1.3 Structural bundle — `assets/lang/rust/structure.sh`
+### 1.3 Structural bundle ✅ landed (core); two items deferred
 
-Prioritized; ship top-down, each is independent:
+Shipped as separate metrics rather than one `structure.sh` (each has its own coherent
+row schema, matching the one-metric-one-script model):
 
-- **Oversized modules/files (free):** threshold `SLOC`/`PLOC` per file and `NOM` per
-  file from the Phase-0 rust-code-analysis output — no new tool.
-- **Unused dependencies:** `cargo-machete --json` (fast, stable, MIT). Optional deeper
-  CI gate: `cargo-udeps --output json` (nightly, full build).
-- **Dead code:** `cargo check --message-format=json`, filter diagnostics
-  `dead_code`/`unused_*`. Complement with `cargo modules orphans` (files never linked
-  into the module tree — catches what `dead_code` misses behind a `pub` surface).
-- **Unsafe density (build, trivial):** `rg`/`syn` count of `unsafe` per KLOC over
-  first-party crates. `cargo-geiger --output-format Json` only when dependency-tree
-  unsafe accounting is wanted (flaky on complex workspaces — budget for it).
-- **Public API surface (optional):** `cargo-public-api --output json` (nightly, library
-  crates only).
-- **Fan-in/out (last, highest effort):** parse `cargo modules dependencies` DOT, roll
-  item-level `Uses` edges up to owning modules. No JSON — DOT parse required.
+- **Oversized modules/files** ✅ — covered by the Phase-0 `rust:loc`/`rust:nom` metrics
+  (threshold SLOC/PLOC/functions per file); no separate metric needed.
+- **Unused dependencies** ✅ — `rust:deps` via `cargo-machete`. Note: this version has no
+  `--json`, so its text report is parsed (exit 1 = found, 0 = none).
+- **Dead code** ✅ — `rust:deadcode` via `cargo check --message-format=json`, filtering
+  `dead_code`/`unused_*`. `cargo modules orphans` (for unused `pub` items) is folded into
+  the deferred fan-in/out item below, both needing the cargo-modules graph.
+- **Unsafe density** ✅ — `rust:unsafe`, a word-boundary `grep` count per file (crude by
+  design — counts comments/strings too); `cargo-geiger` left out as flaky.
+- **Public API surface** ⏳ deferred — `cargo-public-api` needs a **nightly** toolchain,
+  which the flake's stable `code-quality-tests` check can't provide cleanly.
+- **Fan-in/out + orphans** ⏳ deferred — needs the `cargo-modules` rust-analyzer graph
+  (DOT, no JSON) rolled up to modules; highest effort, lowest priority.
 
-**Acceptance (Phase 1):** `run.sh` emits `rust:coupling`, `rust:mutation`, and the
-structural rows; each script is independently runnable and returns valid JSON on both a
-"findings" and a "no findings" fixture; each new metric has a fixture that actually
-triggers a finding (mirroring the FileRisk exit-code lesson in `rust.md`).
+**Acceptance (Phase 1):** ✅ `run.sh` emits `rust:iad`, the Phase-0 metrics, and the
+structural rows (`rust:mutation` is opt-in); each script is independently runnable and
+returns valid JSON on both a "findings" and a "no findings" fixture; each new metric has a
+fixture that actually triggers a finding. Verified by the 25-test `code-quality-tests`
+check. The two deferred items above are the remaining Phase-1 work.
 
 ## Phase 2 — Generalize to arbitrary languages (DEFERRED; decision recorded)
 

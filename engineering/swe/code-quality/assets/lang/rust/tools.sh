@@ -29,3 +29,11 @@ rust_tools_loc=(rust-code-analysis-cli)
 rust_tools_nom=(rust-code-analysis-cli)
 # shellcheck disable=SC2034
 rust_tools_mutation=(cargo-mutants)
+# structural metrics: dead code from rustc via cargo; unused deps from
+# cargo-machete; unsafe density needs only grep (no metric-specific tool)
+# shellcheck disable=SC2034
+rust_tools_deadcode=(cargo)
+# shellcheck disable=SC2034
+rust_tools_deps=(cargo-machete)
+# shellcheck disable=SC2034
+rust_tools_unsafe=()

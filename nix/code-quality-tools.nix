@@ -66,6 +66,21 @@ rec {
     doCheck = false;
   };
 
+  # Finds unused dependencies by scanning source against Cargo.toml -- a static
+  # source/manifest scan, no build or network. `--with-metadata`/default JSON
+  # via `cargo-machete --json`. See engineering/swe/code-quality/references/rust.md.
+  cargo-machete = pkgs.rustPlatform.buildRustPackage {
+    pname = "cargo-machete";
+    version = "0.9.2";
+    src = pkgs.fetchCrate {
+      pname = "cargo-machete";
+      version = "0.9.2";
+      hash = "sha256-1RVrqJLlytBCLn+o43TlReMjZjgQ0DSZ7iRwPcOSdl0=";
+    };
+    cargoHash = "sha256-cmOMWJOSJxhjXVdwVdDnTORJRSZcQ8kdDUTJaIy8dbk=";
+    doCheck = false;
+  };
+
   # jscpd's own crates.io release currently needs rustc 1.96, one version
   # ahead of this flake's nixpkgs pin -- but npm's optionalDependencies
   # resolve to a prebuilt per-platform binary package with zero further

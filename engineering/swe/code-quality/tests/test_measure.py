@@ -41,6 +41,7 @@ RUST_TOOLS = [
     "cargo-iceberg4rust",
     "cargo-anatomy",
     "cargo-mutants",
+    "cargo-machete",
     "cargo-llvm-cov",
     "rust-code-analysis-cli",
     "jscpd",
@@ -146,6 +147,7 @@ def test_discovery_found_every_tool(measure):
     assert set(measure["discovery"]["available"]) == {
         "rust:filerisk", "rust:crap", "rust:cognitive", "rust:hotspots", "rust:duplication",
         "rust:iad", "rust:mi", "rust:halstead", "rust:loc", "rust:nom",
+        "rust:deadcode", "rust:deps", "rust:unsafe",
         "python:crap", "python:cognitive", "python:hotspots", "python:duplication", "python:iad",
     }
 
@@ -250,6 +252,15 @@ def test_rust_nom(measure):
     assert row["functions"] == 4  # classify, trivial, classify2, and the one test fn
     assert row["closures"] == 0
     assert row["total"] == 4
+
+
+def test_rust_structural_metrics_clean_on_sample(measure):
+    # The rust-sample fixture has no dead code (its unused fns are pub), no
+    # dependencies, and no unsafe — so the structural metrics run in the default
+    # sweep and find nothing, the "no findings" baseline.
+    assert measure["results"]["rust:deadcode"]["rows"] == []
+    assert measure["results"]["rust:deps"]["rows"] == []
+    assert measure["results"]["rust:unsafe"]["rows"] == []
 
 
 def test_mutation_is_excluded_from_the_default_sweep(measure):
@@ -401,3 +412,58 @@ def test_rust_iad_external_scope_no_match_falls_back(rust_workspace_manifest):
     assert "falling back" in result.stderr
     payload = json.loads(result.stdout)
     assert {r["crate"] for r in payload["rows"]} == {"core_lib", "app"}
+
+
+@pytest.fixture(scope="module")
+def structural_manifest(tmp_path_factory) -> Path:
+    """A writable copy of rust-structural-sample (one unsafe fn + one dead
+    private fn, no dependencies). Writable because rust:deadcode runs
+    `cargo check`, which needs to write target/."""
+    project_dir = tmp_path_factory.mktemp("rust-structural-sample")
+    shutil.copytree(FIXTURES_DIR / "rust-structural-sample", project_dir, dirs_exist_ok=True)
+    _make_writable(project_dir)
+    return project_dir / "Cargo.toml"
+
+
+@pytest.fixture(scope="module")
+def unuseddep_manifest(tmp_path_factory) -> Path:
+    """A writable copy of rust-unuseddep-sample (declares a `helper` path
+    dependency it never uses)."""
+    project_dir = tmp_path_factory.mktemp("rust-unuseddep-sample")
+    shutil.copytree(FIXTURES_DIR / "rust-unuseddep-sample", project_dir, dirs_exist_ok=True)
+    _make_writable(project_dir)
+    return project_dir / "Cargo.toml"
+
+
+def _run_metric(name: str, manifest: Path) -> dict:
+    script = SKILL_DIR / "assets" / "lang" / "rust" / f"{name}.sh"
+    result = subprocess.run(
+        [str(script), str(manifest)], capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == 0, f"{name}.sh failed: {result.stderr}"
+    return json.loads(result.stdout)
+
+
+def test_rust_deadcode(structural_manifest):
+    payload = _run_metric("deadcode", structural_manifest)
+    rows = payload["rows"]
+    assert len(rows) == 1
+    assert rows[0]["lint"] == "dead_code"
+    assert rows[0]["file"] == "src/lib.rs"
+    assert "dead_helper" in rows[0]["message"]
+    assert payload["summary"]["findings"] == 1
+
+
+def test_rust_unsafe(structural_manifest):
+    payload = _run_metric("unsafe", structural_manifest)
+    rows = {r["file"]: r for r in payload["rows"]}
+    # `pub unsafe fn` + the `unsafe { }` block = 2 keyword occurrences.
+    assert rows["src/lib.rs"]["unsafe"] == 2
+    assert payload["summary"] == {"files_with_unsafe": 1, "total_unsafe": 2}
+
+
+def test_rust_deps(unuseddep_manifest):
+    payload = _run_metric("deps", unuseddep_manifest)
+    rows = payload["rows"]
+    assert rows == [{"crate": "unuseddep", "dependency": "helper"}]
+    assert payload["summary"]["unused"] == 1

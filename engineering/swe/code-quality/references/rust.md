@@ -15,6 +15,9 @@
 | LOC                  | Lines-of-code family per file — SLOC/PLOC/LLOC/CLOC/BLANK (also answers "oversized module")                           | `rust-code-analysis-cli`                         |
 | NOM                  | Functions + closures per file (the other half of "oversized module")                                                  | `rust-code-analysis-cli`                         |
 | Mutation             | Test-suite strength — mutants the tests fail to catch (survivors), + a kill score. Opt-in (heavy)                     | `cargo-mutants`                                  |
+| Dead code            | rustc dead_code/unused_\* lints (pub items are never flagged)                                                         | `cargo check --message-format=json`              |
+| Unused deps          | Declared dependencies never referenced in source, per crate                                                           | `cargo-machete`                                  |
+| Unsafe               | Textual `unsafe`-keyword count per file (crude — counts comments/strings too)                                         | `grep`                                           |
 
 IAD is computed at the **crate** level (each workspace crate is a Martin "package").
 No verified tool computes it at the intra-crate **module** level for Rust — see Known
@@ -97,6 +100,16 @@ static metrics, so run.sh leaves it **out of the default `measure` sweep** unles
 `CODE_QUALITY_ENABLE_MUTATION` is set; `mutation.sh` is also runnable directly. On a large
 project bound it with `CODE_QUALITY_MUTATION_ARGS` (e.g. `--in-diff changes.diff`, `-j 4`).
 
+**Structural metrics (dead code, unused deps, unsafe).** Dead code uses rustc's own
+`dead_code`/`unused_*` lints via `cargo check --message-format=json` — no new tool, but
+rustc never flags a `pub` item, so a genuinely-unused public API won't show (the module
+`orphans` view, still an open follow-up, would catch those). Unused dependencies use
+`cargo-machete` (MIT), a static source/manifest scan — no build or network; this version
+has no JSON output so its text report is parsed (exit 1 = found unused, 0 = none). Unsafe
+density is a plain word-boundary `grep` count per file, deliberately crude (it counts the
+keyword in comments and strings too) and dependency-free; `cargo-geiger` would give
+dependency-tree accounting but is flaky on complex workspaces, so it's left out.
+
 **`jscpd`** (MIT) — one tool covers both Rust and Python duplication detection with a
 single consistent percentage, rather than a separate per-language tool. Confirmed via
 its own `FORMATS.md` to support `.rs` as a first-class format, not just JS/TS despite
@@ -120,8 +133,8 @@ what Cognitive Complexity already requires.
 
 ## Getting the tools
 
-`cargo install cargo-crap cargo-iceberg4rust cargo-anatomy cargo-mutants jscpd` works
-anywhere Rust does. Coverage
+`cargo install cargo-crap cargo-iceberg4rust cargo-anatomy cargo-mutants cargo-machete jscpd`
+works anywhere Rust does (dead code and unsafe need only `cargo` and `grep`). Coverage
 needs `cargo-llvm-cov` (`cargo install cargo-llvm-cov`) plus the `llvm-tools-preview`
 toolchain component — `cargo-tarpaulin` skips that component but its ptrace-based
 engine is Linux-only. Cognitive Complexity and Hotspots both need
