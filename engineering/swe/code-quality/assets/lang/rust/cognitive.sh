@@ -21,7 +21,7 @@ require_tools rust cognitive "${rust_tools_cognitive[@]}"
 # by testing this directly rather than trusting the --help text alone.
 project_dir="$(project_dir_of "$manifest")"
 
-tmp_dir="$(mktemp -d -t code-quality-measure.XXXXXX)"
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/code-quality-measure.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
 rust-code-analysis-cli -m -p "$project_dir" -O json -o "$tmp_dir" -w 1>&2
 

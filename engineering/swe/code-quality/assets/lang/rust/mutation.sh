@@ -22,7 +22,7 @@ manifest="${1:-Cargo.toml}"
 # shellcheck disable=SC2154 # rust_tools_mutation comes from sourced tools.sh
 require_tools rust mutation "${rust_tools_mutation[@]}"
 
-out_dir="$(mktemp -d -t code-quality-measure.XXXXXX)"
+out_dir="$(mktemp -d "${TMPDIR:-/tmp}/code-quality-measure.XXXXXX")"
 trap 'rm -rf "$out_dir"' EXIT
 
 extra_args=()

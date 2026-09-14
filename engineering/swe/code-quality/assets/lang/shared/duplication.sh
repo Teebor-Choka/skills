@@ -17,7 +17,7 @@
 # project.
 run_duplication() {
   local dir="$1" tmp_dir
-  tmp_dir="$(mktemp -d -t code-quality-measure.XXXXXX)"
+  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/code-quality-measure.XXXXXX")"
   trap 'rm -rf "$tmp_dir"' RETURN
   jscpd "$dir" --reporters json --output "$tmp_dir" --ignore '**/.git/**' >/dev/null 2>&1 || true
   if [ -f "$tmp_dir/jscpd-report.json" ]; then

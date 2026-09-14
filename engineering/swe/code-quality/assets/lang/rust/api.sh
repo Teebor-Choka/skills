@@ -20,7 +20,7 @@ manifest="${1:-Cargo.toml}"
 # shellcheck disable=SC2154 # rust_tools_api comes from sourced tools.sh
 require_tools rust api "${rust_tools_api[@]}"
 
-target_dir="$(mktemp -d -t code-quality-measure.XXXXXX)"
+target_dir="$(mktemp -d "${TMPDIR:-/tmp}/code-quality-measure.XXXXXX")"
 trap 'rm -rf "$target_dir"' EXIT
 
 # Unstable rustdoc JSON on stable, into a private target dir so we can find the

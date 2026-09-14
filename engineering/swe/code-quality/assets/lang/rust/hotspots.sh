@@ -25,7 +25,7 @@ fi
 # One bulk rust-code-analysis-cli run over the whole project (same approach
 # cognitive.sh uses) rather than one process per touched file — a project
 # with N touched files no longer means N tool invocations.
-tmp_dir="$(mktemp -d -t code-quality-measure.XXXXXX)"
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/code-quality-measure.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
 rust-code-analysis-cli -m -p "$project_dir" -O json -o "$tmp_dir" -w 1>&2
 

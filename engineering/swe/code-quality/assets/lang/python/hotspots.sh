@@ -27,7 +27,7 @@ fi
 # files no longer means N tool invocations. Run from inside project_dir so
 # complexipy's own "path" field comes out relative to it, matching
 # churn_counts' paths below.
-tmp_json="$(mktemp -t code-quality-measure.XXXXXX)"
+tmp_json="$(mktemp "${TMPDIR:-/tmp}/code-quality-measure.XXXXXX")"
 trap 'rm -f "$tmp_json"' EXIT
 (cd "$project_dir" && complexipy . --output-format json --output "$tmp_json" -q) >/dev/null 2>&1
 

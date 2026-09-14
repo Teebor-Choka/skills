@@ -18,7 +18,7 @@
 # through rather than needing to sanitize NaN out.
 rca_root_metrics() {
   local project_dir="$1" out_dir
-  out_dir="$(mktemp -d -t code-quality-measure.XXXXXX)"
+  out_dir="$(mktemp -d "${TMPDIR:-/tmp}/code-quality-measure.XXXXXX")"
   # -p needs an absolute path alongside -o or the tool silently analyzes
   # nothing (see cognitive.sh); callers resolve it with project_dir_of.
   rust-code-analysis-cli -m -p "$project_dir" -O json -o "$out_dir" -w 1>&2
