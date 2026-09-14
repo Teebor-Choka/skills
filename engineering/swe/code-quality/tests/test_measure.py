@@ -553,3 +553,29 @@ def test_relevant_selection_runs_only_authority_backed_metrics(rust_manifest):
         "rust:unsafe", "rust:api", "rust:orphans",
     ):
         assert excluded not in available
+
+
+def test_a_failing_metric_does_not_break_the_pipeline(rust_workspace_manifest):
+    """All metrics fan out in parallel and their results are collected
+    independently — one metric failing must not abort the whole run. filerisk
+    can't score a virtual workspace-root manifest (cargo-iceberg4rust: "manifest
+    contains multiple packages") and exits nonzero with no JSON; collect records
+    that as an error entry and still returns every other metric's result."""
+    result = subprocess.run(
+        [
+            str(SKILL_DIR / "assets" / "run.sh"),
+            "--collection", "all",
+            "--manifest", str(rust_workspace_manifest),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    # The failed metric flags a non-zero overall exit, but stdout is still a
+    # complete, parseable JSON document (the pipeline did not break).
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert "error" in payload["results"]["rust:filerisk"]
+    # every other metric still produced its real result
+    assert payload["results"]["rust:iad"]["metric"] == "iad"
+    assert payload["results"]["rust:cognitive"]["metric"] == "cognitive"

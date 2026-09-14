@@ -242,7 +242,16 @@ for label in "${available_jobs[@]}"; do
     cat "$tmp_dir/$safe_label.err" >&2
   fi
   job_json="$(cat "$tmp_dir/$safe_label.out")"
-  results="$(jq --arg k "$label" --argjson v "$job_json" '. + {($k): $v}' <<<"$results")"
+  # A metric that failed hard (e.g. filerisk on a virtual workspace manifest)
+  # may emit empty or non-JSON output. Don't let that abort the whole collect
+  # and discard every other metric — record it as an error entry and flag a
+  # non-zero overall status instead.
+  if jq -e . >/dev/null 2>&1 <<<"$job_json"; then
+    results="$(jq --arg k "$label" --argjson v "$job_json" '. + {($k): $v}' <<<"$results")"
+  else
+    status=1
+    results="$(jq --arg k "$label" '. + {($k): {error: "metric produced no valid JSON — see stderr"}}' <<<"$results")"
+  fi
 done
 
 available_json="$(printf '%s\n' "${available_jobs[@]}" | jq -R . | jq -s .)"
