@@ -71,6 +71,19 @@ emit_json() {
     '{metric: $metric, language: $language, unit: $unit, threshold: $threshold, rows: $rows, summary: $summary}'
 }
 
+# Exits nonzero (after echoing the offending output to stderr) if <content> is
+# not valid JSON, so a tool failure surfaces its own message here rather than as
+# a downstream jq parse error with no context. <label> names the source for the
+# message (e.g. "iad: cargo-anatomy"). A peer of emit_json — every metric that
+# shells a JSON-producing tool needs this same guard.
+require_json() {
+  local content="$1" label="$2"
+  jq -e . >/dev/null 2>&1 <<<"$content" && return 0
+  echo "$label did not produce valid JSON:" >&2
+  echo "$content" >&2
+  return 1
+}
+
 # Renders one metric's canonical JSON envelope (as built by emit_json) as a
 # human-readable table. Column set and order come from the rows themselves
 # (every row in one metric's output shares the same keys, in the same

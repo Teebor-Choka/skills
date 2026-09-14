@@ -30,18 +30,18 @@ extra_args=()
 [ -z "${CODE_QUALITY_MUTATION_ARGS:-}" ] || extra_args=(${CODE_QUALITY_MUTATION_ARGS})
 
 # cargo-mutants exits nonzero when mutants survive or time out — a finding, not
-# an error (like cargo-iceberg4rust's exit 2). So don't let set -e abort on it;
+# an error (like cargo-iceberg4rust's exit 2). So tolerate a nonzero exit and
 # trust the presence of a valid outcomes.json instead. Its own progress goes to
 # stderr to keep our stdout pure JSON.
-set +e
-cargo mutants --manifest-path "$manifest" --output "$out_dir" "${extra_args[@]}" 1>&2
-set -e
+cargo mutants --manifest-path "$manifest" --output "$out_dir" "${extra_args[@]}" 1>&2 || true
 
 report="$out_dir/mutants.out/outcomes.json"
-if [ ! -s "$report" ] || ! jq -e . >/dev/null 2>&1 <"$report"; then
-  echo "mutation: cargo-mutants did not produce a valid outcomes.json" >&2
+[ -s "$report" ] || {
+  echo "mutation: cargo-mutants produced no outcomes.json" >&2
   exit 1
-fi
+}
+raw="$(cat "$report")"
+require_json "$raw" "mutation: cargo-mutants outcomes.json"
 
 # Rows are the survivors (missed mutants) — the actionable findings. Each
 # outcome's scenario is a union ("Baseline" string vs {Mutant: {...}}); select
@@ -49,7 +49,7 @@ fi
 rows="$(jq '[.outcomes[]
   | select((.scenario | type) == "object" and .summary == "MissedMutant")
   | .scenario.Mutant
-  | {file, line: .span.start.line, function: .function.function_name, change: .name}]' "$report")"
+  | {file, line: .span.start.line, function: .function.function_name, change: .name}]' <<<"$raw")"
 
 # score = killed / viable, guarding the all-unviable case (viable == 0), where
 # cargo-mutants reports missed=0 and exits 0 — "passes having tested nothing".
@@ -58,6 +58,6 @@ summary="$(jq '{
   score: (if (.total_mutants - .unviable) > 0
           then (.caught / (.total_mutants - .unviable))
           else null end)
-}' "$report")"
+}' <<<"$raw")"
 
 emit_json mutation rust '"score"' null "$rows" "$summary"

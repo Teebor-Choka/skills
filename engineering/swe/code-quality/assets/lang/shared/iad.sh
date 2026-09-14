@@ -14,17 +14,6 @@
 # analysis with no build/coverage step, so this fans out in parallel like
 # filerisk.
 
-# Exits nonzero (after printing the offending output) if <raw> isn't valid
-# JSON — so a tool failure surfaces its own message here rather than as a
-# downstream jq parse error with no context.
-_iad_require_json() {
-  local raw="$1" tool="$2"
-  jq -e . >/dev/null 2>&1 <<<"$raw" && return 0
-  echo "iad: $tool did not produce valid JSON on stdout:" >&2
-  echo "$raw" >&2
-  return 1
-}
-
 # Runs cargo-anatomy for <manifest> and prints its JSON. By default it scores
 # only workspace member crates (external dependency crates are excluded), so
 # every row is a crate you own. That under-reports coupling for a project
@@ -80,7 +69,7 @@ emit_iad_json() {
   case "$language" in
   rust)
     raw="$(_iad_run_cargo_anatomy "$manifest")"
-    _iad_require_json "$raw" cargo-anatomy
+    require_json "$raw" "iad: cargo-anatomy"
     # i/a/d come out as clean floats even for a crate with zero types (N=0):
     # cargo-anatomy yields a=0, i=0, d=|0+0-1|/√2 rather than a NaN from the
     # 0/0, verified directly — so no NaN sanitizing is needed here the way
@@ -99,7 +88,7 @@ emit_iad_json() {
     # pyscn's own progress/summary output normally goes to stderr; --output -
     # routes the JSON report to stdout instead of a .pyscn/reports/ file.
     raw="$(pyscn analyze --json --output - --skip-clones "$(project_dir_of "$manifest")")"
-    _iad_require_json "$raw" pyscn
+    require_json "$raw" "iad: pyscn"
     rows="$(jq '[.system.dependency_analysis.module_metrics // {} | to_entries[] | {
       module: .key,
       ca: .value.afferent_coupling,

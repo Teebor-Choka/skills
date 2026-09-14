@@ -33,7 +33,7 @@ case "$status" in
     crate != "" && /^[[:space:]]+[^[:space:]]/ {
       d = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", d); print crate "\t" d
     }
-  ' <<<"$raw" | jq -R 'split("\t") | {crate: .[0], dependency: .[1]}' | jq -s .)"
+  ' <<<"$raw" | jq -Rn '[inputs | split("\t") | {crate: .[0], dependency: .[1]}]')"
   ;;
 *)
   echo "deps: cargo-machete errored (exit $status)" >&2

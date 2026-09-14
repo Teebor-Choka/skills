@@ -37,7 +37,7 @@ else
       count[f]++
     }
     END { for (k in count) print count[k] "\t" k }
-  ' <<<"$matches" | jq -R 'split("\t") | {file: .[1], unsafe: (.[0] | tonumber)}' | jq -s 'sort_by(-.unsafe)')"
+  ' <<<"$matches" | jq -Rn '[inputs | split("\t") | {file: .[1], unsafe: (.[0] | tonumber)}] | sort_by(-.unsafe)')"
 fi
 
 summary="$(jq '{files_with_unsafe: length, total_unsafe: (map(.unsafe) | add // 0)}' <<<"$rows")"
