@@ -14,7 +14,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$script_dir/lang/_common.sh"
 
 if [ "$#" -eq 0 ]; then
-  echo "usage: report.sh <manifest-path> [<manifest-path> ...]" >&2
+  echo "usage: report.sh [--collection all|relevant] --manifest <path> [--manifest <path> ...]" >&2
   exit 2
 fi
 

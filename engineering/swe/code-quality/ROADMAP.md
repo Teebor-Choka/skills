@@ -160,9 +160,9 @@ of scope until Phases 0–1 land.
 ```
 # Phase 0
 python -m pytest tests/test_measure.py -q
-sh assets/run.sh tests/fixtures/rust-sample/Cargo.toml | jq '.results | keys'
+sh assets/run.sh --manifest tests/fixtures/rust-sample/Cargo.toml | jq '.results | keys'
 #   expect keys to include: rust:mi, rust:halstead, rust:loc, rust:nom (+ existing)
-sh assets/run.sh tests/fixtures/rust-sample/Cargo.toml | jq '.. | .mi? // empty' \
+sh assets/run.sh --manifest tests/fixtures/rust-sample/Cargo.toml | jq '.. | .mi? // empty' \
   | grep -Ei 'nan|inf' && echo "FAIL: unsanitized" || echo "OK: sanitized"
 
 # Phase 1 (once scripts land)

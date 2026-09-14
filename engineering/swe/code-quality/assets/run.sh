@@ -41,8 +41,57 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lang/_common.sh disable=SC1091
 source "$script_dir/lang/_common.sh"
 
-if [ "$#" -eq 0 ]; then
-  echo "usage: run.sh <manifest-path> [<manifest-path> ...]" >&2
+# --- arguments (flags only) ---
+#   --collection all|relevant   which metric set to run (default: all). `all`
+#                               runs every metric; `relevant` runs only the
+#                               subset the field's authorities advocate (see
+#                               references/<language>.md's Provenance section).
+#   --manifest <path>           a manifest to measure; repeat once per language.
+usage() {
+  echo "usage: run.sh [--collection all|relevant] --manifest <path> [--manifest <path> ...]" >&2
+}
+selection="all"
+manifests=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+  --collection=*) selection="${1#*=}" && shift ;;
+  --collection)
+    [ "$#" -ge 2 ] || {
+      usage
+      exit 2
+    }
+    selection="$2" && shift 2
+    ;;
+  --manifest=*) manifests+=("${1#*=}") && shift ;;
+  --manifest)
+    [ "$#" -ge 2 ] || {
+      usage
+      exit 2
+    }
+    manifests+=("$2") && shift 2
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "run.sh: unexpected argument '$1'" >&2
+    usage
+    exit 2
+    ;;
+  esac
+done
+
+case "$selection" in
+all | relevant) ;;
+*)
+  echo "run.sh: --collection must be 'all' or 'relevant' (got '$selection')" >&2
+  exit 2
+  ;;
+esac
+
+if [ "${#manifests[@]}" -eq 0 ]; then
+  usage
   exit 2
 fi
 
@@ -55,18 +104,28 @@ lang_for_manifest() {
   esac
 }
 
-# The static metric list for a language — not derived from anything on
-# disk, so adding a metric to a language means adding it here too.
+# The static metric list for a language — not derived from anything on disk,
+# so adding a metric to a language means adding it here too. Honors the global
+# `selection`: `relevant` is the authority-backed subset, `all` is everything.
 metrics_for() {
   case "$1" in
   rust)
-    local metrics="filerisk crap cognitive hotspots duplication iad mi halstead loc nom deadcode deps unsafe api orphans fanio"
-    # Mutation testing reruns the whole test suite per mutant — far heavier than
-    # the rest — so it's opt-in in the default sweep (see lang/rust/mutation.sh);
-    # run that script directly, or set CODE_QUALITY_ENABLE_MUTATION to include it.
+    local metrics
+    if [ "$selection" = relevant ]; then
+      # The authority-backed subset (references/rust.md Provenance); omits the
+      # pragmatic Rust-only hygiene metrics — filerisk, loc, nom, deps, unsafe,
+      # api, orphans — which no named authority specifically advocates.
+      metrics="crap cognitive hotspots duplication iad mi halstead deadcode fanio"
+    else
+      metrics="filerisk crap cognitive hotspots duplication iad mi halstead loc nom deadcode deps unsafe api orphans fanio"
+    fi
+    # Mutation testing (authority-backed, but it reruns the whole test suite per
+    # mutant — far heavier than the rest) stays opt-in in either selection: run
+    # lang/rust/mutation.sh directly, or set CODE_QUALITY_ENABLE_MUTATION.
     [ -z "${CODE_QUALITY_ENABLE_MUTATION:-}" ] || metrics="$metrics mutation"
     echo "$metrics"
     ;;
+  # Every Python metric here is authority-backed, so `relevant` == `all`.
   python) echo "crap cognitive hotspots duplication iad" ;;
   *) return 1 ;;
   esac
@@ -109,7 +168,7 @@ tools_for_job() {
 # --- resolve each manifest to a language, reject unknowns/duplicates early ---
 langs=()
 declare -A manifest_of=()
-for manifest in "$@"; do
+for manifest in "${manifests[@]}"; do
   lang="$(lang_for_manifest "$manifest")" || {
     echo "code-quality:measure: no runner for this manifest yet ($manifest)." >&2
     echo "See the code-quality:measure skill's SKILL.md — do not guess a tool chain for an unsupported language." >&2

@@ -49,11 +49,14 @@ only reports; a human or the engineering skill decides what to do about a findin
    `PATH` — don't assume any particular way they got there (nix, a system package
    manager, a language-native installer). Missing → say what's missing and how the
    reference suggests getting it; don't install anything yourself.
-4. **Run `assets/run.sh <manifest-path> [<manifest-path> ...]`** — one path per
-   detected language. Plain, deterministic shell, no LLM involved: it detects each
-   manifest's language, and itself does discovery (what's available, across every
-   detected language), parallel fan-out (every available metric from every language,
-   in one batch — not one batch per language), and a combined summary. Callable
+4. **Run `assets/run.sh [--collection all|relevant] --manifest <path> [--manifest <path> ...]`**
+   — one `--manifest` per detected language. `--collection` chooses the metric set:
+   `all` (default) runs every metric; `relevant` runs only the subset the field's
+   authorities advocate (see `references/<language>.md`). Plain, deterministic shell, no
+   LLM involved: it detects each manifest's language, and itself does discovery (what's
+   available, across every detected language), parallel fan-out (every available metric
+   from every language, in one batch — not one batch per language), and a combined
+   summary. Callable
    identically by a human, CI, or any other agent, not just this skill. **stdout is
    pure JSON, nothing else** — `{discovery: {available, missing}, results: {
 "language:metric": {metric, language, unit, threshold, rows, summary}, ...}}` —
@@ -99,8 +102,8 @@ Depends on `measure` — this workflow doesn't compute anything itself, it runs
 deterministic as `measure`'s own `assets/run.sh`, so there's nothing to document
 per-host the way `measure`'s verify step and `comments` need.
 
-1. **Run `assets/report.sh <manifest-path> [<manifest-path> ...]`** — same arguments
-   as `assets/run.sh`, because it calls that script internally and formats its JSON
+1. **Run `assets/report.sh [--collection all|relevant] --manifest <path> [--manifest <path> ...]`**
+   — same arguments as `assets/run.sh`, because it calls that script internally and formats its JSON
    into the discovery banner + per-metric tables a person would want to read in a
    terminal. Column set and order come straight from each metric's own JSON rows, so
    the table can never drift out of sync with what `measure` actually reports.

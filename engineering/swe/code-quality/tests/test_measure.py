@@ -129,7 +129,11 @@ def measure(rust_manifest, python_manifest) -> dict:
     test below — run.sh's own parallel fan-out already covers the
     "expensive to run" concern, no need to re-run it per assertion."""
     result = subprocess.run(
-        [str(SKILL_DIR / "assets" / "run.sh"), str(rust_manifest), str(python_manifest)],
+        [
+            str(SKILL_DIR / "assets" / "run.sh"),
+            "--manifest", str(rust_manifest),
+            "--manifest", str(python_manifest),
+        ],
         capture_output=True,
         text=True,
         timeout=300,  # several build-based metrics (crap, deadcode, api, cargo-modules) run here
@@ -522,3 +526,30 @@ def test_rust_fanio(modules_manifest):
         "fan_in": 0,
         "fan_out": 0,
     }
+
+
+def test_relevant_selection_runs_only_authority_backed_metrics(rust_manifest):
+    """`run.sh relevant` runs only the subset the field's authorities advocate
+    (see references/rust.md Provenance), omitting the pragmatic Rust-only hygiene
+    metrics. The default (`all`, exercised by the `measure` fixture) keeps them."""
+    result = subprocess.run(
+        [
+            str(SKILL_DIR / "assets" / "run.sh"),
+            "--collection", "relevant",
+            "--manifest", str(rust_manifest),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, f"run.sh --collection relevant failed: {result.stderr}"
+    available = set(json.loads(result.stdout)["discovery"]["available"])
+    assert available == {
+        "rust:crap", "rust:cognitive", "rust:hotspots", "rust:duplication",
+        "rust:iad", "rust:mi", "rust:halstead", "rust:deadcode", "rust:fanio",
+    }
+    for excluded in (
+        "rust:filerisk", "rust:loc", "rust:nom", "rust:deps",
+        "rust:unsafe", "rust:api", "rust:orphans",
+    ):
+        assert excluded not in available

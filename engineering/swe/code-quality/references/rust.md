@@ -68,6 +68,11 @@ them, and are labelled as such rather than dressed up: **FileRisk** (hidden priv
 bloat, akin to Fowler's "Large Class" smell), **Unused deps**, **Unsafe** density,
 **API surface**, **Orphans**, and the **LOC**/**NOM** size counts.
 
+This split is selectable: `run.sh --collection relevant --manifest <path>` runs exactly
+the authority-backed group above (plus mutation when enabled), while `--collection all`
+— the default — adds the pragmatic hygiene metrics. For Python every metric is
+authority-backed, so `relevant` and `all` coincide.
+
 ### Formulas
 
 ```
@@ -191,9 +196,10 @@ working copy for the target project (see Known limitation below).
 
 ## Invocation
 
-`assets/run.sh <manifest-path>` (the generic entrypoint — see SKILL.md; it also
-accepts other languages' manifests alongside this one for multi-language projects)
-does discovery (what's on `PATH`), fan-out (each available metric, in parallel), and
+`assets/run.sh --manifest <manifest-path>` (the generic entrypoint — see SKILL.md; it
+also accepts other languages' manifests via more `--manifest` flags for multi-language
+projects) does discovery (what's on `PATH`), fan-out (each available metric, in parallel),
+and
 prints one combined JSON object on stdout — nothing else. CRAP isn't fully
 independent the way FileRisk is — it needs its own coverage pass first — but still
 runs as one parallel branch. Pass a pre-generated lcov file as

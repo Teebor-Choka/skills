@@ -83,7 +83,7 @@ if (!Array.isArray(targets) || targets.length === 0) {
     "measure.workflow.js requires args.manifestPaths (a non-empty array) — the manifests SKILL.md's own language-detection step already found.",
   );
 }
-const quotedTargets = targets.map((t) => `"${t}"`).join(" ");
+const manifestArgs = targets.map((t) => `--manifest "${t}"`).join(" ");
 // Workflow scripts can't read the filesystem directly, only agents can — so
 // this can't locate its own assets/run.sh itself. SKILL.md documents
 // resolving the skill's own directory and passing it as args.skillRoot as a
@@ -95,7 +95,7 @@ if (!skillRoot) {
     "measure.workflow.js requires args.skillRoot — resolve this skill's own directory first (see SKILL.md) and pass it.",
   );
 }
-const runInstruction = `Run \`${skillRoot}/assets/run.sh ${quotedTargets}\`.`;
+const runInstruction = `Run \`${skillRoot}/assets/run.sh ${manifestArgs}\`.`;
 const report = await agent(
   `${runInstruction}
 
