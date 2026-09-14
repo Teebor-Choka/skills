@@ -138,6 +138,7 @@
                   codeQualityTools.cargo-crap
                   codeQualityTools.cargo-iceberg4rust
                   codeQualityTools.cargo-anatomy
+                  codeQualityTools.cargo-mutants
                   codeQualityTools.jscpd
                   (pkgs.python3.withPackages (ps: [
                     ps.pytest

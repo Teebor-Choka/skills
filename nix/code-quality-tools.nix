@@ -50,6 +50,22 @@ rec {
     doCheck = false;
   };
 
+  # Mutation testing: rewrites each function/operator in turn, reruns the test
+  # suite, and reports which mutants survived (a killed mutant = a test caught
+  # the change). Machine-readable results land in mutants.out/outcomes.json.
+  # See engineering/swe/code-quality/references/rust.md.
+  cargo-mutants = pkgs.rustPlatform.buildRustPackage {
+    pname = "cargo-mutants";
+    version = "27.1.0";
+    src = pkgs.fetchCrate {
+      pname = "cargo-mutants";
+      version = "27.1.0";
+      hash = "sha256-GCB0py7sp67epx+tB4VRpJIeDf4WlCSTPHHTENv06rc=";
+    };
+    cargoHash = "sha256-ix/aR9SfYw14w930IhOocr8eU+895zuMxkSvtD7WaD0=";
+    doCheck = false;
+  };
+
   # jscpd's own crates.io release currently needs rustc 1.96, one version
   # ahead of this flake's nixpkgs pin -- but npm's optionalDependencies
   # resolve to a prebuilt per-platform binary package with zero further

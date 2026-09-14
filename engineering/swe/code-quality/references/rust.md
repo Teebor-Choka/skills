@@ -14,6 +14,7 @@
 | Halstead             | Halstead volume/difficulty/effort/vocabulary/length/bugs per file                                                     | `rust-code-analysis-cli`                         |
 | LOC                  | Lines-of-code family per file — SLOC/PLOC/LLOC/CLOC/BLANK (also answers "oversized module")                           | `rust-code-analysis-cli`                         |
 | NOM                  | Functions + closures per file (the other half of "oversized module")                                                  | `rust-code-analysis-cli`                         |
+| Mutation             | Test-suite strength — mutants the tests fail to catch (survivors), + a kill score. Opt-in (heavy)                     | `cargo-mutants`                                  |
 
 IAD is computed at the **crate** level (each workspace crate is a Martin "package").
 No verified tool computes it at the intra-crate **module** level for Rust — see Known
@@ -85,6 +86,17 @@ itself in its source comments as a rough approximation, restriction-tier, warnin
 (see Getting the tools below) — the COGNITIVE metric itself already existed well
 before that stale release, confirmed directly in source.
 
+**`cargo-mutants`** (MIT) — mutation testing on the unmodified tree with a stable
+toolchain, emitting machine-readable `mutants.out/outcomes.json`; the kill score is
+`caught / (total_mutants − unviable)`, guarding the all-unviable case (it reports
+`missed: 0` and exits 0 — "passes having tested nothing"). It exits nonzero when mutants
+survive/time out, a finding rather than an error (like `cargo-iceberg4rust`'s exit 2), so
+`mutation.sh` trusts a valid `outcomes.json` over the exit code. Because it rebuilds and
+reruns the whole test suite once per mutant, it's an order of magnitude heavier than the
+static metrics, so run.sh leaves it **out of the default `measure` sweep** unless
+`CODE_QUALITY_ENABLE_MUTATION` is set; `mutation.sh` is also runnable directly. On a large
+project bound it with `CODE_QUALITY_MUTATION_ARGS` (e.g. `--in-diff changes.diff`, `-j 4`).
+
 **`jscpd`** (MIT) — one tool covers both Rust and Python duplication detection with a
 single consistent percentage, rather than a separate per-language tool. Confirmed via
 its own `FORMATS.md` to support `.rs` as a first-class format, not just JS/TS despite
@@ -108,8 +120,8 @@ what Cognitive Complexity already requires.
 
 ## Getting the tools
 
-`cargo install cargo-crap cargo-iceberg4rust cargo-anatomy jscpd` works anywhere Rust
-does. Coverage
+`cargo install cargo-crap cargo-iceberg4rust cargo-anatomy cargo-mutants jscpd` works
+anywhere Rust does. Coverage
 needs `cargo-llvm-cov` (`cargo install cargo-llvm-cov`) plus the `llvm-tools-preview`
 toolchain component — `cargo-tarpaulin` skips that component but its ptrace-based
 engine is Linux-only. Cognitive Complexity and Hotspots both need
@@ -176,5 +188,5 @@ a bare checkout, tarball, or shallow clone (`git clone --depth`) has none or an
 incomplete one; `hotspots.sh` checks for both and reports a clear skip rather than a
 misleadingly low (or zero) score.
 
-Module-size is now covered (the LOC and NOM metrics above). Mutation testing isn't yet —
-tracked as a follow-up rather than guessed at here.
+Module-size (LOC/NOM) and mutation testing are now covered. Still open: public API
+surface and module-level fan-in/out — tracked as a follow-up rather than guessed at here.

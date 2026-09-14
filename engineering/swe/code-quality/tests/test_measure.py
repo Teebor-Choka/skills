@@ -40,6 +40,7 @@ RUST_TOOLS = [
     "cargo-crap",
     "cargo-iceberg4rust",
     "cargo-anatomy",
+    "cargo-mutants",
     "cargo-llvm-cov",
     "rust-code-analysis-cli",
     "jscpd",
@@ -249,6 +250,38 @@ def test_rust_nom(measure):
     assert row["functions"] == 4  # classify, trivial, classify2, and the one test fn
     assert row["closures"] == 0
     assert row["total"] == 4
+
+
+def test_mutation_is_excluded_from_the_default_sweep(measure):
+    # Mutation testing is far heavier than the other metrics, so run.sh leaves
+    # it out of `measure` unless CODE_QUALITY_ENABLE_MUTATION is set.
+    assert "rust:mutation" not in measure["discovery"]["available"]
+    assert "rust:mutation" not in measure["results"]
+
+
+def test_rust_mutation(rust_manifest):
+    """rust:mutation via cargo-mutants, run directly (it's opt-in in the default
+    sweep). The fixture's single test exercises only classify(), so mutants in
+    trivial()/classify2() survive: 21 mutants, 6 caught, 15 missed, 0 unviable,
+    score 6/21. Keyed to the pinned cargo-mutants version (a version change to
+    its mutation operators is a real reason for these counts to move)."""
+    mutation = SKILL_DIR / "assets" / "lang" / "rust" / "mutation.sh"
+    result = subprocess.run(
+        [str(mutation), str(rust_manifest)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, f"mutation.sh failed: {result.stderr}"
+    payload = json.loads(result.stdout)
+    s = payload["summary"]
+    assert s["total_mutants"] == 21
+    assert s["caught"] == 6
+    assert s["missed"] == 15
+    assert s["unviable"] == 0
+    assert s["score"] == pytest.approx(6 / 21)
+    assert len(payload["rows"]) == 15  # one row per surviving (missed) mutant
+    assert all(r["file"] == "src/lib.rs" for r in payload["rows"])
 
 
 def test_python_crap(measure):

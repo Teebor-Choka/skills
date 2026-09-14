@@ -59,7 +59,14 @@ lang_for_manifest() {
 # disk, so adding a metric to a language means adding it here too.
 metrics_for() {
   case "$1" in
-  rust) echo "filerisk crap cognitive hotspots duplication iad mi halstead loc nom" ;;
+  rust)
+    local metrics="filerisk crap cognitive hotspots duplication iad mi halstead loc nom"
+    # Mutation testing reruns the whole test suite per mutant — far heavier than
+    # the rest — so it's opt-in in the default sweep (see lang/rust/mutation.sh);
+    # run that script directly, or set CODE_QUALITY_ENABLE_MUTATION to include it.
+    [ -z "${CODE_QUALITY_ENABLE_MUTATION:-}" ] || metrics="$metrics mutation"
+    echo "$metrics"
+    ;;
   python) echo "crap cognitive hotspots duplication iad" ;;
   *) return 1 ;;
   esac
@@ -83,6 +90,7 @@ tools_for_job() {
   rust:halstead) printf '%s\n' "${rust_tools_halstead[@]}" ;;
   rust:loc) printf '%s\n' "${rust_tools_loc[@]}" ;;
   rust:nom) printf '%s\n' "${rust_tools_nom[@]}" ;;
+  rust:mutation) printf '%s\n' "${rust_tools_mutation[@]}" ;;
   python:crap) printf '%s\n' "${python_tools_crap[@]}" ;;
   python:cognitive) printf '%s\n' "${python_tools_cognitive[@]}" ;;
   python:hotspots) printf '%s\n' "${python_tools_hotspots[@]}" ;;

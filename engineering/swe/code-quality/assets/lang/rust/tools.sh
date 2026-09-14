@@ -27,3 +27,5 @@ rust_tools_halstead=(rust-code-analysis-cli)
 rust_tools_loc=(rust-code-analysis-cli)
 # shellcheck disable=SC2034
 rust_tools_nom=(rust-code-analysis-cli)
+# shellcheck disable=SC2034
+rust_tools_mutation=(cargo-mutants)
