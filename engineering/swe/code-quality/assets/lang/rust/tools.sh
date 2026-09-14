@@ -16,3 +16,5 @@ rust_tools_cognitive=(rust-code-analysis-cli)
 rust_tools_hotspots=(rust-code-analysis-cli jq)
 # shellcheck disable=SC2034
 rust_tools_duplication=(jscpd)
+# shellcheck disable=SC2034
+rust_tools_iad=(cargo-anatomy)

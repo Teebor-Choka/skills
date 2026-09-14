@@ -33,6 +33,23 @@ rec {
     doCheck = false;
   };
 
+  # Computes Robert C. Martin's package metrics (Ca/Ce/I/A/D + D') per crate
+  # in a workspace, treating each crate as a "package" and each type
+  # (struct/enum/trait/type) as a "class" -- traits are the abstract ones.
+  # JSON is the default output. Static syn-AST + cargo_metadata analysis, no
+  # build/coverage step. See engineering/swe/code-quality/references/rust.md.
+  cargo-anatomy = pkgs.rustPlatform.buildRustPackage {
+    pname = "cargo-anatomy";
+    version = "0.7.7";
+    src = pkgs.fetchCrate {
+      pname = "cargo-anatomy";
+      version = "0.7.7";
+      hash = "sha256-g/QH1QVYW06sM8RvixAMpJw4kRi8qVGu//s2SOAPziE=";
+    };
+    cargoHash = "sha256-Cdm25jK/5xpMhpQdYtfwkBqyWMK94twX9iGjJGdOlSw=";
+    doCheck = false;
+  };
+
   # jscpd's own crates.io release currently needs rustc 1.96, one version
   # ahead of this flake's nixpkgs pin -- but npm's optionalDependencies
   # resolve to a prebuilt per-platform binary package with zero further

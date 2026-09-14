@@ -20,7 +20,7 @@ The survey overturned three claims the reference currently makes:
 1. **Coupling exists.** "No verified tool computes Martin's Instability/Abstractness/
    Distance for Rust" is outdated — [`cargo-anatomy`](https://github.com/cutsea110/cargo-anatomy)
    (MIT, JSON default, actively maintained) computes the full Ca/Ce/I/A/D set at
-   **crate level**. The genuine remaining gap is *intra-crate module-level* coupling
+   **crate level**. The genuine remaining gap is _intra-crate module-level_ coupling
    (no tool; would need rust-analyzer internals). Keep the cargo-modules and
    cargo-coupling notes — both re-verified accurate.
 2. **MI + Halstead are already free.** `rust-code-analysis-cli` (already installed for
@@ -54,7 +54,14 @@ no `NaN`/`inf` reaches output; existing tests stay green; `rust.md` corrections 
 Each new metric follows the existing pattern: a script under `assets/lang/rust/`,
 independently runnable, stdout = the same per-metric JSON shape `run.sh` collects.
 
-### 1.1 Coupling — `assets/lang/rust/coupling.sh`
+### 1.1 Coupling — `assets/lang/rust/iad.sh` ✅ landed
+
+Implemented as the `rust:iad` metric (named to match the existing `python:iad`
+sibling, not `coupling`). `cargo-anatomy` 0.7.7 is pinned in
+`nix/code-quality-tools.nix` and wired into the `code-quality-tests` check;
+`tests/fixtures/rust-iad-sample` is a two-crate workspace exercising a real Ca/Ce
+relationship. As-built notes:
+
 - Tool: `cargo install cargo-anatomy`; run at workspace root, JSON is default.
 - Emit per crate: `Ca`, `Ce`, `I`, `A` (= traits/total types), `D` (normalized) and
   `D'` (= `|A+I−1|`). Flag high-D crates (off the main sequence).
@@ -63,6 +70,7 @@ independently runnable, stdout = the same per-metric JSON shape `run.sh` collect
   (young 0.x, schema may shift).
 
 ### 1.2 Mutation testing — `assets/lang/rust/mutation.sh`
+
 - Tool: `cargo install --locked cargo-mutants`.
 - Invocation (bounded — this is a checkpoint tool, not inner-loop):
   `cargo mutants --in-diff <diff> -j <n> --timeout <s>`; full-tree run as the slow
@@ -74,7 +82,9 @@ independently runnable, stdout = the same per-metric JSON shape `run.sh` collect
   schema is explicitly allowed to change).
 
 ### 1.3 Structural bundle — `assets/lang/rust/structure.sh`
+
 Prioritized; ship top-down, each is independent:
+
 - **Oversized modules/files (free):** threshold `SLOC`/`PLOC` per file and `NOM` per
   file from the Phase-0 rust-code-analysis output — no new tool.
 - **Unused dependencies:** `cargo-machete --json` (fast, stable, MIT). Optional deeper
@@ -105,7 +115,7 @@ Do not start until a concrete non-Rust need appears. When triggered:
   (Rust + tree-sitter, cognitive/cyclomatic/SLOC with one consistent definition across
   languages, MIT/Apache; per-language onboarding ≈ a `LanguageProfile` + grammar +
   fixtures). Go equivalent: `codemetrics`.
-- **Recorded tension:** the tree-sitter engine yields *only* cognitive/cyclomatic/SLOC —
+- **Recorded tension:** the tree-sitter engine yields _only_ cognitive/cyclomatic/SLOC —
   **no Halstead, MI, or coupling**. So a layered model (rust-code-analysis deep for its
   languages + tree-sitter thin tier for the long tail) trades cross-language metric
   comparability for depth; a single tree-sitter engine trades depth for comparability.
@@ -120,16 +130,16 @@ of scope until Phases 0–1 land.
 
 ## Adopted-tool reference (verified 2026-09-13)
 
-| Metric | Tool | License | JSON | Note |
-| --- | --- | --- | --- | --- |
-| MI + Halstead + LOC + NOM | rust-code-analysis (git HEAD) | MPL-2.0 | yes | already installed |
-| Coupling Ca/Ce/I/A/D | cargo-anatomy | MIT | yes (default) | crate-level; macro-blind |
-| Mutation score | cargo-mutants | MIT | `outcomes.json` | bound via `--in-diff`/`-j`/`--timeout` |
-| Unused deps | cargo-machete | MIT | `--json` | udeps = nightly deep gate |
-| Dead code | rustc via `cargo check` | — | `--message-format=json` | + `cargo modules orphans` |
-| Public API surface | cargo-public-api | MIT | `--output json` | nightly, libs only |
-| Unsafe (dep tree) | cargo-geiger | MIT/Apache | `--output-format Json` | flaky; first-party via rg/syn |
-| Fan-in/out | cargo-modules | MPL-2.0 | DOT only | roll up to modules |
+| Metric                    | Tool                          | License    | JSON                    | Note                                   |
+| ------------------------- | ----------------------------- | ---------- | ----------------------- | -------------------------------------- |
+| MI + Halstead + LOC + NOM | rust-code-analysis (git HEAD) | MPL-2.0    | yes                     | already installed                      |
+| Coupling Ca/Ce/I/A/D      | cargo-anatomy                 | MIT        | yes (default)           | crate-level; macro-blind               |
+| Mutation score            | cargo-mutants                 | MIT        | `outcomes.json`         | bound via `--in-diff`/`-j`/`--timeout` |
+| Unused deps               | cargo-machete                 | MIT        | `--json`                | udeps = nightly deep gate              |
+| Dead code                 | rustc via `cargo check`       | —          | `--message-format=json` | + `cargo modules orphans`              |
+| Public API surface        | cargo-public-api              | MIT        | `--output json`         | nightly, libs only                     |
+| Unsafe (dep tree)         | cargo-geiger                  | MIT/Apache | `--output-format Json`  | flaky; first-party via rg/syn          |
+| Fan-in/out                | cargo-modules                 | MPL-2.0    | DOT only                | roll up to modules                     |
 
 ## Re-runnable validation checklist
 

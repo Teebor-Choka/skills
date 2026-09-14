@@ -9,9 +9,11 @@
 | Cognitive Complexity | How hard a function actually reads to a human — penalizes nesting/breaks in linear flow, unlike cyclomatic complexity | `rust-code-analysis-cli`                         |
 | Hotspots             | Complexity × how often a file is actually touched — flags complex code that's also actively changing                  | `rust-code-analysis-cli` + `git log` (see below) |
 | Duplication %        | Percentage of near-duplicate code across the project                                                                  | `jscpd`                                          |
+| IAD                  | Robert C. Martin's Instability/Abstractness/Distance-from-Main-Sequence, per crate                                    | `cargo-anatomy`                                  |
 
-No verified tool computes Robert C. Martin's Instability/Abstractness/Distance-from-
-Main-Sequence metrics for Rust — see Known limitation below.
+IAD is computed at the **crate** level (each workspace crate is a Martin "package").
+No verified tool computes it at the intra-crate **module** level for Rust — see Known
+limitation below.
 
 Cyclomatic complexity and test coverage come free from `cargo-crap`'s own report (its
 `CC` and coverage columns) — no separate tool needed for either.
@@ -22,7 +24,14 @@ Cyclomatic complexity and test coverage come free from `cargo-crap`'s own report
 CRAP(m)   = CC² × (1 − cov)³ + CC                                    -- >30 flagged
 FileRisk  = (log2(1 + L) / 10) × (P + 0.5·ΣCᵢ + 0.5·D + 2.0·B)        -- default threshold 20
 Hotspot   = touches × cognitive-complexity-sum, per file
+I = Ce / (Ca + Ce)   A = traits / N   D = |A + I − 1| / √2   (per crate)
 ```
+
+`Ca`/`Ce` afferent/efferent coupling (crates depending on this crate's types vs. this
+crate depending on others'), `A` abstractness (fraction of a crate's `N` types that are
+traits), `I` instability, `D` normalized distance from the main sequence. `cargo-anatomy`
+also reports the un-normalized `D' = |A + I − 1|`, plus `N`, `R` (internal relations),
+and `H = (R+1)/N` relational cohesion.
 
 `CC` cyclomatic complexity, `cov` fraction covered. `L` effective lines, `P` private
 functions, `Cᵢ` their complexity, `D`/`B` private data-only/behavioural helper structs.
@@ -42,6 +51,14 @@ CI-mature output (`--format sarif/github/pr-comment`, `--baseline`/`--fail-regre
 **`cargo-iceberg4rust`** — pure static `syn`-AST analysis. No build or coverage step,
 no extra toolchain component — the cheapest tool here, and it catches file-level mess
 per-function checks can't.
+
+**`cargo-anatomy`** (MIT) — the one tool found that computes Martin's full Ca/Ce/I/A/D
+set for Rust, at the crate level, JSON by default. Same `syn`-AST + `cargo_metadata`
+approach a from-scratch build would take, so adopting it avoids reimplementing name
+resolution. Defines abstractness as traits/total-types — the natural Rust reading of
+Martin's abstract-vs-concrete split. Two caveats: it's crate-level only (no intra-crate
+module resolution), and it sees source as written, so **macro-generated types are
+invisible unless `cargo expand` runs first**.
 
 **`rust-code-analysis-cli`** (Mozilla, MPL-2.0) — the only real Cognitive Complexity
 tool found for Rust; `clippy`'s own `cognitive_complexity` lint explicitly disclaims
@@ -75,7 +92,8 @@ what Cognitive Complexity already requires.
 
 ## Getting the tools
 
-`cargo install cargo-crap cargo-iceberg4rust jscpd` works anywhere Rust does. Coverage
+`cargo install cargo-crap cargo-iceberg4rust cargo-anatomy jscpd` works anywhere Rust
+does. Coverage
 needs `cargo-llvm-cov` (`cargo install cargo-llvm-cov`) plus the `llvm-tools-preview`
 toolchain component — `cargo-tarpaulin` skips that component but its ptrace-based
 engine is Linux-only. Cognitive Complexity and Hotspots both need
@@ -126,15 +144,16 @@ workspace-root-only manifest has no `[package]` section to derive a name from at
 and there is genuinely no single member to disambiguate to without one. `cargo-crap`
 has no such issue — `--path` is a plain filesystem walk, so both pointings work.
 
-**No Instability/Abstractness/Distance-from-Main-Sequence (Robert C. Martin,
-_Agile Software Development: Principles, Patterns, and Practices_, 2002).**
-`cargo-modules` is a dependency-graph _visualizer_ (Graphviz/tree output only, no
-numeric coupling); `cargo-coupling` sounds related but implements a different
-framework entirely (Vlad Khononov's Integration Strength/Distance/Volatility model,
-not Martin's Ca/Ce/I/A/D formulas) — checked directly against its own README rather
-than assumed from its name. No tool computing Martin's actual formulas was found for
-Rust. Python has one (`pyscn` — see `references/python.md`); this stays an open gap
-here rather than an invented approximation.
+**Instability/Abstractness/Distance (Robert C. Martin, _Agile Software Development:
+Principles, Patterns, and Practices_, 2002) — crate level only.** `cargo-anatomy`
+computes the full Ca/Ce/I/A/D set per crate (the IAD metric above). What it does _not_
+do is intra-crate, **module**-level coupling, and no verified tool does: `cargo-modules`
+is a dependency-graph _visualizer_ (Graphviz/tree output only, no numeric coupling), and
+`cargo-coupling` sounds related but implements a different framework entirely (Vlad
+Khononov's Integration Strength/Distance/Volatility model, not Martin's formulas) —
+checked directly against its own README, not assumed from its name. Accurate
+module-level Ca/Ce would need `rust-analyzer`'s own name resolution; that stays an open
+gap here rather than an invented approximation.
 
 **Hotspots requires a real git working copy.** Churn counting needs `.git` history —
 a bare checkout, tarball, or shallow clone (`git clone --depth`) has none or an

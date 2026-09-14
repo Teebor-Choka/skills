@@ -54,6 +54,13 @@
       {
         formatter = treefmtEval.config.build.wrapper;
 
+        # The code-quality skill's non-nixpkgs tools, pinned in
+        # ./nix/code-quality-tools.nix, exposed so each can be built and run
+        # on its own (`nix build .#cargo-anatomy`) -- not just as a hidden
+        # dependency of the code-quality-tests check. Gated to the same two
+        # systems that check runs on (some tools ship no aarch64-linux build).
+        packages = pkgs.lib.optionalAttrs codeQualitySupportedSystem codeQualityTools;
+
         checks = {
           formatting = treefmtEval.config.build.check self;
 
@@ -130,6 +137,7 @@
                   pkgs.jq
                   codeQualityTools.cargo-crap
                   codeQualityTools.cargo-iceberg4rust
+                  codeQualityTools.cargo-anatomy
                   codeQualityTools.jscpd
                   (pkgs.python3.withPackages (ps: [
                     ps.pytest

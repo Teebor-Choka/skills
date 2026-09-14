@@ -59,7 +59,7 @@ lang_for_manifest() {
 # disk, so adding a metric to a language means adding it here too.
 metrics_for() {
   case "$1" in
-  rust) echo "filerisk crap cognitive hotspots duplication" ;;
+  rust) echo "filerisk crap cognitive hotspots duplication iad" ;;
   python) echo "crap cognitive hotspots duplication iad" ;;
   *) return 1 ;;
   esac
@@ -78,6 +78,7 @@ tools_for_job() {
   rust:cognitive) printf '%s\n' "${rust_tools_cognitive[@]}" ;;
   rust:hotspots) printf '%s\n' "${rust_tools_hotspots[@]}" ;;
   rust:duplication) printf '%s\n' "${rust_tools_duplication[@]}" ;;
+  rust:iad) printf '%s\n' "${rust_tools_iad[@]}" ;;
   python:crap) printf '%s\n' "${python_tools_crap[@]}" ;;
   python:cognitive) printf '%s\n' "${python_tools_cognitive[@]}" ;;
   python:hotspots) printf '%s\n' "${python_tools_hotspots[@]}" ;;

@@ -3,8 +3,8 @@
 # the Main Sequence (Agile Software Development: Principles, Patterns, and
 # Practices, 2002), via pyscn.
 #
-# No Rust equivalent: no verified tool computes these formulas for Rust (see
-# references/rust.md's Known limitation) — this script has no rust/ sibling.
+# Rust computes the same metric a different way — per crate via cargo-anatomy
+# (lang/rust/iad.sh) — since pyscn is Python-only.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -39,6 +39,7 @@ RUST_TOOLS = [
     "cargo",
     "cargo-crap",
     "cargo-iceberg4rust",
+    "cargo-anatomy",
     "cargo-llvm-cov",
     "rust-code-analysis-cli",
     "jscpd",
@@ -143,6 +144,7 @@ def test_discovery_found_every_tool(measure):
     assert measure["discovery"]["missing"] == []
     assert set(measure["discovery"]["available"]) == {
         "rust:filerisk", "rust:crap", "rust:cognitive", "rust:hotspots", "rust:duplication",
+        "rust:iad",
         "python:crap", "python:cognitive", "python:hotspots", "python:duplication", "python:iad",
     }
 
@@ -187,6 +189,23 @@ def test_rust_hotspots(measure):
 
 def test_rust_duplication_finds_none(measure):
     assert measure["results"]["rust:duplication"]["summary"]["clones"] == 0
+
+
+def test_rust_iad_single_crate(measure):
+    # The rust-sample fixture is one leaf crate with no other workspace member
+    # to couple to, so Ca=Ce=0. It also has zero type definitions (only
+    # functions), the N=0 case: cargo-anatomy yields a=0, i=0, d=|0+0-1|/sqrt2
+    # rather than a NaN from the 0/0 -- confirming the metric degrades cleanly
+    # in the pipeline. The real coupling relationship is exercised by
+    # test_rust_iad_workspace below.
+    rows = {r["crate"]: r for r in measure["results"]["rust:iad"]["rows"]}
+    assert set(rows) == {"sample"}
+    assert rows["sample"]["ca"] == 0
+    assert rows["sample"]["ce"] == 0
+    assert rows["sample"]["abstractness"] == pytest.approx(0.0)
+    assert rows["sample"]["instability"] == pytest.approx(0.0)
+    assert rows["sample"]["distance"] == pytest.approx(0.7071067811865475)
+    assert measure["results"]["rust:iad"]["summary"]["crates"] == 1
 
 
 def test_python_crap(measure):
@@ -237,3 +256,50 @@ def test_python_iad(measure):
     assert rows["pkg.helpers"]["ce"] == 1
     assert rows["pkg.helpers"]["instability"] == 1
     assert rows["pkg.helpers"]["abstractness"] == 0
+
+
+@pytest.fixture(scope="module")
+def rust_workspace_manifest(tmp_path_factory) -> Path:
+    """A writable copy of the two-crate rust-iad-sample workspace. No git
+    history is synthesized (unlike the single-crate fixture): iad is a pure
+    static-analysis metric with no churn component, so it needs none."""
+    project_dir = tmp_path_factory.mktemp("rust-iad-sample")
+    shutil.copytree(FIXTURES_DIR / "rust-iad-sample", project_dir, dirs_exist_ok=True)
+    _make_writable(project_dir)
+    return project_dir / "Cargo.toml"
+
+
+def test_rust_iad_workspace(rust_workspace_manifest):
+    """rust:iad on a real two-crate workspace, exercising the Ca/Ce coupling
+    the single-crate fixture can't. `core_lib` (a Shape trait + a Circle
+    struct) is depended on by `app` (Ca=1) and depends on nothing (Ce=0) --
+    stable and half-abstract (A=0.5). `app` (one struct holding a Circle)
+    depends on core_lib (Ce=1) with nothing depending on it (Ca=0) -- fully
+    unstable and concrete. iad.sh is invoked directly rather than via the
+    combined run because run.sh takes one Cargo.toml per language and the
+    other Rust metrics want a package manifest, not a workspace root."""
+    iad = SKILL_DIR / "assets" / "lang" / "rust" / "iad.sh"
+    result = subprocess.run(
+        [str(iad), str(rust_workspace_manifest)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, f"iad.sh failed: {result.stderr}"
+    payload = json.loads(result.stdout)
+    rows = {r["crate"]: r for r in payload["rows"]}
+    assert set(rows) == {"core_lib", "app"}
+
+    assert rows["core_lib"]["ca"] == 1
+    assert rows["core_lib"]["ce"] == 0
+    assert rows["core_lib"]["instability"] == pytest.approx(0.0)
+    assert rows["core_lib"]["abstractness"] == pytest.approx(0.5)
+    assert rows["core_lib"]["distance"] == pytest.approx(0.35355339059327373)
+
+    assert rows["app"]["ca"] == 0
+    assert rows["app"]["ce"] == 1
+    assert rows["app"]["instability"] == pytest.approx(1.0)
+    assert rows["app"]["abstractness"] == pytest.approx(0.0)
+    assert rows["app"]["distance"] == pytest.approx(0.0)
+
+    assert payload["summary"]["crates"] == 2
