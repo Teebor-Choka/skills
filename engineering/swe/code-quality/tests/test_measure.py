@@ -39,6 +39,9 @@ RUST_TOOLS = [
     "cargo",
     "cargo-crap",
     "cargo-iceberg4rust",
+    "cargo-anatomy",
+    "cargo-mutants",
+    "cargo-machete",
     "cargo-llvm-cov",
     "rust-code-analysis-cli",
     "jscpd",
@@ -126,10 +129,14 @@ def measure(rust_manifest, python_manifest) -> dict:
     test below — run.sh's own parallel fan-out already covers the
     "expensive to run" concern, no need to re-run it per assertion."""
     result = subprocess.run(
-        [str(SKILL_DIR / "assets" / "run.sh"), str(rust_manifest), str(python_manifest)],
+        [
+            str(SKILL_DIR / "assets" / "run.sh"),
+            "--manifest", str(rust_manifest),
+            "--manifest", str(python_manifest),
+        ],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=300,  # several build-based metrics (crap, deadcode, api, cargo-modules) run here
     )
     assert result.returncode == 0, f"run.sh failed: {result.stderr}"
     return json.loads(result.stdout)
@@ -143,6 +150,8 @@ def test_discovery_found_every_tool(measure):
     assert measure["discovery"]["missing"] == []
     assert set(measure["discovery"]["available"]) == {
         "rust:filerisk", "rust:crap", "rust:cognitive", "rust:hotspots", "rust:duplication",
+        "rust:iad", "rust:mi", "rust:halstead", "rust:loc", "rust:nom",
+        "rust:deadcode", "rust:deps", "rust:unsafe", "rust:api", "rust:orphans", "rust:fanio",
         "python:crap", "python:cognitive", "python:hotspots", "python:duplication", "python:iad",
     }
 
@@ -187,6 +196,117 @@ def test_rust_hotspots(measure):
 
 def test_rust_duplication_finds_none(measure):
     assert measure["results"]["rust:duplication"]["summary"]["clones"] == 0
+
+
+def test_rust_iad_single_crate(measure):
+    # The rust-sample fixture is one leaf crate with no other workspace member
+    # to couple to, so Ca=Ce=0. It also has zero type definitions (only
+    # functions), the N=0 case: cargo-anatomy yields a=0, i=0, d=|0+0-1|/sqrt2
+    # rather than a NaN from the 0/0 -- confirming the metric degrades cleanly
+    # in the pipeline. The real coupling relationship is exercised by
+    # test_rust_iad_workspace below.
+    rows = {r["crate"]: r for r in measure["results"]["rust:iad"]["rows"]}
+    assert set(rows) == {"sample"}
+    assert rows["sample"]["ca"] == 0
+    assert rows["sample"]["ce"] == 0
+    assert rows["sample"]["abstractness"] == pytest.approx(0.0)
+    assert rows["sample"]["instability"] == pytest.approx(0.0)
+    assert rows["sample"]["distance"] == pytest.approx(0.7071067811865475)
+    assert measure["results"]["rust:iad"]["summary"]["crates"] == 1
+
+
+# The rust:mi/halstead/loc/nom values below are keyed to the rust_manifest
+# fixture *after* its 2 churn commits, each appending one comment line to
+# src/lib.rs (see the rust_manifest fixture): halstead and nom are
+# comment-invariant (comments are not tokens or functions), while mi and loc
+# shift with the 2 added comment lines (cloc 0 -> 2).
+def test_rust_mi(measure):
+    rows = measure["results"]["rust:mi"]["rows"]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["file"] == "src/lib.rs"
+    assert row["mi_visual_studio"] == pytest.approx(45.29717569244738)
+    assert row["mi_original"] == pytest.approx(77.45817043408502)
+    assert row["mi_sei"] == pytest.approx(54.35123432572237)
+
+
+def test_rust_halstead(measure):
+    rows = measure["results"]["rust:halstead"]["rows"]
+    row = rows[0]
+    assert row["file"] == "src/lib.rs"
+    assert row["volume"] == pytest.approx(440.92347162443184)
+    assert row["effort"] == pytest.approx(5891.22749587088)
+    assert row["vocabulary"] == 31
+    assert row["length"] == 89
+
+
+def test_rust_loc(measure):
+    rows = {r["file"]: r for r in measure["results"]["rust:loc"]["rows"]}
+    row = rows["src/lib.rs"]
+    assert row["sloc"] == 39  # 37 in the pristine fixture + 2 churn comment lines
+    assert row["ploc"] == 33
+    assert row["lloc"] == 3
+    assert row["cloc"] == 2  # the 2 churn comment lines
+    assert row["blank"] == 4
+
+
+def test_rust_nom(measure):
+    rows = {r["file"]: r for r in measure["results"]["rust:nom"]["rows"]}
+    row = rows["src/lib.rs"]
+    assert row["functions"] == 4  # classify, trivial, classify2, and the one test fn
+    assert row["closures"] == 0
+    assert row["total"] == 4
+
+
+def test_rust_structural_metrics_clean_on_sample(measure):
+    # The rust-sample fixture has no dead code (its unused fns are pub), no
+    # dependencies, and no unsafe — so the structural metrics run in the default
+    # sweep and find nothing, the "no findings" baseline.
+    assert measure["results"]["rust:deadcode"]["rows"] == []
+    assert measure["results"]["rust:deps"]["rows"] == []
+    assert measure["results"]["rust:unsafe"]["rows"] == []
+
+
+def test_rust_modulegraph_metrics_on_sample(measure):
+    # rust-sample is a single-file crate: no orphan files, a public API of its
+    # crate root plus a few pub fns, and one module (so no cross-module
+    # coupling). Exact API/fanio values are pinned on the modules fixture below.
+    assert measure["results"]["rust:orphans"]["rows"] == []
+    assert measure["results"]["rust:api"]["summary"]["public_items"] >= 3
+    fanio_modules = {r["module"] for r in measure["results"]["rust:fanio"]["rows"]}
+    assert "sample" in fanio_modules
+
+
+def test_mutation_is_excluded_from_the_default_sweep(measure):
+    # Mutation testing is far heavier than the other metrics, so run.sh leaves
+    # it out of `measure` unless CODE_QUALITY_ENABLE_MUTATION is set.
+    assert "rust:mutation" not in measure["discovery"]["available"]
+    assert "rust:mutation" not in measure["results"]
+
+
+def test_rust_mutation(rust_manifest):
+    """rust:mutation via cargo-mutants, run directly (it's opt-in in the default
+    sweep). The fixture's single test exercises only classify(), so mutants in
+    trivial()/classify2() survive: 21 mutants, 6 caught, 15 missed, 0 unviable,
+    score 6/21. Keyed to the pinned cargo-mutants version (a version change to
+    its mutation operators is a real reason for these counts to move)."""
+    mutation = SKILL_DIR / "assets" / "lang" / "rust" / "mutation.sh"
+    result = subprocess.run(
+        [str(mutation), str(rust_manifest)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, f"mutation.sh failed: {result.stderr}"
+    payload = json.loads(result.stdout)
+    s = payload["summary"]
+    assert s["total_mutants"] == 21
+    assert s["caught"] == 6
+    assert s["missed"] == 15
+    assert s["unviable"] == 0
+    assert s["score"] == pytest.approx(6 / 21)
+    assert len(payload["rows"]) == 15  # one row per surviving (missed) mutant
+    assert all(r["file"] == "src/lib.rs" for r in payload["rows"])
 
 
 def test_python_crap(measure):
@@ -237,3 +357,275 @@ def test_python_iad(measure):
     assert rows["pkg.helpers"]["ce"] == 1
     assert rows["pkg.helpers"]["instability"] == 1
     assert rows["pkg.helpers"]["abstractness"] == 0
+
+
+@pytest.fixture(scope="module")
+def rust_workspace_manifest(tmp_path_factory) -> Path:
+    """A writable copy of the two-crate rust-iad-sample workspace. No git
+    history is synthesized (unlike the single-crate fixture): iad is a pure
+    static-analysis metric with no churn component, so it needs none."""
+    project_dir = tmp_path_factory.mktemp("rust-iad-sample")
+    shutil.copytree(FIXTURES_DIR / "rust-iad-sample", project_dir, dirs_exist_ok=True)
+    _make_writable(project_dir)
+    return project_dir / "Cargo.toml"
+
+
+def test_rust_iad_workspace(rust_workspace_manifest):
+    """rust:iad on a real two-crate workspace, exercising the Ca/Ce coupling
+    the single-crate fixture can't. `core_lib` (a Shape trait + a Circle
+    struct) is depended on by `app` (Ca=1) and depends on nothing (Ce=0) --
+    stable and half-abstract (A=0.5). `app` (one struct holding a Circle)
+    depends on core_lib (Ce=1) with nothing depending on it (Ca=0) -- fully
+    unstable and concrete. iad.sh is invoked directly rather than via the
+    combined run because run.sh takes one Cargo.toml per language and the
+    other Rust metrics want a package manifest, not a workspace root."""
+    iad = SKILL_DIR / "assets" / "lang" / "rust" / "iad.sh"
+    result = subprocess.run(
+        [str(iad), str(rust_workspace_manifest)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, f"iad.sh failed: {result.stderr}"
+    payload = json.loads(result.stdout)
+    rows = {r["crate"]: r for r in payload["rows"]}
+    assert set(rows) == {"core_lib", "app"}
+
+    assert rows["core_lib"]["ca"] == 1
+    assert rows["core_lib"]["ce"] == 0
+    assert rows["core_lib"]["instability"] == pytest.approx(0.0)
+    assert rows["core_lib"]["abstractness"] == pytest.approx(0.5)
+    assert rows["core_lib"]["distance"] == pytest.approx(0.35355339059327373)
+
+    assert rows["app"]["ca"] == 0
+    assert rows["app"]["ce"] == 1
+    assert rows["app"]["instability"] == pytest.approx(1.0)
+    assert rows["app"]["abstractness"] == pytest.approx(0.0)
+    assert rows["app"]["distance"] == pytest.approx(0.0)
+
+    assert payload["summary"]["crates"] == 2
+
+
+def test_rust_iad_external_scope_no_match_falls_back(rust_workspace_manifest):
+    """CODE_QUALITY_IAD_EXTERNAL_SCOPE widens the graph to matching external
+    crates. A scope matching nothing is a hard error in cargo-anatomy ("no
+    external crates matched"), which would otherwise abort a run over a project
+    that legitimately has no matching external dependency -- iad.sh degrades to
+    the members-only view (with a stderr note) for that case. Actual external
+    inclusion needs registry dependencies and is validated on a real
+    multi-workspace repo, not in this offline, dependency-free fixture."""
+    iad = SKILL_DIR / "assets" / "lang" / "rust" / "iad.sh"
+    result = subprocess.run(
+        [str(iad), str(rust_workspace_manifest)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "CODE_QUALITY_IAD_EXTERNAL_SCOPE": "pkg-prefix:zzz-no-such-crate"},
+    )
+    assert result.returncode == 0, f"iad.sh failed: {result.stderr}"
+    assert "falling back" in result.stderr
+    payload = json.loads(result.stdout)
+    assert {r["crate"] for r in payload["rows"]} == {"core_lib", "app"}
+
+
+@pytest.fixture(scope="module")
+def structural_manifest(tmp_path_factory) -> Path:
+    """A writable copy of rust-structural-sample (one unsafe fn + one dead
+    private fn, no dependencies). Writable because rust:deadcode runs
+    `cargo check`, which needs to write target/."""
+    project_dir = tmp_path_factory.mktemp("rust-structural-sample")
+    shutil.copytree(FIXTURES_DIR / "rust-structural-sample", project_dir, dirs_exist_ok=True)
+    _make_writable(project_dir)
+    return project_dir / "Cargo.toml"
+
+
+@pytest.fixture(scope="module")
+def unuseddep_manifest(tmp_path_factory) -> Path:
+    """A writable copy of rust-unuseddep-sample (declares a `helper` path
+    dependency it never uses)."""
+    project_dir = tmp_path_factory.mktemp("rust-unuseddep-sample")
+    shutil.copytree(FIXTURES_DIR / "rust-unuseddep-sample", project_dir, dirs_exist_ok=True)
+    _make_writable(project_dir)
+    return project_dir / "Cargo.toml"
+
+
+def _run_metric(name: str, manifest: Path) -> dict:
+    script = SKILL_DIR / "assets" / "lang" / "rust" / f"{name}.sh"
+    result = subprocess.run(
+        [str(script), str(manifest)], capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == 0, f"{name}.sh failed: {result.stderr}"
+    return json.loads(result.stdout)
+
+
+def test_rust_deadcode(structural_manifest):
+    payload = _run_metric("deadcode", structural_manifest)
+    rows = payload["rows"]
+    assert len(rows) == 1
+    assert rows[0]["lint"] == "dead_code"
+    assert rows[0]["file"] == "src/lib.rs"
+    assert "dead_helper" in rows[0]["message"]
+    assert payload["summary"]["findings"] == 1
+
+
+def test_rust_unsafe(structural_manifest):
+    payload = _run_metric("unsafe", structural_manifest)
+    rows = {r["file"]: r for r in payload["rows"]}
+    # `pub unsafe fn` + the `unsafe { }` block = 2 keyword occurrences.
+    assert rows["src/lib.rs"]["unsafe"] == 2
+    assert payload["summary"] == {"files_with_unsafe": 1, "total_unsafe": 2}
+
+
+def test_rust_deps(unuseddep_manifest):
+    payload = _run_metric("deps", unuseddep_manifest)
+    rows = payload["rows"]
+    assert rows == [{"crate": "unuseddep", "dependency": "helper"}]
+    assert payload["summary"]["unused"] == 1
+
+
+@pytest.fixture(scope="module")
+def modules_manifest(tmp_path_factory) -> Path:
+    """A writable copy of rust-modules-sample: a public API, two submodules with
+    cross-module `uses` edges, and an unlinked orphan file."""
+    project_dir = tmp_path_factory.mktemp("rust-modules-sample")
+    shutil.copytree(FIXTURES_DIR / "rust-modules-sample", project_dir, dirs_exist_ok=True)
+    _make_writable(project_dir)
+    return project_dir / "Cargo.toml"
+
+
+def test_rust_api(modules_manifest):
+    payload = _run_metric("api", modules_manifest)
+    items = [r["item"] for r in payload["rows"]]
+    # crate root + widgets mod + wrap fn + Gadget struct + its id field + make_gadget.
+    # Match items by substring, not exact signature — cargo-public-api's rendering
+    # of a signature shifts between versions (0.51 vs 0.52), the count does not.
+    assert payload["summary"]["public_items"] == 6
+    assert any("struct apisample::Gadget" in i for i in items)
+    assert any("make_gadget" in i for i in items)
+    assert any("widgets::wrap" in i for i in items)
+    assert not any(i.startswith("impl ") for i in items)  # auto-trait impls filtered out
+
+
+def test_rust_orphans(modules_manifest):
+    payload = _run_metric("orphans", modules_manifest)
+    assert payload["rows"] == [{"module": "orphan", "file": "src/orphan.rs"}]
+    assert payload["summary"]["orphans"] == 1
+
+
+def test_rust_fanio(modules_manifest):
+    payload = _run_metric("fanio", modules_manifest)
+    rows = {r["module"]: r for r in payload["rows"]}
+    assert payload["summary"]["modules"] == 3
+    # widgets and make_gadget both use Gadget (owned by the crate root), so the
+    # crate root has fan_in=1 and widgets has fan_out=1; internal is isolated.
+    assert rows["apisample"]["fan_in"] == 1
+    assert rows["apisample"]["fan_out"] == 0
+    assert rows["apisample::widgets"]["fan_out"] == 1
+    assert rows["apisample::internal"] == {
+        "module": "apisample::internal",
+        "fan_in": 0,
+        "fan_out": 0,
+    }
+
+
+def test_relevant_selection_runs_only_authority_backed_metrics(rust_manifest):
+    """`run.sh relevant` runs only the subset the field's authorities advocate
+    (see references/rust.md Provenance), omitting the pragmatic Rust-only hygiene
+    metrics. The default (`all`, exercised by the `measure` fixture) keeps them."""
+    result = subprocess.run(
+        [
+            str(SKILL_DIR / "assets" / "run.sh"),
+            "--collection", "relevant",
+            "--manifest", str(rust_manifest),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, f"run.sh --collection relevant failed: {result.stderr}"
+    available = set(json.loads(result.stdout)["discovery"]["available"])
+    assert available == {
+        "rust:crap", "rust:cognitive", "rust:hotspots", "rust:duplication",
+        "rust:iad", "rust:mi", "rust:halstead", "rust:deadcode", "rust:fanio",
+    }
+    for excluded in (
+        "rust:filerisk", "rust:loc", "rust:nom", "rust:deps",
+        "rust:unsafe", "rust:api", "rust:orphans",
+    ):
+        assert excluded not in available
+
+
+@pytest.fixture(scope="module")
+def broken_manifest(tmp_path_factory) -> Path:
+    """A git working copy of a crate that doesn't compile (a syntax error). The
+    manifest is valid, so cargo metadata and the tree-sitter/text metrics run,
+    but the build/AST-based ones fail hard on it."""
+    project_dir = tmp_path_factory.mktemp("rust-broken-sample")
+    shutil.copytree(FIXTURES_DIR / "rust-broken-sample", project_dir, dirs_exist_ok=True)
+    _make_writable(project_dir)
+    subprocess.run(["git", "init", "-q"], cwd=project_dir, check=True)
+    _git_commit(project_dir, "initial")
+    return project_dir / "Cargo.toml"
+
+
+def test_a_failing_metric_does_not_break_the_pipeline(broken_manifest):
+    """All metrics fan out in parallel and their results are collected
+    independently — one metric failing must not abort the whole run. On a crate
+    that doesn't compile, the build/AST-based metrics fail hard (empty/invalid
+    output), yet collect records each as an error entry and still returns every
+    other metric's result."""
+    result = subprocess.run(
+        [
+            str(SKILL_DIR / "assets" / "run.sh"),
+            "--collection", "all",
+            "--manifest", str(broken_manifest),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    # A failed metric flags a non-zero overall exit, but stdout is still a
+    # complete, parseable JSON document (the pipeline did not break).
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    results = payload["results"]
+    errored = [k for k, v in results.items() if "error" in v]
+    succeeded = [k for k, v in results.items() if "error" not in v]
+    # Some metrics fail on non-compiling code, others still produce results —
+    # that split is the whole point.
+    assert errored, "expected at least one metric to fail on a non-compiling crate"
+    assert succeeded, "expected other metrics to still produce results"
+    # unsafe is a plain grep, so it always succeeds regardless of compilation.
+    assert "error" not in results["rust:unsafe"]
+
+
+def test_rust_filerisk_aggregates_workspace_packages(rust_workspace_manifest):
+    """filerisk runs per package and aggregates: on the two-crate workspace it
+    scores both members (no longer erroring on the virtual root)."""
+    result = subprocess.run(
+        [str(SKILL_DIR / "assets" / "lang" / "rust" / "filerisk.sh"), str(rust_workspace_manifest)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, f"filerisk.sh failed: {result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["metric"] == "filerisk"
+    assert payload["summary"]["packages"] == 2
+    # small crates trip no risk threshold, so no rows — but it ran, didn't error.
+    assert isinstance(payload["rows"], list)
+
+
+def test_rust_api_aggregates_workspace_packages(rust_workspace_manifest):
+    """api runs rustdoc per library package and aggregates the public items across
+    both crates of the workspace."""
+    result = subprocess.run(
+        [str(SKILL_DIR / "assets" / "lang" / "rust" / "api.sh"), str(rust_workspace_manifest)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, f"api.sh failed: {result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["summary"]["library_packages"] == 2
+    assert {r["package"] for r in payload["rows"]} == {"core_lib", "app"}

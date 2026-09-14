@@ -21,9 +21,10 @@ require_tools rust cognitive "${rust_tools_cognitive[@]}"
 # by testing this directly rather than trusting the --help text alone.
 project_dir="$(project_dir_of "$manifest")"
 
-tmp_dir="$(mktemp -d -t code-quality-measure.XXXXXX)"
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/code-quality-measure.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
-rust-code-analysis-cli -m -p "$project_dir" -O json -o "$tmp_dir" -w 1>&2
+# -X excludes cargo build-script-generated .rs under target/ from the metrics.
+rust-code-analysis-cli -m -p "$project_dir" -X '**/target/**' -O json -o "$tmp_dir" -w 1>&2
 
 # Recursively pulls every function-level node out of each file's nested
 # `spaces` tree — the tool doesn't offer a flat function list directly.

@@ -16,3 +16,31 @@ rust_tools_cognitive=(rust-code-analysis-cli)
 rust_tools_hotspots=(rust-code-analysis-cli jq)
 # shellcheck disable=SC2034
 rust_tools_duplication=(jscpd)
+# shellcheck disable=SC2034
+rust_tools_iad=(cargo-anatomy)
+# mi/halstead/loc/nom all read the same rust-code-analysis-cli run (see rca.sh)
+# shellcheck disable=SC2034
+rust_tools_mi=(rust-code-analysis-cli)
+# shellcheck disable=SC2034
+rust_tools_halstead=(rust-code-analysis-cli)
+# shellcheck disable=SC2034
+rust_tools_loc=(rust-code-analysis-cli)
+# shellcheck disable=SC2034
+rust_tools_nom=(rust-code-analysis-cli)
+# shellcheck disable=SC2034
+rust_tools_mutation=(cargo-mutants)
+# structural metrics: dead code from rustc via cargo; unused deps from
+# cargo-machete; unsafe density needs only grep (no metric-specific tool)
+# shellcheck disable=SC2034
+rust_tools_deadcode=(cargo)
+# shellcheck disable=SC2034
+rust_tools_deps=(cargo-machete)
+# shellcheck disable=SC2034
+rust_tools_unsafe=()
+# public API surface via cargo-public-api; orphans + fan-in/out via cargo-modules
+# shellcheck disable=SC2034
+rust_tools_api=(cargo-public-api)
+# shellcheck disable=SC2034
+rust_tools_orphans=(cargo-modules)
+# shellcheck disable=SC2034
+rust_tools_fanio=(cargo-modules)

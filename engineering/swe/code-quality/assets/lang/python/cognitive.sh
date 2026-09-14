@@ -22,7 +22,7 @@ require_tools python cognitive "${python_tools_cognitive[@]}"
 # with that argument string, inconsistent with every other metric's file
 # paths here.
 project_dir="$(project_dir_of "$manifest")"
-tmp_json="$(mktemp -t code-quality-measure.XXXXXX)"
+tmp_json="$(mktemp "${TMPDIR:-/tmp}/code-quality-measure.XXXXXX")"
 trap 'rm -f "$tmp_json"' EXIT
 (cd "$project_dir" && complexipy . --output-format json --output "$tmp_json" -q) >/dev/null 2>&1
 

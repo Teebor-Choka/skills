@@ -9,12 +9,69 @@
 | Cognitive Complexity | How hard a function actually reads to a human — penalizes nesting/breaks in linear flow, unlike cyclomatic complexity | `rust-code-analysis-cli`                         |
 | Hotspots             | Complexity × how often a file is actually touched — flags complex code that's also actively changing                  | `rust-code-analysis-cli` + `git log` (see below) |
 | Duplication %        | Percentage of near-duplicate code across the project                                                                  | `jscpd`                                          |
+| IAD                  | Robert C. Martin's Instability/Abstractness/Distance-from-Main-Sequence, per crate                                    | `cargo-anatomy`                                  |
+| MI                   | Maintainability Index per file (original / SEI / Visual Studio variants)                                              | `rust-code-analysis-cli`                         |
+| Halstead             | Halstead volume/difficulty/effort/vocabulary/length/bugs per file                                                     | `rust-code-analysis-cli`                         |
+| LOC                  | Lines-of-code family per file — SLOC/PLOC/LLOC/CLOC/BLANK (also answers "oversized module")                           | `rust-code-analysis-cli`                         |
+| NOM                  | Functions + closures per file (the other half of "oversized module")                                                  | `rust-code-analysis-cli`                         |
+| Mutation             | Test-suite strength — mutants the tests fail to catch (survivors), + a kill score. Opt-in (heavy)                     | `cargo-mutants`                                  |
+| Dead code            | rustc dead_code/unused_\* lints (pub items are never flagged)                                                         | `cargo check --message-format=json`              |
+| Unused deps          | Declared dependencies never referenced in source, per crate                                                           | `cargo-machete`                                  |
+| Unsafe               | Textual `unsafe`-keyword count per file (crude — counts comments/strings too)                                         | `grep`                                           |
+| API surface          | Count + list of a library crate's public items                                                                        | `cargo-public-api` (+ rustdoc)                   |
+| Orphans              | Source files on disk never linked into the module tree                                                                | `cargo-modules`                                  |
+| Fan-in/out           | Per-module inbound/outbound cross-module `uses` coupling                                                              | `cargo-modules`                                  |
 
-No verified tool computes Robert C. Martin's Instability/Abstractness/Distance-from-
-Main-Sequence metrics for Rust — see Known limitation below.
+IAD is computed at the **crate** level (each workspace crate is a Martin "package").
+No verified tool computes it at the intra-crate **module** level for Rust — see Known
+limitation below.
 
 Cyclomatic complexity and test coverage come free from `cargo-crap`'s own report (its
-`CC` and coverage columns) — no separate tool needed for either.
+`CC` and coverage columns) — no separate tool needed for either. **MI, Halstead, LOC and
+NOM likewise come free from the same `rust-code-analysis-cli -m -O json` run that
+Cognitive Complexity already uses** (shared in `assets/lang/rust/rca.sh`) — the tool
+emitted them all along; the skill simply surfaces them now. MI's headline is
+`mi_visual_studio` (0–100, higher better; `mi_sei` uses log2, diverging from the textbook
+SEI formula, so treat it cautiously). For a file the tool can't compute a value on (e.g.
+MI or Halstead difficulty on a file with no operands) it emits `null`, not NaN, so the
+JSON stays valid.
+
+### Provenance — who advocates each metric
+
+The selection isn't arbitrary: most of these are the measures named authorities in the
+field explicitly recommend watching. Attributed honestly — only where a specific work
+argues for the concept, not retrofitted to a famous name.
+
+- **IAD (Ca/Ce/I/A/D)** — Robert C. Martin ("Uncle Bob"), _Agile Software Development:
+  Principles, Patterns, and Practices_ (2002): the Stable-Dependencies / Stable-
+  Abstractions principles and the "distance from the main sequence" he defines there.
+- **Duplication** — Andy Hunt & Dave Thomas's DRY (_The Pragmatic Programmer_), and
+  Martin Fowler's _Refactoring_ ranks "Duplicated Code" its first code smell.
+- **Dead code** — Martin Fowler, _Refactoring_ (the "Dead Code" / "Speculative
+  Generality" smells).
+- **Fan-in/out** — Larry Constantine & Ed Yourdon's coupling/cohesion (_Structured
+  Design_, 1979), the structural-design lineage Martin builds on.
+- **Cognitive Complexity** — G. Ann Campbell / SonarSource (2016), the readability-
+  oriented refinement of complexity that superseded raw cyclomatic count for this
+  purpose.
+- **Cyclomatic Complexity** (inside CRAP) — Thomas McCabe (1976); **CRAP** — Alberto
+  Savoia & Bob Evans (2007), complexity weighted by how untested the code is.
+- **Halstead** — Maurice Halstead (1977); **Maintainability Index** — Oman &
+  Hagemeister (1992), popularized via the SEI / Visual Studio.
+- **Hotspots** (churn × complexity) — Michael Feathers and Adam Tornhill (_Your Code as
+  a Crime Scene_, _Software Design X-Rays_).
+- **Mutation testing** — DeMillo, Lipton & Sayward (1978), the classic argument that a
+  test suite is only as good as the faults it can catch.
+
+The remaining metrics are pragmatic Rust-specific hygiene with no single luminary behind
+them, and are labelled as such rather than dressed up: **FileRisk** (hidden private
+bloat, akin to Fowler's "Large Class" smell), **Unused deps**, **Unsafe** density,
+**API surface**, **Orphans**, and the **LOC**/**NOM** size counts.
+
+This split is selectable: `run.sh --collection relevant --manifest <path>` runs exactly
+the authority-backed group above (plus mutation when enabled), while `--collection all`
+— the default — adds the pragmatic hygiene metrics. For Python every metric is
+authority-backed, so `relevant` and `all` coincide.
 
 ### Formulas
 
@@ -22,7 +79,14 @@ Cyclomatic complexity and test coverage come free from `cargo-crap`'s own report
 CRAP(m)   = CC² × (1 − cov)³ + CC                                    -- >30 flagged
 FileRisk  = (log2(1 + L) / 10) × (P + 0.5·ΣCᵢ + 0.5·D + 2.0·B)        -- default threshold 20
 Hotspot   = touches × cognitive-complexity-sum, per file
+I = Ce / (Ca + Ce)   A = traits / N   D = |A + I − 1| / √2   (per crate)
 ```
+
+`Ca`/`Ce` afferent/efferent coupling (crates depending on this crate's types vs. this
+crate depending on others'), `A` abstractness (fraction of a crate's `N` types that are
+traits), `I` instability, `D` normalized distance from the main sequence. `cargo-anatomy`
+also reports the un-normalized `D' = |A + I − 1|`, plus `N`, `R` (internal relations),
+and `H = (R+1)/N` relational cohesion.
 
 `CC` cyclomatic complexity, `cov` fraction covered. `L` effective lines, `P` private
 functions, `Cᵢ` their complexity, `D`/`B` private data-only/behavioural helper structs.
@@ -41,7 +105,25 @@ CI-mature output (`--format sarif/github/pr-comment`, `--baseline`/`--fail-regre
 
 **`cargo-iceberg4rust`** — pure static `syn`-AST analysis. No build or coverage step,
 no extra toolchain component — the cheapest tool here, and it catches file-level mess
-per-function checks can't.
+per-function checks can't. It scores one package, not a virtual workspace root, so
+`filerisk.sh` enumerates the workspace members with `cargo metadata` and runs it
+per-package, aggregating the per-file rows (each tagged with its package). `api.sh`
+does the same per **library** package (rustdoc documents one crate at a time), and both
+CRAP's coverage and these run on any package count — a single-package project is just
+the one-member case.
+
+**`cargo-anatomy`** (MIT) — the one tool found that computes Martin's full Ca/Ce/I/A/D
+set for Rust, at the crate level, JSON by default. Same `syn`-AST + `cargo_metadata`
+approach a from-scratch build would take, so adopting it avoids reimplementing name
+resolution. Defines abstractness as traits/total-types — the natural Rust reading of
+Martin's abstract-vs-concrete split. Two caveats: it's crate-level only (no intra-crate
+module resolution), and it sees source as written, so **macro-generated types are
+invisible unless `cargo expand` runs first**. By default only workspace members are
+scored; set `CODE_QUALITY_IAD_EXTERNAL_SCOPE` to a cargo-anatomy scope selector (e.g.
+`pkg-prefix:hopr`, comma-separated for several) to widen the graph to matching external
+crates — needed when a project's members couple mainly to sibling crates published from
+other workspaces, where the members-only view under-reports coupling. A scope matching
+no external crate degrades to the members-only view rather than failing.
 
 **`rust-code-analysis-cli`** (Mozilla, MPL-2.0) — the only real Cognitive Complexity
 tool found for Rust; `clippy`'s own `cognitive_complexity` lint explicitly disclaims
@@ -51,6 +133,37 @@ itself in its source comments as a rough approximation, restriction-tier, warnin
 `master`, so this is installed via `cargo install --git` rather than from crates.io
 (see Getting the tools below) — the COGNITIVE metric itself already existed well
 before that stale release, confirmed directly in source.
+
+**`cargo-mutants`** (MIT) — mutation testing on the unmodified tree with a stable
+toolchain, emitting machine-readable `mutants.out/outcomes.json`; the kill score is
+`caught / (total_mutants − unviable)`, guarding the all-unviable case (it reports
+`missed: 0` and exits 0 — "passes having tested nothing"). It exits nonzero when mutants
+survive/time out, a finding rather than an error (like `cargo-iceberg4rust`'s exit 2), so
+`mutation.sh` trusts a valid `outcomes.json` over the exit code. Because it rebuilds and
+reruns the whole test suite once per mutant, it's an order of magnitude heavier than the
+static metrics, so run.sh leaves it **out of the default `measure` sweep** unless
+`CODE_QUALITY_ENABLE_MUTATION` is set; `mutation.sh` is also runnable directly. On a large
+project bound it with `CODE_QUALITY_MUTATION_ARGS` (e.g. `--in-diff changes.diff`, `-j 4`).
+
+**Structural metrics (dead code, unused deps, unsafe).** Dead code uses rustc's own
+`dead_code`/`unused_*` lints via `cargo check --message-format=json` — no new tool, but
+rustc never flags a `pub` item, so a genuinely-unused public API won't show (the module
+`orphans` view, still an open follow-up, would catch those). Unused dependencies use
+`cargo-machete` (MIT), a static source/manifest scan — no build or network; this version
+has no JSON output so its text report is parsed (exit 1 = found unused, 0 = none). Unsafe
+density is a plain word-boundary `grep` count per file, deliberately crude (it counts the
+keyword in comments and strings too) and dependency-free; `cargo-geiger` would give
+dependency-tree accounting but is flaky on complex workspaces, so it's left out.
+
+**Module-graph metrics (API surface, orphans, fan-in/out).** `cargo-public-api` needs
+rustdoc JSON, an unstable format normally requiring nightly; `api.sh` unlocks it on the
+stable toolchain with `RUSTC_BOOTSTRAP=1` (the standard CI escape hatch) instead of
+depending on a nightly install — library crates only, and auto-trait/blanket impls (which
+`--simplified` doesn't fully drop) are filtered so the count is the crate's own declared
+public items. `cargo-modules` (rust-analyzer-based, stable toolchain) provides both
+`orphans` (files never linked with `mod`, which rustc can't see) and `dependencies` (a
+Graphviz DOT graph, no JSON — color disabled via `NO_COLOR`); `fanio.sh` rolls its
+item-level `uses` edges up to owning modules for per-module fan-in/out.
 
 **`jscpd`** (MIT) — one tool covers both Rust and Python duplication detection with a
 single consistent percentage, rather than a separate per-language tool. Confirmed via
@@ -75,7 +188,9 @@ what Cognitive Complexity already requires.
 
 ## Getting the tools
 
-`cargo install cargo-crap cargo-iceberg4rust jscpd` works anywhere Rust does. Coverage
+`cargo install cargo-crap cargo-iceberg4rust cargo-anatomy cargo-mutants cargo-machete cargo-public-api cargo-modules jscpd`
+works anywhere Rust does (dead code and unsafe need only `cargo` and `grep`; API surface
+additionally shells `RUSTC_BOOTSTRAP=1 cargo rustdoc` on stable). Coverage
 needs `cargo-llvm-cov` (`cargo install cargo-llvm-cov`) plus the `llvm-tools-preview`
 toolchain component — `cargo-tarpaulin` skips that component but its ptrace-based
 engine is Linux-only. Cognitive Complexity and Hotspots both need
@@ -86,9 +201,10 @@ working copy for the target project (see Known limitation below).
 
 ## Invocation
 
-`assets/run.sh <manifest-path>` (the generic entrypoint — see SKILL.md; it also
-accepts other languages' manifests alongside this one for multi-language projects)
-does discovery (what's on `PATH`), fan-out (each available metric, in parallel), and
+`assets/run.sh --manifest <manifest-path>` (the generic entrypoint — see SKILL.md; it
+also accepts other languages' manifests via more `--manifest` flags for multi-language
+projects) does discovery (what's on `PATH`), fan-out (each available metric, in parallel),
+and
 prints one combined JSON object on stdout — nothing else. CRAP isn't fully
 independent the way FileRisk is — it needs its own coverage pass first — but still
 runs as one parallel branch. Pass a pre-generated lcov file as
@@ -126,20 +242,22 @@ workspace-root-only manifest has no `[package]` section to derive a name from at
 and there is genuinely no single member to disambiguate to without one. `cargo-crap`
 has no such issue — `--path` is a plain filesystem walk, so both pointings work.
 
-**No Instability/Abstractness/Distance-from-Main-Sequence (Robert C. Martin,
-_Agile Software Development: Principles, Patterns, and Practices_, 2002).**
-`cargo-modules` is a dependency-graph _visualizer_ (Graphviz/tree output only, no
-numeric coupling); `cargo-coupling` sounds related but implements a different
-framework entirely (Vlad Khononov's Integration Strength/Distance/Volatility model,
-not Martin's Ca/Ce/I/A/D formulas) — checked directly against its own README rather
-than assumed from its name. No tool computing Martin's actual formulas was found for
-Rust. Python has one (`pyscn` — see `references/python.md`); this stays an open gap
-here rather than an invented approximation.
+**Instability/Abstractness/Distance (Robert C. Martin, _Agile Software Development:
+Principles, Patterns, and Practices_, 2002) — crate level only.** `cargo-anatomy`
+computes the full Ca/Ce/I/A/D set per crate (the IAD metric above). What it does _not_
+do is intra-crate, **module**-level coupling, and no verified tool does: `cargo-modules`
+is a dependency-graph _visualizer_ (Graphviz/tree output only, no numeric coupling), and
+`cargo-coupling` sounds related but implements a different framework entirely (Vlad
+Khononov's Integration Strength/Distance/Volatility model, not Martin's formulas) —
+checked directly against its own README, not assumed from its name. Accurate
+module-level Ca/Ce would need `rust-analyzer`'s own name resolution; that stays an open
+gap here rather than an invented approximation.
 
 **Hotspots requires a real git working copy.** Churn counting needs `.git` history —
 a bare checkout, tarball, or shallow clone (`git clone --depth`) has none or an
 incomplete one; `hotspots.sh` checks for both and reports a clear skip rather than a
 misleadingly low (or zero) score.
 
-Mutation testing and module-size metrics aren't covered yet — tracked as a follow-up
-rather than guessed at here.
+Module-size (LOC/NOM), mutation testing, public API surface, orphans, and module-level
+fan-in/out are all covered now. The remaining known gap is intra-crate module-level
+Martin coupling (I/A/D) — see the note above; no verified tool provides it.

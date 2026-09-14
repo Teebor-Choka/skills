@@ -33,6 +33,54 @@ rec {
     doCheck = false;
   };
 
+  # Computes Robert C. Martin's package metrics (Ca/Ce/I/A/D + D') per crate
+  # in a workspace, treating each crate as a "package" and each type
+  # (struct/enum/trait/type) as a "class" -- traits are the abstract ones.
+  # JSON is the default output. Static syn-AST + cargo_metadata analysis, no
+  # build/coverage step. See engineering/swe/code-quality/references/rust.md.
+  cargo-anatomy = pkgs.rustPlatform.buildRustPackage {
+    pname = "cargo-anatomy";
+    version = "0.7.7";
+    src = pkgs.fetchCrate {
+      pname = "cargo-anatomy";
+      version = "0.7.7";
+      hash = "sha256-g/QH1QVYW06sM8RvixAMpJw4kRi8qVGu//s2SOAPziE=";
+    };
+    cargoHash = "sha256-Cdm25jK/5xpMhpQdYtfwkBqyWMK94twX9iGjJGdOlSw=";
+    doCheck = false;
+  };
+
+  # Mutation testing: rewrites each function/operator in turn, reruns the test
+  # suite, and reports which mutants survived (a killed mutant = a test caught
+  # the change). Machine-readable results land in mutants.out/outcomes.json.
+  # See engineering/swe/code-quality/references/rust.md.
+  cargo-mutants = pkgs.rustPlatform.buildRustPackage {
+    pname = "cargo-mutants";
+    version = "27.1.0";
+    src = pkgs.fetchCrate {
+      pname = "cargo-mutants";
+      version = "27.1.0";
+      hash = "sha256-GCB0py7sp67epx+tB4VRpJIeDf4WlCSTPHHTENv06rc=";
+    };
+    cargoHash = "sha256-ix/aR9SfYw14w930IhOocr8eU+895zuMxkSvtD7WaD0=";
+    doCheck = false;
+  };
+
+  # Finds unused dependencies by scanning source against Cargo.toml -- a static
+  # source/manifest scan, no build or network. `--with-metadata`/default JSON
+  # via `cargo-machete --json`. See engineering/swe/code-quality/references/rust.md.
+  cargo-machete = pkgs.rustPlatform.buildRustPackage {
+    pname = "cargo-machete";
+    version = "0.9.2";
+    src = pkgs.fetchCrate {
+      pname = "cargo-machete";
+      version = "0.9.2";
+      hash = "sha256-1RVrqJLlytBCLn+o43TlReMjZjgQ0DSZ7iRwPcOSdl0=";
+    };
+    cargoHash = "sha256-cmOMWJOSJxhjXVdwVdDnTORJRSZcQ8kdDUTJaIy8dbk=";
+    doCheck = false;
+  };
+
   # jscpd's own crates.io release currently needs rustc 1.96, one version
   # ahead of this flake's nixpkgs pin -- but npm's optionalDependencies
   # resolve to a prebuilt per-platform binary package with zero further

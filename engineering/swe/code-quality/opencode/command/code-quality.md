@@ -11,10 +11,11 @@ Call it `$SKILL_DIR`.
 
 What's available:
 
-- **`$SKILL_DIR/assets/run.sh <manifest-path> [<manifest-path> ...]`** — plain,
-  deterministic shell. Detects each manifest's language, discovers which metrics have
-  their tools installed, runs every available one across every detected language in
-  one parallel batch, and prints **pure JSON on stdout, nothing else** —
+- **`$SKILL_DIR/assets/run.sh [--collection all|relevant] --manifest <path> [--manifest <path> ...]`**
+  — plain, deterministic shell. Detects each manifest's language, discovers which metrics
+  have their tools installed, runs the selected metrics (`--collection all`, the default,
+  or the authority-backed `relevant` subset) across every detected language in one
+  parallel batch, and prints **pure JSON on stdout, nothing else** —
   `{discovery: {available, missing}, results: {"language:metric": {metric, language,
 unit, threshold, rows, summary}, ...}}`. Pass every manifest a project has in one
   call (e.g. both `Cargo.toml` and `pyproject.toml` for a mixed-language repo) to get
@@ -23,8 +24,8 @@ unit, threshold, rows, summary}, ...}}`. Pass every manifest a project has in on
   `$SKILL_DIR/assets/lang/<language>/` to run just one metric — see
   `$SKILL_DIR/references/<language>.md` for what's actually available; don't guess
   a tool chain for a language with no reference yet.
-- **`$SKILL_DIR/assets/report.sh <manifest-path> [<manifest-path> ...]`** — same
-  arguments, but runs `run.sh` internally and renders its JSON as human-readable
+- **`$SKILL_DIR/assets/report.sh [--collection all|relevant] --manifest <path> [--manifest <path> ...]`**
+  — same arguments, but runs `run.sh` internally and renders its JSON as human-readable
   tables instead. Use this when a person wants to read the output in a terminal;
   use `run.sh` directly when parsing the result yourself.
 - **The `measure-verify` subagent** — give it one finding (metric, file, function,

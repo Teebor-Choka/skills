@@ -1,0 +1,9 @@
+[package]
+name = "unuseddep"
+version = "0.1.0"
+edition = "2021"
+
+# `helper` is declared but never referenced in src/ — cargo-machete flags it.
+# A path dependency keeps this offline (no registry fetch needed).
+[dependencies]
+helper = { path = "helper" }

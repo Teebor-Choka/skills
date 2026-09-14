@@ -34,7 +34,7 @@ project_dir="$(project_dir_of "$manifest")"
 if [ -n "$supplied_lcov" ]; then
   lcov_path="$(cd "$(dirname "$supplied_lcov")" && pwd)/$(basename "$supplied_lcov")"
 else
-  lcov_path="$(mktemp -t code-quality-measure.XXXXXX)"
+  lcov_path="$(mktemp "${TMPDIR:-/tmp}/code-quality-measure.XXXXXX")"
   trap 'rm -f "$lcov_path"' EXIT
   # pytest's own progress output goes to stderr so stdout carries only the
   # crap4py report — run.sh captures each branch's stdout for the summary.

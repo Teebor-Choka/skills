@@ -94,8 +94,9 @@ import) and produced the expected values.
 
 ## Invocation
 
-`assets/run.sh <pyproject.toml-path>` (or combined with a Rust manifest for a
-multi-language repo: `assets/run.sh Cargo.toml pyproject.toml`) prints one combined
+`assets/run.sh --manifest <pyproject.toml-path>` (or combined with a Rust manifest for a
+multi-language repo: `assets/run.sh --manifest Cargo.toml --manifest pyproject.toml`)
+prints one combined
 JSON object on stdout — nothing else. `crap.sh` accepts a pre-generated lcov file as
 a second argument to skip regenerating coverage, same as Rust's. Each metric script
 under `assets/lang/python/` is also independently runnable, and each one's own
