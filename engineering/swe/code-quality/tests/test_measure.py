@@ -303,3 +303,25 @@ def test_rust_iad_workspace(rust_workspace_manifest):
     assert rows["app"]["distance"] == pytest.approx(0.0)
 
     assert payload["summary"]["crates"] == 2
+
+
+def test_rust_iad_external_scope_no_match_falls_back(rust_workspace_manifest):
+    """CODE_QUALITY_IAD_EXTERNAL_SCOPE widens the graph to matching external
+    crates. A scope matching nothing is a hard error in cargo-anatomy ("no
+    external crates matched"), which would otherwise abort a run over a project
+    that legitimately has no matching external dependency -- iad.sh degrades to
+    the members-only view (with a stderr note) for that case. Actual external
+    inclusion needs registry dependencies and is validated on a real
+    multi-workspace repo, not in this offline, dependency-free fixture."""
+    iad = SKILL_DIR / "assets" / "lang" / "rust" / "iad.sh"
+    result = subprocess.run(
+        [str(iad), str(rust_workspace_manifest)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "CODE_QUALITY_IAD_EXTERNAL_SCOPE": "pkg-prefix:zzz-no-such-crate"},
+    )
+    assert result.returncode == 0, f"iad.sh failed: {result.stderr}"
+    assert "falling back" in result.stderr
+    payload = json.loads(result.stdout)
+    assert {r["crate"] for r in payload["rows"]} == {"core_lib", "app"}

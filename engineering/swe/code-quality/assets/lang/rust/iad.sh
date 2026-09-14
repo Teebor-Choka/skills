@@ -25,11 +25,46 @@ manifest="${1:-Cargo.toml}"
 # shellcheck disable=SC2154 # rust_tools_iad comes from sourced tools.sh
 require_tools rust iad "${rust_tools_iad[@]}"
 
-# cargo-anatomy prints its JSON report to stdout by default; kept on stdout
-# (not redirected away) so a failure surfaces its own message here instead of
-# a downstream jq parse error with no context — same handling as the Python
-# sibling.
-raw="$(cargo anatomy --manifest-path "$manifest")"
+# By default cargo-anatomy scores only workspace member crates (external
+# dependency crates are excluded), so every row is a crate you own. That
+# under-reports coupling for a project whose members couple mainly to sibling
+# crates published in OTHER workspaces (verified on a real multi-workspace
+# repo: its members showed sparse intra-workspace Ca/Ce, but --include-external
+# with a scope prefix surfaced the ecosystem coupling). Set
+# CODE_QUALITY_IAD_EXTERNAL_SCOPE to one or more comma-separated cargo-anatomy
+# scope selectors (e.g. "pkg-prefix:hopr") to widen the graph to matching
+# external crates; unset = members only. The selector syntax is
+# cargo-anatomy's own (pkg:/pkg-prefix:/crate:/crate-prefix:/dep:).
+scope="${CODE_QUALITY_IAD_EXTERNAL_SCOPE:-}"
+err_file="$(mktemp)"
+trap 'rm -f "$err_file"' EXIT
+
+if [ -n "$scope" ]; then
+  set +e
+  raw="$(cargo anatomy --manifest-path "$manifest" --include-external --external-scope "$scope" 2>"$err_file")"
+  status=$?
+  set -e
+  if [ "$status" -ne 0 ]; then
+    # A scope that matches no external crate is a hard error in cargo-anatomy,
+    # not empty output — which would abort a whole `measure` run over a project
+    # that legitimately has no matching external dependency. Degrade to the
+    # members-only view (with a note) for that specific case only; any other
+    # failure still surfaces.
+    if grep -q "no external crates matched" "$err_file"; then
+      echo "iad: no external crate matched CODE_QUALITY_IAD_EXTERNAL_SCOPE='$scope' for $manifest — falling back to workspace members only" >&2
+      raw="$(cargo anatomy --manifest-path "$manifest")"
+    else
+      cat "$err_file" >&2
+      echo "iad: cargo-anatomy failed (external-scope='$scope')" >&2
+      exit 1
+    fi
+  fi
+else
+  # kept on stdout (not redirected away) so a failure surfaces its own message
+  # here rather than as a downstream jq parse error with no context — same
+  # handling as the Python sibling.
+  raw="$(cargo anatomy --manifest-path "$manifest")"
+fi
 
 if ! jq -e . >/dev/null 2>&1 <<<"$raw"; then
   echo "iad: cargo-anatomy did not produce valid JSON on stdout:" >&2

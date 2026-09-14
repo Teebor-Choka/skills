@@ -58,7 +58,12 @@ approach a from-scratch build would take, so adopting it avoids reimplementing n
 resolution. Defines abstractness as traits/total-types — the natural Rust reading of
 Martin's abstract-vs-concrete split. Two caveats: it's crate-level only (no intra-crate
 module resolution), and it sees source as written, so **macro-generated types are
-invisible unless `cargo expand` runs first**.
+invisible unless `cargo expand` runs first**. By default only workspace members are
+scored; set `CODE_QUALITY_IAD_EXTERNAL_SCOPE` to a cargo-anatomy scope selector (e.g.
+`pkg-prefix:hopr`, comma-separated for several) to widen the graph to matching external
+crates — needed when a project's members couple mainly to sibling crates published from
+other workspaces, where the members-only view under-reports coupling. A scope matching
+no external crate degrades to the members-only view rather than failing.
 
 **`rust-code-analysis-cli`** (Mozilla, MPL-2.0) — the only real Cognitive Complexity
 tool found for Rust; `clippy`'s own `cognitive_complexity` lint explicitly disclaims
