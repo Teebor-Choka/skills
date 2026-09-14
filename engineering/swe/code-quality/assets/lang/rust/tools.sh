@@ -18,3 +18,12 @@ rust_tools_hotspots=(rust-code-analysis-cli jq)
 rust_tools_duplication=(jscpd)
 # shellcheck disable=SC2034
 rust_tools_iad=(cargo-anatomy)
+# mi/halstead/loc/nom all read the same rust-code-analysis-cli run (see rca.sh)
+# shellcheck disable=SC2034
+rust_tools_mi=(rust-code-analysis-cli)
+# shellcheck disable=SC2034
+rust_tools_halstead=(rust-code-analysis-cli)
+# shellcheck disable=SC2034
+rust_tools_loc=(rust-code-analysis-cli)
+# shellcheck disable=SC2034
+rust_tools_nom=(rust-code-analysis-cli)

@@ -144,7 +144,7 @@ def test_discovery_found_every_tool(measure):
     assert measure["discovery"]["missing"] == []
     assert set(measure["discovery"]["available"]) == {
         "rust:filerisk", "rust:crap", "rust:cognitive", "rust:hotspots", "rust:duplication",
-        "rust:iad",
+        "rust:iad", "rust:mi", "rust:halstead", "rust:loc", "rust:nom",
         "python:crap", "python:cognitive", "python:hotspots", "python:duplication", "python:iad",
     }
 
@@ -206,6 +206,49 @@ def test_rust_iad_single_crate(measure):
     assert rows["sample"]["instability"] == pytest.approx(0.0)
     assert rows["sample"]["distance"] == pytest.approx(0.7071067811865475)
     assert measure["results"]["rust:iad"]["summary"]["crates"] == 1
+
+
+# The rust:mi/halstead/loc/nom values below are keyed to the rust_manifest
+# fixture *after* its 2 churn commits, each appending one comment line to
+# src/lib.rs (see the rust_manifest fixture): halstead and nom are
+# comment-invariant (comments are not tokens or functions), while mi and loc
+# shift with the 2 added comment lines (cloc 0 -> 2).
+def test_rust_mi(measure):
+    rows = measure["results"]["rust:mi"]["rows"]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["file"] == "src/lib.rs"
+    assert row["mi_visual_studio"] == pytest.approx(45.29717569244738)
+    assert row["mi_original"] == pytest.approx(77.45817043408502)
+    assert row["mi_sei"] == pytest.approx(54.35123432572237)
+
+
+def test_rust_halstead(measure):
+    rows = measure["results"]["rust:halstead"]["rows"]
+    row = rows[0]
+    assert row["file"] == "src/lib.rs"
+    assert row["volume"] == pytest.approx(440.92347162443184)
+    assert row["effort"] == pytest.approx(5891.22749587088)
+    assert row["vocabulary"] == 31
+    assert row["length"] == 89
+
+
+def test_rust_loc(measure):
+    rows = {r["file"]: r for r in measure["results"]["rust:loc"]["rows"]}
+    row = rows["src/lib.rs"]
+    assert row["sloc"] == 39  # 37 in the pristine fixture + 2 churn comment lines
+    assert row["ploc"] == 33
+    assert row["lloc"] == 3
+    assert row["cloc"] == 2  # the 2 churn comment lines
+    assert row["blank"] == 4
+
+
+def test_rust_nom(measure):
+    rows = {r["file"]: r for r in measure["results"]["rust:nom"]["rows"]}
+    row = rows["src/lib.rs"]
+    assert row["functions"] == 4  # classify, trivial, classify2, and the one test fn
+    assert row["closures"] == 0
+    assert row["total"] == 4
 
 
 def test_python_crap(measure):

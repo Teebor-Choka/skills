@@ -10,13 +10,24 @@
 | Hotspots             | Complexity × how often a file is actually touched — flags complex code that's also actively changing                  | `rust-code-analysis-cli` + `git log` (see below) |
 | Duplication %        | Percentage of near-duplicate code across the project                                                                  | `jscpd`                                          |
 | IAD                  | Robert C. Martin's Instability/Abstractness/Distance-from-Main-Sequence, per crate                                    | `cargo-anatomy`                                  |
+| MI                   | Maintainability Index per file (original / SEI / Visual Studio variants)                                              | `rust-code-analysis-cli`                         |
+| Halstead             | Halstead volume/difficulty/effort/vocabulary/length/bugs per file                                                     | `rust-code-analysis-cli`                         |
+| LOC                  | Lines-of-code family per file — SLOC/PLOC/LLOC/CLOC/BLANK (also answers "oversized module")                           | `rust-code-analysis-cli`                         |
+| NOM                  | Functions + closures per file (the other half of "oversized module")                                                  | `rust-code-analysis-cli`                         |
 
 IAD is computed at the **crate** level (each workspace crate is a Martin "package").
 No verified tool computes it at the intra-crate **module** level for Rust — see Known
 limitation below.
 
 Cyclomatic complexity and test coverage come free from `cargo-crap`'s own report (its
-`CC` and coverage columns) — no separate tool needed for either.
+`CC` and coverage columns) — no separate tool needed for either. **MI, Halstead, LOC and
+NOM likewise come free from the same `rust-code-analysis-cli -m -O json` run that
+Cognitive Complexity already uses** (shared in `assets/lang/rust/rca.sh`) — the tool
+emitted them all along; the skill simply surfaces them now. MI's headline is
+`mi_visual_studio` (0–100, higher better; `mi_sei` uses log2, diverging from the textbook
+SEI formula, so treat it cautiously). For a file the tool can't compute a value on (e.g.
+MI or Halstead difficulty on a file with no operands) it emits `null`, not NaN, so the
+JSON stays valid.
 
 ### Formulas
 
@@ -165,5 +176,5 @@ a bare checkout, tarball, or shallow clone (`git clone --depth`) has none or an
 incomplete one; `hotspots.sh` checks for both and reports a clear skip rather than a
 misleadingly low (or zero) score.
 
-Mutation testing and module-size metrics aren't covered yet — tracked as a follow-up
-rather than guessed at here.
+Module-size is now covered (the LOC and NOM metrics above). Mutation testing isn't yet —
+tracked as a follow-up rather than guessed at here.
