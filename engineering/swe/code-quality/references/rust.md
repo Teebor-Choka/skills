@@ -36,6 +36,38 @@ SEI formula, so treat it cautiously). For a file the tool can't compute a value 
 MI or Halstead difficulty on a file with no operands) it emits `null`, not NaN, so the
 JSON stays valid.
 
+### Provenance — who advocates each metric
+
+The selection isn't arbitrary: most of these are the measures named authorities in the
+field explicitly recommend watching. Attributed honestly — only where a specific work
+argues for the concept, not retrofitted to a famous name.
+
+- **IAD (Ca/Ce/I/A/D)** — Robert C. Martin ("Uncle Bob"), _Agile Software Development:
+  Principles, Patterns, and Practices_ (2002): the Stable-Dependencies / Stable-
+  Abstractions principles and the "distance from the main sequence" he defines there.
+- **Duplication** — Andy Hunt & Dave Thomas's DRY (_The Pragmatic Programmer_), and
+  Martin Fowler's _Refactoring_ ranks "Duplicated Code" its first code smell.
+- **Dead code** — Martin Fowler, _Refactoring_ (the "Dead Code" / "Speculative
+  Generality" smells).
+- **Fan-in/out** — Larry Constantine & Ed Yourdon's coupling/cohesion (_Structured
+  Design_, 1979), the structural-design lineage Martin builds on.
+- **Cognitive Complexity** — G. Ann Campbell / SonarSource (2016), the readability-
+  oriented refinement of complexity that superseded raw cyclomatic count for this
+  purpose.
+- **Cyclomatic Complexity** (inside CRAP) — Thomas McCabe (1976); **CRAP** — Alberto
+  Savoia & Bob Evans (2007), complexity weighted by how untested the code is.
+- **Halstead** — Maurice Halstead (1977); **Maintainability Index** — Oman &
+  Hagemeister (1992), popularized via the SEI / Visual Studio.
+- **Hotspots** (churn × complexity) — Michael Feathers and Adam Tornhill (_Your Code as
+  a Crime Scene_, _Software Design X-Rays_).
+- **Mutation testing** — DeMillo, Lipton & Sayward (1978), the classic argument that a
+  test suite is only as good as the faults it can catch.
+
+The remaining metrics are pragmatic Rust-specific hygiene with no single luminary behind
+them, and are labelled as such rather than dressed up: **FileRisk** (hidden private
+bloat, akin to Fowler's "Large Class" smell), **Unused deps**, **Unsafe** density,
+**API surface**, **Orphans**, and the **LOC**/**NOM** size counts.
+
 ### Formulas
 
 ```
