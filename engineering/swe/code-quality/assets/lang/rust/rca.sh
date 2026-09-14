@@ -21,7 +21,9 @@ rca_root_metrics() {
   out_dir="$(mktemp -d "${TMPDIR:-/tmp}/code-quality-measure.XXXXXX")"
   # -p needs an absolute path alongside -o or the tool silently analyzes
   # nothing (see cognitive.sh); callers resolve it with project_dir_of.
-  rust-code-analysis-cli -m -p "$project_dir" -O json -o "$out_dir" -w 1>&2
+  # -X excludes build artifacts: cargo build scripts generate .rs under target/
+  # (e.g. bindgen/schema output) that would otherwise pollute per-file metrics.
+  rust-code-analysis-cli -m -p "$project_dir" -X '**/target/**' -O json -o "$out_dir" -w 1>&2
   find "$out_dir" -name '*.json' -exec cat {} + | jq -s --arg prefix "$project_dir/" '
     [ .[] | { file: (.name | ltrimstr($prefix)), metrics: .metrics } ]'
   rm -rf "$out_dir"

@@ -27,7 +27,9 @@ fi
 # with N touched files no longer means N tool invocations.
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/code-quality-measure.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
-rust-code-analysis-cli -m -p "$project_dir" -O json -o "$tmp_dir" -w 1>&2
+# -X excludes target/ so build-script-generated .rs don't skew the complexity
+# join (git-churn already omits them, but this keeps the scan consistent).
+rust-code-analysis-cli -m -p "$project_dir" -X '**/target/**' -O json -o "$tmp_dir" -w 1>&2
 
 declare -A cognitive_by_file=()
 while IFS=$'\t' read -r cognitive path; do
