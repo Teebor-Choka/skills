@@ -37,3 +37,10 @@ rust_tools_deadcode=(cargo)
 rust_tools_deps=(cargo-machete)
 # shellcheck disable=SC2034
 rust_tools_unsafe=()
+# public API surface via cargo-public-api; orphans + fan-in/out via cargo-modules
+# shellcheck disable=SC2034
+rust_tools_api=(cargo-public-api)
+# shellcheck disable=SC2034
+rust_tools_orphans=(cargo-modules)
+# shellcheck disable=SC2034
+rust_tools_fanio=(cargo-modules)

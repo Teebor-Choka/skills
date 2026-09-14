@@ -90,7 +90,7 @@ test suite per mutant, run.sh keeps it OUT of the default sweep unless
 - Per-file/function breakdown from each mutant's `scenario`. Pin the version (on-disk
   schema is explicitly allowed to change).
 
-### 1.3 Structural bundle ✅ landed (core); two items deferred
+### 1.3 Structural bundle ✅ landed (complete)
 
 Shipped as separate metrics rather than one `structure.sh` (each has its own coherent
 row schema, matching the one-metric-one-script model):
@@ -104,16 +104,20 @@ row schema, matching the one-metric-one-script model):
   the deferred fan-in/out item below, both needing the cargo-modules graph.
 - **Unsafe density** ✅ — `rust:unsafe`, a word-boundary `grep` count per file (crude by
   design — counts comments/strings too); `cargo-geiger` left out as flaky.
-- **Public API surface** ⏳ deferred — `cargo-public-api` needs a **nightly** toolchain,
-  which the flake's stable `code-quality-tests` check can't provide cleanly.
-- **Fan-in/out + orphans** ⏳ deferred — needs the `cargo-modules` rust-analyzer graph
-  (DOT, no JSON) rolled up to modules; highest effort, lowest priority.
+- **Public API surface** ✅ — `rust:api` via `cargo-public-api`. The nightly requirement
+  (rustdoc JSON) is sidestepped with `RUSTC_BOOTSTRAP=1 cargo rustdoc` on the stable
+  toolchain, so the stable check runs it unchanged.
+- **Orphans** ✅ — `rust:orphans` via `cargo modules orphans` (files never linked with
+  `mod` — what `dead_code` misses behind a `pub` surface).
+- **Fan-in/out** ✅ — `rust:fanio`, rolling `cargo modules dependencies` DOT `uses` edges
+  up to owning modules for per-module inbound/outbound coupling.
 
 **Acceptance (Phase 1):** ✅ `run.sh` emits `rust:iad`, the Phase-0 metrics, and the
 structural rows (`rust:mutation` is opt-in); each script is independently runnable and
 returns valid JSON on both a "findings" and a "no findings" fixture; each new metric has a
-fixture that actually triggers a finding. Verified by the 25-test `code-quality-tests`
-check. The two deferred items above are the remaining Phase-1 work.
+fixture that actually triggers a finding. Verified by the `code-quality-tests` check.
+**Phase 1 is complete** — the only remaining Rust gap is intra-crate module-level Martin
+coupling, which no verified tool provides (recorded in `references/rust.md`).
 
 ## Phase 2 — Generalize to arbitrary languages (DEFERRED; decision recorded)
 

@@ -18,6 +18,9 @@
 | Dead code            | rustc dead_code/unused_\* lints (pub items are never flagged)                                                         | `cargo check --message-format=json`              |
 | Unused deps          | Declared dependencies never referenced in source, per crate                                                           | `cargo-machete`                                  |
 | Unsafe               | Textual `unsafe`-keyword count per file (crude — counts comments/strings too)                                         | `grep`                                           |
+| API surface          | Count + list of a library crate's public items                                                                        | `cargo-public-api` (+ rustdoc)                   |
+| Orphans              | Source files on disk never linked into the module tree                                                                | `cargo-modules`                                  |
+| Fan-in/out           | Per-module inbound/outbound cross-module `uses` coupling                                                              | `cargo-modules`                                  |
 
 IAD is computed at the **crate** level (each workspace crate is a Martin "package").
 No verified tool computes it at the intra-crate **module** level for Rust — see Known
@@ -110,6 +113,16 @@ density is a plain word-boundary `grep` count per file, deliberately crude (it c
 keyword in comments and strings too) and dependency-free; `cargo-geiger` would give
 dependency-tree accounting but is flaky on complex workspaces, so it's left out.
 
+**Module-graph metrics (API surface, orphans, fan-in/out).** `cargo-public-api` needs
+rustdoc JSON, an unstable format normally requiring nightly; `api.sh` unlocks it on the
+stable toolchain with `RUSTC_BOOTSTRAP=1` (the standard CI escape hatch) instead of
+depending on a nightly install — library crates only, and auto-trait/blanket impls (which
+`--simplified` doesn't fully drop) are filtered so the count is the crate's own declared
+public items. `cargo-modules` (rust-analyzer-based, stable toolchain) provides both
+`orphans` (files never linked with `mod`, which rustc can't see) and `dependencies` (a
+Graphviz DOT graph, no JSON — color disabled via `NO_COLOR`); `fanio.sh` rolls its
+item-level `uses` edges up to owning modules for per-module fan-in/out.
+
 **`jscpd`** (MIT) — one tool covers both Rust and Python duplication detection with a
 single consistent percentage, rather than a separate per-language tool. Confirmed via
 its own `FORMATS.md` to support `.rs` as a first-class format, not just JS/TS despite
@@ -133,8 +146,9 @@ what Cognitive Complexity already requires.
 
 ## Getting the tools
 
-`cargo install cargo-crap cargo-iceberg4rust cargo-anatomy cargo-mutants cargo-machete jscpd`
-works anywhere Rust does (dead code and unsafe need only `cargo` and `grep`). Coverage
+`cargo install cargo-crap cargo-iceberg4rust cargo-anatomy cargo-mutants cargo-machete cargo-public-api cargo-modules jscpd`
+works anywhere Rust does (dead code and unsafe need only `cargo` and `grep`; API surface
+additionally shells `RUSTC_BOOTSTRAP=1 cargo rustdoc` on stable). Coverage
 needs `cargo-llvm-cov` (`cargo install cargo-llvm-cov`) plus the `llvm-tools-preview`
 toolchain component — `cargo-tarpaulin` skips that component but its ptrace-based
 engine is Linux-only. Cognitive Complexity and Hotspots both need
@@ -201,5 +215,6 @@ a bare checkout, tarball, or shallow clone (`git clone --depth`) has none or an
 incomplete one; `hotspots.sh` checks for both and reports a clear skip rather than a
 misleadingly low (or zero) score.
 
-Module-size (LOC/NOM) and mutation testing are now covered. Still open: public API
-surface and module-level fan-in/out — tracked as a follow-up rather than guessed at here.
+Module-size (LOC/NOM), mutation testing, public API surface, orphans, and module-level
+fan-in/out are all covered now. The remaining known gap is intra-crate module-level
+Martin coupling (I/A/D) — see the note above; no verified tool provides it.

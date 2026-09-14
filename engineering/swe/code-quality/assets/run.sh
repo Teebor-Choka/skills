@@ -60,7 +60,7 @@ lang_for_manifest() {
 metrics_for() {
   case "$1" in
   rust)
-    local metrics="filerisk crap cognitive hotspots duplication iad mi halstead loc nom deadcode deps unsafe"
+    local metrics="filerisk crap cognitive hotspots duplication iad mi halstead loc nom deadcode deps unsafe api orphans fanio"
     # Mutation testing reruns the whole test suite per mutant — far heavier than
     # the rest — so it's opt-in in the default sweep (see lang/rust/mutation.sh);
     # run that script directly, or set CODE_QUALITY_ENABLE_MUTATION to include it.
@@ -94,6 +94,9 @@ tools_for_job() {
   rust:deadcode) printf '%s\n' "${rust_tools_deadcode[@]}" ;;
   rust:deps) printf '%s\n' "${rust_tools_deps[@]}" ;;
   rust:unsafe) ;; # no metric-specific tool (grep only) — emit no tool lines
+  rust:api) printf '%s\n' "${rust_tools_api[@]}" ;;
+  rust:orphans) printf '%s\n' "${rust_tools_orphans[@]}" ;;
+  rust:fanio) printf '%s\n' "${rust_tools_fanio[@]}" ;;
   python:crap) printf '%s\n' "${python_tools_crap[@]}" ;;
   python:cognitive) printf '%s\n' "${python_tools_cognitive[@]}" ;;
   python:hotspots) printf '%s\n' "${python_tools_hotspots[@]}" ;;

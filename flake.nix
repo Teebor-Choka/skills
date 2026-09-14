@@ -131,6 +131,8 @@
                   # exact case in a minimal reproduction.
                   pkgs.stdenv.cc
                   pkgs.cargo-llvm-cov
+                  pkgs.cargo-public-api
+                  pkgs.cargo-modules
                   pkgs.llvm
                   pkgs.rust-code-analysis
                   pkgs.git

@@ -132,7 +132,7 @@ def measure(rust_manifest, python_manifest) -> dict:
         [str(SKILL_DIR / "assets" / "run.sh"), str(rust_manifest), str(python_manifest)],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=300,  # several build-based metrics (crap, deadcode, api, cargo-modules) run here
     )
     assert result.returncode == 0, f"run.sh failed: {result.stderr}"
     return json.loads(result.stdout)
@@ -147,7 +147,7 @@ def test_discovery_found_every_tool(measure):
     assert set(measure["discovery"]["available"]) == {
         "rust:filerisk", "rust:crap", "rust:cognitive", "rust:hotspots", "rust:duplication",
         "rust:iad", "rust:mi", "rust:halstead", "rust:loc", "rust:nom",
-        "rust:deadcode", "rust:deps", "rust:unsafe",
+        "rust:deadcode", "rust:deps", "rust:unsafe", "rust:api", "rust:orphans", "rust:fanio",
         "python:crap", "python:cognitive", "python:hotspots", "python:duplication", "python:iad",
     }
 
@@ -261,6 +261,16 @@ def test_rust_structural_metrics_clean_on_sample(measure):
     assert measure["results"]["rust:deadcode"]["rows"] == []
     assert measure["results"]["rust:deps"]["rows"] == []
     assert measure["results"]["rust:unsafe"]["rows"] == []
+
+
+def test_rust_modulegraph_metrics_on_sample(measure):
+    # rust-sample is a single-file crate: no orphan files, a public API of its
+    # crate root plus a few pub fns, and one module (so no cross-module
+    # coupling). Exact API/fanio values are pinned on the modules fixture below.
+    assert measure["results"]["rust:orphans"]["rows"] == []
+    assert measure["results"]["rust:api"]["summary"]["public_items"] >= 3
+    fanio_modules = {r["module"] for r in measure["results"]["rust:fanio"]["rows"]}
+    assert "sample" in fanio_modules
 
 
 def test_mutation_is_excluded_from_the_default_sweep(measure):
@@ -467,3 +477,48 @@ def test_rust_deps(unuseddep_manifest):
     rows = payload["rows"]
     assert rows == [{"crate": "unuseddep", "dependency": "helper"}]
     assert payload["summary"]["unused"] == 1
+
+
+@pytest.fixture(scope="module")
+def modules_manifest(tmp_path_factory) -> Path:
+    """A writable copy of rust-modules-sample: a public API, two submodules with
+    cross-module `uses` edges, and an unlinked orphan file."""
+    project_dir = tmp_path_factory.mktemp("rust-modules-sample")
+    shutil.copytree(FIXTURES_DIR / "rust-modules-sample", project_dir, dirs_exist_ok=True)
+    _make_writable(project_dir)
+    return project_dir / "Cargo.toml"
+
+
+def test_rust_api(modules_manifest):
+    payload = _run_metric("api", modules_manifest)
+    items = [r["item"] for r in payload["rows"]]
+    # crate root + widgets mod + wrap fn + Gadget struct + its id field + make_gadget.
+    # Match items by substring, not exact signature — cargo-public-api's rendering
+    # of a signature shifts between versions (0.51 vs 0.52), the count does not.
+    assert payload["summary"]["public_items"] == 6
+    assert any("struct apisample::Gadget" in i for i in items)
+    assert any("make_gadget" in i for i in items)
+    assert any("widgets::wrap" in i for i in items)
+    assert not any(i.startswith("impl ") for i in items)  # auto-trait impls filtered out
+
+
+def test_rust_orphans(modules_manifest):
+    payload = _run_metric("orphans", modules_manifest)
+    assert payload["rows"] == [{"module": "orphan", "file": "src/orphan.rs"}]
+    assert payload["summary"]["orphans"] == 1
+
+
+def test_rust_fanio(modules_manifest):
+    payload = _run_metric("fanio", modules_manifest)
+    rows = {r["module"]: r for r in payload["rows"]}
+    assert payload["summary"]["modules"] == 3
+    # widgets and make_gadget both use Gadget (owned by the crate root), so the
+    # crate root has fan_in=1 and widgets has fan_out=1; internal is isolated.
+    assert rows["apisample"]["fan_in"] == 1
+    assert rows["apisample"]["fan_out"] == 0
+    assert rows["apisample::widgets"]["fan_out"] == 1
+    assert rows["apisample::internal"] == {
+        "module": "apisample::internal",
+        "fan_in": 0,
+        "fan_out": 0,
+    }
