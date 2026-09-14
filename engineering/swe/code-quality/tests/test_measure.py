@@ -555,27 +555,77 @@ def test_relevant_selection_runs_only_authority_backed_metrics(rust_manifest):
         assert excluded not in available
 
 
-def test_a_failing_metric_does_not_break_the_pipeline(rust_workspace_manifest):
+@pytest.fixture(scope="module")
+def broken_manifest(tmp_path_factory) -> Path:
+    """A git working copy of a crate that doesn't compile (a syntax error). The
+    manifest is valid, so cargo metadata and the tree-sitter/text metrics run,
+    but the build/AST-based ones fail hard on it."""
+    project_dir = tmp_path_factory.mktemp("rust-broken-sample")
+    shutil.copytree(FIXTURES_DIR / "rust-broken-sample", project_dir, dirs_exist_ok=True)
+    _make_writable(project_dir)
+    subprocess.run(["git", "init", "-q"], cwd=project_dir, check=True)
+    _git_commit(project_dir, "initial")
+    return project_dir / "Cargo.toml"
+
+
+def test_a_failing_metric_does_not_break_the_pipeline(broken_manifest):
     """All metrics fan out in parallel and their results are collected
-    independently — one metric failing must not abort the whole run. filerisk
-    can't score a virtual workspace-root manifest (cargo-iceberg4rust: "manifest
-    contains multiple packages") and exits nonzero with no JSON; collect records
-    that as an error entry and still returns every other metric's result."""
+    independently — one metric failing must not abort the whole run. On a crate
+    that doesn't compile, the build/AST-based metrics fail hard (empty/invalid
+    output), yet collect records each as an error entry and still returns every
+    other metric's result."""
     result = subprocess.run(
         [
             str(SKILL_DIR / "assets" / "run.sh"),
             "--collection", "all",
-            "--manifest", str(rust_workspace_manifest),
+            "--manifest", str(broken_manifest),
         ],
         capture_output=True,
         text=True,
         timeout=300,
     )
-    # The failed metric flags a non-zero overall exit, but stdout is still a
+    # A failed metric flags a non-zero overall exit, but stdout is still a
     # complete, parseable JSON document (the pipeline did not break).
     assert result.returncode != 0
     payload = json.loads(result.stdout)
-    assert "error" in payload["results"]["rust:filerisk"]
-    # every other metric still produced its real result
-    assert payload["results"]["rust:iad"]["metric"] == "iad"
-    assert payload["results"]["rust:cognitive"]["metric"] == "cognitive"
+    results = payload["results"]
+    errored = [k for k, v in results.items() if "error" in v]
+    succeeded = [k for k, v in results.items() if "error" not in v]
+    # Some metrics fail on non-compiling code, others still produce results —
+    # that split is the whole point.
+    assert errored, "expected at least one metric to fail on a non-compiling crate"
+    assert succeeded, "expected other metrics to still produce results"
+    # unsafe is a plain grep, so it always succeeds regardless of compilation.
+    assert "error" not in results["rust:unsafe"]
+
+
+def test_rust_filerisk_aggregates_workspace_packages(rust_workspace_manifest):
+    """filerisk runs per package and aggregates: on the two-crate workspace it
+    scores both members (no longer erroring on the virtual root)."""
+    result = subprocess.run(
+        [str(SKILL_DIR / "assets" / "lang" / "rust" / "filerisk.sh"), str(rust_workspace_manifest)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, f"filerisk.sh failed: {result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["metric"] == "filerisk"
+    assert payload["summary"]["packages"] == 2
+    # small crates trip no risk threshold, so no rows — but it ran, didn't error.
+    assert isinstance(payload["rows"], list)
+
+
+def test_rust_api_aggregates_workspace_packages(rust_workspace_manifest):
+    """api runs rustdoc per library package and aggregates the public items across
+    both crates of the workspace."""
+    result = subprocess.run(
+        [str(SKILL_DIR / "assets" / "lang" / "rust" / "api.sh"), str(rust_workspace_manifest)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, f"api.sh failed: {result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["summary"]["library_packages"] == 2
+    assert {r["package"] for r in payload["rows"]} == {"core_lib", "app"}

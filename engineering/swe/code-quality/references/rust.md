@@ -105,7 +105,12 @@ CI-mature output (`--format sarif/github/pr-comment`, `--baseline`/`--fail-regre
 
 **`cargo-iceberg4rust`** — pure static `syn`-AST analysis. No build or coverage step,
 no extra toolchain component — the cheapest tool here, and it catches file-level mess
-per-function checks can't.
+per-function checks can't. It scores one package, not a virtual workspace root, so
+`filerisk.sh` enumerates the workspace members with `cargo metadata` and runs it
+per-package, aggregating the per-file rows (each tagged with its package). `api.sh`
+does the same per **library** package (rustdoc documents one crate at a time), and both
+CRAP's coverage and these run on any package count — a single-package project is just
+the one-member case.
 
 **`cargo-anatomy`** (MIT) — the one tool found that computes Martin's full Ca/Ce/I/A/D
 set for Rust, at the crate level, JSON by default. Same `syn`-AST + `cargo_metadata`
