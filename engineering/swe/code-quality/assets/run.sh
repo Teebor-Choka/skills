@@ -54,21 +54,29 @@ selection="all"
 manifests=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
-  --collection=*) selection="${1#*=}" && shift ;;
+  --collection=*)
+    selection="${1#*=}"
+    shift
+    ;;
   --collection)
     [ "$#" -ge 2 ] || {
       usage
       exit 2
     }
-    selection="$2" && shift 2
+    selection="$2"
+    shift 2
     ;;
-  --manifest=*) manifests+=("${1#*=}") && shift ;;
+  --manifest=*)
+    manifests+=("${1#*=}")
+    shift
+    ;;
   --manifest)
     [ "$#" -ge 2 ] || {
       usage
       exit 2
     }
-    manifests+=("$2") && shift 2
+    manifests+=("$2")
+    shift 2
     ;;
   -h | --help)
     usage
@@ -110,15 +118,13 @@ lang_for_manifest() {
 metrics_for() {
   case "$1" in
   rust)
-    local metrics
-    if [ "$selection" = relevant ]; then
-      # The authority-backed subset (references/rust.md Provenance); omits the
-      # pragmatic Rust-only hygiene metrics — filerisk, loc, nom, deps, unsafe,
-      # api, orphans — which no named authority specifically advocates.
-      metrics="crap cognitive hotspots duplication iad mi halstead deadcode fanio"
-    else
-      metrics="filerisk crap cognitive hotspots duplication iad mi halstead loc nom deadcode deps unsafe api orphans fanio"
-    fi
+    # `relevant` is the authority-backed subset (references/rust.md Provenance);
+    # `all` adds the pragmatic Rust-only hygiene metrics that no named authority
+    # specifically advocates. One source of truth per list — `all` is derived.
+    local relevant="crap cognitive hotspots duplication iad mi halstead deadcode fanio"
+    local hygiene="filerisk loc nom deps unsafe api orphans"
+    local metrics="$relevant"
+    [ "$selection" = relevant ] || metrics="$relevant $hygiene"
     # Mutation testing (authority-backed, but it reruns the whole test suite per
     # mutant — far heavier than the rest) stays opt-in in either selection: run
     # lang/rust/mutation.sh directly, or set CODE_QUALITY_ENABLE_MUTATION.
@@ -244,13 +250,16 @@ for label in "${available_jobs[@]}"; do
   job_json="$(cat "$tmp_dir/$safe_label.out")"
   # A metric that failed hard (e.g. filerisk on a virtual workspace manifest)
   # may emit empty or non-JSON output. Don't let that abort the whole collect
-  # and discard every other metric — record it as an error entry and flag a
-  # non-zero overall status instead.
-  if jq -e . >/dev/null 2>&1 <<<"$job_json"; then
+  # and discard every other metric — record it as an error entry (keyed like a
+  # normal result, with metric/language) and flag a non-zero overall status.
+  # require_json (../_common.sh) does the validity check and echoes the offending
+  # output to stderr, so the "see stderr" note below is accurate.
+  if require_json "$job_json" "code-quality:measure/$label"; then
     results="$(jq --arg k "$label" --argjson v "$job_json" '. + {($k): $v}' <<<"$results")"
   else
     status=1
-    results="$(jq --arg k "$label" '. + {($k): {error: "metric produced no valid JSON — see stderr"}}' <<<"$results")"
+    results="$(jq --arg k "$label" --arg metric "${label#*:}" --arg lang "${label%%:*}" \
+      '. + {($k): {metric: $metric, language: $lang, error: "produced no valid JSON — see stderr"}}' <<<"$results")"
   fi
 done
 
