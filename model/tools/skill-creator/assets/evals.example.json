@@ -1,0 +1,38 @@
+{
+  "skill_name": "my-skill",
+  "outcome_evals": [
+    {
+      "id": 1,
+      "name": "adds-margin-column",
+      "prompt": "the xlsx in my downloads (Q4 sales final FINAL v2.xlsx) needs a profit-margin % column; revenue is col C, cost col D",
+      "expected_output": "A saved .xlsx with a new margin_pct column = (C-D)/C as a percentage",
+      "files": ["Q4 sales final FINAL v2.xlsx"],
+      "assertions": [
+        {
+          "text": "output file has a column named margin_pct",
+          "kind": "script"
+        },
+        {
+          "text": "margin_pct equals (revenue-cost)/revenue for row 2",
+          "kind": "script"
+        },
+        { "text": "no other sheet or column was altered", "kind": "manual" }
+      ]
+    }
+  ],
+  "trigger_evals": [
+    {
+      "query": "can you add a profit margin column to that sales spreadsheet in my downloads",
+      "should_trigger": true
+    },
+    {
+      "query": "reshape this messy csv into one row per customer",
+      "should_trigger": true
+    },
+    {
+      "query": "write a python script that reads an xlsx and pushes it to postgres nightly",
+      "should_trigger": false
+    },
+    { "query": "explain how vlookup works in excel", "should_trigger": false }
+  ]
+}
