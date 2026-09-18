@@ -127,10 +127,6 @@ a classifier detects AI fiction from structure alone at ~93% macro-F1.
 - **N5 Narrow repertoire** — safe, central choices. Allow one morally ambivalent or
   unsafe choice.
 
-Per-model shapes worth knowing: Claude tends to flat escalation and quiet epilogue
-endings; GPT to dream sequences and gossip-as-plot; Gemini to external description and
-tidy bleak endings.
-
 ## Plain-speech rules
 
 - **Say the mechanism, not the feeling** — ".toSQL() returns the exact string sent" beats

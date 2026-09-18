@@ -20,17 +20,25 @@ skills on GitHub, plus the research they cite. It is a synthesis, not a fork of 
 - **woerndl/unsloppify** (19★) — best for agentic coding output: process leakage, agent
   handoff over-structuring, generic benefit tails, and a portable regex list.
   https://github.com/woerndl/unsloppify
-- **badmuriss/unslop** (18★) — the StoryScope narrative layer, per-model fingerprints,
-  five operational modes, and a factual-integrity invariant. https://github.com/badmuriss/unslop
 - **mnapoli/skills** (13★) — a faithful pstack derivative that fills in missing rules and
   expands the jargon-noun and plain-speech sets. https://github.com/mnapoli/skills
 - **mshumer/unslop** (549★) — a generator that emits a domain-specific skill rather than a
   static list; contributes the per-domain-calibration idea. https://github.com/mshumer/unslop
 
+All skills pooled above are MIT-licensed. The narrative-layer signals (N1–N5 in
+`patterns.md`) are taken from the StoryScope paper and Wikipedia's "Signs of AI writing"
+(both cited below) and written here in our own words.
+
+See also: [badmuriss/unslop](https://github.com/badmuriss/unslop) presents a similar
+narrative layer over those same primary sources, but it is licensed **CC BY-SA 4.0**
+(ShareAlike). To keep this skill MIT we did not adapt its text; we drew the narrative layer
+from the primary sources directly.
+
 ## Research and style references
 
-- Wikipedia, "Signs of AI writing" (WikiProject AI Cleanup) — the surface taxonomy
-  backbone. https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing
+- Wikipedia, "Signs of AI writing" (WikiProject AI Cleanup), CC BY-SA 4.0 — used here as a
+  factual reference for the surface taxonomy; none of its prose is reproduced.
+  https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing
 - UMD / Google DeepMind study (2026), 61,608 texts — structural features barely drop after
   cliché removal (95.5% to 93.9% detection).
 - Russell, Rajendhran, Pham, Iyyer & Wieting, "StoryScope: Investigating Idiosyncrasies in
@@ -42,6 +50,13 @@ skills on GitHub, plus the research they cite. It is a synthesis, not a fork of 
   https://developers.google.com/style and https://developers.google.com/style/word-list
 - hardikpandya/stop-slop — false-agency signal source. https://github.com/hardikpandya/stop-slop
 - Paul Graham essays (Good Writing, The Best Essay, and others) — prose benchmarks.
+
+## Licensing
+
+This skill is MIT, like the skills it pools from. Its rules, lists, and prose are an
+original synthesis of facts and ideas (which copyright does not protect), not a copy of any
+source's text. Attribution above is given as credit and good practice. The one CC BY-SA 4.0
+source (badmuriss/unslop) was not adapted; see the note under "Skills pooled".
 
 ## Standing caveat
 
