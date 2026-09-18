@@ -3,7 +3,7 @@
 // Not invoked automatically. SKILL.md instructs Claude Code to pass this
 // file's contents to the Workflow tool (Workflow({script: <this file>}))
 // only when the user has opted into multi-agent orchestration — see
-// SKILL.md's "Running this across agent hosts" section for why.
+// references/cross-agent.md (the `measure` section) for why.
 //
 // Two phases:
 //   1. Run metrics — one agent locates the skill's own assets/run.sh

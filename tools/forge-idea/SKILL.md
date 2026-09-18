@@ -3,16 +3,18 @@ name: forge-idea
 description: >
   Forge a rough idea, thesis, or plan into a viable one through cooperative,
   research-driven iteration. Reduces it to a sharp minimal kernel, fans out
-  independent agents to stress-test each branch, then prunes dead branches and
-  reshapes the rest with what research found — looping until the idea stabilizes
-  or the user stops. Use whenever the user wants to pressure-test, validate,
-  red-team, kill-test, gut-check, poke holes in, evolve, refine, or find the
-  viable version of a business thesis, product direction, technical architecture
-  choice, strategy, or research hypothesis — especially when they say "will this
-  actually work", "is this defensible", "tear this apart", "why would this fail",
-  "how do I make this work", "what's the wedge", or "should we build X". Also
-  trigger when a premise developed in the conversation is ready to be tested
-  against reality.
+  independent agents in parallel to stress-test each branch, then prunes dead
+  branches and reshapes the rest with what research found — looping until the
+  idea stabilizes or the user stops. Use whenever the user wants to
+  pressure-test, validate, red-team, kill-test, gut-check, poke holes in,
+  evolve, refine, or find the viable version of a business thesis, product
+  direction, architecture, strategy, or research hypothesis — especially
+  phrasings like "will this actually work", "is this defensible", "tear this
+  apart", "why would this fail", "how do I make this work", "what's the wedge",
+  "should we build X", or when a premise developed in the conversation is ready
+  to be tested against reality. Do not use for open-ended fact-finding with no
+  premise to test (use a deep-research skill), for building an idea already
+  decided on, or for drafting or formatting a document.
 ---
 
 # Forge Idea
@@ -34,12 +36,14 @@ direction, architecture choice, strategic bet, research hypothesis, a "we should
 because Y" argument. If the premise is vague, the interrogation step (below) sharpens
 it before any fan-out — the agents need falsifiable claims to work on.
 
-Scale rigor to the ask. Quick gut-check = one branch (the riskiest), one round, Agent
+Scale rigor to the ask. Quick gut-check = one branch (the riskiest), one round, a single
 fan-out. "Tear this apart / thoroughly / keep going" = 5–6 branches and multiple
-rounds. Read `references/forge-tactics.md` before briefing agents and
-`references/forge-report.md` before persisting the result. The verdict schema agents
-return is `references/forge-verdict.schema.json`; for comparative
-(which-option-wins) rounds they return `references/forge-compare.schema.json` (step 3b).
+rounds. Read `references/forge-tactics.md` before briefing agents,
+`references/cross-agent.md` before spawning them (how to run the fan-out natively on
+Claude Code, Codex, or OpenCode), and `references/forge-report.md` before persisting the
+result. The verdict schema agents return is `references/forge-verdict.schema.json`; for
+comparative (which-option-wins) rounds they return
+`references/forge-compare.schema.json` (step 3b).
 
 ## Writing discipline (applies to the whole idea file)
 
@@ -53,6 +57,11 @@ claim): **[Established]** (multi-source) · **[Reported]** (single/secondary sou
 **[Vendor/Projection]** (marketing/forecast) · **[Contested]** · **[Open]** (unresolved).
 
 ## The loop
+
+The steps below are written for the default **branch mode** ("is this premise viable?").
+Comparative / judge-panel mode ("which of N options wins?" — rank candidates on shared
+criteria with a decider tie-break, no pruning): read `references/forge-comparative.md`
+before decomposing.
 
 ### 0. Detect context — file or report
 
@@ -112,9 +121,10 @@ evidence; the kernel is only what you test _first_.
 
 Build a shared factual floor before decomposing:
 
-- **Raw idea** (no prior research): invoke the **`deep-research` skill** on the core
+- **Raw idea** (no prior research): run a **deep research pass** on the core
   concepts — key terms, named technologies, the market category — and condense a
-  grounding into each agent's brief.
+  grounding into each agent's brief. Delegate this to a dedicated research skill or
+  subagent where the agent provides one (`references/cross-agent.md`).
 - **Already-explored idea** (a prior brief exists in the file): read that brief as the
   floor and research only the **deltas** since its date — what changed, what's new.
   Don't re-run deep-research to rediscover what's already written.
@@ -135,30 +145,16 @@ feasibility/team, second-order failure modes) — pick the ones this kernel rest
 
 ### 3b. Choose the fan-out mode — branch vs comparative
 
-The decompose→fan-out machinery runs in one of two modes; pick by the shape of the question.
-
-- **Branch mode (default).** The question is _"is this premise viable?"_ One load-bearing
-  **claim** per agent; each returns the `VIABLE / ADAPT / PRUNE` verdict in
-  `references/forge-verdict.schema.json`. Steps 3–8 are written for this mode.
-- **Comparative / judge-panel mode.** The question is _"which of N options wins?"_ — a beachhead,
-  a wedge, an entry angle, a domain, a monetization model. One **candidate** per agent, each
-  scored on the **same shared criteria**, returning `references/forge-compare.schema.json`. Add
-  **one cross-cutting _decider_ agent** that ranks all options on the single criterion most likely
-  to break the tie (budget-now, reachability, distribution, defensibility) and returns a brief
-  **ranked list** of the options on that one dimension (prose — not the per-candidate schema); in
-  practice the decider, not the per-candidate agents, picks the winner. The synthesis **ranks**; it does not
-  prune. Do **not** force `VIABLE/ADAPT/PRUNE` onto options — that axis measures "does a claim
-  hold," not "which is best," and collapses to a useless all-`ADAPT` result when misapplied.
-
-The modes compose across rounds: a branch-mode forge often ends by surfacing several viable
-variants, and choosing among them is a comparative-mode round.
+Branch mode (the default, steps 3–8) tests one load-bearing claim per agent. If the question
+is "which of N options wins?", switch to comparative / judge-panel mode — read
+`references/forge-comparative.md` before decomposing.
 
 ### 4. Fan out the stress-test squad (independent, structured)
 
-Spawn one agent per branch **in a single message so they run concurrently** and
-independently — they must not see each other's work; independent convergence is the
-signal. Each agent attacks its branch hard **and reports constructively**, returning
-the structured verdict in `references/forge-verdict.schema.json`:
+Spawn one agent per branch **concurrently and independently** — launch them together,
+not one after another, and they must not see each other's work; independent convergence
+is the signal. Each agent attacks its branch hard **and reports constructively**,
+returning the structured verdict in `references/forge-verdict.schema.json`:
 
 - **verdict** — VIABLE / ADAPT / PRUNE, with the failure mode (false / irrelevant /
   already-owned).
@@ -170,20 +166,25 @@ the structured verdict in `references/forge-verdict.schema.json`:
 - **opportunity_signals** — incumbent holes mined from reviews / complaints / forums /
   churn, unmet demand, wedge openings.
 
-The mandate to put in every agent's brief is verbatim in `forge-tactics.md`. (Comparative mode
-returns `forge-compare.schema.json` instead — see step 3b.)
+The mandate to put in every agent's brief is verbatim in `forge-tactics.md`.
 
-**Engine scales by rigor.** Default: `general-purpose` Agent fan-out (they web-research
-and can invoke `deep-research` scoped to their branch). For a deep "be thorough" run,
-use the `Workflow` tool for a deterministic find → adapt → prune → re-test loop, with
-the schema above as the agents' `StructuredOutput` — this skill authorizes it.
+**Engine scales by rigor.** Default: fan out general research subagents that
+web-research and can run their own scoped research pass. For a deep "be thorough" run,
+drive a deterministic find → adapt → prune → re-test loop with the verdict schema as each
+agent's structured output. Bind these stages to your agent's real mechanism — parallel
+subagents, multiple headless processes, or a workflow engine — as laid out per agent in
+`references/cross-agent.md`.
 
-**Cost guardrail.** Watch the double fan-out (grounding deep-research + per-branch
-agents each possibly invoking deep-research):
+**Cost guardrail.** Watch the double fan-out (grounding research pass + per-branch
+agents each possibly running their own research pass):
 
-- _Gut-check:_ 1 branch, 1 round, **no** nested deep-research.
-- _Thorough:_ 5–6 branches, Workflow, nested deep-research allowed.
+- _Gut-check:_ 1 branch, 1 round, **no** nested research pass.
+- _Thorough:_ 5–6 branches, orchestrated loop, nested research allowed.
   The confirm-the-kernel gate exists so a mis-aimed kernel never burns a full fan-out.
+  Match fan-out width to the kernel's load-bearing claim count — extra agents add cost and
+  redundant findings, not coverage. Split one agent across a single claim only when that
+  claim genuinely has two independent attack angles. `references/cross-agent.md` covers
+  per-agent parallelism limits.
 
 ### 5. Prune & reshape — grounded, plural, not radical
 
@@ -216,19 +217,13 @@ be a MISFIT, and a modest idea can be a strong FIT — report both honestly and 
 fit silently prune a branch or drop the idea**. The smith weighs the two axes. If no fit
 criteria were captured, skip the score and carry fit as a caveat.
 
-**In comparative mode** (step 3b) this step is a _ranking_, not a pruning: there are no branches
-to cut — order the scored candidates, let the decider's tie-breaker settle close calls, and fold
-strategic fit into the shared criteria rather than running a separate FIT/STRETCH pass.
-
 ### 6. Smith checkpoint — hand it back to the user
 
 Present, concisely: the evolved premise (and the grounded options from step 5), what
 was pruned and why, emergent variants/wedges, the open questions, **the strategic-fit
 verdict against the target** (if one was captured — stated as a distinct axis from
 world-viability, so "viable but a MISFIT for you" reads clearly), **and a recommended
-pipeline transition** (e.g. "promote raw → explored", "this reads like decided:kill"). _(In
-comparative mode, present the ranking and the winner's rationale — what ranked where and why —
-rather than what was pruned.)_
+pipeline transition** (e.g. "promote raw → explored", "this reads like decided:kill").
 Then the user decides:
 
 - **Stop** — the idea is viable enough, or clearly dead.
@@ -249,10 +244,9 @@ untouched:
 
 - evolved premise + the current kernel (with a `**Lineage:**` pointer if this idea was forked
   from another — see `references/forge-report.md`)
-- `## Branch scorecard` (comparative mode: a `## Comparative scorecard` instead — see step 3b)
+- `## Branch scorecard`
 - `## Strategic fit` — the scored fit-against-target block (only if fit criteria were
-  captured; omit for open-ended bets, and in comparative mode — fit folds into the shared
-  criteria)
+  captured; omit for open-ended bets)
 - `## Evolution` — the v0 → v1 → … trail (what each round changed and why)
 - `## Dead ends` — the pruned-branch ledger, so they aren't revisited
 - `## Viable variants` — ranked, most-alive first
@@ -264,28 +258,7 @@ restarting.
 
 ### 8. Iterate
 
-Loop steps 4–6 until the premise stabilizes (a full round changes nothing) or the user stops.
-The idea file body is the living report. Each round:
-
-- **Re-test only what changed.** Carry forward branches that already came back VIABLE; re-test
-  only the materially-changed or newly-introduced ones.
-- **Reconfirm the target on redirect.** If the smith redirected to a variant, re-confirm the fit
-  target before re-testing — a redirect can change who the idea is _for_ (and how success is even
-  measured), so a fit score against the old target measures against the wrong bar.
-- **Watch for triangulation.** A parked variant that independently reappears from a different
-  attack angle is the strongest signal there is — elevate it over freshly-generated options (the
-  cross-round convergence principle lives in `forge-tactics.md`).
-- **Stabilizing vs drifting — and fork on drift.** Distinguish **converging** (reshapes get
-  smaller each round → keep looping) from **drifting** (each round crosses a different
-  target / customer / domain and spawns a fresh premise). When a reshape crosses
-  target/customer/domain, **recommend forking** at the checkpoint (step 6) — spin out a new
-  stage-prefixed file carrying the `**Lineage:**` pointer from `references/forge-report.md`,
-  rather than mutating the parent into something it no longer is. The fork is the smith's call,
-  like every transition.
-- **Step back periodically** (every few rounds, or whenever the premise keeps drifting):
-  synthesize across the `## Dead ends` and `## Viable variants` ledgers — _what do all the
-  survivors share? what do all the prunes share?_ The through-line is often the real idea; this is how the
-  strongest thesis in a long run tends to surface.
+Running a second round: read `references/forge-iterate.md` before re-forging.
 
 ## What makes this different from a normal research pass
 

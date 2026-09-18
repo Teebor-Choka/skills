@@ -68,6 +68,12 @@ Follow this loop. It is the same discipline whichever agent you target.
 6. **Iterate.** Improve from the eval results and re-run. Generalize from feedback rather
    than overfitting to one test. Stop when the user is satisfied or gains stall.
 
+To raise an _existing_ skill set (and its `CLAUDE.md`/`AGENTS.md` and hooks) to standard,
+run the approval-gated audit in `references/auditing.md`: rewrite rules as the standard behind
+them, turn example-copying creative skills into interfaces, and route always-on context into
+reference files. Two craft principles behind it — standards over rules, and interface over
+example — are in `references/authoring.md`.
+
 ## Portability rules (the core must stay agent-neutral)
 
 These keep one `SKILL.md` working everywhere. Full rationale in `references/authoring.md`.

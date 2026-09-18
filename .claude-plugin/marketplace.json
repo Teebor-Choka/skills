@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills — practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "1.4.0"
+    "version": "1.6.0"
   },
   "plugins": [
     {
@@ -15,7 +15,7 @@
       "source": "./",
       "skills": ["./tools/forge-idea"],
       "metadata": {
-        "version": "1.0.0"
+        "version": "1.1.0"
       }
     },
     {
@@ -24,7 +24,7 @@
       "source": "./",
       "skills": ["./tools/llm-wiki"],
       "metadata": {
-        "version": "1.0.0"
+        "version": "1.1.0"
       }
     },
     {
@@ -33,7 +33,7 @@
       "source": "./",
       "skills": ["./engineering/swe/rust-engineer"],
       "metadata": {
-        "version": "1.0.0"
+        "version": "1.1.0"
       }
     },
     {
@@ -42,7 +42,7 @@
       "source": "./",
       "skills": ["./tools/hopr-debug"],
       "metadata": {
-        "version": "1.1.0"
+        "version": "1.2.0"
       }
     },
     {
@@ -51,7 +51,7 @@
       "source": "./",
       "skills": ["./engineering/swe/code-quality"],
       "metadata": {
-        "version": "1.1.0"
+        "version": "1.2.0"
       }
     },
     {
@@ -60,7 +60,7 @@
       "source": "./",
       "skills": ["./model/tools/unslop"],
       "metadata": {
-        "version": "1.0.0"
+        "version": "1.1.0"
       }
     },
     {
@@ -69,7 +69,7 @@
       "source": "./",
       "skills": ["./model/tools/skill-creator"],
       "metadata": {
-        "version": "1.0.0"
+        "version": "1.1.0"
       }
     }
   ]

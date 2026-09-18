@@ -3,7 +3,8 @@
 Pooled from the open unslop skills. Treat these as hints, not a permanent blocklist: the
 flagged sense is what to fix, the literal sense is usually fine, and any single word
 decays as a tell over time. Fix the habit (inflation, hype, copula avoidance), not the
-token.
+token. Entries marked "(never)" or "cut/delete" are the exception to the SKILL.md dose rule:
+remove them on sight rather than tolerating one instance.
 
 ## AI vocabulary → plain replacement
 

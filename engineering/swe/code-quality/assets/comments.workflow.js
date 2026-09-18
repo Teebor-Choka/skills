@@ -2,8 +2,8 @@
 //
 // Not invoked automatically. SKILL.md instructs Claude Code to pass this file's
 // contents to the Workflow tool (Workflow({script: <this file>})) only when the
-// user has opted into multi-agent orchestration — see SKILL.md's "Running the
-// `comments` workflow across hosts" section for why.
+// user has opted into multi-agent orchestration — see
+// references/cross-agent.md (the `comments` section) for why.
 //
 // One phase, unlike `measure`'s two: there's no deterministic tool to run first —
 // judging comment quality is inherently a read-through, so each file gets one

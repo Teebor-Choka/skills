@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ForgeBranchVerdict",
-  "description": "Structured output returned by one stress-test agent for one load-bearing branch of a forged idea. Use as the StructuredOutput schema when fanning out via the Agent tool or the Workflow tool.",
+  "description": "Structured output returned by one stress-test agent for one load-bearing branch of a forged idea. Use as the structured-output schema when fanning out the stress-test squad (per-agent mechanism in references/cross-agent.md).",
   "type": "object",
   "additionalProperties": false,
   "required": [

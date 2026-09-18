@@ -71,6 +71,39 @@ and bundled resources (loaded or executed on demand). Use them:
   "run a deterministic check before editing"), not a specific agent's call. The adapters bind
   intent to each agent's mechanism.
 
+## Standards over rules
+
+A rule is "never do X" or "always do Y". A capable model handles most situations better from
+the _standard behind the rule_ — the outcome the rule was protecting — than from the rule
+itself, because it can then adapt to context the rule's author never saw. Prefer the standard:
+
+- "never write comments" → "match the surrounding file's comment density and style"
+- "always add a docstring" → "make the function's contract discoverable to its callers"
+- "never use `any`" → "keep types precise enough that a caller can't misuse the value"
+
+Keep a rule hard, verbatim, only when it is a **real boundary**: something the agent must not
+touch, a legal/safety constraint, or an external contract (a fixed API shape, a required file
+name). Those are not judgment calls. Everything else reads better as a standard with the _why_
+attached. When you find yourself stacking MUSTs, you are usually encoding a standard as a rule.
+
+## Interface, not example (for creative tasks)
+
+Classify what a skill produces:
+
+- **Factory-worker task** — the output must match a fixed format every time (a commit-message
+  shape, a CSV schema, a report template). Hand it an exact example to copy, and keep it.
+- **Creative task** — the output should fit the situation (a design, an explanation, prose, an
+  architecture). Handing it one example to copy anchors every run to that example and flattens
+  the range. Instead, write the skill as an **interface**: what is needed, what the constraints
+  are, and what "done" looks like — with no single example to imitate.
+
+Give examples to constrain a format; withhold them when you want the model to think. If unsure,
+ask whether two good outputs for different inputs should look alike (factory) or different
+(creative).
+
+To audit an existing skill set against these principles and the context-routing one, see
+`auditing.md` — it runs the three as an approval-gated sweep.
+
 ## Specify before you write (AI-gap self-test)
 
 Before drafting, pin down the five things an under-specified skill leaves to chance, because

@@ -3,6 +3,8 @@
 These rules **supersede** the base [guidelines.txt](guidelines.txt) where they conflict.
 Always apply these first; fall back to guidelines.txt for topics not covered here.
 
+**Contents:** 1 Immutability & Type Safety · 2 Naming & Style · 3 Pattern Matching & Iteration · 4 Documentation · 5 Async & Concurrency · 6 Tracing & Logging · 7 Testing · 8 Error Handling · 9 Crate Layout & Features · 10 Configurability · 11 Builder Pattern · 12 Build & Release Workflow · 13 Blanket Impls for Smart Pointers
+
 ---
 
 ## 1. Immutability & Type Safety
@@ -85,7 +87,7 @@ let chain_inst = StubChain::new(&peer_keys[i].0, &peer_keys[i].1);
 
 ## 4. Documentation
 
-**Write `///` doc comments for all public items.** First sentence: one line, ~15 words (reinforces `M-FIRST-DOC-SENTENCE`).
+**Make every public item's contract discoverable to its callers** via `///` docs — a caller who can't read the impl should still know how to use it correctly. First sentence: one line, ~15 words (reinforces `M-FIRST-DOC-SENTENCE`).
 
 **Document the "why" for constraints and limits**, not just the value:
 
@@ -174,7 +176,7 @@ fn validator_should_accept_positive_numbers(#[case] input: u32, #[case] expected
 
 **Application crates** may use `anyhow`/`eyre` (overrides `M-ERRORS-CANONICAL-STRUCTS`). **Library crates** must use canonical error structs.
 
-**Always use `.context()`, never raw `unwrap()`** in production code. Tests with fallible operations must return `anyhow::Result<()>`:
+**Surface fallible errors with context** (`.context()`) in production code; reserve `unwrap`/`expect` for values you can prove infallible or for asserting a broken invariant, and say why. Tests with fallible operations must return `anyhow::Result<()>`:
 
 ```rust
 #[test]

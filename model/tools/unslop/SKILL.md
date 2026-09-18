@@ -112,6 +112,12 @@ feeling, one idea per sentence, active voice, cut adverbs, vary sentence length.
 - Read one paragraph aloud: would a person explaining this sound like this? If not,
   keep going.
 
+## Running across agents
+
+One portable `SKILL.md` — runs unchanged on Claude Code, Codex, and OpenCode, single-pass with
+no adapter. For a large multi-document sweep, delegate one pass per file to subagents (see the
+`skill-creator` skill).
+
 ## Sources
 
 Pooled from the main open "unslop" skills and their cited research. Full list with URLs
