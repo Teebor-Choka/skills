@@ -3,12 +3,14 @@ name: unslop
 description: >
   Edit writing to remove AI tells (the machine patterns that make text read as
   LLM-generated) and restore a plain, human voice, preserving meaning, facts, code,
-  and register. Use whenever asked to "unslop", "de-slop", "humanize", "make this
-  sound less like AI", "remove AI-isms", or to review or rewrite prose (docs,
-  READMEs, commit messages, PRs, blog posts, emails) for AI writing tells before
-  publishing. Also trigger when text is called robotic, sycophantic, generic, or
-  over-structured. Edits prose only; it is not a grammar checker and never changes
-  code logic or invents facts.
+  and register. Apply it to essentially all natural-language output to the user, not
+  only on request: when asked to "unslop", "de-slop", "humanize", "make this sound
+  less like AI", or "remove AI-isms"; whenever generating or reviewing the prose
+  parts of engineering work (commit messages, PR descriptions, code reviews,
+  summaries, docs, READMEs); and for general prose (blog posts, emails, reports)
+  before it is shown or published. Also trigger when text is called robotic,
+  sycophantic, generic, or over-structured. Edits prose only; it is not a grammar
+  checker and never changes code logic or invents facts.
 ---
 
 # Unslop

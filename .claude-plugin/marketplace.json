@@ -58,7 +58,7 @@
       "name": "unslop",
       "description": "Edit writing to remove AI tells and restore a plain, human voice — for docs, READMEs, commits, and posts.",
       "source": "./",
-      "skills": ["./tools/unslop"],
+      "skills": ["./model/tools/unslop"],
       "metadata": {
         "version": "1.0.0"
       }
