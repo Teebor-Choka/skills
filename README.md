@@ -4,14 +4,28 @@ Public AI agent skills for [Claude Code](https://claude.ai/code) and compatible 
 
 ## Skills
 
+Grouped by source directory (see [Repository layout](#repository-layout)).
+
+### tools
+
+| Skill                                     | Description                                                                       |
+| ----------------------------------------- | --------------------------------------------------------------------------------- |
+| [forge-idea](./tools/forge-idea/SKILL.md) | Forge rough ideas into viable ones through cooperative, research-driven iteration |
+| [llm-wiki](./tools/llm-wiki/SKILL.md)     | Create, maintain, and query a personal knowledge wiki designed for LLM navigation |
+| [hopr-debug](./tools/hopr-debug/SKILL.md) | HOPR mixnet debugging aid — loads ground-truth protocol knowledge (RFC-0001–0014) |
+
+### model/tools
+
+| Skill                                   | Description                                                      |
+| --------------------------------------- | ---------------------------------------------------------------- |
+| [unslop](./model/tools/unslop/SKILL.md) | Edit writing to remove AI tells and restore a plain, human voice |
+
+### engineering/swe
+
 | Skill                                                     | Description                                                                           |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [forge-idea](./tools/forge-idea/SKILL.md)                 | Forge rough ideas into viable ones through cooperative, research-driven iteration     |
-| [llm-wiki](./tools/llm-wiki/SKILL.md)                     | Create, maintain, and query a personal knowledge wiki designed for LLM navigation     |
 | [rust-engineer](./engineering/swe/rust-engineer/SKILL.md) | Enforce Rust code quality and guidelines throughout Rust development                  |
-| [hopr-debug](./tools/hopr-debug/SKILL.md)                 | HOPR mixnet debugging aid — loads ground-truth protocol knowledge (RFC-0001–0014)     |
 | [code-quality](./engineering/swe/code-quality/SKILL.md)   | Audit code for risk via complexity, coverage, structural metrics, and comment quality |
-| [unslop](./model/tools/unslop/SKILL.md)                   | Edit writing to remove AI tells and restore a plain, human voice                      |
 
 ## Install
 
