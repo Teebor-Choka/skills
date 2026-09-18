@@ -16,9 +16,10 @@ Grouped by source directory (see [Repository layout](#repository-layout)).
 
 ### model/tools
 
-| Skill                                   | Description                                                      |
-| --------------------------------------- | ---------------------------------------------------------------- |
-| [unslop](./model/tools/unslop/SKILL.md) | Edit writing to remove AI tells and restore a plain, human voice |
+| Skill                                                 | Description                                                                            |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [unslop](./model/tools/unslop/SKILL.md)               | Edit writing to remove AI tells and restore a plain, human voice                       |
+| [skill-creator](./model/tools/skill-creator/SKILL.md) | Author cross-agent skills (Claude Code, Codex, OpenCode) with triggering and workflows |
 
 ### engineering/swe
 
@@ -50,6 +51,7 @@ tools/
   hopr-debug/           # skill: hopr-debug
 model/tools/
   unslop/               # skill: unslop
+  skill-creator/        # skill: skill-creator — references/platforms + validate_skill.py
 engineering/swe/
   rust-engineer/        # skill: rust-engineer
   code-quality/         # skill: code-quality — workflows: measure, comments
