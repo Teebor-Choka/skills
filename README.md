@@ -4,29 +4,32 @@ Public AI agent skills for [Claude Code](https://claude.ai/code) and compatible 
 
 ## Skills
 
-Grouped by source directory (see [Repository layout](#repository-layout)).
+Grouped by source directory (see [Repository layout](#repository-layout)). Every skill is a
+portable Agent Skill (`SKILL.md`) that runs unchanged on **Claude Code**, **Codex**, and
+**OpenCode**; the [skill-creator](./model/tools/skill-creator/SKILL.md) skill documents that
+cross-agent model. Each category has its own README with fuller blurbs.
 
-### tools
+### tools — [details](./tools/README.md)
 
-| Skill                                     | Description                                                                       |
-| ----------------------------------------- | --------------------------------------------------------------------------------- |
-| [forge-idea](./tools/forge-idea/SKILL.md) | Forge rough ideas into viable ones through cooperative, research-driven iteration |
-| [llm-wiki](./tools/llm-wiki/SKILL.md)     | Create, maintain, and query a personal knowledge wiki designed for LLM navigation |
-| [hopr-debug](./tools/hopr-debug/SKILL.md) | HOPR mixnet debugging aid — loads ground-truth protocol knowledge (RFC-0001–0014) |
+| Skill                                     | Description                                                                                           |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| [forge-idea](./tools/forge-idea/SKILL.md) | Forge a rough idea into a viable one by fanning out parallel agents to stress-test and prune branches |
+| [llm-wiki](./tools/llm-wiki/SKILL.md)     | Build, grow, and query a linked Markdown knowledge wiki an LLM can navigate                           |
+| [hopr-debug](./tools/hopr-debug/SKILL.md) | Ground-truth HOPR protocol knowledge (RFC-0001–0014) for correct mixnet/node debugging                |
 
-### model/tools
+### model/tools — [details](./model/tools/README.md)
 
-| Skill                                                 | Description                                                                            |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| [unslop](./model/tools/unslop/SKILL.md)               | Edit writing to remove AI tells and restore a plain, human voice                       |
-| [skill-creator](./model/tools/skill-creator/SKILL.md) | Author cross-agent skills (Claude Code, Codex, OpenCode) with triggering and workflows |
+| Skill                                                 | Description                                                             |
+| ----------------------------------------------------- | ----------------------------------------------------------------------- |
+| [unslop](./model/tools/unslop/SKILL.md)               | Edit prose to remove AI tells and restore a plain, human voice          |
+| [skill-creator](./model/tools/skill-creator/SKILL.md) | Author, port, and harden skills across Claude Code, Codex, and OpenCode |
 
-### engineering/swe
+### engineering/swe — [details](./engineering/swe/README.md)
 
-| Skill                                                     | Description                                                                           |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [rust-engineer](./engineering/swe/rust-engineer/SKILL.md) | Enforce Rust code quality and guidelines throughout Rust development                  |
-| [code-quality](./engineering/swe/code-quality/SKILL.md)   | Audit code for risk via complexity, coverage, structural metrics, and comment quality |
+| Skill                                                     | Description                                                                                   |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [rust-engineer](./engineering/swe/rust-engineer/SKILL.md) | Enforce Rust house guidelines while writing or reviewing Rust                                 |
+| [code-quality](./engineering/swe/code-quality/SKILL.md)   | Audit code risk from complexity/coverage/duplication metrics + comment quality (reports only) |
 
 ## Install
 

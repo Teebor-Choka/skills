@@ -3,16 +3,18 @@ name: forge-idea
 description: >
   Forge a rough idea, thesis, or plan into a viable one through cooperative,
   research-driven iteration. Reduces it to a sharp minimal kernel, fans out
-  independent agents to stress-test each branch, then prunes dead branches and
-  reshapes the rest with what research found — looping until the idea stabilizes
-  or the user stops. Use whenever the user wants to pressure-test, validate,
-  red-team, kill-test, gut-check, poke holes in, evolve, refine, or find the
-  viable version of a business thesis, product direction, technical architecture
-  choice, strategy, or research hypothesis — especially when they say "will this
-  actually work", "is this defensible", "tear this apart", "why would this fail",
-  "how do I make this work", "what's the wedge", or "should we build X". Also
-  trigger when a premise developed in the conversation is ready to be tested
-  against reality.
+  independent agents in parallel to stress-test each branch, then prunes dead
+  branches and reshapes the rest with what research found — looping until the
+  idea stabilizes or the user stops. Use whenever the user wants to
+  pressure-test, validate, red-team, kill-test, gut-check, poke holes in,
+  evolve, refine, or find the viable version of a business thesis, product
+  direction, architecture, strategy, or research hypothesis — especially
+  phrasings like "will this actually work", "is this defensible", "tear this
+  apart", "why would this fail", "how do I make this work", "what's the wedge",
+  "should we build X", or when a premise developed in the conversation is ready
+  to be tested against reality. Do not use for open-ended fact-finding with no
+  premise to test (use a deep-research skill), for building an idea already
+  decided on, or for drafting or formatting a document.
 ---
 
 # Forge Idea
@@ -34,12 +36,14 @@ direction, architecture choice, strategic bet, research hypothesis, a "we should
 because Y" argument. If the premise is vague, the interrogation step (below) sharpens
 it before any fan-out — the agents need falsifiable claims to work on.
 
-Scale rigor to the ask. Quick gut-check = one branch (the riskiest), one round, Agent
+Scale rigor to the ask. Quick gut-check = one branch (the riskiest), one round, a single
 fan-out. "Tear this apart / thoroughly / keep going" = 5–6 branches and multiple
-rounds. Read `references/forge-tactics.md` before briefing agents and
-`references/forge-report.md` before persisting the result. The verdict schema agents
-return is `references/forge-verdict.schema.json`; for comparative
-(which-option-wins) rounds they return `references/forge-compare.schema.json` (step 3b).
+rounds. Read `references/forge-tactics.md` before briefing agents,
+`references/cross-agent.md` before spawning them (how to run the fan-out natively on
+Claude Code, Codex, or OpenCode), and `references/forge-report.md` before persisting the
+result. The verdict schema agents return is `references/forge-verdict.schema.json`; for
+comparative (which-option-wins) rounds they return
+`references/forge-compare.schema.json` (step 3b).
 
 ## Writing discipline (applies to the whole idea file)
 
@@ -112,9 +116,10 @@ evidence; the kernel is only what you test _first_.
 
 Build a shared factual floor before decomposing:
 
-- **Raw idea** (no prior research): invoke the **`deep-research` skill** on the core
+- **Raw idea** (no prior research): run a **deep research pass** on the core
   concepts — key terms, named technologies, the market category — and condense a
-  grounding into each agent's brief.
+  grounding into each agent's brief. Delegate this to a dedicated research skill or
+  subagent where the agent provides one (`references/cross-agent.md`).
 - **Already-explored idea** (a prior brief exists in the file): read that brief as the
   floor and research only the **deltas** since its date — what changed, what's new.
   Don't re-run deep-research to rediscover what's already written.
@@ -155,10 +160,10 @@ variants, and choosing among them is a comparative-mode round.
 
 ### 4. Fan out the stress-test squad (independent, structured)
 
-Spawn one agent per branch **in a single message so they run concurrently** and
-independently — they must not see each other's work; independent convergence is the
-signal. Each agent attacks its branch hard **and reports constructively**, returning
-the structured verdict in `references/forge-verdict.schema.json`:
+Spawn one agent per branch **concurrently and independently** — launch them together,
+not one after another, and they must not see each other's work; independent convergence
+is the signal. Each agent attacks its branch hard **and reports constructively**,
+returning the structured verdict in `references/forge-verdict.schema.json`:
 
 - **verdict** — VIABLE / ADAPT / PRUNE, with the failure mode (false / irrelevant /
   already-owned).
@@ -173,17 +178,21 @@ the structured verdict in `references/forge-verdict.schema.json`:
 The mandate to put in every agent's brief is verbatim in `forge-tactics.md`. (Comparative mode
 returns `forge-compare.schema.json` instead — see step 3b.)
 
-**Engine scales by rigor.** Default: `general-purpose` Agent fan-out (they web-research
-and can invoke `deep-research` scoped to their branch). For a deep "be thorough" run,
-use the `Workflow` tool for a deterministic find → adapt → prune → re-test loop, with
-the schema above as the agents' `StructuredOutput` — this skill authorizes it.
+**Engine scales by rigor.** Default: fan out general research subagents that
+web-research and can run their own scoped research pass. For a deep "be thorough" run,
+drive a deterministic find → adapt → prune → re-test loop with the verdict schema as each
+agent's structured output. Bind these stages to your agent's real mechanism — parallel
+subagents, multiple headless processes, or a workflow engine — as laid out per agent in
+`references/cross-agent.md`.
 
-**Cost guardrail.** Watch the double fan-out (grounding deep-research + per-branch
-agents each possibly invoking deep-research):
+**Cost guardrail.** Watch the double fan-out (grounding research pass + per-branch
+agents each possibly running their own research pass):
 
-- _Gut-check:_ 1 branch, 1 round, **no** nested deep-research.
-- _Thorough:_ 5–6 branches, Workflow, nested deep-research allowed.
+- _Gut-check:_ 1 branch, 1 round, **no** nested research pass.
+- _Thorough:_ 5–6 branches, orchestrated loop, nested research allowed.
   The confirm-the-kernel gate exists so a mis-aimed kernel never burns a full fan-out.
+  Bound concurrent agents to the branch count (never fan out wider than the kernel has
+  load-bearing claims); `references/cross-agent.md` covers per-agent parallelism limits.
 
 ### 5. Prune & reshape — grounded, plural, not radical
 
