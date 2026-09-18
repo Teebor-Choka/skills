@@ -1,136 +1,66 @@
-# MOC Examples
+# Shaping an area hub (`_MOC.md`)
 
-Annotated examples of well-formed `_MOC.md` files for common area types.
+What a good area `_MOC.md` achieves, and the decisions that shape one — an interface, not a sample
+to copy. For the copy-paste frontmatter and section skeleton, see `templates.md`.
 
----
+## What the hub is for
 
-## Narrow single-topic area (Communication)
+An area's `_MOC.md` is the entry point a query hits after `index.md`: from the hub alone a reader
+should be able to pick which pages in the area are worth opening for a given question. It maps the
+whole area onto one page so link-following starts from a complete, current picture — not a
+guess about what the folder contains.
 
-```markdown
----
-title: Communication — Map of Content
-type: moc
-domain: Communication
-tags: [communication, public-speaking, voice, body-language]
-source: original
-date: 2026-06-21
-status: synthesized
-related: []
----
+## Shaping decisions and their criteria
 
-# Communication
+- **Coverage** — every page in the area is linked from exactly one sub-section of the hub. This is
+  enforced: `check-orphans` fails if any page in the area is missing from its `_MOC.md`. One
+  section per page, never zero and never two.
+- **Ordering** — list entities and people first (their own `## Key Entities` section when the area
+  has them), then the topic/concept/source sub-sections. A reader scanning for "who" finds them
+  before the "what".
+- **Sub-section names mirror the folder tree** — each `## Sub-topic` heading matches the name of a
+  sub-topic folder under the area. The hub then reflects the on-disk structure, so a reader can
+  map a section back to where its pages live.
+- **Header page count** — the `**N pages**` count is the number of content pages in the area and
+  **excludes the `_MOC.md` page itself**. It must match the actual count.
+- **Breadcrumbs** — the header lists cross-referenced areas separated by `·` (e.g.
+  `**N pages** · [[OtherArea/_MOC]] · [[ThirdArea/_MOC]]`).
+- **See Also** — a closing `## See Also (other areas)` points to the areas that cross-reference
+  this one, each with a one-line note on what the link is for. This is where cross-domain hubs
+  declare which other areas reach into them.
 
-**11 pages** · [[Psychology/_MOC]] · [[Business/_MOC]]
+## Done
 
----
+The hub is done when:
 
-## Public Speaking
+- `check-orphans` and `check-links` both pass (every page covered exactly once; every link
+  resolves), and
+- a reader can pick candidate pages for a question from the hub alone — the one-liner on each
+  entry says enough to decide whether to open it.
 
-- [[public-speaking]] — Winston's lecture rules, vocal delivery, body language, slides _(topic)_
-- [[interpersonal-communication]] — conversational principles, introductions, handling conflict _(topic)_
-- [[communication-habits]] — eight practical daily communication rules _(synthesis)_
-- [[how-to-speak-lecture-notes]] — How to Speak — Patrick Winston _(source-note)_
-- [[vocal-lessons-13-years]] — 13 years of vocal lessons — Vinh Giang _(source-note)_
-- [[communication-how-to]] — how to communicate — Vinh Giang _(source-note)_
-- [[communication-improve-speech]] — how to improve speech _(concept)_
-- [[communication-effective-during-arguments]] — effective communication during arguments _(concept)_
-- [[psychology-communication]] — psychology of communication _(concept)_
-- [[psychology-introductions]] — psychology of introductions _(concept)_
+## Skeletal shape
 
----
-
-## See Also (other areas)
-
-- [[Psychology/_MOC]] — negotiation, power, influence, relationships and leadership
-- [[Business/_MOC]] — sales and offer communication
-```
-
-Key points: page count matches the actual count (excluding the MOC itself); breadcrumbs in the header use `·` separator; See Also links to the areas that cross-reference this one.
-
----
-
-## Wide multi-sub-topic area (Business)
+Placeholders only — the real structure and one-liners come from the area's actual pages. For the
+full frontmatter block, see `templates.md`.
 
 ```markdown
----
-title: Business — Map of Content
-type: moc
-domain: Business
-tags: [startup, ideation, validation, pmf, business-models]
-source: original
-date: 2026-06-21
-status: synthesized
-related: []
----
+# <Area>
 
-# Business
-
-**53 pages** · [[Marketing/_MOC]] · [[Finances/_MOC]] · [[negotiation-concept]]
+**N pages** · [[OtherArea/_MOC]] · [[ThirdArea/_MOC]]
 
 ---
 
 ## Key Entities
 
-- [[alex-hormozi]] — entrepreneur: offer frameworks, sales, life optimisation _(entity)_
-- [[john-rush]] — indie SaaS: validation-first, SEO, product quality _(entity)_
+- [[entity-slug]] — one-liner _(entity)_
 
-## Finding Ideas
+## <Sub-topic matching a folder name>
 
-- [[idea-sourcing]] — pain/passion/export-button/trend/community sourcing _(topic)_
-- [[startup-ideation]] — Mom Test, Export Button, 13-step process _(concept)_
-  ...
-
-## See Also (other areas)
-
-- [[Marketing/_MOC]] — offers, pricing, audience, distribution
-- [[Finances/_MOC]] — money mindset as applied philosophy
-```
-
-Key point: for areas with many pages, group into sub-sections that match the sub-topic folder names; entities go first.
-
----
-
-## Cross-domain hub area (Finances)
-
-```markdown
----
-title: Finances — Map of Content
-type: moc
-domain: Finances
-tags: [investing, index-funds, real-estate, money-mindset]
-source: original
-date: 2026-06-21
-status: synthesized
-related: []
----
-
-# Finances
-
-**9 pages** · [[Psychology/_MOC]] · [[Business/_MOC]]
-
-This area is a **cross-domain hub**: money-mindset pages are physically here but also
-referenced by Psychology and Business.
-
----
-
-## Key Entities
-
-- [[ben-felix]] — evidence-based investing, index funds, 5% rent-vs-own rule _(entity)_
-
-## Investing
-
-- [[index-investing]] — Bogle framework, index funds, evidence-based case _(topic)_
-- [[investment-houses-and-rents]] — houses as cash-flow assets; yield, leverage, ROE _(topic)_
-
-## Money Mindset
-
-- [[money-mindset]] — rich/poor mindset differences, concentrate vs. diversify _(topic)_
-- [[psychology-of-making-money]] — psychology of making money — Leila Hormozi _(source-note)_
+- [[page-slug]] — one-liner _(topic)_
 
 ---
 
 ## See Also (other areas)
 
-- [[Psychology/_MOC]] — cognitive biases, risk psychology
-- [[Business/_MOC]] — Hormozi wealth frameworks
+- [[OtherArea/_MOC]] — what this cross-reference is for
 ```

@@ -31,9 +31,11 @@ specifics; this skill exists to correct that before you diagnose anything.
 1. **Fetch the ground truth first.** Before reasoning about node state, the
    channel graph, or packet/ticket flow, fetch the HOPR protocol summary (a
    condensation of RFC-0001–0014) on demand from its upstream permalink and read
-   the relevant sections. Do not answer from memory — the summary is
-   authoritative here, and the RFCs behind it are authoritative over the summary.
-   See [Fetching the summary](#fetching-the-summary) below.
+   the relevant sections. Reason from the fetched summary and cite its section for
+   each claim; treat recalled HOPR knowledge as a hypothesis to verify against it,
+   not as an answer — generic HOPR reasoning is reliably wrong here. The RFCs behind
+   the summary are authoritative over the summary. See
+   [Fetching the summary](#fetching-the-summary) below.
 2. **Check the misconceptions below** against whatever theory you are forming.
    Most confident-but-wrong HOPR diagnoses trace to one of them.
 3. **Cite section numbers** (e.g. §3.2, §6.3) from the summary when you explain

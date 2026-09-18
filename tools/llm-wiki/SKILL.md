@@ -113,15 +113,8 @@ catalogue never drift apart. Append a `log.md` entry every time.
 
 ### BOOTSTRAP — new wiki from scratch
 
-1. Create `wiki/`, `raw/`, `resources/attachments/`.
-2. Copy this skill's `assets/ci/` into `.ci/`, then `chmod +x .ci/*.sh .ci/pre-commit` and
-   install the hook: `git config core.hooksPath .ci`.
-3. Move raw source files (clippings, PDFs, images) into `raw/` or `resources/`.
-4. Choose 4–10 areas; create each as `wiki/<Area>/` with a skeleton `_MOC.md`.
-5. Sort existing notes into area folders and add frontmatter to each.
-6. Write `index.md` (one line per page, grouped by area) and `log.md` (first entry).
-7. Write `CLAUDE.md` at the repo root pointing future sessions at this skill.
-8. Run `bash .ci/check-all.sh`, fix every failure, then log `bootstrap`.
+Bootstrapping a new wiki from scratch (create dirs, install the CI hook, seed areas/meta): read
+references/templates.md.
 
 ### INGEST — add a new source
 
@@ -169,40 +162,16 @@ commit and install it as the pre-commit hook so it runs automatically:
 4. **check-layout** — `wiki/` holds only `.md` files; no `unsorted/` directory.
 5. **check-log** — `log.md` has at least one entry matching `## [YYYY-MM-DD] op | subject`.
 
-To wire CI into a fresh repo:
+## Scaling with subagents
 
-```bash
-mkdir -p .ci && cp <skill-assets>/ci/* .ci/
-chmod +x .ci/*.sh .ci/pre-commit
-git config core.hooksPath .ci
-```
-
-## Scaling with subagents (optional)
-
-Small and medium wikis need no orchestration — ingest and query run fine in a single agent, and
-that is the default. Reach for delegation only when the work is genuinely parallel or needs an
-independent check:
-
-- **Parallel ingestion** — ingesting many sources at once, give each source to its own
-  read-only subagent that returns a proposed page plus the entity/concept edits it implies. Then
-  merge the proposals serially in the main agent so links and `_MOC.md` stay consistent (parallel
-  writers would clobber each other's edits).
-- **Multi-hop query and verification** — for a hard question spanning several areas, run an
-  ingest → link → verify pass: draft the answer, then have a second, adversarial reader confirm
-  every `[[wikilink]]` citation actually supports its claim before filing the page back. This is
-  the no-fabrication rule enforced by a fresh pair of eyes.
-
-Keep this as _intent_: describe the stages, let each agent bind them to its own mechanism.
-Native dispatch per agent (Claude Code Agent tool and Workflow, Codex subagents and `codex exec`,
-OpenCode `task` and `opencode run`) is in `references/cross-agent.md`; general mechanics live in
-the `skill-creator` skill.
+Scaling with subagents (parallel ingestion, multi-hop verify): read references/cross-agent.md.
 
 ## References bundled with this skill
 
 - `references/templates.md` — copy-paste `_MOC.md`, `index.md`, and `log.md` skeletons. Read
   when bootstrapping or adding a new area or log entry.
-- `references/moc-examples.md` — annotated real `_MOC.md` files for narrow, wide, and
-  cross-domain areas. Read when unsure how to shape an area hub.
+- `references/moc-examples.md` — what a good area hub achieves and the shaping decisions with
+  their criteria (an interface, not a sample to copy). Read when unsure how to shape an area hub.
 - `references/cross-agent.md` — per-agent dispatch for the optional subagent workflows above.
   Read only when parallelizing ingestion or running a verification pass.
 - `assets/ci/` — the complete CI shell scripts, ready to copy into a new repo.

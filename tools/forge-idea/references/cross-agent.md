@@ -32,8 +32,10 @@ result trustworthy — an implementation that drops one of them is not running t
    (`forge-verdict.schema.json`) or, in comparative mode, the candidate schema
    (`forge-compare.schema.json`) — not free prose. Structured returns are what the
    synthesis step can dedupe, tally, and prune mechanically.
-4. **Bounded width.** Never spawn more agents than the kernel has load-bearing claims
-   (3–6 typical; 1 for a gut-check). Width is a cost lever, not a quality lever.
+4. **Bounded width.** Match fan-out width to the kernel's load-bearing claim count — extra
+   agents add cost and redundant findings, not coverage. Split one agent across a single
+   claim only when that claim genuinely has two independent attack angles (3–6 typical; 1
+   for a gut-check). Width is a cost lever, not a quality lever.
 
 Bind these to whichever agent you are on below.
 
@@ -89,8 +91,9 @@ branch agents that each run their own research pass. Bound it:
 - _Gut-check:_ 1 branch (the riskiest), 1 round, **no** nested research pass. Fail fast and
   cheap; only fan out the rest if the riskiest branch survives.
 - _Thorough:_ 5–6 branches, orchestrated loop, nested research allowed.
-- Never fan out wider than the kernel's load-bearing claims — width past that buys
-  redundancy, not signal.
+- Match fan-out width to the kernel's load-bearing claim count — extra agents add cost and
+  redundant findings, not coverage. Split one agent across a single claim only when that
+  claim genuinely has two independent attack angles.
 - Confirm the kernel before spending any fan-out (the confirm-the-kernel gate in step 1);
   a mis-aimed kernel wastes the whole squad.
 

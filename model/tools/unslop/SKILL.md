@@ -114,11 +114,9 @@ feeling, one idea per sentence, active voice, cut adverbs, vary sentence length.
 
 ## Running across agents
 
-This is one portable `SKILL.md`; it runs unchanged on Claude Code, Codex, and OpenCode. The
-work is single-pass with no orchestration, so there is no adapter to add. For a large
-multi-document sweep, run one pass per file and delegate those per-file passes to your agent's
-subagents so each keeps its own context; see the `skill-creator` skill for the per-agent
-mechanics.
+One portable `SKILL.md` — runs unchanged on Claude Code, Codex, and OpenCode, single-pass with
+no adapter. For a large multi-document sweep, delegate one pass per file to subagents (see the
+`skill-creator` skill).
 
 ## Sources
 
