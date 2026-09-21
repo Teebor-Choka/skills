@@ -1,4 +1,4 @@
-<!-- unslop-voice always-on baseline, agent-neutral.
+<!-- unslop always-on baseline, agent-neutral.
      Paste into an agent's AGENTS.md (Codex ~/.codex/AGENTS.md; OpenCode home/project
      AGENTS.md or opencode.json `instructions`). For Claude Code use output-style.md,
      which wraps this same text in output-style frontmatter. -->
@@ -31,4 +31,4 @@ or hedge is fine, repetition is the tell. Facts first — never invent a specifi
 human. Precedence: facts > quotations > register > any anti-slop rule.
 
 This is the **default** level. If the toggle command is installed, adjust per session with
-`/unslop-voice off|light|default|strict` (Codex: `$unslop-voice <level>`).
+`/unslop-mode off|light|default|strict` (Codex: `$unslop <level>`).

@@ -1,17 +1,16 @@
 ---
 name: unslop
 description: >
-  Edit writing to remove AI tells (the machine patterns that make text read as
-  LLM-generated) and restore a plain, human voice, preserving meaning, facts, code,
-  and register. Apply it by DEFAULT to essentially all natural-language output — any
-  reply longer than a short two-sentence answer — as a final pass before the text is
-  shown, and ALWAYS whenever a document or file's prose is created or edited (docs,
-  READMEs, code comments, commit messages, PR descriptions, reports, posts, emails)
-  before it is written or committed. Also apply on explicit requests to "unslop",
-  "de-slop", "humanize", "make this sound less like AI", or "remove AI-isms", and when
-  text is called robotic, sycophantic, generic, or over-structured. Do not apply to a
-  short two-sentence reply. Edits prose only: it is not a grammar checker, never
-  changes code logic, and never invents facts.
+  Remove AI tells (the machine patterns that make text read as LLM-generated) and restore
+  a plain, human voice, preserving meaning, facts, code, and register. Runs two ways: on
+  demand to rewrite a specific target text, or always-on as a persistent house voice
+  applied by DEFAULT to all natural-language output — every reply longer than a short
+  two-sentence answer, and every doc, README, code comment, commit message, and PR
+  description before it is written or committed. Levels off/light/default/strict, toggled
+  per session with /unslop-mode. Also triggers on "unslop", "de-slop", "humanize", "make
+  this sound less like AI", "remove AI-isms", or when text is called robotic, sycophantic,
+  generic, or over-structured. Do not apply to a short two-sentence reply. Edits prose
+  only: it is not a grammar checker, never changes code logic, and never invents facts.
 ---
 
 # Unslop
@@ -50,6 +49,28 @@ over-explaining), not any single banned word.
   repetition and clustering. Flag the third instance, not the first.
 - **Precedence when rules collide:** facts > quotations > the author's voice > domain
   register > any anti-slop rule.
+
+## Modes and levels
+
+Two ways to use this skill:
+
+- **On demand** — rewrite a specific target text (when asked to "unslop this"). Run the
+  full process below.
+- **Always-on voice** — keep everything *you* emit de-slopped by default, every response,
+  session-wide. Wire it with the output style or `AGENTS.md` baseline in `adapters/`, and
+  adjust per session with `/unslop-mode off|light|default|strict` (Codex: `$unslop <level>`).
+
+The level dials how much of the process runs; the default is **default**:
+
+| Level | Runs |
+|-------|------|
+| **off** | Nothing. Raw voice. |
+| **light** | Surface pass only; structure untouched. |
+| **default** | Surface + structural pass. The standing everyday level. |
+| **strict** | Surface + structural, applied hard and to short replies too; terse register. |
+
+At every level except `off`, keep full content for security warnings, destructive-action
+confirmations, exact errors, and quoted text — clarity wins over brevity.
 
 ## Process
 
@@ -115,8 +136,28 @@ feeling, one idea per sentence, active voice, cut adverbs, vary sentence length.
 
 ## Running across agents
 
-One portable `SKILL.md` — runs unchanged on Claude Code, Codex, and OpenCode, single-pass with
-no adapter. For a large multi-document sweep, delegate one pass per file to subagents (see the
+One portable `SKILL.md` runs unchanged on Claude Code, Codex, and OpenCode. On-demand rewrites
+need no adapter; the always-on voice needs a little per-agent wiring, with ready-to-copy
+templates in `adapters/`.
+
+Install the skill dir: Claude Code `~/.claude/skills/unslop/`; Codex `~/.agents/skills/unslop/`;
+OpenCode `~/.config/opencode/skills/unslop/` (it also reads `.claude/skills` and `.agents/skills`,
+so one dir serves all three).
+
+Always-on baseline:
+
+- Claude Code: `adapters/output-style.md` → `~/.claude/output-styles/unslop.md`, activated with
+  `"outputStyle": "unslop"` in settings; `keep-coding-instructions: true` keeps coding behavior.
+- Codex / OpenCode: paste `adapters/always-on.md` into the agent's `AGENTS.md` (Codex
+  `~/.codex/AGENTS.md`; OpenCode home/project `AGENTS.md` or `opencode.json` `instructions`).
+
+Toggle `/unslop-mode off|light|default|strict`:
+
+- Claude Code: `adapters/toggle-command.md` → `~/.claude/commands/unslop-mode.md`.
+- OpenCode: `adapters/toggle-command.md` → `~/.config/opencode/commands/unslop-mode.md`.
+- Codex: invoke the skill explicitly with `$unslop <level>`.
+
+For a large multi-document sweep, delegate one pass per file to subagents (see the
 `skill-creator` skill).
 
 ## Sources

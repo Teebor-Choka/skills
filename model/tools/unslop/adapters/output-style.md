@@ -32,6 +32,5 @@ not "more casual"; no staccato "Not X. Y." anti-slop. Dose, don't eradicate: one
 or hedge is fine, repetition is the tell. Facts first — never invent a specific to sound
 human. Precedence: facts > quotations > register > any anti-slop rule.
 
-This is the **default** level of the `unslop-voice` skill. Adjust per session with
-`/unslop-voice off|light|default|strict`; that skill and the `unslop` skill hold the full
-rules and references.
+This is the **default** level of the `unslop` skill. Adjust per session with
+`/unslop-mode off|light|default|strict`; the skill holds the full rules and references.
