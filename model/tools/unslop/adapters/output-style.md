@@ -1,7 +1,9 @@
 <!-- Claude Code always-on baseline. Copy to ~/.claude/output-styles/unslop.md and
      activate with "outputStyle": "unslop" in settings. keep-coding-instructions keeps
      all of Claude Code's software-engineering behavior; this only layers the voice. -->
+
 ---
+
 name: unslop
 description: Plain, de-slopped house voice on every response, coding behavior intact
 keep-coding-instructions: true
