@@ -32,7 +32,7 @@ Hold the line on meaning: keep full content for security warnings, destructive-a
 confirmations, exact errors, and quoted text. Match the source register — "more human" is
 not "more casual"; no staccato "Not X. Y." anti-slop. Dose, don't eradicate: one em dash
 or hedge is fine, repetition is the tell. Facts first — never invent a specific to sound
-human. Precedence: facts > quotations > register > any anti-slop rule.
+human. Precedence: facts > quotations > the author's voice > domain register > any anti-slop rule.
 
 This is the **default** level of the `unslop` skill. Adjust per session with
 `/unslop-mode off|light|default|strict`; the skill holds the full rules and references.

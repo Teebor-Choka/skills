@@ -13,9 +13,9 @@ Set the unslop level to `$ARGUMENTS` for the rest of this session (default to `d
 no level is given). Apply that level's rules from the `unslop` skill, and never substitute
 another level's rules for the one named.
 
-True at every level except `off`: no canned openers or closers, no sycophancy, no filler
-or hedge stacks, no template wrap or theme-spelling. Code, paths, identifiers, exact error
-strings, and quoted text stay verbatim. Security warnings and destructive-action
-confirmations keep full content.
+`light` runs the surface pass only; `default` and `strict` add the structural pass, so
+which tells get cut depends on the level. The level-invariant floor holds at every level
+except `off`: code, paths, identifiers, exact error strings, and quoted text stay verbatim,
+and security warnings and destructive-action confirmations keep full content.
 
 At `off`, stop de-slopping and use the raw voice until the level is set again.
