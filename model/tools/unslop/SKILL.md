@@ -56,18 +56,18 @@ Two ways to use this skill:
 
 - **On demand** — rewrite a specific target text (when asked to "unslop this"). Run the
   full process below.
-- **Always-on voice** — keep everything *you* emit de-slopped by default, every response,
+- **Always-on voice** — keep everything _you_ emit de-slopped by default, every response,
   session-wide. Wire it with the output style or `AGENTS.md` baseline in `adapters/`, and
   adjust per session with `/unslop-mode off|light|default|strict` (Codex: `$unslop <level>`).
 
 The level dials how much of the process runs; the default is **default**:
 
-| Level | Runs |
-|-------|------|
-| **off** | Nothing. Raw voice. |
-| **light** | Surface pass only; structure untouched. |
-| **default** | Surface + structural pass. The standing everyday level. |
-| **strict** | Surface + structural, applied hard and to short replies too; terse register. |
+| Level       | Runs                                                                         |
+| ----------- | ---------------------------------------------------------------------------- |
+| **off**     | Nothing. Raw voice.                                                          |
+| **light**   | Surface pass only; structure untouched.                                      |
+| **default** | Surface + structural pass. The standing everyday level.                      |
+| **strict**  | Surface + structural, applied hard and to short replies too; terse register. |
 
 At every level except `off`, keep full content for security warnings, destructive-action
 confirmations, exact errors, and quoted text — clarity wins over brevity.

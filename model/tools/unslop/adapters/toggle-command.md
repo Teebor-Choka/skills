@@ -2,7 +2,9 @@
      and OpenCode (~/.config/opencode/commands/unslop-mode.md) — both read a `description`
      frontmatter and `$ARGUMENTS`. Codex has no equivalent slash file; invoke the skill
      explicitly with `$unslop <level>` (the SKILL.md handles the level). -->
+
 ---
+
 description: Set the de-slop voice level for this session (off/light/default/strict)
 argument-hint: "[off|light|default|strict]"
 ---
