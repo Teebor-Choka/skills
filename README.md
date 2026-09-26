@@ -19,10 +19,11 @@ cross-agent model. Each category has its own README with fuller blurbs.
 
 ### model/tools — [details](./model/tools/README.md)
 
-| Skill                                                 | Description                                                             |
-| ----------------------------------------------------- | ----------------------------------------------------------------------- |
-| [unslop](./model/tools/unslop/SKILL.md)               | Edit prose to remove AI tells and restore a plain, human voice          |
-| [skill-creator](./model/tools/skill-creator/SKILL.md) | Author, port, and harden skills across Claude Code, Codex, and OpenCode |
+| Skill                                                 | Description                                                               |
+| ----------------------------------------------------- | ------------------------------------------------------------------------- |
+| [prose-craft](./model/tools/prose-craft/SKILL.md)     | Compose or revise clear, well-architected prose (Strunk & White + Pinker) |
+| [unslop](./model/tools/unslop/SKILL.md)               | Edit prose to remove AI tells and restore a plain, human voice            |
+| [skill-creator](./model/tools/skill-creator/SKILL.md) | Author, port, and harden skills across Claude Code, Codex, and OpenCode   |
 
 ### engineering/swe — [details](./engineering/swe/README.md)
 
