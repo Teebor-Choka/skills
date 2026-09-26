@@ -6,9 +6,18 @@
   },
   "metadata": {
     "description": "Public AI agent skills — practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "1.6.0"
+    "version": "1.7.0"
   },
   "plugins": [
+    {
+      "name": "prose-craft",
+      "description": "Compose or revise clear, well-architected prose grounded in Strunk & White's concision and Pinker's classic style, with optional voice matching.",
+      "source": "./",
+      "skills": ["./model/tools/prose-craft"],
+      "metadata": {
+        "version": "1.1.1"
+      }
+    },
     {
       "name": "forge-idea",
       "description": "Forge rough ideas into viable ones through cooperative, research-driven iteration.",
