@@ -46,6 +46,15 @@ from the figures in _Fundamentals of Software Architecture_ and flagged where a 
   https://docs.python.org/3/library/graphlib.html
 - Kiro spec traceability: https://kiro.dev/docs/specs/feature-specs/
 
+## Graph engineering (dividing work for a fleet)
+
+The graph-engineering step (step 5) and its pattern catalog draw on workflow control-flow patterns,
+parallel-programming patterns, multi-agent-systems coordination literature, and LLM-agent
+orchestration. The full catalog with per-pattern citations is in `graph-patterns.md`; anchors include
+the Workflow Patterns collection (workflowpatterns.com), Anthropic's "Building Effective Agents",
+MapReduce (Dean & Ghemawat), the Contract Net Protocol (Smith 1980), the Blackboard model (Nii
+1986), Sagas (Garcia-Molina & Salem 1987), and transitive reduction (Aho, Garey & Ullman 1972).
+
 ## Engineering guardrails
 
 The research/adversarial/component-under-test disciplines echo standard testing practice (ATDD,
