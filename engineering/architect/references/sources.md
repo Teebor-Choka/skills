@@ -46,6 +46,19 @@ from the figures in _Fundamentals of Software Architecture_ and flagged where a 
   https://docs.python.org/3/library/graphlib.html
 - Kiro spec traceability: https://kiro.dev/docs/specs/feature-specs/
 
+## Graph engineering (dividing work for a fleet)
+
+The graph-engineering step (step 5) and its pattern catalog draw on workflow control-flow patterns,
+parallel-programming patterns, multi-agent-systems coordination literature, and LLM-agent
+orchestration. The full catalog with per-pattern citations, an authority-tagged foundational-research
+section, and license notes is in `graph-patterns.md`. Every citation was web-verified (attribution,
+resolution, primary-vs-secondary); classic anchors include the Workflow Patterns paper (van der Aalst
+et al., 2003, DOI 10.1023/A:1022883727209), MapReduce (Dean & Ghemawat 2004), the Contract Net
+Protocol (Smith 1980), the Blackboard model (Nii 1986), Sagas (Garcia-Molina & Salem 1987), and
+transitive reduction (Aho, Garey & Ullman, SIAM 1972). The peer-reviewed backbone for graph-structured
+multi-agent workflows is GPTSwarm (ICML 2024), AFlow (ICLR 2025), MacNet (ICLR 2025), and the Guo et
+al. survey (IJCAI 2024), with the Tran et al. structure taxonomy flagged as a preprint.
+
 ## Engineering guardrails
 
 The research/adversarial/component-under-test disciplines echo standard testing practice (ATDD,

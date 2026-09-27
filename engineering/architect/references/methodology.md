@@ -66,13 +66,17 @@ execution DAG (`development-graph.md`). Details in `deliverable-formats.md`.
 
 - C4 model: https://c4model.com/
 
-## Build order: DAG, Kahn, critical path
+## Build order: graph engineering (DAG, Kahn, critical path)
 
-The development graph must be a valid DAG. `scripts/lint.py` runs a topological sort (Python
-`graphlib`), so a cyclic plan is a hard fail. Kahn's algorithm gives the waves (each level runs in
-parallel); the critical path is the longest dependency chain and sets the irreducible wall-clock
-time. Adding agents past the critical-path width is wasted, so annotate it in
-`development-graph.md`.
+Splitting the settled work into a graph a fleet can collaborate on is the graph-engineering step
+(step 5). `scripts/graph.py` is its deterministic core: from an LLM-authored node spec it runs the
+topological sort (Python `graphlib`, a cyclic plan is a hard fail), removes redundant edges by
+transitive reduction, assigns the Kahn-level waves (each runs in parallel), computes the critical
+path (the longest chain, the irreducible wall-clock floor, so adding agents past its width is
+wasted), flags write-set collisions within a wave, and emits `development-graph.md`. The judgment
+left to the author is the node spec and the choice of collaboration shape from `graph-patterns.md`
+(orchestration vs choreography, fan-out, pipeline, evaluator-optimizer, blackboard, contract-net).
+`scripts/lint.py` independently re-checks acyclicity and that edges match the spec block table.
 
 - Topological sorting / Kahn: https://en.wikipedia.org/wiki/Topological_sorting
 - Critical path method: https://en.wikipedia.org/wiki/Critical_path_method

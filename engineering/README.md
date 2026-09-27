@@ -11,8 +11,11 @@ this directory holds the cross-cutting architecture skill.
 `architect` is markdown-first: it produces a directory of linked documents (research notes,
 proposal, decision log, spec with positive and adversarial tests, build DAG, per-node agent briefs)
 that a fleet of agents can execute with no information loss, plus an execution phase (unattended
-deploy orchestrator, verification harness, observability). Two standard-library scripts make the
-mechanical parts deterministic: `scripts/scaffold.py` generates the skeleton, `scripts/lint.py`
-checks completeness and internal consistency before dispatch. It is grounded in Ousterhout's
-_A Philosophy of Software Design_ and Ford & Richards' architecture canon; the style catalog with
-diagrams and trade-offs is in `references/architecture-styles.md`.
+deploy orchestrator, verification harness, observability). Three standard-library scripts make the
+mechanical parts deterministic: `scripts/scaffold.py` generates the skeleton, `scripts/graph.py`
+engineers the work-division graph (waves, critical path, transitive reduction, write-set collisions)
+from a node spec, and `scripts/lint.py` checks completeness and internal consistency before dispatch.
+It is grounded in Ousterhout's _A Philosophy of Software Design_ and Ford & Richards' architecture
+canon; the architecture-style catalog is in `references/architecture-styles.md`, and the
+graph-engineering pattern catalog (how to divide work so agents self-collaborate) is in
+`references/graph-patterns.md`.

@@ -5,8 +5,9 @@ description: >-
   architecture work package: a directory of linked docs (grounded research notes, a proposal, a
   decision log, a spec with positive AND adversarial tests, a build DAG, per-node agent briefs) that
   a fresh session or agent fleet executes with no information loss, plus the execution phase
-  (unattended deploy orchestrator, verification harness, observability). Ships scaffold and lint
-  scripts and an architecture-style catalog. Use whenever designing a non-trivial system or infra
+  (unattended deploy orchestrator, verification harness, observability). Ships deterministic scaffold,
+  graph-engineering, and lint scripts, an architecture-style catalog, and a work-division pattern
+  catalog. Use whenever designing a non-trivial system or infra
   change, writing a design doc, RFC, or technical proposal, choosing between architectures, planning
   a rollout, or turning a design into an executable plan for parallel agents, even if the word
   "architecture" is never used. Prefer it over an ad-hoc design doc for anything handed off, staffed
@@ -14,7 +15,7 @@ description: >-
 license: MIT
 compatibility: any
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Architect: self-contained, agent-executable architecture work packages
@@ -39,22 +40,22 @@ Not every artifact is needed every time (the risk tier in step 0 decides which),
 set and the order a reader consumes them. Each is specified (purpose + required sections + a skeleton)
 in `references/document-set.md`. **Read that file before writing any artifact.** Don't hand-write the
 skeletons: `scripts/scaffold.py --slug <slug> --title "<Title>" --tier small|full` generates the
-directory, and `scripts/lint.py <dir>` checks it is complete and internally consistent before
-dispatch.
+directory, `scripts/graph.py <spec.json>` computes the build graph (step 5), and
+`scripts/lint.py <dir>` checks the package is complete and internally consistent before dispatch.
 
-| #   | Artifact                 | Answers                      | The one job                                                                                                                                                   |
-| --- | ------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `research-notes.md`      | what's _actually_ here today | ground truth: verified facts vs domain knowledge, greenfield vs existing, cite every source                                                                   |
-| 2   | `README.md` (START HERE) | where do I begin             | read-order, status, the one hinge decision, environments, repos                                                                                               |
-| 3   | `<name>-proposal.md`     | _what_ & _why_               | purpose+non-goals, EARS requirements-as-constraints, design as a chain of dependent decisions, risks & tech debt, a self-adversarial validation pass, sources |
-| 4   | `decision-log.md`        | why is it _this_ way         | verified-facts table, every decision as a MADR record (status + why + grounding + confirmation), considered-and-set-aside, open items                         |
-| 5   | `<name>-spec.md`         | _how_, to ticket size        | blocks (purpose/architecture/interfaces/tests), dependency + requirement-backlink table, escalation appendix, acceptance criteria                             |
-| 6   | `development-graph.md`   | build order                  | the spec's blocks as a DAG: nodes, mermaid deps, waves (parallelism), critical path, the loops                                                                |
-| 7   | `invariants.md`          | what must hold everywhere    | the constitution: package-level rules every brief inherits verbatim (info-loss defense)                                                                       |
-| 8   | `agent-methodology.md`   | how agents execute           | one block ↔ one agent, entry conditions, spec/test isolation, merge queue, definition of GREEN                                                                |
-| 9   | `test-methodology.md`    | how "done" is proven         | positive + adversarial classes, capability checks, fault-injection catalogue, the acceptance gate                                                             |
-| 10  | `agent-plans/block-*.md` | one brief per DAG node       | self-contained: objective, build, interface contract, both test tables, definition of done                                                                    |
-| 11  | visual artifacts         | see it                       | mermaid diagrams on a C4 ladder (`references/deliverable-formats.md`)                                                                                         |
+| #   | Artifact                 | Answers                      | The one job                                                                                                                                                                     |
+| --- | ------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `research-notes.md`      | what's _actually_ here today | ground truth: verified facts vs domain knowledge, greenfield vs existing, cite every source                                                                                     |
+| 2   | `README.md` (START HERE) | where do I begin             | read-order, status, the one hinge decision, environments, repos                                                                                                                 |
+| 3   | `<name>-proposal.md`     | _what_ & _why_               | purpose+non-goals, EARS requirements-as-constraints, design as a chain of dependent decisions, risks & tech debt, a self-adversarial validation pass, sources                   |
+| 4   | `decision-log.md`        | why is it _this_ way         | verified-facts table, every decision as a MADR record (status + why + grounding + confirmation), considered-and-set-aside, open items                                           |
+| 5   | `<name>-spec.md`         | _how_, to ticket size        | blocks (purpose/architecture/interfaces/tests), dependency + requirement-backlink table, escalation appendix, acceptance criteria                                               |
+| 6   | `development-graph.md`   | build order                  | the spec's blocks as a work-division graph, generated by `scripts/graph.py`: waves, mermaid DAG, critical path, barriers, collaboration shapes (`references/graph-patterns.md`) |
+| 7   | `invariants.md`          | what must hold everywhere    | the constitution: package-level rules every brief inherits verbatim (info-loss defense)                                                                                         |
+| 8   | `agent-methodology.md`   | how agents execute           | one block ↔ one agent, entry conditions, spec/test isolation, merge queue, definition of GREEN                                                                                  |
+| 9   | `test-methodology.md`    | how "done" is proven         | positive + adversarial classes, capability checks, fault-injection catalogue, the acceptance gate                                                                               |
+| 10  | `agent-plans/block-*.md` | one brief per DAG node       | self-contained: objective, build, interface contract, both test tables, definition of done                                                                                      |
+| 11  | visual artifacts         | see it                       | mermaid diagrams on a C4 ladder (`references/deliverable-formats.md`)                                                                                                           |
 
 When the package will also be **executed** (deployed, verified, observed hands-off), it grows a set of
 operational artifacts alongside the docs: a deployment orchestrator, an executable verification
@@ -94,10 +95,17 @@ each has a check you can verify before moving on.
    tests AND adversarial (negative) tests**. Group preconditions as Block 0; number blocks in
    execution order. Add an **escalation appendix** of off-the-shelf options. → _verify:_ every block
    has both test classes and a clear definition of done.
-5. **Plan the spec's blocks as work for the agents**. Turn them into an execution DAG: eliminate
-   redundant steps, parallelize independent blocks into waves, sequence the true dependencies, and
-   wrap iterative work in bounded loops, emitting the DAG, waves, and loop register. → _verify:_ the
-   DAG's dependencies match the spec's block table exactly.
+5. **Graph-engineer the blocks into a work-division graph.** This is the graph-engineering
+   discipline: split the work into a shape a fleet can collaborate on, then hand off, don't oversee
+   how they run it. Your only judgment calls are naming the nodes (one deliverable each), their true
+   dependencies, their write-sets, any loops, and picking collaboration shapes from
+   `references/graph-patterns.md` (fan-out, pipeline, evaluator-optimizer, blackboard, contract-net,
+   and the rest, tagged for whether agents self-coordinate or need a controller). Everything
+   graph-theoretic is computed, not judged: write the nodes as a JSON spec and run
+   `scripts/graph.py spec.json`, which removes redundant edges (transitive reduction), assigns the
+   parallel waves, finds the critical path and barriers, catches write-set collisions, and emits
+   `development-graph.md`. → _verify:_ `graph.py` exits 0 (no cycle, no wave collision) and its
+   waves match the spec's block dependencies.
 6. **Write the execution methodology + one brief per node.** `agent-methodology.md` (how a fleet
    runs the DAG) and `test-methodology.md` (how tests are authored/judged). Then one
    `agent-plans/block-*.md` per node, **self-contained**, so an agent needs only its brief + the
