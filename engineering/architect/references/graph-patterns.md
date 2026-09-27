@@ -142,16 +142,38 @@ research-don't-recall discipline. Record the source next to the cut.
 ## Foundational research: graph engineering for multi-agent workflows
 
 The patterns above are the working vocabulary; this is the peer-reviewed research behind treating a
-multi-agent system as an engineered graph. Read the survey first for the map, then GPTSwarm and AFlow
-for the two core ideas (a multi-agent system is an optimizable graph; a workflow is a searchable
-space), and van der Aalst for the rigorous pattern language. Each is tagged by authority; the one
-preprint-only source and the two single-agent-reasoning ones are flagged so they are not overclaimed.
+multi-agent system as an engineered graph. Read the current survey first for the map, then GPTSwarm
+and AFlow for the two core ideas (a multi-agent system is an optimizable graph; a workflow is a
+searchable space), and van der Aalst for the rigorous pattern language. Each is tagged by authority;
+preprint-only and single-agent-reasoning sources are flagged so they are not overclaimed. Every
+citation here was web-verified (title, authors, date, resolving URL) in 2026.
+
+**State of the art (2025–2026)**
+
+- Yue et al., "From Static Templates to Dynamic Runtime Graphs: A Survey of Workflow Optimization for
+  LLM Agents", 2026. The current map, framed exactly as agentic computation graphs, organized by when
+  structure is decided, what is optimized, and what signal guides it. Start here for the 2026 view.
+  **Preprint (Mar 2026).** https://arxiv.org/abs/2603.22386
+- Zhang et al., "Multi-agent Architecture Search via Agentic Supernet (MaAS)", _ICML 2025_. The SOTA
+  successor to AFlow/ADAS: sample a query-dependent workflow from a probabilistic supernet instead of
+  fixing one system, at a fraction of the inference cost. https://arxiv.org/abs/2502.04180
+- **Topology drives outcomes, and sparser usually wins.** Shen et al., "Understanding the Information
+  Propagation Effects of Communication Topologies in LLM-based Multi-Agent Systems", _EMNLP 2025_
+  (moderately sparse graphs suppress error propagation while keeping useful diffusion,
+  https://arxiv.org/abs/2505.23352); with G-Designer (learned task-aware topologies,
+  https://arxiv.org/abs/2410.11782) and AgentPrune / AGP (prune redundant edges and agents,
+  https://arxiv.org/abs/2410.02506, https://arxiv.org/abs/2506.02951). Practical takeaway: do not
+  fully connect the fleet; the graph engineering is the point.
+- Cemri et al., "Why Do Multi-Agent LLM Systems Fail?" (MAST), 2025. The reliability caution: across
+  1600+ traces and 7 frameworks, most failures are coordination, specification, and verification
+  problems, not base-model limits. A better graph does not fix an underspecified spec.
+  https://arxiv.org/abs/2503.13657
 
 **Start here (the field map)**
 
 - Guo et al., "Large Language Model based Multi-Agents: A Survey of Progress and Challenges",
-  _IJCAI 2024_ (survey track, peer-reviewed). The best single entry point. https://doi.org/10.24963/ijcai.2024/890
-- Tran et al., "Multi-Agent Collaboration Mechanisms: A Survey of LLMs" (2025). The best taxonomy of
+  _IJCAI 2024_ (survey track, peer-reviewed). The peer-reviewed entry point. https://doi.org/10.24963/ijcai.2024/890
+- Tran et al., "Multi-Agent Collaboration Mechanisms: A Survey of LLMs" (2025). A taxonomy of
   collaboration _structure_ (peer-to-peer / centralized / distributed). **Preprint, not yet
   peer-reviewed.** https://arxiv.org/abs/2501.06322
 
