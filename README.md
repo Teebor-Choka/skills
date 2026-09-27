@@ -25,6 +25,12 @@ cross-agent model. Each category has its own README with fuller blurbs.
 | [unslop](./model/tools/unslop/SKILL.md)               | Edit prose to remove AI tells and restore a plain, human voice            |
 | [skill-creator](./model/tools/skill-creator/SKILL.md) | Author, port, and harden skills across Claude Code, Codex, and OpenCode   |
 
+### engineering — [details](./engineering/README.md)
+
+| Skill                                         | Description                                                                                                  |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| [architect](./engineering/architect/SKILL.md) | Turn a fuzzy systems/infra requirement into a self-contained, agent-executable work package, then execute it |
+
 ### engineering/swe — [details](./engineering/swe/README.md)
 
 | Skill                                                     | Description                                                                                   |
@@ -56,6 +62,8 @@ tools/
 model/tools/
   unslop/               # skill: unslop
   skill-creator/        # skill: skill-creator — references/platforms + validate_skill.py
+engineering/
+  architect/            # skill: architect — scaffold.py + lint.py, references, adapters
 engineering/swe/
   rust-engineer/        # skill: rust-engineer
   code-quality/         # skill: code-quality — workflows: measure, comments
@@ -71,6 +79,12 @@ Each skill is a self-contained directory:
 ```
 
 ## Acknowledgements
+
+### architect
+
+The [`architect`](./engineering/architect/SKILL.md) skill was written from scratch, drawing on established architecture literature and document standards for their ideas, methodology, and a few short attributed quotes; it reproduces no substantial text from any of them, and references the one copyleft source (arc42, CC BY-SA) by concept only. With thanks to John Ousterhout (_A Philosophy of Software Design_); Mark Richards & Neal Ford (_Fundamentals of Software Architecture_, _Building Evolutionary Architectures_, _Software Architecture: The Hard Parts_); Martin Fowler (monolith-first); Michael Nygard (ADRs) and [MADR](https://adr.github.io/madr/); Alistair Mavin ([EARS](https://alistairmavin.com/ears/)); [arc42](https://arc42.org/overview); and Simon Brown ([C4 model](https://c4model.com/)). Full attribution with links and license notes is in [engineering/architect/references/sources.md](./engineering/architect/references/sources.md).
+
+### unslop
 
 The [`unslop`](./model/tools/unslop/SKILL.md) skill was not written from scratch. It was built by pooling the strongest open "unslop" (de-AI-writing) agent skills on GitHub, deduplicating their rules and word lists, and folding in the research they cite, then restructuring the result around a structure-first pass (surface word-swaps alone barely move AI detection). Full attribution with links is in [model/tools/unslop/references/sources.md](./model/tools/unslop/references/sources.md).
 
