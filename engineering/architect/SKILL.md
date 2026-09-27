@@ -1,0 +1,196 @@
+---
+name: architect
+description: >-
+  Turn a fuzzy systems or infrastructure requirement into a self-contained, agent-executable
+  architecture work package: a directory of linked docs (grounded research notes, a proposal, a
+  decision log, a spec with positive AND adversarial tests, a build DAG, per-node agent briefs) that
+  a fresh session or agent fleet executes with no information loss, plus the execution phase
+  (unattended deploy orchestrator, verification harness, observability). Ships scaffold and lint
+  scripts and an architecture-style catalog. Use whenever designing a non-trivial system or infra
+  change, writing a design doc, RFC, or technical proposal, choosing between architectures, planning
+  a rollout, or turning a design into an executable plan for parallel agents, even if the word
+  "architecture" is never used. Prefer it over an ad-hoc design doc for anything handed off, staffed
+  by multiple agents, deployed hands-off, or that must survive re-litigation.
+license: MIT
+compatibility: any
+metadata:
+  version: "1.0.0"
+---
+
+# Architect: self-contained, agent-executable architecture work packages
+
+Produce a **work package**: a directory of linked documents that carries a systems/infra design
+from a fuzzy ask to something a fleet of agents can execute in parallel, with **no information
+loss**: any fresh session can take over from the directory alone, without the conversation.
+
+The artifacts below are illustrated with a running example (an offsite DB-replication design), so
+each has a concrete referent. It is illustrative only; substitute your own domain.
+
+## When this fits
+
+A non-trivial design that will be **handed off, staffed by multiple agents, or re-examined later**:
+infra proposals, rollout plans, RFCs, "how should we build/replicate/migrate X", architecture
+choices with real trade-offs. For a throwaway one-file design note or a change small enough to just
+do, this is overkill. Say so and write the note instead.
+
+## The deliverable: a directory of linked documents
+
+Not every artifact is needed every time (the risk tier in step 0 decides which), but this is the full
+set and the order a reader consumes them. Each is specified (purpose + required sections + a skeleton)
+in `references/document-set.md`. **Read that file before writing any artifact.** Don't hand-write the
+skeletons: `scripts/scaffold.py --slug <slug> --title "<Title>" --tier small|full` generates the
+directory, and `scripts/lint.py <dir>` checks it is complete and internally consistent before
+dispatch.
+
+| #   | Artifact                 | Answers                      | The one job                                                                                                                                                   |
+| --- | ------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `research-notes.md`      | what's _actually_ here today | ground truth: verified facts vs domain knowledge, greenfield vs existing, cite every source                                                                   |
+| 2   | `README.md` (START HERE) | where do I begin             | read-order, status, the one hinge decision, environments, repos                                                                                               |
+| 3   | `<name>-proposal.md`     | _what_ & _why_               | purpose+non-goals, EARS requirements-as-constraints, design as a chain of dependent decisions, risks & tech debt, a self-adversarial validation pass, sources |
+| 4   | `decision-log.md`        | why is it _this_ way         | verified-facts table, every decision as a MADR record (status + why + grounding + confirmation), considered-and-set-aside, open items                         |
+| 5   | `<name>-spec.md`         | _how_, to ticket size        | blocks (purpose/architecture/interfaces/tests), dependency + requirement-backlink table, escalation appendix, acceptance criteria                             |
+| 6   | `development-graph.md`   | build order                  | the spec's blocks as a DAG: nodes, mermaid deps, waves (parallelism), critical path, the loops                                                                |
+| 7   | `invariants.md`          | what must hold everywhere    | the constitution: package-level rules every brief inherits verbatim (info-loss defense)                                                                       |
+| 8   | `agent-methodology.md`   | how agents execute           | one block ↔ one agent, entry conditions, spec/test isolation, merge queue, definition of GREEN                                                                |
+| 9   | `test-methodology.md`    | how "done" is proven         | positive + adversarial classes, capability checks, fault-injection catalogue, the acceptance gate                                                             |
+| 10  | `agent-plans/block-*.md` | one brief per DAG node       | self-contained: objective, build, interface contract, both test tables, definition of done                                                                    |
+| 11  | visual artifacts         | see it                       | mermaid diagrams on a C4 ladder (`references/deliverable-formats.md`)                                                                                         |
+
+When the package will also be **executed** (deployed, verified, observed hands-off), it grows a set of
+operational artifacts alongside the docs: a deployment orchestrator, an executable verification
+harness, custom metrics + alerts + a live dashboard, and load controls. These are specified in
+`references/execution.md`. **Read that file before building any of them.**
+
+## Workflow
+
+Steps 1–7 are **Phase A, design the package**; step 8 is **Phase B, execute it**. Do them in order;
+each has a check you can verify before moving on.
+
+0. **Tier the package to blast radius, then scaffold.** Before writing anything, judge the change by
+   reversibility and blast radius, not by lines of code. A small, reversible change gets the `small`
+   tier (README + proposal + decision-log + spec with tests, one brief); a large or irreversible one
+   gets the `full` set. Default to the smaller tier and record the choice in the decision log so a
+   human can override. Then run `scripts/scaffold.py --slug <slug> --title "<Title>" --tier <tier>`
+   to generate the skeleton. → _verify:_ the tier is recorded, and the scaffolded directory exists.
+
+1. **Ground the current state first: research, don't recall.** Read the real repos/tickets/docs,
+   **web-search the current tools, versions, and licenses, and verify load-bearing claims against
+   official documentation.** Separate _verified facts_ (checked against a repo, official doc, or
+   search) from _domain knowledge_ (someone said so); flag greenfield vs extension. → _verify:_
+   `research-notes.md` exists and every load-bearing claim cites its source (URL / repo path), with
+   unverifiable ones flagged.
+2. **Write the proposal.** Requirements become fixed constraints. **Design it twice**: sketch at
+   least two structurally distinct approaches and synthesize the strongest (principles §9), then
+   present the design as a chain where each step is a _consequence_ of the prior one, not an
+   independent pick. End with a **validation pass** that attacks your own design and folds the fixes
+   back in. → _verify:_ a reader can trace every design step to a requirement, and the validation pass
+   names real new problems, not none.
+3. **Log the decisions as you make them.** Verified-facts table; every decision as Decision → Why →
+   Grounding; a "considered and set aside: do not re-propose without new information" table. This
+   is the anti-re-litigation doc. → _verify:_ nothing in the proposal is unexplained here.
+4. **Spec it into test-gated blocks.** Split into blocks: each one deliverable, one write-set, one
+   checkable done, small enough to become a ticket. Each
+   block: purpose, architecture, interfaces (input/output/config surface), **verification (positive)
+   tests AND adversarial (negative) tests**. Group preconditions as Block 0; number blocks in
+   execution order. Add an **escalation appendix** of off-the-shelf options. → _verify:_ every block
+   has both test classes and a clear definition of done.
+5. **Plan the spec's blocks as work for the agents**. Turn them into an execution DAG: eliminate
+   redundant steps, parallelize independent blocks into waves, sequence the true dependencies, and
+   wrap iterative work in bounded loops, emitting the DAG, waves, and loop register. → _verify:_ the
+   DAG's dependencies match the spec's block table exactly.
+6. **Write the execution methodology + one brief per node.** `agent-methodology.md` (how a fleet
+   runs the DAG) and `test-methodology.md` (how tests are authored/judged). Then one
+   `agent-plans/block-*.md` per node, **self-contained**, so an agent needs only its brief + the
+   spec block, never the conversation. → _verify:_ pick one brief; confirm an agent could execute it
+   cold.
+7. **State status honestly, name the one hinge decision, then lint before dispatch.** Identify the
+   single measurement or gate the whole design turns on, and say plainly it's open if it is. List
+   every open item. A work package is "structurally complete" long before it is "finalized"; don't
+   blur the two. Then run `scripts/lint.py <dir>` as the cross-artifact gate: it fails on unfilled
+   placeholders, a spec block missing either test class, a decision with no status, a missing sources
+   section, a cyclic graph, DAG edges that disagree with the spec, and dead cross-links. Fix every
+   error before agents fan out. → _verify:_ the README names the hinge decision and lists open items
+   with concrete close conditions, and `lint.py` reports zero errors.
+8. **Execute the package (Phase B, when it will be deployed).** Build an unattended orchestrator
+   whose waves mirror the DAG, separating _readiness gates_ (a thing exists/settled) from _verify
+   gates_ (it behaves), self-healing with retry-until-wall and contacting a human only at a wall.
+   Author the verification harness from the spec's test tables (positive AND adversarial) as the
+   same code the orchestrator gates on. Make observability a deliverable: own the metric names, test
+   presence AND working, and prove signals move when the input moves. Then consolidate for review and
+   put the run-guide in the README. Full treatment in `references/execution.md`. → _verify:_ a fresh
+   operator can bring the system up, watch it converge, and prove it correct from the README alone.
+
+## Core disciplines
+
+The design disciplines are load-bearing for the package (`references/principles.md`, which also
+carries the Ford & Richards trade-off/characteristics/fitness-function material in §10); the
+execution disciplines govern deploying it (`references/execution.md`). Both files give the full
+treatment with worked examples.
+
+- **No information loss.** The directory is the source of truth; the conversation is disposable.
+- **Ground truth over assumption: research, don't recall.** Don't reason from memory on anything
+  load-bearing. **Web-search the current tools, versions, and licenses and verify every claim
+  against official documentation** and the actual repo/config. Separate _verified fact_ from _domain
+  knowledge_, **cite every source with a URL or repo path**, and flag what you couldn't verify rather
+  than asserting it.
+- **Every decision carries rationale + grounding**, and a "set aside" list so nothing is relitigated.
+- **Adversarial by construction.** Every design gets a self-attack pass; every block gets negative
+  tests; assert the _bad_ behaviour (a silent no-op must be observably distinguishable from success).
+- **Off-the-shelf over hand-built.** The highest-risk work is a bespoke pipeline; escalate to a tool.
+- **Name the one hinge decision** the whole design turns on, and be honest when it's still open.
+- **Design it twice.** Sketch two or more structurally distinct designs and synthesize the strongest;
+  prefer the one that hides the most behind the simplest interface; when a design needs the same
+  workaround again and again, scrap it rather than patch it. Pick candidate styles from the catalog
+  in `references/architecture-styles.md` (monolith through microservices, with diagrams and
+  trade-offs), not from habit.
+- **Everything is a trade-off; make each characteristic testable.** Name the few characteristics
+  that actually drive the system, choose the least-worst style for them, and give each a fitness
+  function so the claim is falsifiable (Ford & Richards; `references/principles.md` §10). A claimed
+  pure win means you haven't found the trade-off yet.
+
+Execution disciplines (Phase B):
+
+- **Readiness ≠ correctness.** Gate "it exists and settled" separately from "it behaves"; a component
+  can be Ready and doing nothing.
+- **Self-heal to a wall, then ask.** Retry against a wall-clock budget, not forever; the wall is the
+  one place an unattended run contacts a human, and it reports convergence on a fixed cadence.
+- **The harness is the spec, executed.** Author tests from the spec's test tables (not the code),
+  positive AND adversarial, and gate the deploy on the same scripts a human runs by hand.
+- **Own your metric names; test presence AND working.** Default exporters miss domain state; define
+  custom metrics, then prove each series both exists and moves when its input moves.
+- **Render and inspect the final form.** The runtime between your file and the process transforms it
+  (args expansion, late-bound config, shared resource pools): verify what actually runs, not the
+  source.
+
+## Optional checkpoint
+
+For a high-stakes design, get sign-off on the work package before dispatching agents. Treat pushback
+as new grounding (back to step 1), not as friction.
+
+## Scaling
+
+Match the package to the work; step 0's risk tier decides. A small, reversible design might be
+proposal + decision-log + a short spec, no agent fleet (`scaffold.py --tier small`). A large or
+irreversible multi-agent epic warrants the full set (`--tier full`). When you drop an artifact, say
+why in the README rather than leaving a reader to wonder if it was forgotten. Don't manufacture
+blocks, waves, or a hinge decision that the problem doesn't actually have.
+
+## Running across agents
+
+One portable `SKILL.md` and its `references/` and `scripts/` run unchanged on Claude Code, Codex, and
+OpenCode. The scripts need only Python 3.9+ (standard library, no third-party packages). Install the
+skill directory at `~/.claude/skills/architect/` (Claude Code), `~/.agents/skills/architect/`
+(Codex), or `~/.config/opencode/skills/architect/` (OpenCode, which also reads `.claude/skills` and
+`.agents/skills`, so one directory serves all three).
+
+The only host-specific piece is publishing a rendered proposal or diagram outside the terminal;
+`adapters/claude.md` wires that to Claude Code's `Artifact` tool and the `artifact-diagramming` /
+`artifact-design` skills. On other hosts, use their own rendering capability. The markdown work
+package, including in-repo mermaid, is complete without any of it.
+
+## Sources
+
+Grounded in Ousterhout's _A Philosophy of Software Design_, Ford & Richards' architecture canon, and
+established document standards (ADR/MADR, EARS, RFC 2119, Gherkin, arc42, C4). Full attribution with
+URLs and license notes is in `references/sources.md`; this skill copies no substantial text from any
+of them and references the one copyleft source (arc42) by concept only.
