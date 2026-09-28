@@ -2,8 +2,8 @@
 
 Step 1 grounds what is actually true today. On anything larger than a small repo, a code graph
 answers "what is here, what depends on what, what breaks if this changes" far faster and more
-completely than reading and grepping by hand, and it is the only sane way to describe how _several_
-repositories fit together. This file is how to ground through one, optionally, with a graceful
+completely than reading and grepping by hand, and it is the first coherent way to describe how
+_several_ repositories fit together. This file is how to ground through one, optionally, with a graceful
 fall back to manual reading when no code-graphing tool is present.
 
 The flow is: **determine scope → ensure a fresh index → explore → write research-notes**. Every claim
@@ -23,10 +23,10 @@ still traces to a node or a file path; anything the graph cannot resolve is flag
 
 Prefer, in order, and use whichever is present:
 
-1. **codegraph** (https://github.com/colbymchenry/codegraph, MIT) — available when its MCP tools
+1. **codegraph** (https://github.com/colbymchenry/codegraph, MIT): available when its MCP tools
    (`codegraph_explore`, `codegraph_node`) are exposed to the host, or the `codegraph` CLI is on PATH.
-2. **graphify** — a future alternative; detect a `graphify-out/` index.
-3. **none** — fall back to manual grounding (read the real repos and configs) and say so in
+2. **graphify**: a future alternative; detect a `graphify-out/` index.
+3. **none**: fall back to manual grounding (read the real repos and configs) and say so in
    `research-notes.md`, so a reader knows the floor was hand-built, not graph-derived.
 
 The MCP tools and the CLI subcommands return the same output, so a host without the codegraph MCP uses
@@ -36,11 +36,13 @@ the identical CLI; the mapping below names both.
 
 Ground the _current_ code, not a stale snapshot. For each in-scope repo:
 
-- Check `codegraph status --json`. It reports `initialized`, `nodeCount`/`edgeCount`, `languages`,
-  `pendingChanges` (added / modified / removed), and `reindexRecommended`.
+- Check `codegraph status --json`. It reports top-level `initialized`, `nodeCount`/`edgeCount`,
+  `languages`, and `pendingChanges` (its `added` / `modified` / `removed` counts), plus a nested
+  `index` object whose `index.reindexRecommended` flags a stale index.
 - If `initialized` is false, build the index: `codegraph init <repo>`.
-- If `pendingChanges` is non-zero or `reindexRecommended` is true, refresh it: `codegraph sync <repo>`
-  (codegraph's own file-watcher may already have synced; `status` confirms).
+- If any of `pendingChanges.{added,modified,removed}` is non-zero, or `index.reindexRecommended` is
+  true, refresh it: `codegraph sync <repo>` (codegraph's own file-watcher may already have synced;
+  `status` confirms).
 
 The index lives in a `.codegraph/` directory in the repo; it is disposable and must never be committed
 (the repo `.gitignore` excludes it).

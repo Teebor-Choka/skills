@@ -10,7 +10,7 @@ from the figures in _Fundamentals of Software Architecture_ and flagged where a 
 
 ## Tools
 
-- codegraph (Colby McHenry, MIT) — the preferred optional code-graphing capability for grounding the
+- codegraph (Colby McHenry, MIT): the preferred optional code-graphing capability for grounding the
   current state (`code-graphing.md`): a local code knowledge graph over 20+ languages, used via its
   MCP tools or the identical CLI. https://github.com/colbymchenry/codegraph
 
