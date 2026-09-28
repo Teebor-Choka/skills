@@ -8,6 +8,12 @@ ideas), never quoted; MADR is MIT; the RFCs are IETF documents whose normative k
 usage. The architecture-style scorecards in `architecture-styles.md` are factual data reconstructed
 from the figures in _Fundamentals of Software Architecture_ and flagged where a cell is approximate.
 
+## Tools
+
+- codegraph (Colby McHenry, MIT) — the preferred optional code-graphing capability for grounding the
+  current state (`code-graphing.md`): a local code knowledge graph over 20+ languages, used via its
+  MCP tools or the identical CLI. https://github.com/colbymchenry/codegraph
+
 ## Design disciplines
 
 - John Ousterhout, _A Philosophy of Software Design_ (deep modules, information hiding, the design

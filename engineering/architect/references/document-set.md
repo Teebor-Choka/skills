@@ -31,9 +31,15 @@ rests on an assumption. This is written first and is the factual floor everythin
 - **Greenfield vs existing**: call out what is a genuinely new capability vs an extension.
 - Implications for the proposal (candidate hubs, shared primitives, scope that is net-new).
 
+When a code-graphing capability is available (codegraph preferred), derive the current architecture
+from the graph rather than by hand, each claim traced to a node, and for a multi-repo project add a
+**cross-repo** current-architecture section (which repo owns what, which dependencies cross a repo
+boundary). Flag any edge the graph could not resolve. See `code-graphing.md` for the flow; with no
+tool present, read the repos by hand and say the floor was hand-built.
+
 **Rule.** Research, don't recall: web-search current tools/versions, verify against official docs,
-and cite each source (URL / repo path). Never infer state from an absent log line, empty grep, or
-missing artifact. Confirm the thing _could_ have been observed, then assert it. Flag anything you
+and cite each source (node / URL / repo path). Never infer state from an absent log line, empty grep,
+or missing artifact. Confirm the thing _could_ have been observed, then assert it. Flag anything you
 could not verify.
 
 ---
