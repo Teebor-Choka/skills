@@ -18,4 +18,6 @@ from a node spec, and `scripts/lint.py` checks completeness and internal consist
 It is grounded in Ousterhout's _A Philosophy of Software Design_ and Ford & Richards' architecture
 canon; the architecture-style catalog is in `references/architecture-styles.md`, and the
 graph-engineering pattern catalog (how to divide work so agents self-collaborate) is in
-`references/graph-patterns.md`.
+`references/graph-patterns.md`. Grounding the current state can optionally run through a code graph
+(codegraph preferred), single- or multi-repo, per `references/code-graphing.md`, falling back to
+manual reading when no such tool is present.

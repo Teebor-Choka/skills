@@ -15,7 +15,7 @@ description: >-
 license: MIT
 compatibility: any
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Architect: self-contained, agent-executable architecture work packages
@@ -74,12 +74,17 @@ each has a check you can verify before moving on.
    human can override. Then run `scripts/scaffold.py --slug <slug> --title "<Title>" --tier <tier>`
    to generate the skeleton. → _verify:_ the tier is recorded, and the scaffolded directory exists.
 
-1. **Ground the current state first: research, don't recall.** Read the real repos/tickets/docs,
+1. **Ground the current state first: research, don't recall.** Establish which repositories are in
+   scope: inside one repo, that is the scope; otherwise scan the current directory and ask the user
+   which repos to include and what constitutes the project unit. If a code-graphing capability is
+   available (codegraph preferred), build or refresh its index for each in-scope repo and ground the
+   current state through it, cross-repo when several repos are given, citing each claim to a node;
+   otherwise read the real repos by hand and say the floor was hand-built. Either way,
    **web-search the current tools, versions, and licenses, and verify load-bearing claims against
-   official documentation.** Separate _verified facts_ (checked against a repo, official doc, or
-   search) from _domain knowledge_ (someone said so); flag greenfield vs extension. → _verify:_
-   `research-notes.md` exists and every load-bearing claim cites its source (URL / repo path), with
-   unverifiable ones flagged.
+   official documentation.** Separate _verified facts_ (checked against a repo, graph node, official
+   doc, or search) from _domain knowledge_ (someone said so); flag greenfield vs extension. Full flow
+   in `references/code-graphing.md`. → _verify:_ `research-notes.md` exists and every load-bearing
+   claim cites its source (node / URL / repo path), with unverifiable ones flagged.
 2. **Write the proposal.** Requirements become fixed constraints. **Design it twice**: sketch at
    least two structurally distinct approaches and synthesize the strongest (principles §9), then
    present the design as a chain where each step is a _consequence_ of the prior one, not an
