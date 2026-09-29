@@ -15,7 +15,6 @@ cross-agent model. Each category has its own README with fuller blurbs.
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | [forge-idea](./tools/forge-idea/SKILL.md) | Forge a rough idea into a viable one by fanning out parallel agents to stress-test and prune branches |
 | [llm-wiki](./tools/llm-wiki/SKILL.md)     | Build, grow, and query a linked Markdown knowledge wiki an LLM can navigate                           |
-| [hopr-debug](./tools/hopr-debug/SKILL.md) | Ground-truth HOPR protocol knowledge (RFC-0001–0014) for correct mixnet/node debugging                |
 
 ### model/tools — [details](./model/tools/README.md)
 
@@ -58,7 +57,6 @@ Skills are grouped into thematic categories for source organization. The groupin
 tools/
   forge-idea/           # skill: forge-idea
   llm-wiki/             # skill: llm-wiki
-  hopr-debug/           # skill: hopr-debug
 model/tools/
   unslop/               # skill: unslop
   skill-creator/        # skill: skill-creator — references/platforms + validate_skill.py
