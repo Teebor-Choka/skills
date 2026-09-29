@@ -40,13 +40,13 @@ cross-agent model. Each category has its own README with fuller blurbs.
 ### engineering/ci — [details](./engineering/ci/README.md)
 
 | Skill                                                      | Description                                            |
-| ---------------------------------------------------------- | ----------------------------------------------------- |
+| ---------------------------------------------------------- | ------------------------------------------------------ |
 | [github-actions](./engineering/ci/github-actions/SKILL.md) | Harden GitHub Actions workflows and configure Renovate |
 
 ### environment — [details](./environment/README.md)
 
-| Skill                             | Description                                                                     |
-| --------------------------------- | ------------------------------------------------------------------------------ |
+| Skill                             | Description                                                                        |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
 | [nix](./environment/nix/SKILL.md) | Work correctly in Nix + direnv dev repos — nix fmt, build traps, pre-commit tuning |
 
 ## Install

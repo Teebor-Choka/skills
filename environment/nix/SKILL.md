@@ -49,7 +49,7 @@ locally.
   binary silently.
 - **Dropped rustflags in crane builds.** `.cargo/config.toml`'s `[build].rustflags` is
   silently discarded by nix package builds (crane / `mkRustPackage`) when the build sets
-  `CARGO_BUILD_RUSTFLAGS` — that env var *replaces*, not merges with, config.toml's rustflags.
+  `CARGO_BUILD_RUSTFLAGS` — that env var _replaces_, not merges with, config.toml's rustflags.
   Config.toml flags only reach plain non-nix `cargo` and dev shells that re-export them. When
   a `--cfg` or rustflag is not taking effect in a nix-built CI job, check this first.
 
@@ -57,7 +57,7 @@ locally.
 
 Every command run in a direnv-managed directory re-enters the shell and prints a
 `direnv: loading …` / `direnv: export +AR …` banner, which buries real command output and
-eats context. Silence it by exporting an empty log format *before* the direnv hook runs — put
+eats context. Silence it by exporting an empty log format _before_ the direnv hook runs — put
 it in `~/.zshenv` (or wherever the parent shell sources its profile):
 
 ```sh

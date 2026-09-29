@@ -35,7 +35,7 @@ Skills are grouped into thematic category directories, each with its own README:
   `python3 model/tools/skill-creator/scripts/validate_skill.py <skill-dir>`.
 - **Adding a skill.** Create the directory, then register it in `marketplace.json` (a `plugins`
   entry: `name`, `description`, `source: "./"`, `skills: ["./path"]`, `metadata.version:
-  "1.0.0"`), bump the top-level `metadata.version` (minor), and add a row to the category README
+"1.0.0"`), bump the top-level `metadata.version` (minor), and add a row to the category README
   and the top-level README.
 - **Editing a skill.** Bump that plugin's `metadata.version` in `marketplace.json` — patch for
   fixes, minor for additive guidance, major for a breaking change to how the skill is used.
