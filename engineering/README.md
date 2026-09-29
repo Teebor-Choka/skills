@@ -1,8 +1,9 @@
 # Engineering skills
 
 Skills for designing and building systems. Portable Agent Skills (`SKILL.md`) that run on Claude
-Code, Codex, and OpenCode. Language- and code-level skills live under [`swe/`](./swe/README.md);
-this directory holds the cross-cutting architecture skill.
+Code, Codex, and OpenCode. Language- and code-level skills live under [`swe/`](./swe/README.md),
+CI and pipeline skills under [`ci/`](./ci/README.md); this directory holds the cross-cutting
+architecture skill.
 
 | Skill                             | What it does                                                                                                 | Reach for it when                                                                             |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |

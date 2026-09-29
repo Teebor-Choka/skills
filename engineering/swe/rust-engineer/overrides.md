@@ -3,7 +3,7 @@
 These rules **supersede** the base [guidelines.txt](guidelines.txt) where they conflict.
 Always apply these first; fall back to guidelines.txt for topics not covered here.
 
-**Contents:** 1 Immutability & Type Safety · 2 Naming & Style · 3 Pattern Matching & Iteration · 4 Documentation · 5 Async & Concurrency · 6 Tracing & Logging · 7 Testing · 8 Error Handling · 9 Crate Layout & Features · 10 Configurability · 11 Builder Pattern · 12 Build & Release Workflow · 13 Blanket Impls for Smart Pointers
+**Contents:** 1 Immutability & Type Safety · 2 Naming & Style · 3 Pattern Matching & Iteration · 4 Documentation · 5 Async & Concurrency · 6 Tracing & Logging · 7 Testing · 8 Error Handling · 9 Crate Layout & Features · 10 Configurability · 11 Builder Pattern · 12 Build & Release Workflow · 13 Blanket Impls for Smart Pointers · 14 Tooling & Gotchas
 
 ---
 
@@ -25,11 +25,15 @@ fn find_peer(id: &PeerId) -> *const Peer { ... } // null = not found
 **Use the strongest type available** (extends `M-STRONG-TYPES`).
 Use `BiMap` for bidirectional mappings instead of two separate `HashMap`s.
 
+**Prefer `TryFrom`/`Into`/`From`** over ad-hoc `from_u8()`/`to_x()` conversion methods.
+
 ---
 
 ## 2. Naming & Style
 
 **Follow Rust conventions:** `snake_case` for variables/functions, `CamelCase` for types/traits.
+
+**Place `use` imports at the top** of the file, module, or test block — never inline in a function body.
 
 **Test fixtures:** use descriptive names like `stubbed`, `not_running`, `with_default_config` — not `test_fixture` or `setup`.
 
@@ -123,6 +127,9 @@ trait TagAllocator: Send + Sync { fn allocate(&self) -> Tag; }
 
 **Prefer async runtime-agnostic code.** Use `tokio` behind a `runtime-tokio` feature when needed.
 
+**Pick the Mutex by runtime:** `parking_lot::Mutex` (sync), `tokio::Mutex` (tokio async),
+`async_lock::Mutex` (runtime-agnostic async).
+
 **Use `futures_time::stream::interval`** over `sleep` loops:
 
 ```rust
@@ -141,6 +148,13 @@ loop { do_work().await; tokio::time::sleep(duration).await; }
 ## 6. Tracing & Logging
 
 **Prefix tracing macros with `tracing::`** — always `tracing::info!(...)`, never bare `info!(...)`.
+
+**Use structured fields, not bracket prefixes:** `tracing::info!(direction = "forward", ...)`
+over `[forward] ...`. Tracing renders string fields quoted (`direction="forward"`).
+
+**In a `macro_rules!` matcher forwarded to a `tracing::*` message argument, use `$label:literal`,
+not `$label:expr`.** The message position requires a string literal; `expr` compiles at the macro
+definition but fails at expansion when a caller passes anything other than a bare literal.
 
 ---
 
@@ -169,6 +183,24 @@ fn validator_should_accept_positive_numbers(#[case] input: u32, #[case] expected
 **Always consider boundary and edge cases:** empty inputs, single-element, duplicates, max/min values.
 
 **After editing tests or code, rerun the closest package test suite.**
+
+**Poll the actual precondition for async convergence** (channel propagation, probe warmup,
+cache population) in a retry loop with a timeout — not a fixed `sleep()`, which is too short on
+slow CI and wastefully long on fast machines.
+
+**Activate a crate feature for tests only** with a self-referencing dev-dependency:
+`crate-name = { path = ".", features = ["feature"] }` in `[dev-dependencies]`.
+
+**Don't combine rstest `#[case]` with `insta::assert_*_snapshot!`** — the case→snapshot-file
+mapping is non-deterministic across parallel runs. Collect the cases into one `Vec` and snapshot
+once. Never `assert_yaml_snapshot!(format!("{:?}", obj))`.
+
+**Regenerate insta snapshots** with `cargo insta test --accept -p <crate>`, not
+`INSTA_UPDATE=always` (which can overwrite with wrong content during parallel runs). Before
+deleting a `.snap` file, grep for the snapshot name or its producing test first.
+
+**Build e2e/integration test binaries `--release`** — never a slow custom profile for the test
+binary itself.
 
 ---
 
@@ -203,6 +235,9 @@ match result {
 // Don't — fragile string matching
 assert!(format!("{}", result.unwrap_err()).contains("not found"));
 ```
+
+**Check the `Error` associated type** of the relevant `TryFrom`/`From` impl before pattern-matching
+on it with `matches!`.
 
 **Use `anyhow::ensure!()` for boolean guards in tests** — not `matches!().then_some(()).context()`:
 
@@ -240,6 +275,11 @@ default = ["runtime-tokio"]
 ```
 
 **Use `features = ["inline"]` for dashmap** when performance matters.
+
+**Prefer orthogonal features** composed via `#[cfg(all(feature = "a", feature = "b"))]` over a
+compound `"a-b"` feature. Compound features explode combinatorially and obscure which dependency
+each gate needs; keep a compound name only as a backward-compat alias when removing it would
+break downstream consumers.
 
 ---
 
@@ -316,12 +356,29 @@ Add the dependency once per workspace: `auto_impl = "1"`.
 
 ## 12. Build & Release Workflow
 
-Run at the end of each code iteration:
+Run these at the end of each code iteration, in this exact order:
 
-1. `nix fmt`
-2. `cargo shear --fix`
-3. `cargo build ...`
-4. `cargo test`
+1. `nix fmt` — format first, so later steps don't re-flag formatting churn.
+2. `cargo shear` — check-only at the workspace root, or `cargo shear --fix -p <crate>` for a
+   single package. Never `--fix` at the workspace root without `-p` (it strips workspace deps);
+   even with `-p`, run `git diff Cargo.toml` afterward — the tool can wrongly touch root
+   workspace deps and can remove a dep another member still uses, so follow up with a
+   full-workspace `cargo check`.
+3. `cargo machete` — catches deps `cargo shear` misses. serde helper crates used via
+   `#[serde(with = "...")]` are false positives; add them to
+   `[package.metadata.cargo-machete] ignored`. hoprnet-org CI runs `cargo-machete` specifically,
+   so run both locally before pushing.
+4. `cargo build ...`
+5. `cargo clippy --lib --tests` — full workspace, not package-scoped.
+6. `cargo test`
+
+Use the narrowest cargo scope that covers your changes (`-p <crate>`) for building and testing.
+Clippy (step 5) is the deliberate exception — run it across the full workspace, since a change in
+one crate can surface lints in its dependents.
+
+**Update `Cargo.lock` with `cargo update -p <crate>`** after a version bump — never
+`cargo generate-lockfile`, which re-resolves the whole workspace and can silently upgrade
+unrelated crates to breaking versions.
 
 **Bump crate versions per PR** following semver:
 
@@ -330,3 +387,48 @@ Run at the end of each code iteration:
 - **Major** (1.x → 2.0.0): breaking changes
 
 **Minimal scope** — only touch crates you changed with cargo utilities.
+
+---
+
+## 14. Tooling & Gotchas
+
+**Design:** use TDD to drive new modules and features; when the design is unclear, ask rather
+than guess.
+
+**Typed atomics over stringly state.** Use `#[atomic_enum::atomic_enum]` for a typed atomic enum
+instead of `AtomicU8` + a manual `TryFrom<u8>` — it gives typed `load`/`store`/`compare_exchange`
+with no hand-written conversion (as `HoprState` does in hopr-api). Prefer it over
+`RwLock<String>` when the string is only a rendering of underlying state.
+
+**`Cow<'static, str>` in enum payloads** carrying fixed diagnostic messages avoids a heap
+allocation on every read while still allowing dynamic messages via `Cow::Owned`.
+
+**Mocking with `mockall`:**
+
+- Async trait methods expect `Pin<Box<dyn Future<Output = T>>>`, not `T` — use
+  `Box::pin(async { ... })` in `returning` closures.
+- `mockall::mock!` can't handle generic methods or two same-named methods across different traits
+  — hand-roll a stub/composite struct in those cases.
+
+**Clippy and imports:**
+
+- A trait must be in scope for method resolution (`graph.identity()` needs `use NetworkGraphView`)
+  even when clippy marks the import unused — confirm it isn't needed for dispatch before removing.
+- If an import's only use is inside a `#[cfg(feature = "...")]` block, gate the import with the
+  matching `#[cfg]` rather than removing it; clippy without the feature will otherwise flag it.
+
+**Misc:**
+
+- `debug_assert!(false, ...)` panics in test/debug builds — use `tracing::warn!` for a soft
+  fallback in a production path that tests exercise.
+- A `#![...]` inner attribute on line 1 looks like a shebang to pre-commit — put a `//` comment
+  above any module-level `#![cfg(...)]`/`#![allow(...)]` at the start of a new test file to avoid
+  `check-shebang-scripts-are-executable` failures.
+- For a `tokio::time::timeout` result used in an assertion, prefer `result.unwrap_or_default()`
+  over `result.is_err() || result.unwrap().is_empty()`.
+- Enforce const-generic constraints at compile time with `const _ASSERT: () = assert!(...);`
+  inside the `impl<const N: usize>` block — an invalid `N` then fails the build instead of
+  panicking at runtime (e.g. divide-by-zero on `N = 0`).
+- Trait definitions for git dependencies live in `~/.cargo/git/checkouts/<crate>-<hash>/<rev>/`.
+- With Criterion's `iter_batched`, the setup closure must produce everything the timed closure
+  consumes — don't clone data inside the timed closure that setup could generate.
