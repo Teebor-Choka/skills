@@ -37,6 +37,18 @@ cross-agent model. Each category has its own README with fuller blurbs.
 | [rust-engineer](./engineering/swe/rust-engineer/SKILL.md) | Enforce Rust house guidelines while writing or reviewing Rust                                 |
 | [code-quality](./engineering/swe/code-quality/SKILL.md)   | Audit code risk from complexity/coverage/duplication metrics + comment quality (reports only) |
 
+### engineering/ci — [details](./engineering/ci/README.md)
+
+| Skill                                                      | Description                                            |
+| ---------------------------------------------------------- | ----------------------------------------------------- |
+| [github-actions](./engineering/ci/github-actions/SKILL.md) | Harden GitHub Actions workflows and configure Renovate |
+
+### environment — [details](./environment/README.md)
+
+| Skill                             | Description                                                                     |
+| --------------------------------- | ------------------------------------------------------------------------------ |
+| [nix](./environment/nix/SKILL.md) | Work correctly in Nix + direnv dev repos — nix fmt, build traps, pre-commit tuning |
+
 ## Install
 
 ```bash
@@ -65,6 +77,10 @@ engineering/
 engineering/swe/
   rust-engineer/        # skill: rust-engineer
   code-quality/         # skill: code-quality — workflows: measure, comments
+engineering/ci/
+  github-actions/       # skill: github-actions — Actions hardening + Renovate
+environment/
+  nix/                  # skill: nix — Nix + direnv dev workflow
 ```
 
 Each skill is a self-contained directory:
