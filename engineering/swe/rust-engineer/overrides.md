@@ -27,6 +27,8 @@ Use `BiMap` for bidirectional mappings instead of two separate `HashMap`s.
 
 **Prefer `TryFrom`/`Into`/`From`** over ad-hoc `from_u8()`/`to_x()` conversion methods.
 
+**Construct configuration structs and enums with every field named** — no `..rest` or `..Default::default()` spread. The exhaustive literal is a deliberate tripwire: when a dependency bump adds a field, the compile error forces you to wire the new field through, where a spread would silently default it. A new upstream field should surface at compile time, not disappear into a default.
+
 ---
 
 ## 2. Naming & Style
@@ -162,6 +164,20 @@ definition but fails at expansion when a caller passes anything other than a bar
 
 **Tests with fallible operations must return `anyhow::Result<()>`** with `.context()` — see §8 for details and examples.
 
+**House test attribute stack:** combine `#[rstest]`, `#[test_log::test(tokio::test)]`,
+`#[timeout(TEST_GLOBAL_TIMEOUT)]`, and `#[serial]` (when the test touches shared state); run the
+suite with cargo-nextest. `TEST_GLOBAL_TIMEOUT` is derived, not a hardcoded literal, so the budget
+scales when coverage instrumentation slows every test down. Activate features per crate
+(`--features testing,serde`, `--features poisson`), not across the whole workspace.
+
+**Reproduce at the smallest boundary first.** Write the failing unit test before reaching for an
+integration test, then fix — a unit test that isolates the bug is worth more than a slow run that
+tests one guess. Drop to integration only when the behaviour genuinely can't be isolated.
+
+**Prefer explicit, readable chronology over scenario-driven tests.** A test whose body shows the
+sequence of events in order is easier to trust than one that hides the functionality behind a
+scenario helper and obscures the ordering.
+
 **Use `rstest` with `#[case]` for 2+ similar cases.** Don't copy-paste tests with different inputs:
 
 ```rust
@@ -285,7 +301,11 @@ break downstream consumers.
 
 ## 10. Configurability
 
-**Make intervals, thresholds, and tuning parameters configurable.** Use `serde` + `humantime` for durations:
+**Make intervals, thresholds, and tuning parameters configurable** through the crate's own config
+struct/file — not a hardcoded `const` buried in an impl module. Operators tune through config; a
+`const` needs a recompile and is invisible to config-driven ops. (A fixed protocol limit like
+`MAX_CHANNEL_EPOCH` in §4 stays a documented `const` — it is not a tunable.) Use `serde` +
+`humantime` for durations:
 
 ```rust
 #[derive(Debug, Deserialize)]
@@ -434,3 +454,5 @@ allocation on every read while still allowing dynamic messages via `Cow::Owned`.
 - Trait definitions for git dependencies live in `~/.cargo/git/checkouts/<crate>-<hash>/<rev>/`.
 - With Criterion's `iter_batched`, the setup closure must produce everything the timed closure
   consumes — don't clone data inside the timed closure that setup could generate.
+- Benchmark defaults: realistic parameters, bounded channels, and the mixer in the path. A
+  benchmark over unbounded channels or a stripped pipeline measures a system you don't ship.

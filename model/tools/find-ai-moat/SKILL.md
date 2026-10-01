@@ -45,4 +45,15 @@ a conversation, not a questionnaire.
   toward widening the complement (deeper client/domain knowledge, owning outcomes and judgment,
   building what compounds), away from competing with the model on what it already does.
 
+## The north star: steer, don't dump
+
+The durable edge beside a model is being its _steerer_, not its _dumper_. A dumper hands the model
+a vague ask and ships whatever comes back; a steerer specifies the work before prompting, steers
+instead of dumping, and derives their own acceptance tests to judge the output against — the value
+is in specifying what to build and evaluating whether what came back is right, which is exactly the
+part a model can't do for itself. Use this as the lens for the whole assessment: the parts where
+they already steer are moat; the parts where they dump are where the model is doing their thinking.
+Point the 30-day moves toward more steering — tighter specs, their own evaluation criteria, owning
+the judgment call. Source: https://www.aieraengineering.com/engineers/are-you-an-ai-dumper
+
 Keep the pushback honest throughout: the point is a true map and real moves, not reassurance.

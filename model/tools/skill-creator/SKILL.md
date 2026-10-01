@@ -59,7 +59,10 @@ Follow this loop. It is the same discipline whichever agent you target.
    into `references/`; put deterministic, repeated work into `scripts/`. Keep the core
    light enough to load every run — length is a symptom, not the target. Craft rules and
    the description in `references/authoring.md`; `assets/SKILL.template.md` is a starter
-   scaffold to fill, not a shape to match.
+   scaffold to fill, not a shape to match. If the host offers a first-party skill scaffolder
+   (e.g. Anthropic's `example-skills:skill-creator`), scaffold the directory with it first, then
+   apply this skill's portability and audit layer on top — let the scaffolder lay the bones so
+   your effort goes into the description, the portable core, and the adapters.
 4. **Add adapters** for the target agents (only what's needed):
    - Programmatic triggering — auto-trigger by description, slash/custom commands, hooks,
      CI/headless entry points. Matrix + snippets: `references/triggering.md`.

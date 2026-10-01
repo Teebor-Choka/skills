@@ -27,6 +27,12 @@ of the proposal is a fine convenience: self-contained (no external requests), th
 proposal changes, the markdown is authoritative and the HTML is regenerated, never edited on its
 own.
 
+When the share is a **stakeholder review of the whole package**, not just the proposal, inline every
+artifact into that one `index.html` rather than linking the sibling docs. A reader opening the HTML
+outside the repo can't follow a relative link to `decision-log.md` or a `block-*.md` brief, so a
+linked review is a review full of dead ends. One self-contained file with all artifacts inlined
+reads end to end anywhere; it is still a rendering, regenerated from the authoritative markdown.
+
 Use whatever rendering and publishing capability your agent host provides. The concrete per-agent
 wiring lives in `adapters/` (on Claude Code, the `Artifact` tool and the `artifact-diagramming` /
 `artifact-design` skills; other hosts use their own). Published visuals and HTML are a convenience
