@@ -378,7 +378,9 @@ one crate can surface lints in its dependents.
 
 **Update `Cargo.lock` with `cargo update -p <crate>`** after a version bump — never
 `cargo generate-lockfile`, which re-resolves the whole workspace and can silently upgrade
-unrelated crates to breaking versions.
+unrelated crates to breaking versions. For a `Cargo.lock` **merge conflict**, take the target
+branch's lock first (`git checkout origin/<default> -- Cargo.lock`), then `cargo update -p <crate>`
+for each crate whose version you changed — same reasoning, never `generate-lockfile`.
 
 **Bump crate versions per PR** following semver:
 
