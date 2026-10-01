@@ -86,6 +86,14 @@ references/templates.md.
 
 ### INGEST — add a new source
 
+Ingest losslessly: first the ingest, then the rest. Land the raw source into `raw/` unchanged
+before any summarizing, so the immutable record exists before you process it. When you distil it
+into a `source-note`, condense for navigability without losing information — preserve structured
+data intact, keeping a rating-anchor table (e.g. a full 1–5 scale) as a table rather than
+flattening it to prose, since the detail that made it worth citing is exactly what prose drops.
+Cite the original source URL at the end of the page as a reference using markdown reference-style
+links, alongside the frontmatter `source:` key.
+
 1. Read the source from `raw/` (or a file the user provides). Discuss takeaways if they are
    present.
 2. Create the page (`source-note`, with the raw file in `source:`) or update an existing one.
