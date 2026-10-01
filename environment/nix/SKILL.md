@@ -53,8 +53,36 @@ locally.
 - **Dropped rustflags in crane builds.** `.cargo/config.toml`'s `[build].rustflags` is
   silently discarded by nix package builds (crane / `mkRustPackage`) when the build sets
   `CARGO_BUILD_RUSTFLAGS` — that env var _replaces_, not merges with, config.toml's rustflags.
-  Config.toml flags only reach plain non-nix `cargo` and dev shells that re-export them. When
-  a `--cfg` or rustflag is not taking effect in a nix-built CI job, check this first.
+  Config.toml flags only reach plain non-nix `cargo` and dev shells that re-export them. Concrete
+  symptom: a nix-built artifact silently loses `--cfg tokio_unstable` (so tokio-console wiring goes
+  dark) even though a local `cargo build` has it. When a `--cfg` or rustflag is not taking effect in
+  a nix-built CI job, check this first.
+- **`writeShellScriptBin` gets a build-time `bash -n` syntax check** at nix build, so a syntax
+  error fails the build rather than the first run. To share a shell library into such a script,
+  inline it with `builtins.readFile` — it is spliced at build time and syntax-checked with the
+  rest, and leaves no runtime store dependency to resolve.
+- **Test a nix-generated script against the built artifact**, on the real target architecture, not
+  the source template. Eval-time data (paths, config baked by the derivation) only exists in the
+  built output, so the template and the artifact can diverge in exactly the part you need to check.
+- **Transient `cache.nixos.org` timeouts during `nix build` are infrastructure, not a code error.**
+  Retry before debugging — a failed substituter fetch looks like a build failure but isn't one.
+
+## Flake dev loop and cross-building
+
+- **Iterate a split consumer/modules flake with `--override-input`.** When a consumer flake pulls
+  its modules from a separate repo, point the input at a local sibling checkout
+  (`--override-input <modules-input> path:../<sibling-checkout>`) so you edit and test without
+  committing and re-locking each cycle. Run a fast `nix eval` to catch wiring errors before any
+  full build or boot — builds and boots dominate wall-clock by orders of magnitude, so an eval
+  that eliminates a wiring bug is far cheaper than the run that would surface it.
+- **"Bump the flake" names three distinct operations** — resolve which one before acting:
+  update the lock (`nix flake update`), cut a version tag, and rebuild/deploy
+  (`darwin-rebuild` / `nixos-rebuild`). They are independent, and the last one changes a live
+  machine. Never rebuild or deploy unless explicitly told to.
+- **macOS to Linux cross-building goes through a linux-builder VM.** An `aarch64-linux` guest is
+  cross-built from an `aarch64-darwin` host via a vfkit/QEMU `linux-builder` VM (QEMU is the
+  default hypervisor) whose closure is fetched prebuilt from the official NixOS binary cache, so
+  there is no bootstrap chicken-and-egg. The first cross-build is slow; subsequent ones are cached.
 
 ## Silencing direnv shell-enter noise
 
