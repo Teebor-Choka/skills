@@ -38,6 +38,32 @@ whenever a repo has `.github/workflows/`, or you touch a workflow file or Renova
   and fix all findings before committing. If `zizmor` is not on `PATH` (not in the nix devshell,
   say), skip it rather than installing it.
 
+## Merge queue and branch rulesets
+
+- **A required check must also run on `merge_group`.** If a status check is required for merge but
+  its workflow doesn't trigger on the `merge_group` event, the queue waits forever for a status
+  that never arrives — a deadlock. A conditionally-skipped Actions job still reports green, so it
+  satisfies the requirement without running; guard a heavy job you want to skip in the queue with
+  an `if:` condition rather than dropping `merge_group` from the triggers. External checks (e.g.
+  Codecov) can't skip-green, so they must genuinely run on `merge_group`.
+- **Add the merge queue as a separate overlay ruleset** scoped to the default branch, instead of
+  folding it into an existing ruleset — it keeps the queue's config from being rewritten with
+  unrelated rule changes.
+- **The `integrations/github` Terraform provider (as of 6.13.0) can't model the
+  `require_extra_approval_for_unattributed_changes` pull-request ruleset parameter** and silently
+  drops it on every rewrite, which disables the control. Workaround: a `terraform_data` resource
+  re-runs a script that restores the field idempotently after each write, and don't let Terraform
+  rewrite rulesets that are managed by hand. Silent drops like this are why a provider-managed
+  security control needs a post-write verification.
+
+## Codecov
+
+- **Authenticate the Codecov upload via GitHub OIDC** — set `permissions: id-token: write` on the
+  job and drop the static `CODECOV_TOKEN`. Because it's a workflow permission rather than a
+  repository secret, the upload also works on Dependabot PRs (which run without access to secrets).
+- **Pushing a workflow file needs the `workflow` OAuth scope.** If a `git push` that touches
+  `.github/workflows/` is rejected, refresh the token: `gh auth refresh -h github.com -s workflow`.
+
 ## Renovate
 
 - **Root config precedence.** Before adding a `renovate.json` at the repo root, check for an
