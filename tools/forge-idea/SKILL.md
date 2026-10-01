@@ -81,8 +81,11 @@ user's manual call at the smith checkpoint. Forge only _recommends_ the transiti
 
 ### 1. Interrogate → reduce to the kernel
 
-Do **not** just restate the premise and ask for a nod. Interrogate until it is sharp,
-pushing back on every soft answer:
+Do **not** just restate the premise and ask for a nod. Ask one question at a time, wait for
+the answer, push back on every soft one, and don't synthesize the kernel until the answers line
+up — pose the questions through a decision dialog where the host offers one. The exception is
+open-ended brainstorming: when the user is exploring rather than deciding, let them drive with
+their own questions instead of firing a dialog every turn. Interrogate until it is sharp:
 
 - **Target** — who or what is this _for_? Name it explicitly. (Not necessarily a
   paying buyer — the idea may be a research bet or an internal tool; but the target
