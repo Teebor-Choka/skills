@@ -9,7 +9,7 @@ description: >
   silently replacing .cargo/config.toml rustflags in crane builds, silencing direnv log
   noise, and a lightweight nixpkgs pre-commit override. Trigger even when Nix is incidental
   to a Rust or other change in such a repo. Do not use for homelab secret injection into
-  hosts or microVMs (that is the kauki-infra-setup skill), or for authoring application Nix
+  hosts or microVMs, or for authoring application Nix
   modules unrelated to the dev workflow.
 license: MIT
 compatibility: any

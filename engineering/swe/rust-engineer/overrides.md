@@ -27,7 +27,7 @@ Use `BiMap` for bidirectional mappings instead of two separate `HashMap`s.
 
 **Prefer `TryFrom`/`Into`/`From`** over ad-hoc `from_u8()`/`to_x()` conversion methods.
 
-**Construct structs and enums with every field named** — no `..rest` or `..Default::default()` spread. The exhaustive literal is a deliberate tripwire: when a dependency bump adds a field, the compile error forces you to wire the new field through, where a spread would silently default it. A new upstream field should surface at compile time, not disappear into a default.
+**Construct configuration structs and enums with every field named** — no `..rest` or `..Default::default()` spread. The exhaustive literal is a deliberate tripwire: when a dependency bump adds a field, the compile error forces you to wire the new field through, where a spread would silently default it. A new upstream field should surface at compile time, not disappear into a default.
 
 ---
 
