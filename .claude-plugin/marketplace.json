@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills — practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "1.12.0"
+    "version": "1.13.0"
   },
   "plugins": [
     {
@@ -97,6 +97,15 @@
       "skills": ["./engineering/ci/github-actions"],
       "metadata": {
         "version": "1.0.0"
+      }
+    },
+    {
+      "name": "find-ai-moat",
+      "description": "Interview one question at a time to find where your work complements AI versus where a model already does it, then give three concrete 30-day moves to widen the gap in your favor.",
+      "source": "./",
+      "skills": ["./model/tools/find-ai-moat"],
+      "metadata": {
+        "version": "0.1.0"
       }
     }
   ],
