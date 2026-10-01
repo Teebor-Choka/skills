@@ -4,7 +4,7 @@ description: >
   Make prose a pleasure to read: compose or revise clear, well-architected writing grounded
   in Strunk & White's concision and Pinker's classic style. Use whenever the user wants a
   passage of connected prose (an essay, README, doc, PR description, blog post, email, or any
-  run of sentences) to read better, get tighter, or be composed well — in whatever words they
+  run of sentences) to read better, get tighter, or be composed well, in whatever words they
   ask. Covers the shapes: clean up the prose; make this abstract or paragraph tighter; tighten
   this design-doc paragraph that reads too wordy; make it concise and well-structured; get to
   the point; improve the flow; why does this read badly; help me write X; write the opening for
