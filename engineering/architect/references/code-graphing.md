@@ -71,6 +71,15 @@ cannot resolve an edge, say so rather than asserting it. The cross-repo dependen
 choke points are what a single-repo read never surfaces, and they set the "where this plugs in today"
 section of the proposal.
 
+## 5a. Reconciling a spec or RFC against the live code
+
+When the grounding task is to check an existing spec or RFC against what the code actually does,
+deliver the cross-cutting result as a single comparison table, not prose. Pick the axes the spec
+turns on (e.g. operation x property x config x count) so each row is one checkable claim and the gaps
+show up as empty or mismatched cells. Iterate the table until it is complete — every operation the
+spec names has a row, and every row says whether the code matches, diverges, or is missing. A prose
+write-up hides exactly the omission a table forces into view.
+
 ## 6. The rule that does not change
 
 Whether graph-derived or hand-read, `research-notes.md` still separates verified fact from domain
