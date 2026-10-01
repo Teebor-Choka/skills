@@ -53,8 +53,9 @@ Follow this loop. It is the same discipline whichever agent you target.
    only for triggering/orchestration you actually need. If the skill must dispatch
    subagents or call vendor tools, keep that in an adapter, not the core.
 3. **Write `SKILL.md`.** Frontmatter (`name`, `description`) + a lean body. Push detail
-   into `references/`; put deterministic, repeated work into `scripts/`. Keep the body
-   under ~500 lines. Craft rules and the description in `references/authoring.md`.
+   into `references/`; put deterministic, repeated work into `scripts/`. Keep the core
+   light enough to load every run — length is a symptom, not the target. Craft rules and
+   the description in `references/authoring.md`.
 4. **Add adapters** for the target agents (only what's needed):
    - Programmatic triggering — auto-trigger by description, slash/custom commands, hooks,
      CI/headless entry points. Matrix + snippets: `references/triggering.md`.

@@ -52,7 +52,7 @@ page at `wiki/Psychology/relationships/likeability.md` has `domain: Psychology`.
 
 When bootstrapping, infer areas from the content. A common starting taxonomy is Business,
 Marketing, Philosophy, Psychology, Communication, Finances, Technology, Life, Reference — add or
-drop areas to fit. Keep the count in the 4–10 range so the index stays scannable.
+drop areas to fit. Keep few enough areas that the index stays scannable.
 
 ## Page schema
 
@@ -113,8 +113,8 @@ log `lint` with a summary of findings.
 
 ## Atomicity
 
-Each `topic` page should cover exactly one coherent concept. When a page grows past ~150 lines
-or accretes sections that belong to different areas, split it: extracted sections become new
+Each `topic` page should cover exactly one coherent concept. When it stops holding to that — it
+sprawls or accretes sections that belong to different areas — split it: extracted sections become new
 pages in their correct area, the original keeps the core concept, and both link back via
 `## See Also`. Atomic pages are what make link-following a precise retrieval mechanism rather
 than a scan of long documents.
