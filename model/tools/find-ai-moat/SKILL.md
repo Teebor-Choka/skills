@@ -47,7 +47,7 @@ a conversation, not a questionnaire.
 
 ## The north star: steer, don't dump
 
-The durable edge beside a model is being its *steerer*, not its *dumper*. A dumper hands the model
+The durable edge beside a model is being its _steerer_, not its _dumper_. A dumper hands the model
 a vague ask and ships whatever comes back; a steerer specifies the work before prompting, steers
 instead of dumping, and derives their own acceptance tests to judge the output against — the value
 is in specifying what to build and evaluating whether what came back is right, which is exactly the
