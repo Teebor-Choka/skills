@@ -55,7 +55,8 @@ Follow this loop. It is the same discipline whichever agent you target.
 3. **Write `SKILL.md`.** Frontmatter (`name`, `description`) + a lean body. Push detail
    into `references/`; put deterministic, repeated work into `scripts/`. Keep the core
    light enough to load every run — length is a symptom, not the target. Craft rules and
-   the description in `references/authoring.md`.
+   the description in `references/authoring.md`; `assets/SKILL.template.md` is a starter
+   scaffold to fill, not a shape to match.
 4. **Add adapters** for the target agents (only what's needed):
    - Programmatic triggering — auto-trigger by description, slash/custom commands, hooks,
      CI/headless entry points. Matrix + snippets: `references/triggering.md`.
