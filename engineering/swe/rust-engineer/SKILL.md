@@ -4,8 +4,9 @@ description: >
   Enforce Rust code quality and house guidelines on every Rust change. Use whenever
   writing, modifying, or reviewing a .rs file; adding or refactoring Rust modules or
   crates; fixing rustc errors or clippy warnings; running cargo, clippy, or rustfmt;
-  implementing traits, error types, async, or unsafe blocks; editing Cargo.toml
-  dependencies or features; or writing Rust tests or benchmarks. Trigger even when Rust
+  implementing traits, error types, async, or unsafe blocks; editing Cargo.toml,
+  Cargo.lock, rust-toolchain.toml, or .cargo/ config; or writing Rust tests or
+  benchmarks. Trigger even when Rust
   is only part of a larger multi-language change — the Rust portions must still conform.
   Also apply when the user just names Rust, cargo, clippy, rustfmt, a .rs filename, or
   any Rust-specific concept. Do not use for pure after-the-fact risk, complexity, or

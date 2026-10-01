@@ -27,6 +27,9 @@ locally.
   anywhere, so you do not have to be inside the directory first.
 - Each git worktree needs its own `direnv allow <worktree-path>` after creation; the parent
   repo's allow does not carry over.
+- A fresh worktree does not inherit a `.pre-commit-config.yaml` that is a symlink into the nix
+  store — the symlink isn't recreated. Re-create the same symlink in the worktree, or the first
+  commit fails with "No .pre-commit-config.yaml file was found."
 - Once you're in the environment, invoke commands directly; the tools are on `PATH`.
 - Do not bypass the environment with `GIT_DIR`/`GIT_WORK_TREE`. Pre-commit hooks and other
   tooling are wired through the nix shell; bypassing it runs the wrong (or no) hooks.
