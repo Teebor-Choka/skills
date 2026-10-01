@@ -10,6 +10,9 @@ description: >
   even when the user just says "make a skill", "package this as a skill", "why isn't my
   skill firing", "add a command or hook for this", or names Codex or OpenCode alongside
   skills. Produces a portable SKILL.md plus per-agent adapters and an evaluation harness.
+  Also use to audit an existing skill set, CLAUDE.md, or hooks — "audit my skills for rules
+  that could be judgment", "which skills hand me examples to copy (factory vs creative)",
+  "make my CLAUDE.md route"; see references/auditing.md.
 ---
 
 # Skill creator (cross-agent)
