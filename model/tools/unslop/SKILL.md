@@ -59,6 +59,10 @@ Two ways to use this skill:
 - **Always-on voice** — keep everything _you_ emit de-slopped by default, every response,
   session-wide. Wire it with the output style or `AGENTS.md` baseline in `adapters/`, and
   adjust per session with `/unslop-mode off|light|default|strict` (Codex: `$unslop <level>`).
+  This includes the prose inside a skill's or plugin's frontmatter — the `description` a user
+  and the triggering model actually read is in scope, so the no-em-dash and no-"serves as" rules
+  apply to it (they are a common offender). De-slop the description text; leave the YAML keys,
+  `name`, and structure alone, since those are config, not prose.
 
 The level dials how much of the process runs; the default is **default**:
 
