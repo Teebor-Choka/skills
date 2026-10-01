@@ -9,7 +9,7 @@ description: >
   silently replacing .cargo/config.toml rustflags in crane builds, silencing direnv log
   noise, and a lightweight nixpkgs pre-commit override. Trigger even when Nix is incidental
   to a Rust or other change in such a repo. Do not use for homelab secret injection into
-  hosts or microVMs (that is the devops-debug skill), or for authoring application Nix
+  hosts or microVMs (that is the kauki-infra-setup skill), or for authoring application Nix
   modules unrelated to the dev workflow.
 license: MIT
 compatibility: any
@@ -108,5 +108,5 @@ Stripping heavyweight `nativeCheckInputs` from the nixpkgs `pre-commit` package 
 - **rust-engineer** covers the `.rs` / `Cargo.toml` specifics and the Rust build sequence
   (including `nix fmt` as its first step); apply it for those. This skill owns the Nix/direnv
   build mechanics — the `result` symlink and crane-rustflags traps live only here.
-- **devops-debug** covers homelab secret injection into hosts and microVMs — a separate,
-  private concern, not general dev workflow.
+- **kauki-infra-setup** covers homelab secret injection into hosts and microVMs — a separate,
+  private concern that lives inside the kauki.xyz/infra repo, not general dev workflow.

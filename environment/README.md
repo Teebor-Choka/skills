@@ -9,5 +9,6 @@ Skills for operating inside a particular development environment. Each is a port
 | [nix](./nix/SKILL.md) | Work correctly in a Nix + direnv repo — dev-shell entry, `nix fmt` over `cargo fmt`, build traps, and a lightweight pre-commit override | any repo with a `.envrc` or `flake.nix`, on macOS or Linux |
 
 `nix` covers the general Nix/direnv dev workflow. Homelab secret injection into hosts and
-microVMs is a separate, private concern (a `devops-debug` skill), and the Rust `.rs`/`Cargo.toml`
+microVMs is a separate, private concern (the repo-internal `kauki-infra-setup` skill in
+kauki.xyz/infra), and the Rust `.rs`/`Cargo.toml`
 specifics belong to [rust-engineer](../engineering/swe/rust-engineer/SKILL.md).
