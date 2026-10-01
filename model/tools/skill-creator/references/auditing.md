@@ -66,3 +66,14 @@ CLAUDE.md  (420 lines)          CLAUDE.md  (90 lines, routes)
 For all three lenses: audit read-only, present the table(s)/tree, and wait. Apply only what the
 operator approves, then re-run the skill validators (`scripts/validate_skill.py`, and the repo's
 own checks) and re-format. Nothing ships on the auditor's say-so alone.
+
+## Upkeep habits
+
+Two habits keep a skill set from drifting between audits:
+
+- **Graduate recurring lessons.** A lesson that keeps resurfacing across sessions or memory files
+  has outgrown memory — fold it into the skill that owns its domain, where it loads only when the
+  task is relevant, instead of re-paying for it in every session's context.
+- **De-slop the descriptions.** A `description` is prose a reader and the triggering model both
+  see, so run the house voice over every skill's and plugin's frontmatter (the `unslop` skill). An
+  em-dash lint across descriptions catches the most common offender for almost nothing.

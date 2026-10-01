@@ -42,6 +42,15 @@ triggers, and by listing near-miss phrasings you _do_ want to catch. Example sha
 Also state what should **not** trigger it — the near-misses that share keywords but need a
 different tool. This is what keeps the skill from firing on adjacent work.
 
+Enumerate task **shapes** — the intents and paraphrases a user would actually type — not a handful
+of canned quoted phrases. A description that leans on exact phrases fires on those phrases and
+misses the paraphrase sitting right next to them. Real cautionary case: `prose-craft` scored 0/3 in
+the eval harness on queries it plainly should own ("clean up the prose", "make this abstract
+tighter", "tighten this design-doc paragraph") because its description listed quoted triggers
+instead of the shapes those paraphrase. When two skills sit next to each other — prose-craft vs
+unslop vs a grammar checker vs a code refactor — name the boundary in the description so each fires
+on its own shapes and defers the adjacent ones, or they quietly steal each other's triggers.
+
 Constraints that keep it portable: keep it under 1024 characters and use no angle brackets
 (`<`/`>`) — both are hard limits in common validators.
 
