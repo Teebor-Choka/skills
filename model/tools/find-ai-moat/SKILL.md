@@ -7,8 +7,9 @@ description: >
   their work is AI-proof, what their edge or moat is, how to stay valuable as models improve,
   or where they add value a model can't. Trigger on "where do I stand next to AI", "will AI
   replace my job", "what's my moat", "AI-proof my work", "where do I add value over a model",
-  "future-proof my career". Not for building a product's AI features, and not a free-form
-  career chat — this is a structured self-assessment that ends in specific moves.
+  "future-proof my career". Not for building a product's AI features, general career or
+  learning-path advice, or job-interview prep — this is a structured self-assessment of where
+  you stand relative to AI that ends in specific 30-day moves.
 license: MIT
 compatibility: any
 ---

@@ -1,0 +1,62 @@
+{
+  "skill_name": "find-ai-moat",
+  "outcome_evals": [],
+  "trigger_evals": [
+    {
+      "query": "where do I stand next to AI in my work",
+      "should_trigger": true
+    },
+    {
+      "query": "honestly, is my job safe as these models keep getting better?",
+      "should_trigger": true
+    },
+    {
+      "query": "what's my moat as a freelance consultant now that AI does so much of this",
+      "should_trigger": true
+    },
+    {
+      "query": "which parts of what I do can a model already do on its own?",
+      "should_trigger": true
+    },
+    {
+      "query": "help me figure out where I actually add value a model can't",
+      "should_trigger": true
+    },
+    {
+      "query": "I want to AI-proof my work — where do I even start",
+      "should_trigger": true
+    },
+    {
+      "query": "how do I stay valuable as AI keeps improving",
+      "should_trigger": true
+    },
+    {
+      "query": "map where I complement AI versus where it's just replacing me",
+      "should_trigger": true
+    },
+
+    {
+      "query": "add an AI chat feature to my web app",
+      "should_trigger": false
+    },
+    {
+      "query": "should I learn Python to future-proof my career?",
+      "should_trigger": false
+    },
+    {
+      "query": "help me prep for a software engineering job interview",
+      "should_trigger": false
+    },
+    {
+      "query": "will AI replace all jobs in the next decade?",
+      "should_trigger": false
+    },
+    { "query": "give me some general career advice", "should_trigger": false },
+    {
+      "query": "what AI tools should I add to my workflow?",
+      "should_trigger": false
+    },
+    { "query": "pressure-test my startup idea", "should_trigger": false },
+    { "query": "review and tighten my resume", "should_trigger": false }
+  ]
+}
