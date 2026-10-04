@@ -127,6 +127,8 @@ trait TagAllocator: Send + Sync { fn allocate(&self) -> Tag; }
 
 **Remove unnecessary generic bounds from struct definitions.** Only add bounds on `impl` blocks.
 
+**Narrow each function's trait bounds to what it actually calls**, rather than a broad supertrait shared across functions. Minimal per-function bounds let a test satisfy only the traits that handler exercises, so mocks stay small and targeted.
+
 **Prefer async runtime-agnostic code.** Use `tokio` behind a `runtime-tokio` feature when needed.
 
 **Pick the Mutex by runtime:** `parking_lot::Mutex` (sync), `tokio::Mutex` (tokio async),
@@ -375,6 +377,12 @@ Add the dependency once per workspace: `auto_impl = "1"`.
 ---
 
 ## 12. Build & Release Workflow
+
+**Match the checks to the change.** A docs- or comment-only change needs formatting, not the test
+suite; a dependency change needs `cargo shear` plus a full-workspace `cargo check`; code changes
+need the sequence below, scoped to the touched crate. Reserve the full gate — every step across the
+whole workspace, plus the project's CI check — for pre-PR. A project's own `AGENTS.md` owns the
+concrete per-change command table; this section is the reasoning behind it.
 
 Run these at the end of each code iteration, in this exact order:
 
