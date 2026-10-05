@@ -15,7 +15,7 @@ description: >-
 license: MIT
 compatibility: any
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Architect: self-contained, agent-executable architecture work packages
