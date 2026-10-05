@@ -96,7 +96,24 @@ Metrics and alerts are spec artifacts with their own blocks, tests, and gates, n
   that first _asserts the toolchain is in scope_ (fail with a clear message if the OIDC-capable
   `kubectl` isn't on PATH) rather than hard-coding a directory.
 
-## 5. Execution-time failure catalog (first-contact lessons)
+## 5. Running the agent fleet: shared baseline and merge discipline
+
+The build DAG says what can run in parallel; this is how a fleet executing it stays coherent
+against one git history.
+
+- **Workers branch from the same baseline, and each can move it far.** Give every worker enough
+  context to rebase onto the new baseline after a sibling lands, not just to produce its own diff.
+- **Serialize the rebases through a merge queue.** Parallel execution is not parallel merges — a
+  queue lands one worker at a time, so each rebases onto a known-good tree.
+- **Some work is irreducibly serial.** A directory restructuring or a shared-interface change
+  blocks every other worker; sequence it alone rather than forcing a merge storm.
+- **Projects cycle between swarmable and serialize-only phases.** Recognize which phase you are in
+  and staff accordingly; a serialize-only phase staffed like a swarm just manufactures conflicts.
+- **Well-formed nodes make smoother swarms.** The disjoint-resource rule for DAG nodes (one owner
+  per resource, no two nodes mutating the same file) is what keeps parallel merges clean — a swarm
+  is only as conflict-free as the work division that fed it.
+
+## 6. Execution-time failure catalog (first-contact lessons)
 
 The walls the reference implementation actually hit on the way to GREEN. Each generalizes past its
 specifics, the right column is the transferable rule.

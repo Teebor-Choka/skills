@@ -40,6 +40,19 @@ before a commit, before a PR, or as a periodic health check — never on every e
 reports; a human or the engineering skill decides what to do about a finding, and does the
 fixing.
 
+## When to run it, and what to do with findings
+
+Invest in code health in proportion to how fast the code is degrading — enough that rot
+doesn't accumulate, no more. Run a pass often enough that findings don't pile up: before a
+commit or PR, and periodically on code under active churn.
+
+What this skill hunts beyond the numeric metrics: dead code, redundancy, over-engineering,
+misplaced files, and stale docs. One structural heuristic the metrics won't hand you — split a
+file when it stops being easy to navigate, regardless of its exact line count.
+
+Findings are a handoff, not a fix: file them as issues, triage by severity, and clear them in
+dedicated refactoring sessions rather than smuggling them into unrelated changes.
+
 ## The audit shape (portable intent)
 
 A full audit is naturally parallel and two-staged — hold this shape regardless of which agent

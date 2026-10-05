@@ -113,6 +113,20 @@ ask whether two good outputs for different inputs should look alike (factory) or
 To audit an existing skill set against these principles and the context-routing one, see
 `auditing.md` — it runs the three as an approval-gated sweep.
 
+## Agent UX: design for how agents actually reach
+
+A skill, command, or tool is an interface another agent drives — design it for the moves an agent
+reaches for by reflex, not only the ones you intend.
+
+- **Expect familiar-pattern reflexes.** An agent reaches for the shape it has seen elsewhere (e.g.
+  `gh issue --body` when your flag is `--description`). Accommodate the common wrong guess instead of
+  only documenting the right one.
+- **Add aliases for the predictable mistakes.** Accepting the near-miss and mapping it to the real
+  option costs little and removes a whole class of failed first attempts.
+- **Test the interface empirically.** When the shape isn't obvious, generate a few candidate
+  interfaces and watch which one agents use correctly without hand-holding — pick the one they
+  prefer, not the one you find tidiest. See `evaluation.md` for running this as a measured pass.
+
 ## Specify before you write (AI-gap self-test)
 
 Before drafting, pin down the five things an under-specified skill leaves to chance, because
