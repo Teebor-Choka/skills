@@ -30,9 +30,28 @@ Layered, per key: **baseline < global < local**, local wins.
 - global — `~/.agents/policy.md` (or `$AGENTS_POLICY_GLOBAL`).
 - local — `<repo>/.agents/policy.md`.
 
-A skill reading key `K` resolves: local `<skill>.K` → local `K` → global `<skill>.K` → global `K` →
-baseline[`K`] → the skill's own fallback. Nothing requires the files to exist; their absence is the
-baseline. A malformed policy errors loudly (it never silently falls back).
+A skill reading key `K` (optionally for a target file) resolves, **most specific first**: a per-file
+`files:` glob matching the target → a per-skill `<skill>` section → the global `K` → baseline[`K`] →
+the skill's own fallback. The baseline < global < local layering is applied first per key; per-file and
+per-skill selection then happen on the merged result. Nothing requires the files to exist; their
+absence is the baseline. A malformed policy errors loudly (it never silently falls back).
+
+## Per-file overrides
+
+Scope a setting to the files it applies to — not a separate policy file per directory. A `files:` map
+keys a path glob to an override map; a skill acting on a file gets the **most specific** matching glob
+(more path segments, then more literal characters, wins):
+
+```
+files:
+  "**/*.rs":
+    gate: tests
+  "docs/**":
+    interaction: dialog
+```
+
+The skill passes the file as `target`: `get(p, "gate", target="src/lib.rs", default="plain")` → `tests`.
+Omit `target` for a repo-wide read.
 
 ## The basic default (no policy present)
 
@@ -58,12 +77,14 @@ Python (the loader is stdlib-only):
 from policy_loader import resolve, get
 p = resolve(repo_path)                               # baseline < global < local
 style = get(p, "interaction", skill="ramble", default="batch")
+gate  = get(p, "gate", target="src/lib.rs", default="plain")   # per-file rule, if any
 ```
 
 Or from the shell:
 
 ```
 policy_loader.py <repo> --get interaction --skill ramble
+policy_loader.py <repo> --get gate --target src/lib.rs   # honor per-file rules
 policy_loader.py <repo> --json            # the whole resolved object
 policy_loader.py --selfcheck              # acceptance checks
 ```

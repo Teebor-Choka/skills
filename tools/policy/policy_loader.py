@@ -23,6 +23,7 @@ Usage:
 """
 import argparse
 import copy
+import fnmatch
 import json
 import os
 import sys
@@ -98,33 +99,42 @@ def _inline_list(raw, key, src, lineno):
     return [_scalar(x) for x in inner.split(",") if x.strip()] if inner else []
 
 
+def _unquote_key(k):
+    k = k.strip()
+    if len(k) >= 2 and k[0] == k[-1] and k[0] in "\"'":
+        k = k[1:-1]
+    return k
+
+
 def _parse_frontmatter(block, src):
-    """Open YAML subset: scalars, inline lists, one level of nested maps under any key."""
-    out = {}
-    cur = None  # the map currently being filled (for indented lines)
+    """Open YAML subset: scalars, inline lists, and nested maps by indentation (any depth).
+
+    Nesting carries the per-skill sections and the `files:` glob-override map (glob -> overrides)."""
+    root = {}
+    stack = [(-1, root)]  # (indent of the key that opened this container, container dict)
     for lineno, line in enumerate(block.splitlines(), 1):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         if ":" not in line:
             raise PolicyError(f"{src}:{lineno}: not a 'key: value' line: {line.strip()!r}")
-        indented = line[0] in (" ", "\t")
-        key, _, val = line.partition(":")
-        key, val = key.strip(), _strip_inline_comment(val)
-        if indented:
-            if cur is None:
-                raise PolicyError(f"{src}:{lineno}: indented key '{key}' has no parent map")
-            out[cur][key] = _inline_list(val, key, src, lineno) if val.startswith("[") \
-                else _scalar(val)
-            continue
-        cur = None
-        if val == "":                     # `key:` alone opens a nested map (section)
-            out[key] = {}
-            cur = key
+        indent = len(line) - len(line.lstrip())
+        rawkey, _, val = line.lstrip().partition(":")
+        key = _unquote_key(rawkey)
+        val = _strip_inline_comment(val)
+        while len(stack) > 1 and indent <= stack[-1][0]:
+            stack.pop()
+        parent = stack[-1][1]
+        if not isinstance(parent, dict):
+            raise PolicyError(f"{src}:{lineno}: '{key}' is nested under a non-map value")
+        if val == "":                     # `key:` alone opens a nested map
+            m = {}
+            parent[key] = m
+            stack.append((indent, m))
         elif val.startswith("["):
-            out[key] = _inline_list(val, key, src, lineno)
+            parent[key] = _inline_list(val, key, src, lineno)
         else:
-            out[key] = _scalar(val)
-    return out
+            parent[key] = _scalar(val)
+    return root
 
 
 def _load_file(path):
@@ -167,10 +177,26 @@ def resolve(repo_path, global_path=None):
     return resolved
 
 
-def get(resolved, key, skill=None, default=None):
-    """Read one key, honoring a per-skill section, then the global key, then `default`.
+def _glob_specificity(g):
+    """Rank a glob: more path segments, then more literal (non-wildcard) characters, wins."""
+    return (g.count("/"), len(g.replace("*", "").replace("?", "")))
 
-    `default` is the skill's own fallback for a key the baseline does not define."""
+
+def get(resolved, key, skill=None, target=None, default=None):
+    """Read one key. Precedence (most specific first):
+
+      1. a per-file rule — the most specific `files:` glob matching `target` that defines the key
+      2. a per-skill section — `<skill>.key`
+      3. the global key
+      4. `default` — the skill's own fallback for a key the baseline does not define
+
+    `target` is the path (relative to the repo) the skill is acting on; omit it for a repo-wide read."""
+    if target and isinstance(resolved.get("files"), dict):
+        hits = [(g, ov[key]) for g, ov in resolved["files"].items()
+                if isinstance(ov, dict) and key in ov and fnmatch.fnmatch(target, g)]
+        if hits:
+            hits.sort(key=lambda h: _glob_specificity(h[0]))
+            return hits[-1][1]
     if skill and isinstance(resolved.get(skill), dict) and key in resolved[skill]:
         return resolved[skill][key]
     if key in resolved:
@@ -205,7 +231,8 @@ def _selfcheck():
         # 3. local overrides global, per key
         os.makedirs(os.path.join(d, ".agents"))
         with open(os.path.join(d, ".agents", "policy.md"), "w") as f:
-            f.write("---\ninteraction: batch\nramble:\n  interaction: dialog\n---\n")
+            f.write('---\ninteraction: batch\nramble:\n  interaction: dialog\n'
+                    'files:\n  "*.md":\n    gate: rubric\n  "docs/*.md":\n    gate: plain\n---\n')
         r = resolve(d, global_path=gpath)
         check("local overrides global per key", r["interaction"] == "batch")
         check("global key kept where local is silent", r["toolchain"] == ["codegraph", "pytest"])
@@ -214,6 +241,12 @@ def _selfcheck():
               get(r, "interaction", skill="ramble") == "dialog")
         check("per-skill falls through to global for other skills",
               get(r, "interaction", skill="architect") == "batch")
+        # 4b. per-file glob override (most specific wins); no match -> baseline
+        check("per-file: *.md -> gate rubric", get(r, "gate", target="notes.md") == "rubric")
+        check("per-file: more specific docs/*.md wins",
+              get(r, "gate", target="docs/readme.md") == "plain")
+        check("per-file: no glob match -> baseline gate=plain",
+              get(r, "gate", target="main.py") == "plain")
         # 5. unknown key passes through (open schema), skill default for absent key
         check("unknown key absent -> skill's own default",
               get(r, "verbosity", default="normal") == "normal")
@@ -236,6 +269,7 @@ def main(argv=None):
     ap.add_argument("--global", dest="global_path", default=None)
     ap.add_argument("--get", dest="key", default=None)
     ap.add_argument("--skill", default=None)
+    ap.add_argument("--target", default=None, help="the file a skill acts on (for per-file rules)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selfcheck", action="store_true")
     args = ap.parse_args(argv)
@@ -249,7 +283,7 @@ def main(argv=None):
         print(f"POLICY ERROR: {e}", file=sys.stderr)
         return 2
     if args.key:
-        print(get(resolved, args.key, skill=args.skill))
+        print(get(resolved, args.key, skill=args.skill, target=args.target))
     elif args.json:
         print(json.dumps(resolved, indent=2, sort_keys=True))
     else:

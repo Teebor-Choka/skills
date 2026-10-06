@@ -10,6 +10,11 @@ practices:                         # injected at the level they belong to
   task: TDD
 ramble:                            # per-skill section: overrides the global key for `ramble` only
   interaction: dialog
+files:                             # per-file overrides: most specific matching glob wins
+  "**/*.rs":
+    gate: tests
+  "docs/**":
+    interaction: dialog
 ---
 
 # Development policy
@@ -24,6 +29,9 @@ process constant here, never baked into a skill.
 - **grounding** — `auto` uses a code-graph / codebase-memory index when present, else plain reads.
 - **gate** — how "done" is judged: a plain checklist, executable `tests`, or a `rubric` (judge).
 - **practices** — e.g. ATDD at the scope level, TDD at the task level; empty forces none.
+- **files** — per-file overrides keyed by path glob (not a policy file per directory). A skill acting
+  on a file gets the most specific matching glob; here Rust files gate on tests and docs are drafted in
+  dialog.
 
 Prose pointers (not machine-read): [`glossary.md`](./glossary.md), [`style.md`](./style.md). This file
 is optional and layered — a global `~/.agents/policy.md` is overridden per key by this local copy;
