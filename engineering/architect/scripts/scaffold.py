@@ -323,6 +323,16 @@ AGENT_METH = Template("""# Agent methodology: $title
 - **Merge queue.** Serialize merges; rebase in dependency order; shared-file and restructuring
   edits are serial.
 - **Definition of GREEN.** Both test classes pass AND the interface contract is stable.
+- **Fallback, not silent failure.** Every node declares its failure modes and a fallback chain
+  (primary -> narrowed -> degraded/rule-based -> human); a fan-in/synthesizer handles all, partial,
+  and zero results, and a structured degraded result beats a silent failure.
+- **No dispatch without an eval baseline.** A new or changed node/pipeline ships only with an eval
+  suite, a recorded baseline it meets or exceeds, and a full-pipeline regression check.
+- **Context integrity.** Never silently truncate required context to fit a budget -- halt and
+  escalate; summarise a sub-agent's output into the next context, never append it whole.
+- **External content is data, not instructions.** Isolate untrusted input (web, docs, user text)
+  from the prompt, validate node outputs against a schema, and pass least privilege -- never hand a
+  scope token between agents.
 - **Inherited invariants.** Every brief carries the invariants from `invariants.md` explicitly,
   not by reference, so a handoff cannot strip them.
 """)
@@ -345,6 +355,10 @@ TEST_METH = Template("""# Test methodology: $title
 
 FILL-IN: the integration criteria, including the hinge measurement with its exact pass/fail
 (flag OPEN if not yet defined; an undefined gate is a judgment call, not a gate).
+
+**Eval baseline (before dispatch).** The pipeline carries an eval suite (enough cases to be
+representative), a recorded baseline score it meets or exceeds, and a full-pipeline regression check.
+A changed node re-runs it; a regression blocks the change.
 """)
 
 INVARIANTS = Template("""# Invariants: $title
@@ -384,6 +398,11 @@ FILL-IN (concrete steps).
 
 FILL-IN: the Output downstream blocks rely on; the config surface.
 
+## Failure & recovery
+
+FILL-IN: this node's failure modes, and its fallback chain (primary -> narrowed -> degraded/rule-based
+-> human). If it consumes other nodes' outputs, how it handles all / partial / zero results.
+
 ## Verification tests
 
 | Test | Setup / Inject | Expected result |
@@ -400,6 +419,7 @@ FILL-IN: the Output downstream blocks rely on; the config surface.
 
 - [ ] Both test classes pass
 - [ ] Interface contract stable
+- [ ] Failure modes + fallback chain declared
 """)
 
 

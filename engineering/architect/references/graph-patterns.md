@@ -109,6 +109,30 @@ shared convention (a workspace, an event schema, a bidding protocol), not a cont
 The practical middle ground most fleets use: a thin split-and-merge at the edges, with choreographed
 collaboration (a shared workspace or events) among the workers in between.
 
+### Design rules per shape (failure guards)
+
+The shapes pick _how_ work splits; these are the guards that keep each from failing silently in
+practice — the common multi-agent failure modes ([2]; MAST, in the research section, finds most
+failures are coordination/specification/verification, not the base model), not the happy path:
+
+- **Fan-out / fan-in.** Branches share no mutable state (beyond the disjoint write-sets `graph.py`
+  already enforces). The synthesizer handles all / partial / zero results against a merge strategy
+  chosen up front (vote, weight, concatenate, or defer to a human) — a missing branch must never read
+  as success. Keep the width modest; past ~7 branches synthesis quality falls off.
+- **Sequential chain.** Pass structured outputs plus a short "context summary" field between stages,
+  not raw prose; cap the chain, since past ~5 hops context loss compounds and quality degrades.
+- **Orchestrator / hierarchical.** The orchestrator decomposes, delegates, and synthesizes — it does
+  not execute. It keeps a task ledger (what was delegated, to whom, status, output), summarizes
+  sub-agent results into its own context rather than appending them whole, and resolves contradictions
+  between sub-agents explicitly.
+- **Evaluator-optimizer.** Frame the critic's criteria differently from the generator's (ideally a
+  different model or prompt); hard-exit at a fixed iteration count (≈3) or when the score plateaus
+  across two rounds, whichever comes first.
+- **Mesh / peer.** The highest-complexity, hardest-to-debug shape: require a moderator and an explicit
+  termination condition, and justify it over hierarchical before reaching for it.
+- **Every node.** Declares its failure modes and a fallback chain (primary → narrowed →
+  degraded/rule-based → human); least privilege, with no scope token passed between agents.
+
 ## 5. Elimination / graph-shaping
 
 The cheapest work is the work removed. Do this before scheduling. `scripts/graph.py` performs
