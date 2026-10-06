@@ -6,11 +6,14 @@ well-formed: the mechanical invariants a reader or a fleet of agents relies on. 
 finding names a file, a rule, and what is wrong, so it reads like a checklist.
 
 Usage:
-    lint.py <work-package-dir> [--tier small|full] [--strict]
+    lint.py <work-package-dir> [--tier note|small|full] [--strict]
 
 Exit code 0 if no errors (warnings allowed), else 1. `--strict` also fails on warnings.
 Standard library only (re, os, glob, graphlib, argparse), so it runs anywhere Python 3.9+
 does. No YAML dependency: every check is heading- or regex-based.
+
+`--tier note` checks only the single `<slug>-plan.md` (E1/E2/E3): there is no package to keep
+internally consistent, so the cross-document rules (E4-E8) do not apply.
 
 The rules, keyed to the document set:
   E1  required artifacts present and non-empty (tier-dependent)
@@ -47,6 +50,9 @@ REQUIRED_HEADINGS = {
     "test-methodology.md": ["Acceptance"],
     "invariants.md": ["Invariants"],
 }
+
+# note tier: the single plan must still carry a goal and a positive+adversarial acceptance gate.
+PLAN_REQUIRED = ["Goal", "Acceptance"]
 
 
 def read(path):
@@ -236,7 +242,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("dir")
-    ap.add_argument("--tier", choices=["small", "full"], default="full")
+    ap.add_argument("--tier", choices=["note", "small", "full"], default="full")
     ap.add_argument("--strict", action="store_true", help="fail on warnings too")
     args = ap.parse_args()
 
@@ -246,6 +252,25 @@ def main():
         return 2
 
     errs, warns = [], []
+
+    # note tier: one self-contained plan, no cross-document checks.
+    if args.tier == "note":
+        plan = find_one(root, "-plan.md")
+        if not plan:
+            errs.append("E1 missing required artifact: *-plan.md")
+        elif not read(plan).strip():
+            errs.append("E1 empty artifact: *-plan.md")
+        else:
+            text = read(plan)
+            name = os.path.basename(plan)
+            for needle in PLAN_REQUIRED:
+                if needle.lower() not in text.lower():
+                    errs.append(f"E2 {name}: missing required section mentioning '{needle}'")
+            check_placeholders(plan, text, errs)
+        for e in errs:
+            print(f"FAIL {e}")
+        print(f"\n1 plan checked, {len(errs)} error(s), 0 warning(s).")
+        return 0 if not errs else 1
 
     proposal = find_one(root, "-proposal.md")
     spec = find_one(root, "-spec.md")

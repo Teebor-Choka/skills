@@ -14,6 +14,23 @@ catalog for the proposal's "design it twice" is in `architecture-styles.md`.
 Naming: use a short slug for the effort (e.g. `db-replication`) as the prefix for the proposal and
 spec. Everything cross-links by relative path so the directory is navigable on its own.
 
+**Only the scope's tier is a deliverable.** The sections below are the `full` set. The `small` tier
+drops the graph, methodology docs, invariants, and per-node briefs; the `note` tier drops everything
+and ships one document. Documents a tier doesn't call for are either not written or kept as disposable
+working notes, never maintained as artifacts. Don't fill a document the scope didn't ask for.
+
+## 0. `<slug>-plan.md`: the note-tier deliverable (floor)
+
+**Purpose.** The whole design for a reversible, well-understood change one agent or person will just
+execute, in one self-contained file, with no package directory and nothing to cross-link.
+
+**Must carry:** goal and non-goals; a brief grounded current-state (what it touches, with the file or
+node that proves it); the approach as a short chain of decisions; an **acceptance-tests** table with
+at least one positive and one adversarial row (the bad behaviour must be observable); open items.
+
+**Rule.** Promote to `--tier small` the moment the change will be handed off, staffed by multiple
+agents, or re-litigated later. `scripts/lint.py <dir> --tier note` checks only this file.
+
 ---
 
 ## 1. `research-notes.md`: grounded current state

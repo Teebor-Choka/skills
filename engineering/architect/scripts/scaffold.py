@@ -7,12 +7,15 @@ real content; `lint.py` flags any `FILL-IN` left behind, so an unfilled package 
 the lint by construction.
 
 Usage:
-    scaffold.py --slug <slug> --title "<Title>" [--dir <path>] [--tier small|full] [--force]
+    scaffold.py --slug <slug> --title "<Title>" [--dir <path>] [--tier note|small|full] [--force]
 
-`--tier small` emits README, proposal, decision-log, and spec (a reversible / low-blast-radius
-change). `--tier full` adds research-notes, development-graph, the two methodology docs, an
-invariants file, and an agent-plans/ directory. Idempotent: existing files are left alone
-unless `--force`. Standard library only (string.Template, argparse, os).
+`--tier note` emits a single self-contained `<slug>-plan.md` and nothing else: no package
+directory, no cross-document links to maintain. It is the floor, for a reversible, well-understood
+change one agent or person will just execute. `--tier small` emits README, proposal, decision-log,
+and spec (a reversible / low-blast-radius change that will still be handed off or re-examined).
+`--tier full` adds research-notes, development-graph, the two methodology docs, an invariants file,
+and an agent-plans/ directory. Idempotent: existing files are left alone unless `--force`. Standard
+library only (string.Template, argparse, os).
 """
 import argparse
 import os
@@ -241,6 +244,39 @@ FILL-IN: the end-to-end gate, including the hinge measurement and the numbers re
 pilot to produce.
 """)
 
+PLAN = Template("""# $title ($slug): plan
+
+A single-document plan for a reversible, well-understood change. No package directory, no
+cross-document consistency to maintain. Promote to `--tier small` if this will be handed off,
+staffed by multiple agents, or re-litigated later.
+
+## Goal and non-goals
+
+FILL-IN: what this changes, and the things it explicitly does NOT.
+
+## Current state (brief grounding)
+
+FILL-IN: what exists today that this touches, with the file or node that proves it. Research,
+don't recall; cite the source. Keep it to what the change rests on.
+
+## Approach
+
+FILL-IN: the design as a short chain where each step is a consequence of the one before.
+
+## Acceptance tests
+
+Positive (did we build it) and adversarial (is the bad behaviour observable):
+
+| Test | Setup / Inject | Expected result |
+|------|----------------|-----------------|
+| FILL-IN (positive) | FILL-IN | FILL-IN |
+| FILL-IN (adversarial) | FILL-IN | FILL-IN (assert the BAD behaviour shows) |
+
+## Open items
+
+FILL-IN: what is still open and who decides, or "none".
+""")
+
 DEV_GRAPH = Template("""# Development graph: $title
 
 The spec's blocks as an execution DAG. Edges here MUST match the spec block-index "Depends on".
@@ -383,7 +419,7 @@ def main():
     ap.add_argument("--slug", required=True, help="short effort slug, e.g. db-replication")
     ap.add_argument("--title", required=True, help="human title")
     ap.add_argument("--dir", default=None, help="output dir (default: ./<slug>)")
-    ap.add_argument("--tier", choices=["small", "full"], default="full")
+    ap.add_argument("--tier", choices=["note", "small", "full"], default="full")
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
 
@@ -391,8 +427,18 @@ def main():
         print(f"error: slug must match ^[a-z0-9][a-z0-9-]*$: {args.slug}", file=sys.stderr)
         return 2
 
-    root = args.dir or args.slug
     sub = {"slug": args.slug, "title": args.title}
+
+    # note tier: one self-contained document, no package directory.
+    if args.tier == "note":
+        root = args.dir or "."
+        plan = os.path.join(root, f"{args.slug}-plan.md")
+        write(plan, PLAN.substitute(sub), args.force)
+        print(f"\nScaffolded '{args.title}' (note tier) at {plan}")
+        print(f"Fill in every FILL-IN, then run: lint.py {root} --tier note")
+        return 0
+
+    root = args.dir or args.slug
 
     write(os.path.join(root, "README.md"), README.substitute(sub), args.force)
     write(os.path.join(root, f"{args.slug}-proposal.md"), PROPOSAL.substitute(sub), args.force)

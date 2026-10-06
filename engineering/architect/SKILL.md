@@ -15,7 +15,7 @@ description: >-
 license: MIT
 compatibility: any
 metadata:
-  version: "1.3.0"
+  version: "1.4.0"
 ---
 
 # Architect: self-contained, agent-executable architecture work packages
@@ -31,17 +31,28 @@ each has a concrete referent. It is illustrative only; substitute your own domai
 
 A non-trivial design that will be **handed off, staffed by multiple agents, or re-examined later**:
 infra proposals, rollout plans, RFCs, "how should we build/replicate/migrate X", architecture
-choices with real trade-offs. For a throwaway one-file design note or a change small enough to just
-do, this is overkill. Say so and write the note instead.
+choices with real trade-offs. For a reversible change one agent or person will just execute, the full
+directory is overkill: the floor is the `note` tier, a single `<slug>-plan.md` (step 1). Pick the
+smallest tier that fits.
 
-## The deliverable: a directory of linked documents
+## The deliverable: only what the scope needs
 
-Not every artifact is needed every time (the risk tier in step 0 decides which), but this is the full
-set and the order a reader consumes them. Each is specified (purpose + required sections + a skeleton)
-in `references/document-set.md`. **Read that file before writing any artifact.** Don't hand-write the
-skeletons: `scripts/scaffold.py --slug <slug> --title "<Title>" --tier small|full` generates the
-directory, `scripts/graph.py <spec.json>` computes the build graph (step 5), and
-`scripts/lint.py <dir>` checks the package is complete and internally consistent before dispatch.
+The output is a **chosen set of final documents, not a fixed directory you always fill.** The tier
+(step 1) decides which documents are deliverables; the rest, if you write them at all, are disposable
+working notes, not artifacts to maintain. Three rungs:
+
+- **`note`** — one `<slug>-plan.md`, no package directory, no cross-document links. The floor.
+- **`small`** — README + proposal + decision-log + spec, for a change still handed off or re-examined.
+- **`full`** — the whole set below, for a design staffed by a fleet or re-litigated later. Here the
+  living directory earns its cost: it is the source of truth mid-flight, so a fresh session resumes
+  from it (no information loss). That is why `full` is _not_ "emit at the end" — the others are.
+
+The table below is the **full** set and the order a reader consumes them. Each is specified (purpose +
+required sections + a skeleton) in `references/document-set.md`. **Read that file before writing any
+artifact.** Don't hand-write the skeletons: `scripts/scaffold.py --slug <slug> --title "<Title>"
+--tier note|small|full` generates them, `scripts/graph.py <spec.json>` computes the build graph (step
+5), and `scripts/lint.py <dir> --tier <tier>` checks the package before dispatch (the `note` tier
+lints only the single plan).
 
 | #   | Artifact                 | Answers                      | The one job                                                                                                                                                                     |
 | --- | ------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,27 +75,44 @@ harness, custom metrics + alerts + a live dashboard, and load controls. These ar
 
 ## Workflow
 
-Steps 1–7 are **Phase A, design the package**; step 8 is **Phase B, execute it**. Do them in order;
-each has a check you can verify before moving on.
+Steps 0–7 are **Phase A, design the package**; step 8 is **Phase B, execute it**. Do them in order;
+each has a check you can verify before moving on. This is the `full`-tier path. The `note` tier
+collapses it: assemble briefly (step 0), write the one `<slug>-plan.md` with its acceptance tests
+(step 1), lint it (`--tier note`), done — there are no spec blocks, graph, or briefs. The `small` tier
+runs steps 0–4 and 7, skipping the graph and per-node briefs.
 
-0. **Tier the package to blast radius, then scaffold.** Before writing anything, judge the change by
-   reversibility and blast radius, not by lines of code. A small, reversible change gets the `small`
-   tier (README + proposal + decision-log + spec with tests, one brief); a large or irreversible one
-   gets the `full` set. Default to the smaller tier and record the choice in the decision log so a
-   human can override. Then run `scripts/scaffold.py --slug <slug> --title "<Title>" --tier <tier>`
-   to generate the skeleton. → _verify:_ the tier is recorded, and the scaffolded directory exists.
+0. **Assemble the current state first: research, don't recall.** Before judging size or writing
+   anything, build a complete model of what exists today — breadth before depth, survey before you
+   zoom to concepts. Establish scope: inside one repo, that is the scope; otherwise scan the current
+   directory and ask the user which repos to include and what constitutes the project unit. Then, with
+   whatever code-graph capability is present (codebase-memory-mcp and codegraph both qualify; prefer
+   whichever has a fresh index of the in-scope repos), assemble in this order: **(a)** pull the
+   whole-system map and its de-facto module clusters — the big picture, not just the area you expect to
+   touch; **(b)** walk every cluster and boundary, naming each subsystem with the node or file that
+   proves it; **(c)** trace the load-bearing data flows and the cross-service / cross-repo seams end to
+   end; **(d)** surface the coupling and complexity hotspots. Go cross-repo when several repos are in
+   scope; where no graph tool is present, read the real repos by hand and say the floor was hand-built.
+   Either way, **web-search the current tools, versions, and licenses, and verify load-bearing claims
+   against official documentation.** Separate _verified facts_ (checked against a repo, graph node,
+   official doc, or search) from _domain knowledge_ (someone said so); flag greenfield vs extension.
+   Full flow in `references/code-graphing.md`. → _verify:_ the current-state model **covers every
+   in-scope subsystem, boundary, and cross-repo seam** — not only the change site — the hotspots are
+   named, every load-bearing claim cites its source (node / URL / repo path), and unverifiable ones
+   are flagged. Record it in `research-notes.md` (full tier) or the proposal's current-state section
+   (small tier).
 
-1. **Ground the current state first: research, don't recall.** Establish which repositories are in
-   scope: inside one repo, that is the scope; otherwise scan the current directory and ask the user
-   which repos to include and what constitutes the project unit. If a code-graphing capability is
-   available (codegraph preferred), build or refresh its index for each in-scope repo and ground the
-   current state through it, cross-repo when several repos are given, citing each claim to a node;
-   otherwise read the real repos by hand and say the floor was hand-built. Either way,
-   **web-search the current tools, versions, and licenses, and verify load-bearing claims against
-   official documentation.** Separate _verified facts_ (checked against a repo, graph node, official
-   doc, or search) from _domain knowledge_ (someone said so); flag greenfield vs extension. Full flow
-   in `references/code-graphing.md`. → _verify:_ `research-notes.md` exists and every load-bearing
-   claim cites its source (node / URL / repo path), with unverifiable ones flagged.
+1. **Tier the package to blast radius — now that you have assembled it — then scaffold.** With the
+   system understood, judge the change by reversibility and blast radius, not by lines of code, and
+   pick the **smallest tier that fits**: `note` (one `<slug>-plan.md`) for a reversible change one
+   agent or person will just execute; `small` (README + proposal + decision-log + spec with tests, one
+   brief) for one that will still be handed off or re-examined; `full` for a design staffed by a fleet
+   or re-litigated later. Default to `note` and step up only when handoff, multi-agent execution, or
+   re-litigation actually applies; record the choice (in the plan, or the decision log) so a human can
+   override. Then run `scripts/scaffold.py --slug <slug> --title "<Title>" --tier <tier>` and land the
+   step-0 grounding in it. **Don't scaffold a document you won't deliver**, and don't carry the whole
+   linked set consistent from the start — fill documents in dependency order and leave cross-document
+   consistency to the single lint gate at step 7. → _verify:_ the tier is recorded with the assembly
+   findings that justify it, and the scaffolded artifact(s) exist.
 2. **Write the proposal.** Requirements become fixed constraints. **Design it twice**: sketch at
    least two structurally distinct approaches and synthesize the strongest (principles §9), then
    present the design as a chain where each step is a _consequence_ of the prior one, not an
@@ -119,7 +147,7 @@ each has a check you can verify before moving on.
 7. **State status honestly, name the one hinge decision, then lint before dispatch.** Identify the
    single measurement or gate the whole design turns on, and say plainly it's open if it is. List
    every open item. A work package is "structurally complete" long before it is "finalized"; don't
-   blur the two. Then run `scripts/lint.py <dir>` as the cross-artifact gate: it fails on unfilled
+   blur the two. Then run `scripts/lint.py <dir> --tier <tier>` as the cross-artifact gate: it fails on unfilled
    placeholders, a spec block missing either test class, a decision with no status, a missing sources
    section, a cyclic graph, DAG edges that disagree with the spec, and dead cross-links. Fix every
    error before agents fan out. → _verify:_ the README names the hinge decision and lists open items
@@ -141,6 +169,11 @@ execution disciplines govern deploying it (`references/execution.md`). Both file
 treatment with worked examples.
 
 - **No information loss.** The directory is the source of truth; the conversation is disposable.
+- **Assemble before you abstract.** Build the whole-system model — module clusters, data flows,
+  cross-repo seams, coupling and complexity hotspots — _before_ forming any design opinion. Breadth
+  before depth: survey the system with the graph tools first, then zoom to concepts. The common
+  failure is starting to architect off the one area you expected to touch; the nuance that sinks the
+  design is almost always in a subsystem you never surveyed.
 - **Ground truth over assumption: research, don't recall.** Don't reason from memory on anything
   load-bearing. **Web-search the current tools, versions, and licenses and verify every claim
   against official documentation** and the actual repo/config. Separate _verified fact_ from _domain
@@ -178,15 +211,17 @@ Execution disciplines (Phase B):
 ## Optional checkpoint
 
 For a high-stakes design, get sign-off on the work package before dispatching agents. Treat pushback
-as new grounding (back to step 1), not as friction.
+as new grounding (back to step 0), not as friction.
 
 ## Scaling
 
-Match the package to the work; step 0's risk tier decides. A small, reversible design might be
-proposal + decision-log + a short spec, no agent fleet (`scaffold.py --tier small`). A large or
-irreversible multi-agent epic warrants the full set (`--tier full`). When you drop an artifact, say
-why in the README rather than leaving a reader to wonder if it was forgotten. Don't manufacture
-blocks, waves, or a hinge decision that the problem doesn't actually have.
+Match the package to the work; step 1's risk tier decides. A reversible change one agent will just do
+is a single `<slug>-plan.md` (`scaffold.py --tier note`), nothing else. A small, reversible design
+that will still be handed off is proposal + decision-log + a short spec, no agent fleet (`--tier
+small`). A large or irreversible multi-agent epic warrants the full set (`--tier full`). When you drop
+an artifact from a tier that would normally carry it, say why in the README rather than leaving a
+reader to wonder if it was forgotten. Don't manufacture blocks, waves, documents, or a hinge decision
+that the problem doesn't actually have.
 
 ## Running across agents
 
