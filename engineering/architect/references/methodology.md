@@ -69,12 +69,12 @@ execution DAG (`development-graph.md`). Details in `deliverable-formats.md`.
 ## Build order: graph engineering (DAG, Kahn, critical path)
 
 Splitting the settled work into a graph a fleet can collaborate on is the graph-engineering step
-(step 5). `scripts/graph.py` is its deterministic core: from an LLM-authored node spec it runs the
+(step 5). the graph-engine skill's `graph.py` is its deterministic core: from an LLM-authored node spec it runs the
 topological sort (Python `graphlib`, a cyclic plan is a hard fail), removes redundant edges by
 transitive reduction, assigns the Kahn-level waves (each runs in parallel), computes the critical
 path (the longest chain, the irreducible wall-clock floor, so adding agents past its width is
 wasted), flags write-set collisions within a wave, and emits `development-graph.md`. The judgment
-left to the author is the node spec and the choice of collaboration shape from `graph-patterns.md`
+left to the author is the node spec and the choice of collaboration shape from the graph-engine skill's `graph-patterns.md`
 (orchestration vs choreography, fan-out, pipeline, evaluator-optimizer, blackboard, contract-net).
 `scripts/lint.py` independently re-checks acyclicity and that edges match the spec block table.
 
