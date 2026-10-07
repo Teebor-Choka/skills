@@ -110,5 +110,4 @@ write-up hides exactly the omission a table forces into view.
 Whether graph-derived or hand-read, `research-notes.md` still separates verified fact from domain
 knowledge, cites each claim to a node or a file path, and flags what could not be confirmed. A code
 graph closes the "never infer from an absent grep" gap directly: before asserting something is absent,
-confirm the graph could have shown it. The graph makes grounding faster and more complete; it does not
-change what "grounded" means.
+confirm the graph could have shown it.

@@ -46,7 +46,7 @@ the record.
 
 ## 4. Adversarial by construction
 
-Attack the design before reality does. This is the highest-leverage habit.
+Attack the design before reality does. This is a high-leverage habit.
 
 - **Design level:** every proposal ends with a **validation pass**: "what did this direction open
   up?" A design change trades one set of problems for another; name the new ones and show each is

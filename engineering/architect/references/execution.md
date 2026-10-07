@@ -120,7 +120,9 @@ against one git history.
 ## 6. Execution-time failure catalog (first-contact lessons)
 
 The walls the reference implementation actually hit on the way to GREEN. Each generalizes past its
-specifics, the right column is the transferable rule.
+specifics, the right column is the transferable rule. Every one was a place where the paper design met
+a _transform_ (args expansion), a _race_ (RBAC vs exporter start), a _shared resource it hadn't named_
+(the IP pool), or a _context constraint_ (top-level-only SQL).
 
 | Symptom                                                                   | Root cause                                                                                                                                          | Fix                                                                                                       | General lesson                                                                                                                                                 |
 | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -136,11 +138,3 @@ specifics, the right column is the transferable rule.
 | Config edit has no effect (stale behaviour, `Unimplemented`)              | the ConfigMap changed but the Deployment mounting it was never restarted                                                                            | `rollout restart` the consumer, or a config-hash annotation on the pod template                           | Config lives in two places, the source object and the running process's mounted copy; changing one doesn't change the other.                                   |
 | Fault-injection drill "never fires"                                       | a reconciler (ArgoCD `selfHeal`) reverted the injected fault before the alert could fire                                                            | suspend the reconciler for the drill, restore it after (via a trap)                                       | When testing failure on a self-healing system, pause the healer, or the test races the controller and you measure the heal, not the fault.                     |
 | Verification reads empty while the system is healthy                      | a long-held `port-forward` died when the short-lived auth token expired mid-run; quick calls refreshed fine                                         | run the checks from _inside_ the system (quick calls only), don't hold a stream across the token lifetime | Don't infer failure from an absent signal the harness itself couldn't observe, move the probe off the fragile hop and confirm it _could_ have observed a pass. |
-
-## The throughline
-
-Every runtime surprise was a place where the paper design met a _transform_ (args expansion), a
-_race_ (RBAC vs exporter start), a _shared resource it hadn't named_ (the IP pool), or a
-_context constraint_ (top-level-only SQL). The disciplines don't change from design to execution;
-_research, don't recall_, _assert the bad behaviour_, _prove the change is in the component under
-test_. Execution just moves where they bite. Bring them across the boundary.
