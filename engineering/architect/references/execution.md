@@ -75,6 +75,10 @@ Metrics and alerts are spec artifacts with their own blocks, tests, and gates, n
 - **Move the input, watch the signal.** The observability equivalent of "assert the bad behaviour":
   turn the load generator off (`set-load off`), watch the dashboard change, turn it back on. A board
   that looks identical loaded vs idle is observing nothing.
+- **Trace across the hops.** For a path that crosses several agents or services, every call emits a
+  structured log carrying a shared trace id (correlation id) threaded end to end. If a wrong answer
+  cannot be traced back to the hop that produced it, the system is not observable yet — per-node logs
+  without a shared id are noise at the boundary.
 - **A separate human view.** A high-level live status board for the end consumer (`dashboard.sh
 --watch / --html`) is distinct from the raw metrics: resolve pods once, fold the SELECTs into one
   query per cluster, derive component states (slot / link / mirror / load / pipeline) once, and show
