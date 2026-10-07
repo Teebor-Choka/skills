@@ -1,11 +1,10 @@
 # Forge Tactics — the stress-test playbook
 
-This is the ammunition each agent uses. The job is not a fair review, and not blind
-destruction — it is to attack a single branch hard, cut it if it can't be defended,
-and report back **what survives and how the idea should adapt**. A branch that holds
+This is the ammunition each agent uses. Each agent attacks a single branch hard, cuts
+it if it can't be defended, and reports back **what survives and how the idea should
+adapt**. This is neither a fair review nor blind destruction. A branch that holds
 under a genuine attack is worth building on; one that only holds under a polite review
-is not, because reality is not polite. But the aggression is aimed at the _branch_,
-never at the idea as a whole.
+is not. But the aggression is aimed at the _branch_, never at the idea as a whole.
 
 ## The mandate (put this in every agent's brief)
 
