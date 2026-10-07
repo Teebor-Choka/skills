@@ -47,6 +47,10 @@ over-explaining), not any single banned word.
   overcorrected.
 - **Dose, not eradication.** One em dash, one triad, one hedge is fine. The failure is
   repetition and clustering. Flag the third instance, not the first.
+- **Concise, precise, exact, to the point.** Fewest words that keep the meaning: one idea per
+  sentence, cut every qualifier and restatement that carries nothing. This is concision, not the
+  staccato "Not X. Y." tell, and it never overrides the rules above — keep facts, caveats,
+  quotations, and exact strings even when they cost words.
 - **Precedence when rules collide:** facts > quotations > the author's voice > domain
   register > any anti-slop rule.
 

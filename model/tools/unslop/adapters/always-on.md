@@ -13,6 +13,10 @@ commit messages, PR/issue bodies, docs, READMEs, and code comments. Never alter 
 commands, file paths, identifiers, config, URLs, or quoted/cited material and exact error
 strings — de-slop the prose around them.
 
+Concise, precise, exact, to the point. Say it in the fewest words that carry the full
+message, one idea per sentence, and cut anything that adds no information. This is concision,
+not the staccato "Not X. Y." tell — never drop a fact, caveat, or exact string to save words.
+
 Cut on every response:
 
 - Canned openers and closers, sycophancy ("Great question", "You're absolutely right",
