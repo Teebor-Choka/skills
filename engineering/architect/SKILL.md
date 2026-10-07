@@ -15,7 +15,7 @@ description: >-
 license: MIT
 compatibility: any
 metadata:
-  version: "1.8.0"
+  version: "1.9.0"
 ---
 
 # Architect: self-contained, agent-executable architecture work packages
@@ -122,7 +122,7 @@ runs steps 0–4 and 7, skipping the graph and per-node briefs.
    least two structurally distinct approaches and synthesize the strongest (principles §9), then
    present the design as a chain where each step is a _consequence_ of the prior one, not an
    independent pick. End with a **validation pass** that attacks your own design and folds the fixes
-   back in. → _verify:_ a reader can trace every design step to a requirement, and the validation pass
+   back in (fixed attack dimensions and a reviewer fan-out prompt: `references/adversarial-review.md`). → _verify:_ a reader can trace every design step to a requirement, and the validation pass
    names real new problems, not none.
 3. **Log the decisions as you make them.** Verified-facts table; every decision as Decision → Why →
    Grounding; a "considered and set aside: do not re-propose without new information" table. This
