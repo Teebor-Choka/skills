@@ -5,7 +5,7 @@ can execute together. Its job ends at the division: pick the shape, name the nod
 dependencies, and hand off. It does not oversee how the agents then do the work; a good split lets
 them collaborate on their own.
 
-Most of the mechanical part is deterministic and belongs to `scripts/graph.py`: given the nodes,
+Most of the mechanical part is deterministic and belongs to `graph.py`: given the nodes,
 their dependencies, and their write-sets, the script computes the waves, removes redundant edges,
 finds the critical path and barriers, catches write-set collisions, and draws the graph. This file
 is the judgment the script cannot make: which _shape_ fits the kind of work, and whether the agents
@@ -40,7 +40,7 @@ when ordering, merging, or compensation genuinely need one.
 - **Open-ended reasoning or cross-checking**: group chat or debate, then vote.
 - **Multi-step work that must not half-complete**: a saga with compensations.
 - **Before scheduling any graph**: topological order for sequence, critical path to find what to
-  shorten, transitive reduction and dedup to shrink it. `scripts/graph.py` does these for you.
+  shorten, transitive reduction and dedup to shrink it. `graph.py` does these for you.
 
 ## 1. Parallelization / splitting
 
@@ -57,7 +57,7 @@ when ordering, merging, or compensation genuinely need one.
 | **Voting / ensemble**         | N-version, self-consistency  | run N solvers on the same input and vote; correctness-critical or high-variance work                   | [3][13] |
 | **Bulkhead**                  | isolation                    | partition workers into isolated pools so one branch's failure can't sink the rest                      | [14]    |
 
-`scripts/graph.py` enforces the constraint that makes a parallel wave valid: the nodes' write-sets
+`graph.py` enforces the constraint that makes a parallel wave valid: the nodes' write-sets
 must be disjoint. Two nodes that mutate the same resource are serialized or split, never run together.
 
 ## 2. Sequential / routing
@@ -135,7 +135,7 @@ failures are coordination/specification/verification, not the base model), not t
 
 ## 5. Elimination / graph-shaping
 
-The cheapest work is the work removed. Do this before scheduling. `scripts/graph.py` performs
+The cheapest work is the work removed. Do this before scheduling. `graph.py` performs
 transitive reduction automatically and reports the cut edges; the rest is judgment.
 
 | Pattern                      | Also known as                    | What it is / when                                                                                                | Src     |

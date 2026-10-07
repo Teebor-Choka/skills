@@ -174,13 +174,13 @@ Test-table shape (both classes use it):
 graph-engineering step: split the work into a shape agents can collaborate on, then hand off.
 
 **Do not hand-write it.** Author a node spec (JSON: each node's `id`, `deliverable`, `deps`, and
-`write_set`, plus any `loops`) and run `scripts/graph.py spec.json`. The script is the deterministic
+`write_set`, plus any `loops`) and run the graph-engine skill's `graph.py spec.json`. The script is the deterministic
 core: it removes redundant edges (transitive reduction), assigns the parallel waves, computes the
 critical path and barriers, detects write-set collisions, reports the concurrency cap, labels the
 shapes, and emits `development-graph.md` (node table, mermaid DAG, waves, critical path, loop
 register). It exits non-zero on a cycle or a within-wave write-set collision, a spec the fleet cannot
 run as written. Your judgment is limited to the node spec and to picking collaboration shapes from
-`graph-patterns.md`; everything graph-theoretic is computed.
+the graph-engine skill's `graph-patterns.md`; everything graph-theoretic is computed.
 
 The interface: the spec's blocks go in; a graph whose waves respect the block dependencies comes out.
 `scripts/lint.py` independently re-checks that the emitted graph is acyclic and its edges match the
