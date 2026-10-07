@@ -8,6 +8,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     flake-utils.url = "github:numtide/flake-utils";
+    git-hooks = {
+      url = "github:cachix/git-hooks.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -16,6 +20,7 @@
       nixpkgs,
       treefmt-nix,
       flake-utils,
+      git-hooks,
     }:
     flake-utils.lib.eachSystem [ "aarch64-darwin" "aarch64-linux" "x86_64-linux" ] (
       system:
@@ -49,6 +54,36 @@
             "**/package-lock.json"
             "**/node_modules/**"
           ];
+        };
+
+        # Commit-time parity with CI: the same treefmt and skills validator that
+        # `nix flake check` runs, plus the workflow/shell linters. Entering the
+        # dev shell installs the hook and a .pre-commit-config.yaml symlink.
+        preCommit = git-hooks.lib.${system}.run {
+          src = ./.;
+          hooks = {
+            treefmt = {
+              enable = true;
+              packageOverrides.treefmt = treefmtEval.config.build.wrapper;
+            };
+            skills-validate = {
+              enable = true;
+              name = "skills-validate";
+              entry = "${py}/bin/python3 scripts/validate-skills.py .";
+              files = "(^|/)SKILL\\.md$|^scripts/validate-skills\\.py$";
+              pass_filenames = false;
+            };
+            shellcheck = {
+              enable = true;
+              # `use flake` has no shebang, which shellcheck rejects (SC2148).
+              excludes = [ "^\\.envrc$" ];
+            };
+            actionlint = {
+              enable = true;
+              extraPackages = [ pkgs.shellcheck ];
+            };
+            zizmor.enable = true;
+          };
         };
       in
       {
@@ -180,6 +215,8 @@
         };
 
         devShells.default = pkgs.mkShell {
+          inherit (preCommit) shellHook;
+          buildInputs = preCommit.enabledPackages;
           nativeBuildInputs = with pkgs; [
             nodejs
             py

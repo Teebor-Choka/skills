@@ -45,4 +45,7 @@ Skills are grouped into thematic category directories, each with its own README:
 - Conventional commits scoped to the skill or area: `feat(nix):`, `fix(rust-engineer):`,
   `docs(readme):`, `chore(marketplace):`.
 - Prose follows a plain, de-slopped voice — see the [unslop](./model/tools/unslop/SKILL.md) skill.
+- Entering the dev shell (`direnv allow`, once per worktree) installs pre-commit hooks via git-hooks.nix:
+  treefmt, the skills validator, shellcheck, actionlint, and zizmor. Run `pre-commit run --all-files`
+  to check the whole tree; a commit that fails treefmt leaves the formatted files for you to re-stage.
 - This is a public repo: land changes through a pull request, never a direct push to `main`.
