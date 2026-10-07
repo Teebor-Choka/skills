@@ -18,7 +18,7 @@ compatibility: any
 
 A one-question-at-a-time interview that locates your edge beside AI, challenges it, and turns
 it into near-term action. The value is in the probing and the pushback, not a form — run it as
-a conversation, not a questionnaire.
+a conversation.
 
 ## How to run it
 
@@ -45,7 +45,7 @@ a conversation, not a questionnaire.
   toward widening the complement (deeper client/domain knowledge, owning outcomes and judgment,
   building what compounds), away from competing with the model on what it already does.
 
-## The north star: steer, don't dump
+## Steer, don't dump
 
 The durable edge beside a model is being its _steerer_, not its _dumper_. A dumper hands the model
 a vague ask and ships whatever comes back; a steerer specifies the work before prompting, steers
@@ -56,4 +56,4 @@ they already steer are moat; the parts where they dump are where the model is do
 Point the 30-day moves toward more steering — tighter specs, their own evaluation criteria, owning
 the judgment call. Source: https://www.aieraengineering.com/engineers/are-you-an-ai-dumper
 
-Keep the pushback honest throughout: the point is a true map and real moves, not reassurance.
+Keep the pushback honest throughout: the point is a true map and real moves.

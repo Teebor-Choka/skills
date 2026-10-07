@@ -53,8 +53,7 @@ whenever a repo has `.github/workflows/`, or you touch a workflow file or Renova
   `require_extra_approval_for_unattributed_changes` pull-request ruleset parameter** and silently
   drops it on every rewrite, which disables the control. Workaround: a `terraform_data` resource
   re-runs a script that restores the field idempotently after each write, and don't let Terraform
-  rewrite rulesets that are managed by hand. Silent drops like this are why a provider-managed
-  security control needs a post-write verification.
+  rewrite rulesets that are managed by hand.
 
 ## Codecov
 

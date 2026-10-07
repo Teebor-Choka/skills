@@ -22,7 +22,7 @@ what is specific to forge's fan-out/prune/loop; it does not restate that groundw
 ## The portable shape (the invariant)
 
 However you wire it, the fan-out must preserve four properties. They are what make the
-result trustworthy — an implementation that drops one of them is not running the forge:
+result trustworthy:
 
 1. **One agent per branch.** Each agent attacks exactly one load-bearing claim (branch
    mode) or scores exactly one option (comparative mode).
@@ -91,9 +91,9 @@ branch agents that each run their own research pass. Bound it:
 - _Gut-check:_ 1 branch (the riskiest), 1 round, **no** nested research pass. Fail fast and
   cheap; only fan out the rest if the riskiest branch survives.
 - _Thorough:_ 5–6 branches, orchestrated loop, nested research allowed.
-- Match fan-out width to the kernel's load-bearing claim count — extra agents add cost and
-  redundant findings, not coverage. Split one agent across a single claim only when that
-  claim genuinely has two independent attack angles.
+- Size the squad to the kernel's load-bearing claims; agents beyond that spend tokens for
+  overlap, not reach. Split a claim across two agents only when it has two genuinely
+  independent attack angles.
 - Confirm the kernel before spending any fan-out (the confirm-the-kernel gate in step 1);
   a mis-aimed kernel wastes the whole squad.
 

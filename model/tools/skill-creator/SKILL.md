@@ -20,7 +20,7 @@ description: >
 Create skills that run unchanged on **Claude Code**, **Codex**, and **OpenCode**, then add
 per-agent adapters for programmatic triggering and multi-agent workflows.
 
-The load-bearing fact: all three implement the same open **Agent Skills** standard — a
+What matters: all three implement the same open **Agent Skills** standard — a
 `SKILL.md` directory (YAML `name` + `description` front matter, Markdown body, optional
 `references/`, `scripts/`, `assets/`). Write the capability once as a portable core; add
 thin per-agent adapters only where you need deterministic triggering or orchestration.

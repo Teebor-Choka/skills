@@ -65,7 +65,7 @@ Also fix, once, from the sample and hold across the whole piece: person, tense, 
   voice. Surface what is theirs; never manufacture it.
 - In informal genres, edit less. Imitation fails there; subtraction is safer than imitation.
 
-## Verifying (the load-bearing step)
+## Verifying (the essential step)
 
 - **Recompute the profile on your output.** Any axis that moved by more than about a third is
   a voice break: either justify it from the brief, or put the original back.

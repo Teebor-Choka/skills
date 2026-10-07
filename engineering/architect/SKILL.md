@@ -102,7 +102,7 @@ runs steps 0–4 and 7, skipping the graph and per-node briefs.
    official doc, or search) from _domain knowledge_ (someone said so); flag greenfield vs extension.
    Full flow in `references/code-graphing.md`. → _verify:_ the current-state model **covers every
    in-scope subsystem, boundary, and cross-repo seam** — not only the change site — the hotspots are
-   named, every load-bearing claim cites its source (node / URL / repo path), and unverifiable ones
+   named, every claim the design rests on cites its source (node / URL / repo path), and unverifiable ones
    are flagged. Record it in `research-notes.md` (full tier) or the proposal's current-state section
    (small tier).
 
@@ -168,7 +168,7 @@ runs steps 0–4 and 7, skipping the graph and per-node briefs.
 
 ## Core disciplines
 
-The design disciplines are load-bearing for the package (`references/principles.md`, which also
+The design disciplines are what the package turns on (`references/principles.md`, which also
 carries the Ford & Richards trade-off/characteristics/fitness-function material in §10); the
 execution disciplines govern deploying it (`references/execution.md`). Both files give the full
 treatment with worked examples.
@@ -182,7 +182,7 @@ treatment with worked examples.
   failure is starting to architect off the one area you expected to touch; the nuance that sinks the
   design is almost always in a subsystem you never surveyed.
 - **Ground truth over assumption: research, don't recall.** Don't reason from memory on anything
-  load-bearing. **Web-search the current tools, versions, and licenses and verify every claim
+  critical. **Web-search the current tools, versions, and licenses and verify every claim
   against official documentation** and the actual repo/config. Separate _verified fact_ from _domain
   knowledge_, **cite every source with a URL or repo path**, and flag what you couldn't verify rather
   than asserting it.

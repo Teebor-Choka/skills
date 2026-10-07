@@ -2,14 +2,14 @@
 name: code-quality
 description: >
   Audits existing code for risk from complexity, coverage, duplication, and structural
-  metrics plus a comment-quality pass — measured with real tools, not a line-by-line read —
-  and verifies each flagged finding before reporting it. Use whenever asked how risky,
+  metrics, plus a comment-quality pass, measured with real tools rather than a line-by-line
+  read, and verifies each flagged finding before reporting it. Use whenever asked how risky,
   complex, or well-tested code or a change is, for a codebase or PR health check, to decide
   whether something is safe to merge or ship, or to audit AI-generated code before trusting
   it — even phrased casually and without the words "code quality" or any metric name ("is
   this function too complicated", "how solid are the tests here", "did the agent leave a
   mess anywhere", "is this PR safe to merge", "which files are scariest to touch"). Reports
-  findings only — it never writes, refactors, or fixes code. Do not use to actually change
+  findings only; it never writes, refactors, or fixes code. Do not use to actually change
   code (that is a language engineering skill such as rust-engineer), to run or write tests,
   or for security/vulnerability review.
 ---

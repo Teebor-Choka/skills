@@ -47,8 +47,8 @@ of canned quoted phrases. A description that leans on exact phrases fires on tho
 misses the paraphrase sitting right next to them. Real cautionary case: `prose-craft` scored 0/3 in
 the eval harness on queries it plainly should own ("clean up the prose", "make this abstract
 tighter", "tighten this design-doc paragraph") because its description listed quoted triggers
-instead of the shapes those paraphrase. When two skills sit next to each other — prose-craft vs
-unslop vs a grammar checker vs a code refactor — name the boundary in the description so each fires
+instead of the shapes those paraphrase. When two skills sit next to each other (prose-craft vs
+unslop vs a grammar checker vs a code refactor), name the boundary in the description so each fires
 on its own shapes and defers the adjacent ones, or they quietly steal each other's triggers.
 
 Constraints that keep it portable: keep it under 1024 characters and use no angle brackets
@@ -83,7 +83,7 @@ and bundled resources (loaded or executed on demand). Use them:
 ## Standards over rules
 
 A rule is "never do X" or "always do Y". A capable model handles most situations better from
-the _standard behind the rule_ — the outcome the rule was protecting — than from the rule
+the _standard behind the rule_ (the outcome the rule was protecting) than from the rule
 itself, because it can then adapt to context the rule's author never saw. Prefer the standard:
 
 - "never write comments" → "match the surrounding file's comment density and style"

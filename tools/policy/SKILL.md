@@ -96,4 +96,4 @@ last fallback, so the skill still behaves sensibly with no policy at all.
 
 To add configuration, just read a new key with its own default — no change here. Document the key in
 your skill so a reader knows it exists; add it to the basic-default table above only if it is broadly
-useful. The point is that the config lives in data, the loader stays small, and nothing is mandated.
+useful. The config lives in data; the loader stays small.

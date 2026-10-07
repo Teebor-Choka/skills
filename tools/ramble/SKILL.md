@@ -81,7 +81,7 @@ structure, rules, and a worked example in [`references/brief-format.md`](referen
 - **Open items** — the gaps that stayed open, explicit, each with who or what would close it.
 
 Hand this to the architect. The resolved terms and decisions seed the architect's glossary and
-decision-log — the ramble captures them live, the architect formalises them.
+decision-log.
 
 <!-- Modelled closely on mattpocock/skills (grill-with-docs = grilling + domain-modeling):
      https://github.com/mattpocock/skills/tree/main/skills/engineering/grill-with-docs — adapted,

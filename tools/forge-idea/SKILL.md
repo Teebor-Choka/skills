@@ -22,12 +22,12 @@ description: >
 A repeatable harness for hammering a rough premise into a viable one. It is
 cooperative, not destructive: research aggressively **prunes dead branches** but
 feeds every surviving edge back to **reshape the idea**. The aggression lives at the
-branch level — a branch that can't be defended gets cut without mercy — while the
+branch level: a branch that can't be defended gets cut without mercy, while the
 idea itself is nurtured toward a version that survives. The user is the smith: each
 round ends with them, and they decide whether to stop, redirect, or forge again.
 
-The most valuable output is rarely the original premise intact — it is the evolved
-premise, and the viable variants the pruning revealed.
+Usually the most valuable output is not the original premise intact but the evolved
+premise, plus the viable variants the pruning revealed.
 
 ## When this fits
 
@@ -74,8 +74,8 @@ file** — it reads any prior forge output there and writes its result back into
 first-class pipeline artifact. If there is no pipeline at all, forge degrades to a
 standalone report written to the working directory.
 
-Forge is pipeline-**aware** but pipeline-**passive**: it reads and writes file
-_content_, but it **never mutates `state` or `verdict` frontmatter**. Promoting an idea
+Forge reads and writes file _content_, but it **never mutates `state` or `verdict`
+frontmatter**. Promoting an idea
 `raw → explored → decided` (and writing a `pursue/park/kill` verdict) is always the
 user's manual call at the smith checkpoint. Forge only _recommends_ the transition.
 
@@ -107,7 +107,7 @@ their own questions instead of firing a dialog every turn. Interrogate until it 
   degrades to a caveat rather than a scored dimension.
 
 Then **reduce to the kernel**: the single sharpest, minimal, falsifiable form of the
-idea — the smallest claim that, if it survives, keeps the idea alive. The kernel is
+idea, the smallest claim that, if it survives, keeps the idea alive. The kernel is
 what localizes the research: a broad premise gives the agents no coordinates and they
 return a generic landscape; a sharp kernel gives them a specific target they can
 falsify. Reduction is **focus, not amputation** — the scope you strip off is **parked**
@@ -126,7 +126,7 @@ evidence; the kernel is only what you test _first_.
 Build a shared factual floor before decomposing:
 
 - **Raw idea** (no prior research): run a **deep research pass** on the core
-  concepts — key terms, named technologies, the market category — and condense a
+  concepts (key terms, named technologies, the market category) and condense a
   grounding into each agent's brief. Delegate this to a dedicated research skill or
   subagent where the agent provides one (`references/cross-agent.md`).
 - **Already-explored idea** (a prior brief exists in the file): read that brief as the
@@ -141,7 +141,7 @@ Map the kernel's load-bearing claims onto **branches** — one per agent, each
 independently testable and aimed at concrete coordinates so search returns signal, not
 a landscape dump. `references/forge-tactics.md` lists the evidence classes (prior-art,
 incumbents & lane, funding/M&A comps, demand reality, timing/regulatory, economics,
-feasibility/team, second-order failure modes) — pick the ones this kernel rests on.
+feasibility/team, second-order failure modes); pick the ones this kernel rests on.
 
 - **Full forge:** 3–6 branches, fanned out concurrently.
 - **Async gut-check:** test the **single riskiest branch first**; only fan out the
@@ -175,8 +175,8 @@ The mandate to put in every agent's brief is verbatim in `forge-tactics.md`.
 **Engine scales by rigor.** Default: fan out general research subagents that
 web-research and can run their own scoped research pass. For a deep "be thorough" run,
 drive a deterministic find → adapt → prune → re-test loop with the verdict schema as each
-agent's structured output. Bind these stages to your agent's real mechanism — parallel
-subagents, multiple headless processes, or a workflow engine — as laid out per agent in
+agent's structured output. Bind these stages to your agent's real mechanism (parallel
+subagents, multiple headless processes, or a workflow engine) as laid out per agent in
 `references/cross-agent.md`.
 
 **Cost guardrail.** Watch the double fan-out (grounding research pass + per-branch
@@ -190,9 +190,9 @@ agents each possibly running their own research pass):
   claim genuinely has two independent attack angles. `references/cross-agent.md` covers
   per-agent parallelism limits.
 
-### 5. Prune & reshape — grounded, plural, not radical
+### 5. Prune & reshape — grounded and plural
 
-Cut PRUNE branches without mercy — record them in the dead-ends ledger so they aren't
+Cut PRUNE branches without mercy, and record them in the dead-ends ledger so they aren't
 revisited. Apply the ADAPT adaptations and fold in the opportunity signals. But **do
 not lurch**: keep the reshaping **grounded and incremental**, and present **several
 grounded options** for where the idea could go rather than one radical pivot. Note
@@ -206,18 +206,18 @@ never named. Beyond the grounded reshaping, generate **2–4 non-obvious variant
 the holder's actual assets and target** — an adjacent wedge, a different buyer, the B2B cut
 of a B2C idea, the pick-and-shovel play beside the gold rush. This is **especially** the
 move when the idea is a MISFIT (below): the literal framing may be wrong for this holder
-while an adjacent framing they _can_ execute is hiding one step away — often inside the
+while an adjacent framing they _can_ execute is hiding one step away, often inside the
 opportunity signals the agents mined. Bold exploration lives in `## Viable variants` (label
 each inference-only vs analyst-confirmed, with one concrete validation step); the primary
-premise stays disciplined. Never manufacture a variant — if nothing adjacent is real, say so.
+premise stays disciplined. Never manufacture a variant; if nothing adjacent is real, say so.
 
-**Score strategic fit (conditional, cross-cutting — never a gate).** If step 1 captured
+**Score strategic fit (conditional, cross-cutting, never a gate).** If step 1 captured
 fit criteria (a target with a defined worth-it bar), score the surviving/reshaped idea
 against them here: rate each criterion **FIT / STRETCH / MISFIT** with the specific idea
 trait that meets or misses it, and land a one-line fit verdict. This is a **synthesis the
 forge computes** — the fan-out agents stayed blind to the target so the world-viability
 signal is uncontaminated; fit is a separate axis laid beside it. A world-VIABLE idea can
-be a MISFIT, and a modest idea can be a strong FIT — report both honestly and **never let
+be a MISFIT, and a modest idea can be a strong FIT. Report both honestly and **never let
 fit silently prune a branch or drop the idea**. The smith weighs the two axes. If no fit
 criteria were captured, skip the score and carry fit as a caveat.
 
@@ -270,14 +270,14 @@ Running a second round: read `references/forge-iterate.md` before re-forging.
   failed claim reshapes the idea rather than ending it.
 - **Sharp kernel, localized research.** The idea is reduced to a minimal falsifiable
   kernel so the fan-out has coordinates and returns signal, not a landscape.
-- **Research drives evolution — grounded, not radical.** Findings change the idea, but
+- **Research drives evolution, kept grounded.** Findings change the idea, but
   incrementally and in plural options; the smith drives convergence.
 - **Cooperative and human-in-the-loop.** The user steers at every round and owns every
   pipeline-state transition; the loop bends to their judgment.
 - **Willing to conclude either way.** A branch that survives the strongest attack is
-  VIABLE, honestly. An idea with no surviving branch and no live variant is DROP,
-  honestly. Never manufacture a prune, never manufacture a save.
+  VIABLE, honestly. An idea with no surviving branch and no live variant is DROP.
+  Never manufacture a prune, never manufacture a save.
 - **More than one round, more than one mode.** Comparative mode chooses among options when the
   question is "which wins" (not "does this hold"); triangulation across rounds beats fresh
-  generation; the idea forks — with lineage — when it drifts into a new premise; and a periodic
+  generation; the idea forks (with lineage) when it drifts into a new premise; and a periodic
   step-back over the ledgers surfaces the through-line.
