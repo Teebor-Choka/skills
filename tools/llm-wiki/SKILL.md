@@ -16,8 +16,8 @@ description: >
 # LLM Wiki
 
 A knowledge graph where every claim cites its source and every page is machine-navigable, so an
-LLM answers questions by reading the index, following links, and synthesizing — never by
-inventing content. The conventions below exist to keep that guarantee true as the wiki grows.
+LLM answers questions by reading the index, following links, and synthesizing. The conventions
+below exist to keep that guarantee true as the wiki grows.
 
 ## Repository layout
 
