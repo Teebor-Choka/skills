@@ -17,7 +17,7 @@ default.
 `glossary.md`, `style.md`, …) that the loader does not read. Example: [`example-policy.md`](example-policy.md).
 
 - **Open schema.** Any key is allowed. The loader does not police a fixed set, so a new skill can read
-  a new key with no change to the loader. "Malformed" means a *structural* error (no frontmatter, a bad
+  a new key with no change to the loader. "Malformed" means a _structural_ error (no frontmatter, a bad
   list, an indented line with no parent) — never an unknown key.
 - **Per-skill sections.** A frontmatter key whose value is a nested map is a section; a section named
   after a skill overrides the global key for that skill only.
@@ -58,13 +58,13 @@ Omit `target` for a repo-wide read.
 Minimal, least-surprising, single-actor — the fleet/parallel path is opt-in via `mode: team`, not the
 default:
 
-| key | basic default | meaning |
-|-----|---------------|---------|
-| `mode` | `single` | one actor carries the work; `team` opts into parallel splitting |
-| `interaction` | `batch` | grilling rhythm: `batch` (whole frontier per round) or `dialog` (one at a time) |
-| `grounding` | `auto` | use an index/tool if present (codegraph/codebase-memory), else plain reads; or `none` |
-| `gate` | `plain` | acceptance style: `plain` checklist, `tests`, or `rubric` |
-| `practices` | `{}` | e.g. `{scope: ATDD, task: TDD}`; empty = none forced |
+| key           | basic default | meaning                                                                               |
+| ------------- | ------------- | ------------------------------------------------------------------------------------- |
+| `mode`        | `single`      | one actor carries the work; `team` opts into parallel splitting                       |
+| `interaction` | `batch`       | grilling rhythm: `batch` (whole frontier per round) or `dialog` (one at a time)       |
+| `grounding`   | `auto`        | use an index/tool if present (codegraph/codebase-memory), else plain reads; or `none` |
+| `gate`        | `plain`       | acceptance style: `plain` checklist, `tests`, or `rubric`                             |
+| `practices`   | `{}`          | e.g. `{scope: ATDD, task: TDD}`; empty = none forced                                  |
 
 These are not exhaustive — a skill may read any other key and supply its own default. Keys for the
 opt-in parallel path (`substrate`, `comms`) are read only when `mode: team`.

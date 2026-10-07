@@ -15,7 +15,7 @@ alignment, not output: resolve the decisions, don't write the thing.
 Map the idea as a **design tree** — every decision branches into the decisions that hang off it.
 
 - The **frontier** is every decision whose prerequisites are already settled: the questions you can
-  answer *now* without guessing at answers you haven't heard yet. A question whose answer depends on
+  answer _now_ without guessing at answers you haven't heard yet. A question whose answer depends on
   another still-open question belongs to a later round, not this one.
 - **Facts are your job, never the user's.** When a frontier question needs a fact from the environment
   (files, tools, the web), dispatch a sub-agent to find it. Don't block the rest of the frontier on it:

@@ -1,7 +1,7 @@
 # GLOSSARY.md format
 
 Write a term the moment it settles in the interview. A glossary only — devoid of implementation
-detail; it defines what a term *is*, never what it does.
+detail; it defines what a term _is_, never what it does.
 
 ## Structure
 
