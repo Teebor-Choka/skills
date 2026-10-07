@@ -4,7 +4,8 @@
 Rules (from quick_validate.py reference implementation):
 - SKILL.md must exist in the skill directory.
 - Frontmatter must be valid YAML between --- fences.
-- Allowed frontmatter keys: name, description, license, allowed-tools, metadata, compatibility.
+- Allowed frontmatter keys: name, description, license, allowed-tools, metadata, compatibility,
+  disable-model-invocation.
 - name: required, string, ^[a-z0-9][a-z0-9-]*$, no trailing hyphen, no --, max 64 chars.
 - description: required, string, no angle brackets, max 1024 chars.
 - compatibility (optional): string, max 500 chars.
@@ -16,7 +17,8 @@ import sys
 
 import yaml
 
-ALLOWED_KEYS = {"name", "description", "license", "allowed-tools", "metadata", "compatibility"}
+ALLOWED_KEYS = {"name", "description", "license", "allowed-tools", "metadata", "compatibility",
+                "disable-model-invocation"}
 MAX_NAME_LEN = 64
 MAX_DESC_LEN = 1024
 MAX_COMPAT_LEN = 500
@@ -98,6 +100,10 @@ def validate_skill(skill_dir):
             errors.append("compatibility must be a string")
         elif len(compat) > MAX_COMPAT_LEN:
             errors.append(f"compatibility too long: {len(compat)} > {MAX_COMPAT_LEN}")
+
+    # disable-model-invocation (optional): Claude Code key, boolean
+    if "disable-model-invocation" in fm and not isinstance(fm["disable-model-invocation"], bool):
+        errors.append("disable-model-invocation must be a boolean")
 
     return errors
 
