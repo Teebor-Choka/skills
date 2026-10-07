@@ -68,6 +68,8 @@ Follow this loop. It is the same discipline whichever agent you target.
      CI/headless entry points. Matrix + snippets: `references/triggering.md`.
    - Advanced workflows — subagents, parallel fan-out, pipelines, MCP. Patterns per agent:
      `references/workflows.md`.
+   - Always-on instruction files (`AGENTS.md`, `CLAUDE.md`, Copilot): how each agent discovers
+     them and how to serve all from one repo: `references/instruction-files.md`.
    - Exact per-agent file formats: `references/platforms/{claude-code,codex,opencode}.md`.
 5. **Evaluate.** Build test cases and run the skill with vs without it on each target
    agent, grade against assertions, and compare. Full harness: `references/evaluation.md`.
