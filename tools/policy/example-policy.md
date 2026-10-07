@@ -1,16 +1,16 @@
 ---
 # Machine keys (frontmatter). All optional; absent → the basic default. See the policy skill.
-mode: single                       # single | team (team opts into parallel splitting)
-interaction: batch                 # batch | dialog — grilling rhythm
-grounding: auto                    # auto | none | <tool>
-gate: plain                        # plain | tests | rubric
-toolchain: [codegraph, pytest]     # automated tools grounding/verification may use
-practices:                         # injected at the level they belong to
+mode: single # single | team (team opts into parallel splitting)
+interaction: batch # batch | dialog — grilling rhythm
+grounding: auto # auto | none | <tool>
+gate: plain # plain | tests | rubric
+toolchain: [codegraph, pytest] # automated tools grounding/verification may use
+practices: # injected at the level they belong to
   scope: ATDD
   task: TDD
-ramble:                            # per-skill section: overrides the global key for `ramble` only
+ramble: # per-skill section: overrides the global key for `ramble` only
   interaction: dialog
-files:                             # per-file overrides: most specific matching glob wins
+files: # per-file overrides: most specific matching glob wins
   "**/*.rs":
     gate: tests
   "docs/**":
