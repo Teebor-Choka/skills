@@ -15,7 +15,7 @@ description: >-
 license: MIT
 compatibility: any
 metadata:
-  version: "1.5.0"
+  version: "1.6.0"
 ---
 
 # Architect: self-contained, agent-executable architecture work packages
@@ -34,6 +34,11 @@ infra proposals, rollout plans, RFCs, "how should we build/replicate/migrate X",
 choices with real trade-offs. For a reversible change one agent or person will just execute, the full
 directory is overkill: the floor is the `note` tier, a single `<slug>-plan.md` (step 1). Pick the
 smallest tier that fits.
+
+**Improving an existing codebase.** architect also runs the other direction: `:improve` scans code you
+already have for deepening opportunities — shallow modules, leaky interfaces, pass-through layers —
+ranks them by leverage, and feeds the chosen one into the flow below carrying a deep-module invariant.
+See `references/improve.md`.
 
 ## The deliverable: only what the scope needs
 
