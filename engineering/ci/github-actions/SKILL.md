@@ -54,6 +54,8 @@ whenever a repo has `.github/workflows/`, or you touch a workflow file or Renova
   drops it on every rewrite, which disables the control. Workaround: a `terraform_data` resource
   re-runs a script that restores the field idempotently after each write, and don't let Terraform
   rewrite rulesets that are managed by hand.
+- **To audit which repos lack a ruleset or have security updates off**, use the read-only `gh api`
+  recipe in [references/org-audit.md](references/org-audit.md); fix drift in Terraform, not by hand.
 
 ## Codecov
 
