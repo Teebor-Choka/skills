@@ -58,7 +58,7 @@ barely move detection.
 
 ## Punctuation and formatting
 
-- **Em dash** — the most-cited tell. Default to zero; recast with a comma, colon,
+- **Em dash** — the most-cited tell. Always zero; recast with a comma, colon,
   parentheses, period, or two sentences. Keep hyphens in compound words.
 - **En dash** — use a hyphen for ranges (`10-20`); don't use it as an em dash.
 - **Colons** — avoid the "setup: reveal" habit ("The answer is:", "Here's the thing:")

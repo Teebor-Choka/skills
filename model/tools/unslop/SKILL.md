@@ -45,7 +45,8 @@ over-explaining), not any single banned word.
   or filler into institutional copy, and do not replace slop with staccato anti-slop
   ("Not X. Y."). Heuristic: if the result would only fit a personal blog, you
   overcorrected.
-- **Dose, not eradication.** One em dash, one triad, one hedge is fine. The failure is
+- **No em dashes.** Zero, in chat and files; recast with a comma, colon, or period.
+- **Dose, not eradication.** One triad or one hedge is fine. The failure is
   repetition and clustering. Flag the third instance, not the first.
 - **Concise, precise, exact, to the point.** Fewest words that keep the meaning: one idea per
   sentence, cut every qualifier and restatement that carries nothing. This is concision, not the
@@ -116,7 +117,7 @@ Load the reference lists and apply them:
 
 Highest-signal surface fixes, applyable inline without the references:
 
-- Em-dash pileups become periods or commas (keep hyphens in compounds).
+- Em dashes become periods, commas, or colons (keep hyphens in compounds).
 - "serves as / stands as / boasts / features" become is or has.
 - "Not just X, but Y" and "That's not X. That's Y." state the point once.
 - Superficial "-ing" tails ("…, highlighting its importance") split into fact plus
