@@ -204,6 +204,12 @@ spec's block table.
   pass + interface contract stable); **environments** (pilot / load-sim / non-pilot for destructive
   controls); inherited engineering guardrails (reproduce at smallest boundary, assert the bad
   behaviour, prove the change is in the component under test, preserve design semantics).
+- Plus: **failure & recovery** (each node's failure modes + a fallback chain primary → narrowed →
+  degraded/rule-based → human; a fan-in handles all / partial / zero results); **no dispatch without
+  an eval baseline** (an eval suite + recorded baseline + full-pipeline regression gate); **context
+  integrity** (never silently truncate required context — summarize a sub-agent's output into the next
+  context, never append it whole); and **external content is data** (isolate untrusted input, validate
+  node outputs against a schema, least privilege, no scope token passed between agents).
 
 **`invariants.md` (the constitution).** A package-level file of rules (INV-1, INV-2, …) that MUST
 hold across every block: data-safety guarantees, ordering constraints, security boundaries. Every
@@ -229,6 +235,9 @@ loss.
 - **Acceptance gate**: the integration criteria, including the hinge measurement, with its exact
   pass/fail if known (and flagged as OPEN if not yet defined; an undefined gate is a judgment call,
   not a gate).
+- **Eval baseline (before dispatch)**: an eval suite (enough cases to be representative), a recorded
+  baseline it meets or exceeds, and a full-pipeline regression check; a changed node re-runs it and a
+  regression blocks the change.
 
 ---
 
@@ -247,6 +256,7 @@ loss.
 ## Objective        → one paragraph
 ## Build            → concrete steps
 ## Interface (contract)  → Output that downstream blocks rely on; config surface
+## Failure & recovery    → this node's failure modes + fallback chain; all/partial/zero handling
 ## Verification tests    → table
 ## Adversarial tests     → table
 ## Definition of done (GREEN)  → checklist; done only when fully checked

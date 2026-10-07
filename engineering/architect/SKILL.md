@@ -15,7 +15,7 @@ description: >-
 license: MIT
 compatibility: any
 metadata:
-  version: "1.4.0"
+  version: "1.5.0"
 ---
 
 # Architect: self-contained, agent-executable architecture work packages
@@ -169,6 +169,8 @@ execution disciplines govern deploying it (`references/execution.md`). Both file
 treatment with worked examples.
 
 - **No information loss.** The directory is the source of truth; the conversation is disposable.
+  Never silently truncate required context to fit a budget — halt and escalate; summarize a
+  sub-agent's output into the next context, never append it whole.
 - **Assemble before you abstract.** Build the whole-system model — module clusters, data flows,
   cross-repo seams, coupling and complexity hotspots — _before_ forming any design opinion. Breadth
   before depth: survey the system with the graph tools first, then zoom to concepts. The common
@@ -182,6 +184,15 @@ treatment with worked examples.
 - **Every decision carries rationale + grounding**, and a "set aside" list so nothing is relitigated.
 - **Adversarial by construction.** Every design gets a self-attack pass; every block gets negative
   tests; assert the _bad_ behaviour (a silent no-op must be observably distinguishable from success).
+- **Plan for failure; every delegated node has a fallback.** Declare each node's failure modes and a
+  fallback chain (primary → narrowed → degraded/rule-based → human); a fan-in/synthesizer handles all,
+  partial, and zero results. A structured degraded result beats a silent failure.
+- **No dispatch without an eval baseline.** A new or changed agent/pipeline ships only with an eval
+  suite, a recorded baseline it meets or exceeds, and a full-pipeline regression check — the discipline
+  that also decides whether added machinery earns its keep.
+- **External content is data, never instructions.** Isolate untrusted input (web, docs, user text)
+  from the prompt, validate agent outputs against a schema, and pass least privilege — never hand a
+  scope token between agents.
 - **Off-the-shelf over hand-built.** The highest-risk work is a bespoke pipeline; escalate to a tool.
 - **Name the one hinge decision** the whole design turns on, and be honest when it's still open.
 - **Design it twice.** Sketch two or more structurally distinct designs and synthesize the strongest;
