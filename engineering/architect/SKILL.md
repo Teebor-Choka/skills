@@ -114,7 +114,9 @@ runs steps 0–4 and 7, skipping the graph and per-node briefs.
    or re-litigated later. Default to `note` and step up only when handoff, multi-agent execution, or
    re-litigation actually applies; record the choice (in the plan, or the decision log) so a human can
    override. Then run `scripts/scaffold.py --slug <slug> --title "<Title>" --tier <tier>` and land the
-   step-0 grounding in it. **Don't scaffold a document you won't deliver**, and don't carry the whole
+   step-0 grounding in it, researched and cited under the **grounded-research** skill's contract
+   (primary sources, URL and access date per claim, verified apart from hearsay, conflicts and
+   unverifiable items flagged). **Don't scaffold a document you won't deliver**, and don't carry the whole
    linked set consistent from the start — fill documents in dependency order and leave cross-document
    consistency to the single lint gate at step 7. → _verify:_ the tier is recorded with the assembly
    findings that justify it, and the scaffolded artifact(s) exist.
