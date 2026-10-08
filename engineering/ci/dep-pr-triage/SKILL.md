@@ -6,7 +6,7 @@ description: >
   test), apply the mechanical fix on the PR branch, push, and re-check. Never merges, approves, or
   enables auto-merge. Use when asked to "go through the dependabot PRs", "fix the renovate PRs",
   "why are the bump PRs red", "babysit the dependency updates", or to sweep several repos for
-  failing dependency PRs, including as a recurring /loop. Not for reviewing human-authored PRs
+  failing dependency PRs, including on a recurring schedule. Not for reviewing human-authored PRs
   (use code-review), for CI authoring (use github-actions), or for deciding whether to adopt an
   upgrade that changes behaviour.
 license: MIT
@@ -65,7 +65,7 @@ Map the failure to one class by the check name and the log, then act per
 | `lint`  | clippy, eslint, statix output                  | only machine-applicable auto-fixes                    |
 | `audit` | cargo-audit, npm audit, advisory ID in the log | only if the PR caused it and a patched version exists |
 | `build` | lockfile out of date, compile error            | lockfile refresh yes; API break no                    |
-| `test`  | assertion or timeout in the log                | rerun once for flakes; otherwise no                   |
+| `test`  | assertion or timeout in the log                | no: report the failing test and log excerpt           |
 | `other` | infra, auth, runner outage                     | no: report                                            |
 
 ## 3. Fix on the PR branch
@@ -94,15 +94,16 @@ One row per PR: repo, number, class, action taken (fix pushed / reran / none), r
 red / pending), and for anything unfixed the exact reason and the log excerpt. End with the PRs that
 are green and ready for a human to merge.
 
-## Babysit recipe (`/loop`)
+## Babysit recipe
 
-Run as `/loop 20m /dep-pr-triage <org> [<org>...]` (or let `/loop` self-pace). Each tick:
+Run this skill repeatedly, for example every 20 minutes, using whatever scheduler or loop the agent
+provides. Each tick:
 
 1. Re-enumerate (step 1) and re-check only PRs that were red or pending last tick.
 2. Apply step 3 to red PRs that have not hit the one-attempt limit.
 3. Keep a state file of `repo#n -> {class, attempts, last_result}` so a restart does not repeat fixes.
 
-**Stop condition.** End the loop when every listed PR is one of: green, or `needs-human` (attempt
+**Stop condition.** End the schedule when every listed PR is one of: green, or `needs-human` (attempt
 limit reached, non-mechanical class, cross-repo branch, or `other`). Also stop if `gh` auth fails or
 rate-limits, rather than retrying. On stop, print the final report and nothing is merged.
 

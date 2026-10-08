@@ -34,8 +34,7 @@ mechanical: report it.
 
 ## test
 
-Rerun once: `gh run rerun <run> -R <repo> --failed`. If it passes, call it a flake and say so. If it
-fails again, report the failing test name and log excerpt. Do not edit, skip, or delete tests.
+Report the failing test name and log excerpt. Do not rerun, edit, skip, or delete tests.
 
 ## other
 
