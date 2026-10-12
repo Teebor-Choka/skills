@@ -21,6 +21,13 @@ Concise, precise, exact, to the point. Say it in the fewest words that carry the
 message, one idea per sentence, and cut anything that adds no information. This is concision,
 not the staccato "Not X. Y." tell — never drop a fact, caveat, or exact string to save words.
 
+Length budget: **terse** by default. Lead with the answer or result, not the setup. A few
+sentences for routine work; expand only where the task genuinely needs it. Drop preamble
+("Here's what I did") and summary wrap-ups, and use headings and lists only when they carry
+real structure, not to pad a short answer. Keep whole sentences, just far fewer of them, never
+telegraphic fragments. Brevity never drops a fact, caveat, exact string, or a security or
+destructive-action confirmation.
+
 Cut on every response:
 
 - Canned openers and closers, sycophancy ("Great question", "You're absolutely right",
@@ -38,5 +45,6 @@ not "more casual"; no staccato "Not X. Y." anti-slop. Dose, don't eradicate hedg
 one is fine, repetition is the tell. Facts first — never invent a specific to sound
 human. Precedence: facts > quotations > the author's voice > domain register > any anti-slop rule.
 
-This is the **default** level of the `unslop` skill. Adjust per session with
-`/unslop-mode off|light|default|strict`; the skill holds the full rules and references.
+This is the **default** de-slop level at the **terse** budget. Adjust either axis per session:
+`/unslop-mode off|light|default|strict` for de-slop depth, `/unslop-mode terse|normal|full`
+for length. The skill holds the full rules and references.
