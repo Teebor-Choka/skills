@@ -1,33 +1,36 @@
 ---
 name: skill-creator
 description: >
-  Author, port, and harden agent Skills (SKILL.md) that work across Claude Code, Codex,
-  and OpenCode from one portable source. Use whenever the user wants to create a new
-  skill, turn a repeatable workflow into a skill, fix or improve an existing skill's
-  triggering, make a skill run on more than one agent, or wire a skill into programmatic
-  triggering (description auto-trigger, slash/custom commands, hooks, CI/headless runs) or
-  advanced multi-agent workflows (subagents, parallel fan-out, orchestration, MCP). Trigger
-  even when the user just says "make a skill", "package this as a skill", "why isn't my
-  skill firing", "add a command or hook for this", or names Codex or OpenCode alongside
-  skills. Produces a portable SKILL.md plus per-agent adapters and an evaluation harness.
-  Also use to audit an existing skill set, CLAUDE.md, or hooks — "audit my skills for rules
-  that could be judgment", "which skills hand me examples to copy (factory vs creative)",
-  "make my CLAUDE.md route"; see references/auditing.md.
+  Author, port, and harden agent Skills (SKILL.md) that run across Claude Code, Codex, OpenCode,
+  and oh-my-pi from one portable source. Use whenever the user wants to create a skill, turn a
+  repeatable workflow into one, fix an existing skill's triggering, make a skill run on more than
+  one agent, package skills as a native plugin or marketplace bundle, or wire a skill into
+  programmatic triggering (description auto-trigger, slash/custom commands, hooks, CI/headless) or
+  multi-agent workflows (subagents, parallel fan-out, orchestration, MCP). Trigger even when the
+  user just says "make a skill", "package this as a plugin", "why isn't my skill firing", "add a
+  command or hook for this", or names Codex, OpenCode, or oh-my-pi. Produces a portable SKILL.md
+  plus per-agent adapters, optional plugin bundles, and evals. Also use to audit an existing skill
+  set, CLAUDE.md, or hooks (standards-over-rules, factory-vs-creative example copying, context
+  routing); see references/auditing.md.
 ---
 
 # Skill creator (cross-agent)
 
-Create skills that run unchanged on **Claude Code**, **Codex**, and **OpenCode**, then add
-per-agent adapters for programmatic triggering and multi-agent workflows.
+Create skills that run unchanged on **Claude Code**, **Codex**, **OpenCode**, and **oh-my-pi**,
+then add per-agent adapters for programmatic triggering, multi-agent workflows, and native
+plugin packaging.
 
-What matters: all three implement the same open **Agent Skills** standard — a
+What matters: all four implement the same open **Agent Skills** standard — a
 `SKILL.md` directory (YAML `name` + `description` front matter, Markdown body, optional
 `references/`, `scripts/`, `assets/`). Write the capability once as a portable core; add
-thin per-agent adapters only where you need deterministic triggering or orchestration.
+thin per-agent adapters only where you need deterministic triggering or orchestration. When a
+skill travels with its adapters to a team, package the set as a plugin — plugins have their own
+open standard (**Agent Plugins**) with the same portable-core-plus-vendor-overlay shape
+(`references/plugins.md`).
 
 ```
 skill-name/
-├── SKILL.md          # portable: name + description + instructions (all three read this)
+├── SKILL.md          # portable: name + description + instructions (all four read this)
 ├── references/       # loaded on demand (progressive disclosure)
 ├── scripts/          # deterministic helpers, runnable without loading into context
 └── assets/           # templates/resources used in output
@@ -35,14 +38,15 @@ skill-name/
 
 ## Where a skill is installed per agent
 
-| Agent       | Skill search paths (project / user)                              | Also reads                           |
-| ----------- | ---------------------------------------------------------------- | ------------------------------------ |
-| Claude Code | `.claude/skills/<name>/` · `~/.claude/skills/<name>/`            | plugin `skills/`                     |
-| Codex       | `.agents/skills/<name>/` · `~/.agents/skills/<name>/`            | `/etc/codex/skills`, bundled         |
-| OpenCode    | `.opencode/skills/<name>/` · `~/.config/opencode/skills/<name>/` | `.claude/skills/`, `.agents/skills/` |
+| Agent       | Skill search paths (project / user)                              | Also reads                                              |
+| ----------- | ---------------------------------------------------------------- | ------------------------------------------------------- |
+| Claude Code | `.claude/skills/<name>/` · `~/.claude/skills/<name>/`            | plugin `skills/`                                        |
+| Codex       | `.agents/skills/<name>/` · `~/.agents/skills/<name>/`            | `/etc/codex/skills`, bundled                            |
+| OpenCode    | `.opencode/skills/<name>/` · `~/.config/opencode/skills/<name>/` | `.claude/skills/`, `.agents/skills/`                    |
+| oh-my-pi    | `.omp/skills/<name>/` · `~/.omp/agent/skills/<name>/`            | `.claude/skills/`, `.agents/skills/`, `.github/skills/` |
 
-OpenCode reads `.claude/skills` and `.agents/skills` too, so a single checked-in skill dir
-can serve all three. Details and exact precedence: `references/platforms/*.md`.
+OpenCode and oh-my-pi both read `.claude/skills` and `.agents/skills`, so a single checked-in
+skill dir can serve all four. Details and exact precedence: `references/platforms/*.md`.
 
 ## Workflow
 
@@ -68,13 +72,17 @@ Follow this loop. It is the same discipline whichever agent you target.
      CI/headless entry points. Matrix + snippets: `references/triggering.md`.
    - Advanced workflows — subagents, parallel fan-out, pipelines, MCP. Patterns per agent:
      `references/workflows.md`.
+   - Native plugins — when a skill ships with its command/hook/subagent/MCP to a team, package
+     it as a plugin (Agent Plugins portable core + per-agent overlay and marketplace):
+     `references/plugins.md`. Skip this for a lone skill.
    - Always-on instruction files (`AGENTS.md`, `CLAUDE.md`, Copilot): how each agent discovers
      them and how to serve all from one repo: `references/instruction-files.md`.
-   - Exact per-agent file formats: `references/platforms/{claude-code,codex,opencode}.md`.
+   - Exact per-agent file formats:
+     `references/platforms/{claude-code,codex,opencode,oh-my-pi}.md`.
 5. **Evaluate.** Build test cases and run the skill with vs without it on each target
    agent, grade against assertions, and compare. Full harness: `references/evaluation.md`.
-   Scaffolding: `assets/evals.example.json`, and `scripts/validate_skill.py` for a
-   fast frontmatter + portability lint.
+   Scaffolding: `assets/evals.example.json`, `scripts/validate_skill.py` for a fast frontmatter +
+   portability lint, and `scripts/validate_plugin.py` when the skill ships inside a plugin.
 6. **Iterate.** Improve from the eval results and re-run. Generalize from feedback rather
    than overfitting to one test. Stop when the user is satisfied or gains stall.
 

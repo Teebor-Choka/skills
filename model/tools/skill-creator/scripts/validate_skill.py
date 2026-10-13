@@ -3,7 +3,7 @@
 
 Usage: validate_skill.py <skill-dir> [<skill-dir> ...]
 
-Validates the portable contract shared by Claude Code, Codex, and OpenCode:
+Validates the portable contract shared by Claude Code, Codex, OpenCode, and oh-my-pi:
 - SKILL.md exists, with YAML frontmatter fenced by '---'.
 - name: required, ^[a-z0-9][a-z0-9-]*$, <=64 chars, equals the directory name.
 - description: required, <=1024 chars, no angle brackets (< or >).

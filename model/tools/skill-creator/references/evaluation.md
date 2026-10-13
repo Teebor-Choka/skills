@@ -31,6 +31,9 @@ codex exec -o out.txt "<prompt>"        # $skill for explicit; plain prompt for 
 
 # OpenCode
 opencode run -q -f json "<prompt>"
+
+# oh-my-pi
+omp -p "<prompt>" --mode json       # /skill:<name> for explicit; plain prompt for implicit
 ```
 
 ### 3. Assertions (objective checks)
@@ -72,7 +75,9 @@ an eval run on them.
 ## Cross-agent parity
 
 When a skill targets more than one agent, run the outcome and trigger evals on each. Common
-divergences to watch: a skill that triggers on Claude Code under-triggers on Codex/OpenCode
-because the description leaned on Claude phrasing; a body that assumed a Claude tool call
-silently no-ops elsewhere; hooks/commands that exist on one agent and not another. Keep the
-portable core identical across agents and let only the adapters differ.
+divergences to watch: a skill that triggers on Claude Code under-triggers on
+Codex/OpenCode/oh-my-pi because the description leaned on Claude phrasing; a body that assumed a
+Claude tool call silently no-ops elsewhere; hooks/commands/subagents that exist on one agent and
+not another (e.g. oh-my-pi ignores `.claude/agents`, so an omp subagent needs its own file). Keep
+the portable core identical across agents and let only the adapters differ. If the skill ships as
+a plugin, also lint the bundle with `scripts/validate_plugin.py` on each target.

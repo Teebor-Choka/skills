@@ -4,7 +4,7 @@ description: >
   ONE sentence on what this does, then the trigger contexts in the user's words — including
   casual phrasings that don't name the skill — and a short "do not use for …" clause. Keep it
   under 1024 characters and use no angle brackets. This text is the entire triggering signal on
-  Claude Code, Codex, and OpenCode.
+  Claude Code, Codex, OpenCode, and oh-my-pi.
 license: MIT
 compatibility: any
 metadata:

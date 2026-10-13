@@ -65,6 +65,16 @@ Claude-only extras — keep these in the Claude adapter, not the portable core:
   for fan-out/verify/synthesize. Claude-specific; keep out of the portable body.
 - **MCP** — `mcpServers` in `settings.json` or per-subagent; tools are `mcp__<server>__<tool>`.
 
+## Native plugins (marketplace)
+
+A plugin bundles skills, agents, hooks, and MCP servers as one installable unit: a dir with a
+`.claude-plugin/plugin.json` manifest holding `skills/<name>/SKILL.md`, `agents/<name>.md`,
+`hooks/hooks.json`, `.mcp.json`, and commands (a skill inside runs as `/<plugin>:<skill>`). A
+plugin whose hooks are a JS module is a **mod**. Distribute via a marketplace repo with
+`.claude-plugin/marketplace.json`; users `/plugin marketplace add` it and install by name.
+Develop with `--plugin-dir`. Package a skill as a plugin when it ships with its adapters to a
+team; keep a lone skill standalone. Portable-plugin story and overlays: `plugins.md`.
+
 ## Headless / CI
 
 ```bash

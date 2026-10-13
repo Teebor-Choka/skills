@@ -62,6 +62,16 @@ for repo conventions, not reusable capabilities — prefer a skill for anything 
 - **Orchestration** — no scripting engine; chain `codex exec` calls in the shell and resume
   sessions.
 
+## Native plugins (marketplace)
+
+Since early 2026 Codex has a plugin marketplace: a plugin bundles skills, MCP servers, and app
+connectors on the portable Agent Plugins format — root `plugin.json` + `skills/` + `mcp.json`,
+with OpenAI metadata under `extensions.com.openai` and an optional `.codex-plugin/plugin.json`
+compat overlay. Add a marketplace with `codex plugin marketplace add owner/repo` (catalog at
+`$REPO_ROOT/.agents/plugins/marketplace.json` or `~/.agents/plugins/marketplace.json`); manage
+with `codex plugin marketplace list|upgrade|remove`. Ship a skill set this way when it travels
+with its MCP/connectors to a team. Full portable-plugin story and overlays: `plugins.md`.
+
 ## Headless / CI: `codex exec`
 
 ```bash

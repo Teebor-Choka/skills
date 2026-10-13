@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/marketplace.schema.json",
+  "name": "my-marketplace",
+  "plugins": [
+    {
+      "name": "my-plugin",
+      "source": "./my-plugin",
+      "description": "What the bundle adds and when to reach for it"
+    }
+  ]
+}
