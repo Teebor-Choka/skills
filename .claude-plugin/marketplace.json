@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills — practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "1.14.0"
+    "version": "1.15.0"
   },
   "plugins": [
     {
@@ -61,6 +61,15 @@
       "skills": ["./engineering/swe/code-quality"],
       "metadata": {
         "version": "1.2.0"
+      }
+    },
+    {
+      "name": "project-docs",
+      "description": "Give any project a standard, enforceable docs/ structure (overview, optional spec, ADRs) with diagrams and an AGENTS.md pointer, then validate it stays conformant.",
+      "source": "./",
+      "skills": ["./maintenance/project-docs"],
+      "metadata": {
+        "version": "1.0.0"
       }
     },
     {
