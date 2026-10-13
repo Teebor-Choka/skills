@@ -1,5 +1,5 @@
 ---
-name: skill-creator
+name: agent-extension-author
 description: >
   Author, port, and harden agent Skills (SKILL.md) that run across Claude Code, Codex, OpenCode,
   and oh-my-pi from one portable source. Use whenever the user wants to create a skill, turn a
@@ -14,7 +14,7 @@ description: >
   routing); see references/auditing.md.
 ---
 
-# Skill creator (cross-agent)
+# Agent extension author (cross-agent)
 
 Create skills that run unchanged on **Claude Code**, **Codex**, **OpenCode**, and **oh-my-pi**,
 then add per-agent adapters for programmatic triggering, multi-agent workflows, and native
@@ -64,7 +64,7 @@ Follow this loop. It is the same discipline whichever agent you target.
    light enough to load every run — length is a symptom, not the target. Craft rules and
    the description in `references/authoring.md`; `assets/SKILL.template.md` is a starter
    scaffold to fill, not a shape to match. If the host offers a first-party skill scaffolder
-   (e.g. Anthropic's `example-skills:skill-creator`), scaffold the directory with it first, then
+   (Anthropic, for one, ships example skills for this, with skill-authoring and MCP-builder as separate suites — use the skill-authoring one), scaffold the directory with it first, then
    apply this skill's portability and audit layer on top — let the scaffolder lay the bones so
    your effort goes into the description, the portable core, and the adapters.
 4. **Add adapters** for the target agents (only what's needed):

@@ -3,13 +3,13 @@
 A skill can fire four ways. The first is model-driven (the description); the rest are
 deterministic and live in per-agent adapters. Pick the least machinery that does the job.
 
-| Mechanism                     | Claude Code                            | Codex                            | OpenCode                                          | oh-my-pi                                          |
-| ----------------------------- | -------------------------------------- | -------------------------------- | ------------------------------------------------- | ------------------------------------------------- |
-| Auto-trigger by `description` | yes (implicit)                         | yes (implicit, ~2% context cap)  | yes (via the `skill` tool)                        | yes (name+desc in prompt; body via `skill://`)    |
-| Explicit invocation           | `/skill-name`                          | `$skill-name` (CLI)              | model calls `skill({name})`; humans use a command | `/skill:<name> [args]` (when skill commands on)   |
-| Named command                 | `.claude/commands/<name>.md` → `/name` | `~/.codex/prompts/*.md` (legacy) | `.opencode/commands/<name>.md` → `/name`          | `.omp/commands/<name>.md` → `/name`               |
-| Lifecycle hooks               | `settings.json` `hooks` (events)       | `[hooks.*]` in `config.toml`     | plugins in `.opencode/plugins/` (event hooks)     | JS/TS in `.omp/hooks/pre\|post/` (event hooks)    |
-| Headless / CI                 | `claude -p "…"`                        | `codex exec …`                   | `opencode run …`                                  | `omp -p "…"`                                       |
+| Mechanism                     | Claude Code                            | Codex                            | OpenCode                                          | oh-my-pi                                        |
+| ----------------------------- | -------------------------------------- | -------------------------------- | ------------------------------------------------- | ----------------------------------------------- |
+| Auto-trigger by `description` | yes (implicit)                         | yes (implicit, ~2% context cap)  | yes (via the `skill` tool)                        | yes (name+desc in prompt; body via `skill://`)  |
+| Explicit invocation           | `/skill-name`                          | `$skill-name` (CLI)              | model calls `skill({name})`; humans use a command | `/skill:<name> [args]` (when skill commands on) |
+| Named command                 | `.claude/commands/<name>.md` → `/name` | `~/.codex/prompts/*.md` (legacy) | `.opencode/commands/<name>.md` → `/name`          | `.omp/commands/<name>.md` → `/name`             |
+| Lifecycle hooks               | `settings.json` `hooks` (events)       | `[hooks.*]` in `config.toml`     | plugins in `.opencode/plugins/` (event hooks)     | JS/TS in `.omp/hooks/pre\|post/` (event hooks)  |
+| Headless / CI                 | `claude -p "…"`                        | `codex exec …`                   | `opencode run …`                                  | `omp -p "…"`                                    |
 
 ## 1. Description auto-trigger (all four)
 

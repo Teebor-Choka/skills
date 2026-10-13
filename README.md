@@ -6,7 +6,7 @@ Public AI agent skills for [Claude Code](https://claude.ai/code) and compatible 
 
 Grouped by source directory (see [Repository layout](#repository-layout)). Every skill is a
 portable Agent Skill (`SKILL.md`) that runs unchanged on **Claude Code**, **Codex**, and
-**OpenCode**; the [skill-creator](./model/tools/skill-creator/SKILL.md) skill documents that
+**OpenCode**; the [agent-extension-author](./model/tools/agent-extension-author/SKILL.md) skill documents that
 cross-agent model. Each category has its own README with fuller blurbs.
 
 ### tools — [details](./tools/README.md)
@@ -18,11 +18,11 @@ cross-agent model. Each category has its own README with fuller blurbs.
 
 ### model/tools — [details](./model/tools/README.md)
 
-| Skill                                                 | Description                                                               |
-| ----------------------------------------------------- | ------------------------------------------------------------------------- |
-| [prose-craft](./model/tools/prose-craft/SKILL.md)     | Compose or revise clear, well-architected prose (Strunk & White + Pinker) |
-| [unslop](./model/tools/unslop/SKILL.md)               | Edit prose to remove AI tells and restore a plain, human voice            |
-| [skill-creator](./model/tools/skill-creator/SKILL.md) | Author, port, and harden skills across Claude Code, Codex, and OpenCode   |
+| Skill                                                                   | Description                                                                                   |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [prose-craft](./model/tools/prose-craft/SKILL.md)                       | Compose or revise clear, well-architected prose (Strunk & White + Pinker)                     |
+| [unslop](./model/tools/unslop/SKILL.md)                                 | Edit prose to remove AI tells and restore a plain, human voice                                |
+| [agent-extension-author](./model/tools/agent-extension-author/SKILL.md) | Author, port, and harden skills and plugins across Claude Code, Codex, OpenCode, and oh-my-pi |
 
 ### engineering — [details](./engineering/README.md)
 
@@ -71,7 +71,7 @@ tools/
   llm-wiki/             # skill: llm-wiki
 model/tools/
   unslop/               # skill: unslop
-  skill-creator/        # skill: skill-creator — references/platforms + validate_skill.py
+  agent-extension-author/        # skill: agent-extension-author — references/platforms + validate_skill.py
 engineering/
   architect/            # skill: architect — scaffold.py + lint.py, references, adapters
 engineering/swe/

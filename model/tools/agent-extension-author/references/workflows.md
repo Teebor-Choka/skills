@@ -5,13 +5,13 @@ adversarial reviewer, a fan-out over many files — keep the _intent_ in the por
 ("delegate exploration to a read-only subagent, then implement from its findings") and bind it
 to each agent's mechanism in an adapter.
 
-| Capability                  | Claude Code                                                   | Codex                                       | OpenCode                                                              | oh-my-pi                                                            |
-| --------------------------- | ------------------------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Subagents                   | `.claude/agents/<name>.md`; the Agent tool; `@"name (agent)"` | role-specialized subagents (config-defined) | `.opencode/agents/<name>.md` or `agent` key; `@name`; the `task` tool | `.omp/agents/<name>.md`; the `task` tool; Agent Hub (`Alt+A`)       |
+| Capability                  | Claude Code                                                   | Codex                                       | OpenCode                                                              | oh-my-pi                                                               |
+| --------------------------- | ------------------------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Subagents                   | `.claude/agents/<name>.md`; the Agent tool; `@"name (agent)"` | role-specialized subagents (config-defined) | `.opencode/agents/<name>.md` or `agent` key; `@name`; the `task` tool | `.omp/agents/<name>.md`; the `task` tool; Agent Hub (`Alt+A`)          |
 | Deterministic orchestration | the Workflow tool (JS: `agent()`, `parallel()`, `pipeline()`) | shell over `codex exec` + session resume    | shell over `opencode run` + `serve --attach`                          | shell over `omp -p` + `--resume`; `eval` kernel `agent()`/`workpool()` |
-| Parallel fan-out            | multiple Agent calls / Workflow `parallel`                    | multiple `codex exec` processes             | General subagent; multiple `opencode run`                             | `task` fan-out into isolated worktrees; `wait` joins                |
-| Nesting bound               | per-call                                                      | per-config                                  | `subagent_depth` (default 1)                                          | `task.maxRecursionDepth` (default 2)                               |
-| External tools              | MCP (`mcp__server__tool`)                                     | MCP client (`[mcp_servers.*]`)              | MCP (`mcp` key)                                                       | MCP (`.omp/mcp.json`; imports other agents' MCP configs)           |
+| Parallel fan-out            | multiple Agent calls / Workflow `parallel`                    | multiple `codex exec` processes             | General subagent; multiple `opencode run`                             | `task` fan-out into isolated worktrees; `wait` joins                   |
+| Nesting bound               | per-call                                                      | per-config                                  | `subagent_depth` (default 1)                                          | `task.maxRecursionDepth` (default 2)                                   |
+| External tools              | MCP (`mcp__server__tool`)                                     | MCP client (`[mcp_servers.*]`)              | MCP (`mcp` key)                                                       | MCP (`.omp/mcp.json`; imports other agents' MCP configs)               |
 
 ## Subagent definitions
 
@@ -75,3 +75,6 @@ lets each agent wire the server:
 
 Name the required MCP tools in the skill's docs and gate them with each agent's permission
 model rather than assuming they are always present.
+
+To author the MCP server itself (not just consume one), reach for the host's MCP-builder
+example skill if it ships one — it is a separate suite from the skill scaffolder.

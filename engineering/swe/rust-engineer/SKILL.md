@@ -34,7 +34,7 @@ knowledge sources back this skill, layered so project intent always wins:
 For a large multi-file or multi-crate refactor, delegate the mechanical fan-out to your
 agent's subagents — each still applying this skill to its slice — while you keep the design
 decisions. This skill's `SKILL.md` loads the same on Claude Code, Codex, and OpenCode; for
-how to wire subagents, commands, or hooks per agent, see the `skill-creator` skill.
+how to wire subagents, commands, or hooks per agent, see the `agent-extension-author` skill.
 
 ## Guidelines index
 
