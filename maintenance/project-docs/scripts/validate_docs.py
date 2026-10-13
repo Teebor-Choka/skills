@@ -374,18 +374,27 @@ def _check_agents(project: str, project_path: Path) -> list[Finding]:
 
 
 def find_projects(root: Path) -> list[Path]:
-    """Every dir under root that holds a docs/ dir OR a .git entry. A detected
-    project is not descended into, so docs/decisions and nested workdirs are not
-    mistaken for separate projects."""
+    """Every dir at or under root that holds a docs/ dir OR a .git entry, including
+    projects nested under a documented portfolio root (which has its own docs/ but
+    must not hide its subprojects).
+
+    A git repo below the root is a hard boundary: it is recorded, but its contents
+    are not descended into, so a repo's vendored deps, submodules, or monorepo
+    internals are left to that repo's own gate instead of being discovered here.
+    The root itself is always descended (so a non-repo portfolio root reaches its
+    repo children, and a monorepo root reaches its packages). docs/ subtrees and
+    the junk dirs are pruned so docs/decisions is never mistaken for a project."""
+    root = Path(root)
     projects: list[Path] = []
-    skip = {"node_modules", ".direnv", "target", "result", "__pycache__"}
+    skip = {"node_modules", ".direnv", "target", "result", "__pycache__", "docs"}
     for dirpath, dirnames, _ in os.walk(root):
         d = Path(dirpath)
         if (d / "docs").is_dir() or (d / ".git").exists():
             projects.append(d)
-            dirnames[:] = []  # prune: do not descend into a detected project
-            continue
-        dirnames[:] = [n for n in dirnames if n not in skip and not n.startswith(".")]
+        if (d / ".git").exists() and d != root:
+            dirnames[:] = []  # a nested git repo owns its subtree; do not descend
+        else:
+            dirnames[:] = [n for n in dirnames if n not in skip and not n.startswith(".")]
     return sorted(projects)
 
 
