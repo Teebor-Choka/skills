@@ -1,5 +1,5 @@
 ---
-title: widgetd — decisions
+title: widgetd decisions
 kind: decisions-index
 project: widgetd
 updated: 2026-10-13

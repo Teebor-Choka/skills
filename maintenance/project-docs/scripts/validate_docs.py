@@ -24,33 +24,57 @@ import json
 import os
 import re
 import sys
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 # --- contract constants (references/contract.md) -----------------------------
 
-ADR_STATUSES = frozenset({"proposed", "accepted", "superseded", "rejected"})
+# Only active decisions get a file; discarded ones become footnotes (contract.md).
+ADR_STATUSES = frozenset({"proposed", "accepted"})
 UPDATED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 MERMAID_RE = re.compile(r"(?m)^[ \t]*`{3,}[ \t]*mermaid\b")
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 
-# ADR body must contain all four labels; the last is satisfied by any one of the set.
+# ADR body must contain these three labels, in this order.
 ADR_REQUIRED_LABELS = ("Context", "Decision", "Consequences")
-ADR_SETASIDE_LABELS = ("Set aside", "Alternatives", "Rejected")
+# A label written as a bold lead (**Label.**) or a heading (## Label); the set is
+# fixed, so compile each form once.
+ADR_LABEL_PATTERNS = {
+    label: (
+        re.compile(r"\*\*\s*" + re.escape(label) + r"\b"),
+        re.compile(r"(?m)^#{1,6}\s+" + re.escape(label) + r"\b"),
+    )
+    for label in ADR_REQUIRED_LABELS
+}
+# Footnotes carry discarded/denied alternatives; every reference needs a definition.
+FOOTNOTE_DEF_RE = re.compile(r"(?m)^\[\^([^\]]+)\]:")
+FOOTNOTE_REF_RE = re.compile(r"\[\^([^\]]+)\](?!:)")
 
 # The project-name key is `project`; `repo` is a deprecated alias still accepted.
-NAME_KEY = "project"
-NAME_ALIAS = "repo"
+NAME_KEYS = ("project", "repo")
 
-# Required frontmatter keys per kind. ADRs (kind None) require status instead of kind.
-# NAME_KEY is satisfied by either `project` or the `repo` alias (see _name_value).
-REQUIRED_KEYS = {
-    "overview": ("title", "kind", NAME_KEY, "updated"),
-    "spec": ("title", "kind", NAME_KEY, "updated"),
-    "decisions-index": ("title", "kind", NAME_KEY, "updated"),
-    None: ("title", "status", NAME_KEY, "updated"),  # ADR
-}
+
+@dataclass(frozen=True)
+class DocSpec:
+    """One doc kind the contract defines, as data the checks iterate over so the
+    frontmatter, kind, and diagram rules all come from one table (contract.md)."""
+
+    relpath: str  # path under docs/
+    kind: str  # expected frontmatter `kind`
+    requires_mermaid: bool
+
+
+# Each required key is a name, or a tuple of interchangeable aliases.
+FM_KEYS: tuple[object, ...] = ("title", "kind", NAME_KEYS, "updated")
+SINGLETON_DOCS = (
+    DocSpec("overview.md", "overview", True),
+    DocSpec("spec.md", "spec", True),
+    DocSpec("decisions/README.md", "decisions-index", False),
+)
+# ADRs have no `kind`; they carry `status` and never require a diagram.
+ADR_REQUIRED_KEYS: tuple[object, ...] = ("title", "status", NAME_KEYS, "updated")
 
 
 @dataclass
@@ -60,6 +84,24 @@ class Finding:
     rule: str
     message: str
     severity: str = "error"
+
+
+# --- small helpers -----------------------------------------------------------
+
+
+def _present(value: object) -> bool:
+    """A frontmatter value counts as present unless it is absent or an empty/blank
+    string (a non-string scalar, e.g. a list, counts as present)."""
+    return value is not None and (not isinstance(value, str) or bool(value.strip()))
+
+
+def _nonempty_str(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _key_satisfied(fm: dict[str, object], key: object) -> bool:
+    aliases = key if isinstance(key, tuple) else (key,)
+    return any(_present(fm.get(k)) for k in aliases)
 
 
 # --- frontmatter parsing -----------------------------------------------------
@@ -111,10 +153,10 @@ def _unquote(value: str) -> str:
 def _name_value(fm: dict[str, object]) -> str | None:
     """The project name from frontmatter: `project`, falling back to the `repo`
     alias. Returns None when neither is a non-empty string."""
-    for key in (NAME_KEY, NAME_ALIAS):
+    for key in NAME_KEYS:
         val = fm.get(key)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
+        if _nonempty_str(val):
+            return val.strip()  # type: ignore[union-attr]
     return None
 
 
@@ -130,7 +172,6 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
         return [Finding(project, None, "undocumented", "no docs/ directory", "warning")]
 
     overview = docs / "overview.md"
-    spec = docs / "spec.md"
     decisions = docs / "decisions"
     index = decisions / "README.md"
 
@@ -149,57 +190,50 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
         findings.append(Finding(project, "docs/decisions/", "missing-adr",
                                 "docs/decisions needs at least one ADR besides README.md"))
 
-    # --- frontmatter (known docs only; extra docs are ignored per contract) ---
-    name_values: dict[str, str] = {}  # relpath -> project value, for divergence check
+    # --- frontmatter (contract-defined docs only; extras are ignored) ------
+    # (path, kind|None for ADR, required_keys). Driven by the doc-kind table above.
+    present_specs = [s for s in SINGLETON_DOCS if (docs / s.relpath).is_file()]
+    checked: list[tuple[Path, str | None, tuple[object, ...]]] = [
+        (docs / s.relpath, s.kind, FM_KEYS) for s in present_specs
+    ]
+    checked += [(adr, None, ADR_REQUIRED_KEYS) for adr in adr_files]
 
-    known: list[tuple[Path, str | None]] = []
-    if overview.is_file():
-        known.append((overview, "overview"))
-    if spec.is_file():
-        known.append((spec, "spec"))
-    if index.is_file():
-        known.append((index, "decisions-index"))
-    for adr in adr_files:
-        known.append((adr, None))  # ADR
-
-    for path, expected_kind in known:
+    texts: dict[Path, str] = {}  # each doc read once, reused below
+    bodies: dict[Path, str] = {}  # body after frontmatter, reused for ADR checks
+    name_values: dict[str, str] = {}  # relpath -> project value, for divergence
+    for path, kind, required in checked:
         rel = path.relative_to(project_path).as_posix()
         text = path.read_text(encoding="utf-8")
-        fm, _ = split_frontmatter(text)
+        texts[path] = text
+        fm, body = split_frontmatter(text)
+        bodies[path] = body
         if fm is None:
             findings.append(Finding(project, rel, "frontmatter-missing",
                                     "missing YAML frontmatter block (--- ... ---)"))
             continue
 
-        for key in REQUIRED_KEYS[expected_kind]:
-            if key == NAME_KEY:
-                if _name_value(fm) is None:
-                    findings.append(Finding(project, rel, "frontmatter-key",
-                                            f"missing or empty required frontmatter key: {NAME_KEY}"
-                                            f" (or its {NAME_ALIAS!r} alias)"))
-                continue
-            val = fm.get(key)
-            if val is None or (isinstance(val, str) and not val.strip()):
+        for key in required:
+            if not _key_satisfied(fm, key):
+                name = key[0] if isinstance(key, tuple) else key
+                alias = f" (or its {key[1]!r} alias)" if isinstance(key, tuple) else ""
                 findings.append(Finding(project, rel, "frontmatter-key",
-                                        f"missing or empty required frontmatter key: {key}"))
+                                        f"missing or empty required frontmatter key: {name}{alias}"))
 
-        if expected_kind is not None:
-            kind = fm.get("kind")
-            if kind is not None and kind != expected_kind:
+        if kind is not None:
+            actual = fm.get("kind")
+            if actual is not None and actual != kind:
                 findings.append(Finding(project, rel, "frontmatter-kind",
-                                        f"kind is {kind!r}, expected {expected_kind!r}"))
+                                        f"kind is {actual!r}, expected {kind!r}"))
+        else:
+            status = fm.get("status")
+            if _nonempty_str(status) and status not in ADR_STATUSES:
+                findings.append(Finding(project, rel, "frontmatter-status",
+                                        f"status {status!r} not one of {sorted(ADR_STATUSES)}"))
 
         updated = fm.get("updated")
-        if isinstance(updated, str) and updated.strip() and not UPDATED_RE.match(updated):
+        if _nonempty_str(updated) and not UPDATED_RE.match(updated):  # type: ignore[arg-type]
             findings.append(Finding(project, rel, "frontmatter-updated",
                                     f"updated {updated!r} is not an ISO date YYYY-MM-DD"))
-
-        if expected_kind is None:
-            status = fm.get("status")
-            if isinstance(status, str) and status.strip() and status not in ADR_STATUSES:
-                findings.append(Finding(project, rel, "frontmatter-status",
-                                        f"status {status!r} not one of "
-                                        f"{sorted(ADR_STATUSES)}"))
 
         name_val = _name_value(fm)
         if name_val is not None:
@@ -211,73 +245,88 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
     # --- ADR filename + sections -------------------------------------------
     for adr in adr_files:
         rel = adr.relative_to(project_path).as_posix()
-        slug = adr.stem
-        if not KEBAB_RE.match(slug):
+        if not KEBAB_RE.match(adr.stem):
             findings.append(Finding(project, rel, "adr-filename",
-                                    f"ADR filename {slug!r} is not kebab-case "
+                                    f"ADR filename {adr.stem!r} is not kebab-case "
                                     r"(^[a-z0-9]+(-[a-z0-9]+)*$)"))
-        _, body = split_frontmatter(adr.read_text(encoding="utf-8"))
-        findings.extend(_check_adr_sections(project, rel, body))
+        findings.extend(_check_adr_sections(project, rel, bodies[adr]))
 
     # --- decisions index, both directions ----------------------------------
     if index.is_file():
-        findings.extend(_check_index(project, project_path, index, decisions, adr_files))
+        findings.extend(_check_index(project, project_path, texts[index], decisions, adr_files))
 
     # --- AGENTS.md pointer -------------------------------------------------
     findings.extend(_check_agents(project, project_path))
 
-    # --- diagrams ----------------------------------------------------------
-    if overview.is_file() and not MERMAID_RE.search(overview.read_text(encoding="utf-8")):
-        findings.append(Finding(project, "docs/overview.md", "diagram",
-                                "overview.md has no ```mermaid block"))
-    if spec.is_file() and not MERMAID_RE.search(spec.read_text(encoding="utf-8")):
-        findings.append(Finding(project, "docs/spec.md", "diagram",
-                                "spec.md has no ```mermaid block"))
+    # --- diagrams (per the doc-kind table) ---------------------------------
+    for spec in present_specs:
+        if spec.requires_mermaid and not MERMAID_RE.search(texts[docs / spec.relpath]):
+            findings.append(Finding(project, f"docs/{spec.relpath}", "diagram",
+                                    f"{spec.relpath} has no ```mermaid block"))
 
     return findings
 
 
 def _check_name_divergence(project: str, name_values: dict[str, str]) -> list[Finding]:
-    distinct = set(name_values.values())
-    if len(distinct) <= 1:
+    if len(set(name_values.values())) <= 1:
         return []
-    # Canonical = overview's value if present, else the most common.
-    canonical = name_values.get("docs/overview.md")
-    if canonical is None:
-        canonical = max(distinct, key=lambda v: list(name_values.values()).count(v))
-    out = []
-    for rel, val in sorted(name_values.items()):
-        if val != canonical:
-            out.append(Finding(project, rel, "project-divergence",
-                               f"project is {val!r}, diverges from {canonical!r} used elsewhere"))
-    return out
+    majority = Counter(name_values.values()).most_common(1)[0][0]
+    return [
+        Finding(project, rel, "project-divergence",
+                f"project is {val!r}, differs from {majority!r} used by the other docs")
+        for rel, val in sorted(name_values.items())
+        if val != majority
+    ]
 
 
 def _check_adr_sections(project: str, rel: str, body: str) -> list[Finding]:
     out = []
+    positions: list[tuple[str, int]] = []
     for label in ADR_REQUIRED_LABELS:
-        if not _has_label(body, label):
+        pos = _label_pos(body, label)
+        if pos is None:
             out.append(Finding(project, rel, "adr-section",
                                f"ADR body missing {label!r} section "
                                f"(as **{label}.** or ## {label})"))
-    if not any(_has_label(body, lbl) for lbl in ADR_SETASIDE_LABELS):
-        out.append(Finding(project, rel, "adr-section",
-                           "ADR body missing a set-aside section (one of "
-                           f"{list(ADR_SETASIDE_LABELS)})"))
+        else:
+            positions.append((label, pos))
+
+    # Order: only checkable when all labels are present.
+    if len(positions) == len(ADR_REQUIRED_LABELS):
+        ordered = [lbl for lbl, _ in sorted(positions, key=lambda lp: lp[1])]
+        if ordered != list(ADR_REQUIRED_LABELS):
+            out.append(Finding(project, rel, "adr-section-order",
+                               f"ADR sections are {ordered}, expected "
+                               f"{list(ADR_REQUIRED_LABELS)} in order"))
+
+    out.extend(_check_footnotes(project, rel, body))
     return out
 
 
-def _has_label(body: str, label: str) -> bool:
-    bold = re.compile(r"\*\*\s*" + re.escape(label) + r"\b")
-    heading = re.compile(r"(?m)^#{1,6}\s+" + re.escape(label) + r"\b")
-    return bool(bold.search(body) or heading.search(body))
+def _label_pos(body: str, label: str) -> int | None:
+    """Start offset of a section label written as a bold lead (**Label.**) or a
+    heading (## Label), or None if absent."""
+    bold, heading = ADR_LABEL_PATTERNS[label]
+    m = bold.search(body) or heading.search(body)
+    return m.start() if m else None
 
 
-def _check_index(project: str, project_path: Path, index: Path, decisions: Path,
+def _check_footnotes(project: str, rel: str, body: str) -> list[Finding]:
+    """Discarded/denied alternatives live in footnotes, so every `[^id]` used
+    must have a `[^id]:` definition (an undefined footnote renders as raw text)."""
+    defined = set(FOOTNOTE_DEF_RE.findall(body))
+    referenced = set(FOOTNOTE_REF_RE.findall(body))
+    return [
+        Finding(project, rel, "adr-footnote",
+                f"footnote [^{fid}] is referenced but never defined")
+        for fid in sorted(referenced - defined)
+    ]
+
+
+def _check_index(project: str, project_path: Path, index_text: str, decisions: Path,
                  adr_files: list[Path]) -> list[Finding]:
     out = []
-    text = index.read_text(encoding="utf-8")
-    linked = _index_links_in_dir(text)
+    linked = _index_links_in_dir(index_text)
 
     # Reverse: every in-dir link resolves to a real file.
     for target in sorted(linked):
@@ -314,12 +363,11 @@ def _check_agents(project: str, project_path: Path) -> list[Finding]:
         return [Finding(project, "AGENTS.md", "agents-md",
                         "root AGENTS.md is required but missing")]
     text = agents.read_text(encoding="utf-8")
-    out = []
-    for needle in ("docs/overview.md", "docs/decisions"):
-        if needle not in text:
-            out.append(Finding(project, "AGENTS.md", "agents-md",
-                               f"AGENTS.md does not mention {needle!r}"))
-    return out
+    return [
+        Finding(project, "AGENTS.md", "agents-md", f"AGENTS.md does not mention {needle!r}")
+        for needle in ("docs/overview.md", "docs/decisions")
+        if needle not in text
+    ]
 
 
 # --- project discovery -------------------------------------------------------
@@ -362,17 +410,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: path does not exist: {root}", file=sys.stderr)
         return 2
 
-    if args.all:
-        projects = find_projects(root)
-    else:
-        projects = [root]
+    projects = find_projects(root) if args.all else [root]
 
     all_findings: list[Finding] = []
     per_project: list[tuple[str, int]] = []
     for project_path in projects:
-        label = (project_path.relative_to(root).as_posix() if args.all and project_path != root
-                 else project_path.name or str(project_path))
-        if args.all and label == ".":
+        if args.all and project_path != root:
+            label = project_path.relative_to(root).as_posix()
+        else:
             label = project_path.name or str(project_path)
         findings = validate_project(project_path, project_label=label)
         all_findings.extend(findings)

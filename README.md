@@ -43,11 +43,11 @@ cross-agent model. Each category has its own README with fuller blurbs.
 | ---------------------------------------------------------- | ------------------------------------------------------ |
 | [github-actions](./engineering/ci/github-actions/SKILL.md) | Harden GitHub Actions workflows and configure Renovate |
 
-### engineering/maintenance — [details](./engineering/maintenance/README.md)
+### maintenance — [details](./maintenance/README.md)
 
-| Skill                                                           | Description                                                                                         |
-| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| [project-docs](./engineering/maintenance/project-docs/SKILL.md) | Give any project a standard, enforceable `docs/` (overview, spec, ADRs) with diagrams + a validator |
+| Skill                                               | Description                                                                                         |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [project-docs](./maintenance/project-docs/SKILL.md) | Give any project a standard, enforceable `docs/` (overview, spec, ADRs) with diagrams + a validator |
 
 ### environment — [details](./environment/README.md)
 
@@ -85,7 +85,7 @@ engineering/swe/
   code-quality/         # skill: code-quality — workflows: measure, comments
 engineering/ci/
   github-actions/       # skill: github-actions — Actions hardening + Renovate
-engineering/maintenance/
+maintenance/
   project-docs/         # skill: project-docs — docs contract, validator, diagrams
 environment/
   nix/                  # skill: nix — Nix + direnv dev workflow

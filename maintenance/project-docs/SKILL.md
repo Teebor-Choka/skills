@@ -27,7 +27,7 @@ that keeps it conformant. Two halves, opposite in nature, kept apart on purpose:
 - **Enforcement** (mechanical): guarantee the structure exists and conforms. Deterministic, a
   script wired to pre-commit and CI.
 
-The shape both halves obey is in [`references/contract.md`](references/contract.md) — read it
+The shape both halves obey is in [`references/contract.md`](references/contract.md). Read it
 first. It is the single source of truth: the tree, the frontmatter schema, the ADR structure, the
 decisions index, the AGENTS.md pointer, and the mandatory diagram levels.
 
@@ -49,8 +49,9 @@ plain voice.**
   then write from what you found, grounded in a code graph when the project is code (see
   [`references/diagrams.md`](references/diagrams.md)). This is the explore-then-describe path.
 - **Borrow the architect skill's discipline for the rigorous parts.** The decision records follow
-  architect's decision-log shape (context, the decision, consequences, the alternative set aside),
-  and a `spec.md` carries architect's positive **and** adversarial tests. Use that craft; do not
+  architect's decision-log shape (context, the decision, consequences), with any denied or discarded
+  alternative kept as a footnote rather than its own record, and a `spec.md` carries architect's
+  positive **and** adversarial tests. Use that craft; do not
   run architect's forward-design pipeline, which is for building something new, not recording what
   is built.
 - **Write every doc's prose at the strictest de-slop depth and the tersest length budget.** Lead
@@ -69,8 +70,9 @@ plain voice.**
    component diagram, seeded from the code graph for a code project (see `diagrams.md`).
 4. **Write `spec.md`** when the opt-in test says so: the subsystems, each with its decisions and the
    tests that verify it (positive and adversarial), with a diagram per subsystem.
-5. **Write the ADRs.** One `decisions/<slug>.md` per real decision in architect's shape, and the
-   `decisions/README.md` index listing them. Record the set-aside alternative every time.
+5. **Write the ADRs.** One `decisions/<slug>.md` per **active** decision, and the
+   `decisions/README.md` index listing them. Keep a denied or discarded alternative as a footnote on
+   the active decision, not as its own file.
 6. **Wire `AGENTS.md`.** Create or update the root `AGENTS.md` to point at `docs/overview.md` and
    `docs/decisions/`, plus the few build/run essentials. It points; it does not restate.
 7. **Validate.** Run `python3 scripts/validate_docs.py <project>` and fix every finding before

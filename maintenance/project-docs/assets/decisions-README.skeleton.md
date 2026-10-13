@@ -1,5 +1,5 @@
 ---
-title: PROJECT — decision records
+title: PROJECT decision records
 kind: decisions-index
 project: PROJECT
 updated: YYYY-MM-DD

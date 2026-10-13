@@ -18,9 +18,9 @@ in GitHub and most editors, needs no build step, and commits no binary. Two exce
 
 There are two kinds of graph, and only one belongs in `docs/`:
 
-- **Project-level structure graphs** — curated, authored here, in `docs/`. Context, components,
+- **Project-level structure graphs**: curated, authored here, in `docs/`. Context, components,
   topology, build/deps, lifecycle, flow. These are what the contract requires.
-- **Code-level graphs** — the public API surface, the module dependency graph, call and data-flow
+- **Code-level graphs**: the public API surface, the module dependency graph, call and data-flow
   on functions. These change every commit, so hand-authoring them is a trap. They are _generated_
   from the code (rustdoc/API docs, or on-demand from a code-graph tool) and live with the code.
   `docs/` **links** to them; it never pastes them in.
@@ -42,7 +42,7 @@ graph, then curating it. Raw call graphs never land in `docs/`.
 
 `overview.md` must carry at least the context or component view. `spec.md` carries at least one
 subsystem view, and in practice one per subsystem. The **form** is the author's call: pick the
-mermaid type that matches the shape of the thing — a state machine for a lifecycle, a sequence for
+mermaid type that matches the shape of the thing: a state machine for a lifecycle, a sequence for
 an ordered flow, a DAG for dependencies, a flowchart or C4 for structure. Using the wrong form (a
 flowchart for what is really a state machine) is a review finding, not a validator one.
 

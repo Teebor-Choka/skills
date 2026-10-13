@@ -1,11 +1,11 @@
 ---
-title: PROJECT — spec
+title: PROJECT spec
 kind: spec
 project: PROJECT
 updated: YYYY-MM-DD
 ---
 
-# PROJECT — spec
+# PROJECT spec
 
 The as-built behavior, one section per subsystem. Write it only if the project passed the opt-in test
 in `contract.md` (real runtime behavior, a protocol, stateful subsystems, non-obvious
@@ -22,7 +22,7 @@ goes in the matching ADR under `decisions/`; link it.
 **Tests.** How it is verified.
 
 - Positive: the behavior that must hold.
-- Adversarial: what would prove it wrong — the input or state that would break the invariant if the
+- Adversarial: what would prove it wrong: the input or state that would break the invariant if the
   decision were violated. Not happy-path.
 
 ```mermaid

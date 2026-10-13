@@ -1,11 +1,11 @@
 ---
-title: widgetd — spec
+title: widgetd spec
 kind: spec
 project: widgetd
 updated: 2026-10-13
 ---
 
-# widgetd — spec
+# widgetd spec
 
 ## Subsystem: ingest
 

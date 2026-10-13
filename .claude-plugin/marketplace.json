@@ -67,7 +67,7 @@
       "name": "project-docs",
       "description": "Give any project a standard, enforceable docs/ structure (overview, optional spec, ADRs) with diagrams and an AGENTS.md pointer, then validate it stays conformant.",
       "source": "./",
-      "skills": ["./engineering/maintenance/project-docs"],
+      "skills": ["./maintenance/project-docs"],
       "metadata": {
         "version": "1.0.0"
       }

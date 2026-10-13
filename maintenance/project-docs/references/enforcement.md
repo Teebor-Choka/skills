@@ -17,17 +17,18 @@ checked passes, nonzero otherwise, so it drops straight into a hook or a CI step
 
 ## Wiring it into a target repo
 
-`scripts/install_hook.sh <target-repo>` wires the validator to run on commit. It is
-**origin-aware**: it detects how the target repo already manages hooks and joins that mechanism
-rather than overwriting it, because repos differ and clobbering someone's hook setup is worse than
-no hook.
+`scripts/install_hook.sh <target-project>` wires the validator to run on commit. It is
+**origin-aware**: it detects how the target already manages hooks and joins that mechanism rather
+than overwriting it, because projects differ and clobbering someone's hook setup is worse than no
+hook.
 
 - **pre-commit framework** (the target has a `.pre-commit-config.yaml`): it prints the local-hook
-  stanza to add, and only writes it with `--write`. It never silently rewrites that file.
-- **plain hooks** (`git config core.hooksPath` is set): it adds a `pre-commit` hook in that
-  directory calling the validator.
-- **neither**: it installs `.git/hooks/pre-commit`, appending if one already exists, never
-  overwriting blind.
+  stanza for you to add under `repos:`, and never edits the file. A blind append would corrupt the
+  YAML whenever `repos:` is not the last top-level key, so placing it is left to you.
+- **otherwise** (any git repo): it installs the hook at the directory git actually runs hooks from
+  (`git rev-parse --git-path hooks`, which already resolves `core.hooksPath` and a linked worktree's
+  shared common dir), inserting the check after the shebang so an existing hook that ends in
+  `exit 0` cannot strand it.
 
 It is idempotent: re-running does not duplicate the hook.
 

@@ -11,7 +11,7 @@ Read `contract.md`. Then explore the project until you can answer, from evidence
 - What is this project for, in one sentence?
 - Its layout: the top-level directories and what each holds.
 - Its stack and how it builds, runs, and deploys.
-- The real decisions someone made, and _why_ — the choices that had a live alternative.
+- The real decisions someone made, and _why_: the choices that had a live alternative.
 
 Prefer a code-graph tool over a blind file sweep (it is faster and finds the real seams). For a
 large or multi-part project, fan the exploration out to subagents and work from their findings. The
@@ -23,10 +23,11 @@ goal is enough grounding that every line you write traces to something in the pr
 what is there. This is the opposite stance from the architect skill, which proposes a system that
 does not exist yet. Reach into architect for two things only:
 
-- **ADR discipline** — the decision-log shape: context, the decision, its consequences, and the
-  alternative set aside. An ADR without the set-aside alternative is usually not recording a real
-  choice; make the absence explicit instead of dropping the section.
-- **Spec-test discipline** — a `spec.md` states, per subsystem, the decisions and the tests that
+- **ADR discipline** is the decision-log shape: context, the decision, its consequences. Keep only
+  active decisions as records; a denied or discarded alternative is a Markdown footnote on the active
+  decision (`... SQLite [^pg]` with a matching `[^pg]: ...` below), not its own file or section, so
+  the active set stays compact while the reasoning that lost is still attached.
+- **Spec-test discipline**: a `spec.md` states, per subsystem, the decisions and the tests that
   verify them, including **adversarial** tests (what would prove it wrong), not only happy-path.
 
 Do not run architect's full scaffold/graph/dispatch pipeline. That builds new work; here the work
@@ -41,19 +42,19 @@ needs more gets more, nothing else does.
 
 ## The documents
 
-Fill the skeletons in `assets/` (they are starting shapes to adapt, not forms to match — the
+Fill the skeletons in `assets/` (they are starting shapes to adapt, not forms to match, the
 content is yours to fit the project):
 
-- `assets/overview.skeleton.md` — purpose, a layout table, the stack, build/run/deploy, pointers
+- `assets/overview.skeleton.md`: purpose, a layout table, the stack, build/run/deploy, pointers
   to decisions and deeper docs, and the mandatory context-or-component diagram. If you omit
   `spec.md`, record the one-line reason here ("no deep spec: static single-file page").
-- `assets/spec.skeleton.md` — one section per subsystem: its decisions, its tests (positive and
+- `assets/spec.skeleton.md`: one section per subsystem: its decisions, its tests (positive and
   adversarial), and a diagram. Only when the opt-in test in the contract says the project needs it.
-- `assets/adr.skeleton.md` — one decision, in architect's shape. One file per decision under
+- `assets/adr.skeleton.md`: one decision, in architect's shape. One file per decision under
   `decisions/`, kebab-named for the decision.
-- `assets/decisions-README.skeleton.md` — the index: a table linking every ADR. Keep it in sync
+- `assets/decisions-README.skeleton.md`: the index: a table linking every ADR. Keep it in sync
   with the directory; the validator checks both directions.
-- `assets/AGENTS.pointer.md` — the root pointer. Create it, or splice its pointers into an existing
+- `assets/AGENTS.pointer.md`: the root pointer. Create it, or splice its pointers into an existing
   `AGENTS.md`. It points into `docs/`; it does not restate the overview.
 
 Frontmatter for each is specified in the contract; copy the keys exactly, they are checked.

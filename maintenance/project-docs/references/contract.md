@@ -36,29 +36,35 @@ Every doc under `docs/` starts with YAML frontmatter. Keys per kind:
 
 | File                  | `kind`            | required keys                           | optional keys                 |
 | --------------------- | ----------------- | --------------------------------------- | ----------------------------- |
-| `overview.md`         | `overview`        | `title`, `kind`, `project`, `updated`   | —                             |
-| `spec.md`             | `spec`            | `title`, `kind`, `project`, `updated`   | —                             |
-| `decisions/README.md` | `decisions-index` | `title`, `kind`, `project`, `updated`   | —                             |
+| `overview.md`         | `overview`        | `title`, `kind`, `project`, `updated`   | none                          |
+| `spec.md`             | `spec`            | `title`, `kind`, `project`, `updated`   | none                          |
+| `decisions/README.md` | `decisions-index` | `title`, `kind`, `project`, `updated`   | none                          |
 | `decisions/<slug>.md` | (ADR, no `kind`)  | `title`, `status`, `project`, `updated` | `supersedes`, `superseded-by` |
 
 - `title`: non-empty string.
 - `project`: the project's short name; the same value across every doc in that project. `repo` is
   accepted as a deprecated alias (the validator reads it but prefers `project`).
 - `updated`: an ISO date `YYYY-MM-DD`.
-- `status` (ADR only): one of `proposed`, `accepted`, `superseded`, `rejected`.
+- `status` (ADR only): one of `proposed`, `accepted`. Only active decisions get a file (see below).
 
 ## ADR structure
+
+`decisions/` holds only **active** decisions: one file per decision in force. A decision that was
+denied or later discarded does not get its own file; fold it as a footnote into the active decision
+it bears on. This keeps the set compact (what is true now), with the history attached where it is
+read.
 
 Each `decisions/<slug>.md`:
 
 - Filename `<slug>` is kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`), naming the decision, not numbered.
   Renaming is cheaper than renumbering, and the index carries the order.
-- Body contains all four section labels, in order: **Context**, **Decision**, **Consequences**, and
-  a set-aside-alternatives label (one of **Set aside**, **Alternatives**, **Rejected**). House style
-  writes them as bold leads (`**Context.** ...`); `## Context` headings also pass.
-- The set-aside section records the alternative that was considered and dropped, so it is not
-  re-proposed without new information. An ADR with no alternative is usually a decision that was
-  never really a choice; say so explicitly rather than omitting the section.
+- Body contains three section labels, in order: **Context**, **Decision**, **Consequences**. House
+  style writes them as bold leads (`**Context.** ...`); `## Context` headings also pass.
+- A denied or discarded alternative is recorded as a **Markdown footnote** on the active decision,
+  not as a separate record or a standalone section: `... SQLite [^pg]` with a matching `[^pg]:
+Postgres was considered and dropped because ...` below. The footnote preserves why the alternative
+  lost, so it is not re-proposed without new information. Every footnote reference must have a
+  matching definition; the validator checks that.
 
 ## Decisions index
 

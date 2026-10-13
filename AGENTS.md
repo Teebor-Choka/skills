@@ -23,7 +23,8 @@ Skills are grouped into thematic category directories, each with its own README:
 - `tools/` — general-purpose skills for ideas and knowledge.
 - `model/tools/` — skills about working with the model and prose itself.
 - `engineering/` — system design; `engineering/swe/` code-level skills; `engineering/ci/` CI and
-  pipeline skills; `engineering/maintenance/` skills for keeping a project healthy (e.g. its docs).
+  pipeline skills.
+- `maintenance/` — skills for keeping a project healthy (e.g. its docs), code or not.
 - `environment/` — skills for a development environment (Nix/direnv, etc.).
 
 ## Changing a skill

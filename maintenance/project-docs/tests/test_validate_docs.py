@@ -74,23 +74,32 @@ def test_missing_adr(make_repo):
 def test_bad_frontmatter_key(make_repo):
     repo = make_repo()
     overview = repo / "docs" / "overview.md"
-    text = overview.read_text().replace("title: widgetd — overview\n", "")
+    text = overview.read_text().replace("title: widgetd overview\n", "")
     overview.write_text(text)
     assert rules(repo) == ["frontmatter-key"]
 
 
-def test_bad_status_enum(make_repo):
+@pytest.mark.parametrize(
+    "relpath, old, new, rule",
+    [
+        pytest.param("docs/overview.md", "updated: 2026-10-13", "updated: Oct 2026",
+                     "frontmatter-updated", id="bad-updated-date"),
+        pytest.param("docs/decisions/use-sqlite.md", "status: accepted", "status: approved",
+                     "frontmatter-status", id="unknown-status"),
+        pytest.param("docs/decisions/use-sqlite.md", "status: accepted", "status: rejected",
+                     "frontmatter-status", id="discarded-status-is-not-a-file-status"),
+        pytest.param("docs/spec.md", "project: widgetd", "project: other-name",
+                     "project-divergence", id="divergent-project-name"),
+    ],
+)
+def test_single_edit_raises_one_rule(make_repo, relpath, old, new, rule):
+    # Each mutates exactly one field in one file and must raise exactly its rule.
     repo = make_repo()
-    adr = repo / "docs" / "decisions" / "use-sqlite.md"
-    adr.write_text(adr.read_text().replace("status: accepted", "status: approved"))
-    assert rules(repo) == ["frontmatter-status"]
-
-
-def test_bad_updated_date(make_repo):
-    repo = make_repo()
-    overview = repo / "docs" / "overview.md"
-    overview.write_text(overview.read_text().replace("updated: 2026-10-13", "updated: Oct 2026"))
-    assert rules(repo) == ["frontmatter-updated"]
+    target = repo / relpath
+    text = target.read_text()
+    assert old in text, f"fixture drift: {old!r} not in {relpath}"
+    target.write_text(text.replace(old, new))
+    assert rules(repo) == [rule]
 
 
 def test_non_kebab_adr_filename(make_repo):
@@ -106,13 +115,30 @@ def test_non_kebab_adr_filename(make_repo):
 def test_missing_adr_section(make_repo):
     repo = make_repo()
     adr = repo / "docs" / "decisions" / "use-sqlite.md"
-    text = adr.read_text()
-    # Drop the Consequences paragraph only.
-    marker = "**Consequences.**"
-    start = text.index(marker)
-    end = text.index("**Set aside.**")
-    adr.write_text(text[:start] + text[end:])
+    # Rename the Consequences label so only Context and Decision remain.
+    adr.write_text(adr.read_text().replace("**Consequences.**", "**Outcomes.**"))
     assert rules(repo) == ["adr-section"]
+
+
+def test_adr_sections_out_of_order(make_repo):
+    repo = make_repo()
+    adr = repo / "docs" / "decisions" / "use-sqlite.md"
+    text = adr.read_text()
+    # Swap the Context and Decision labels: all three present, wrong order.
+    text = (text.replace("**Context.**", "<<TMP>>")
+                .replace("**Decision.**", "**Context.**")
+                .replace("<<TMP>>", "**Decision.**"))
+    adr.write_text(text)
+    assert rules(repo) == ["adr-section-order"]
+
+
+def test_adr_footnote_missing_definition(make_repo):
+    repo = make_repo()
+    adr = repo / "docs" / "decisions" / "use-sqlite.md"
+    text = adr.read_text()
+    # Drop the [^pg] definition, leaving the reference in the Decision dangling.
+    adr.write_text(text[: text.index("[^pg]:")].rstrip() + "\n")
+    assert rules(repo) == ["adr-footnote"]
 
 
 def test_index_drift_forward_adr_not_linked(make_repo):
@@ -162,13 +188,6 @@ def test_missing_mermaid_in_overview(make_repo):
     end = text.index("```\n", start + 3) + 4
     overview.write_text(text[:start] + text[end:])
     assert rules(repo) == ["diagram"]
-
-
-def test_divergent_project_value(make_repo):
-    repo = make_repo()
-    spec = repo / "docs" / "spec.md"
-    spec.write_text(spec.read_text().replace("project: widgetd", "project: other-name"))
-    assert rules(repo) == ["project-divergence"]
 
 
 def test_repo_alias_accepted(make_repo):

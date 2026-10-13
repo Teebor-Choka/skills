@@ -1,11 +1,11 @@
 ---
-title: widgetd — overview
+title: widgetd overview
 kind: overview
 project: widgetd
 updated: 2026-10-13
 ---
 
-# widgetd — overview
+# widgetd overview
 
 widgetd ingests widget events over HTTP and writes them to a local store. It talks to an
 upstream metrics collector and a SQLite database.

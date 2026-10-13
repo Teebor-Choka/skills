@@ -9,6 +9,6 @@ Skills (`SKILL.md`) that run on Claude Code, Codex, and OpenCode.
 
 A project here is any coherent unit of work, a code repo, a subproject, or a non-code effort, not
 only a codebase. project-docs authors the documentation (borrowing ADR and spec-test discipline from
-the [architect](../architect/SKILL.md) skill and its voice from
-[unslop](../../model/tools/unslop/SKILL.md)) and ships the validator that enforces the structure in
+the [architect](../engineering/architect/SKILL.md) skill and its voice from
+[unslop](../model/tools/unslop/SKILL.md)) and ships the validator that enforces the structure in
 pre-commit and CI.

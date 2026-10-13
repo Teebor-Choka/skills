@@ -1,11 +1,11 @@
 ---
-title: PROJECT — overview
+title: PROJECT overview
 kind: overview
 project: PROJECT
 updated: YYYY-MM-DD
 ---
 
-# PROJECT — overview
+# PROJECT overview
 
 One paragraph: what this project is and does, in the present tense. Name the external systems it
 talks to. If you are skipping the deep spec, say so in one line here: "no deep spec: REASON".
