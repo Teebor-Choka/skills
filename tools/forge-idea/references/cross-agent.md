@@ -6,7 +6,7 @@ verdicts. `SKILL.md` describes that as portable intent; this file binds the inte
 each agent's real mechanism. Read it before step 4 (spawning the squad).
 
 For the general cross-agent theory — how subagents, parallel fan-out, deterministic
-orchestration, and headless runs map across the three agents — see the **skill-creator**
+orchestration, and headless runs map across the three agents — see the **agent-extension-author**
 skill (`references/workflows.md` and `references/triggering.md`). This file only covers
 what is specific to forge's fan-out/prune/loop; it does not restate that groundwork.
 

@@ -82,12 +82,12 @@
       }
     },
     {
-      "name": "skill-creator",
-      "description": "Author, port, and harden agent Skills (SKILL.md) across Claude Code, Codex, and OpenCode — with programmatic triggering, multi-agent workflows, and an eval harness.",
+      "name": "agent-extension-author",
+      "description": "Author, port, and harden agent Skills (SKILL.md) across Claude Code, Codex, OpenCode, and oh-my-pi — with programmatic triggering, native plugin packaging, multi-agent workflows, and an eval harness.",
       "source": "./",
-      "skills": ["./model/tools/skill-creator"],
+      "skills": ["./model/tools/agent-extension-author"],
       "metadata": {
-        "version": "1.1.0"
+        "version": "2.0.0"
       }
     },
     {

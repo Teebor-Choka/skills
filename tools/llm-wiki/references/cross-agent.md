@@ -4,7 +4,7 @@ Read this only when a wiki is large enough that serial ingestion or single-pass 
 bottleneck. Small and medium wikis need none of it — do the work in one agent. The two workflows
 worth parallelizing are named in `SKILL.md`; this file binds each to Claude Code, Codex, and
 OpenCode. For the general mechanics of subagents, orchestration, and portability, use the
-`skill-creator` skill (`references/workflows.md`); this file is only the wiki-specific wiring.
+`agent-extension-author` skill (`references/workflows.md`); this file is only the wiki-specific wiring.
 
 ## The invariant that dictates the shape
 

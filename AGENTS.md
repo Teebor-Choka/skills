@@ -2,7 +2,7 @@
 
 Public marketplace of portable [Agent Skills](https://code.claude.com/docs/en/skills). Every
 skill is a self-contained `SKILL.md` directory that runs unchanged on Claude Code, Codex, and
-OpenCode; the [skill-creator](./model/tools/skill-creator/SKILL.md) skill documents that
+OpenCode; the [agent-extension-author](./model/tools/agent-extension-author/SKILL.md) skill documents that
 cross-agent model. Consumers install the whole set or a single skill via `claude plugin
 marketplace add` (see [README](./README.md)).
 
@@ -33,7 +33,7 @@ Skills are grouped into thematic category directories, each with its own README:
   frontmatter (`name` matches the directory, `^[a-z0-9][a-z0-9-]*$`), and the `description`
   carries the whole triggering signal — say what it does and when to use it, plus when not to.
   Anything agent-specific belongs in an adapter, not the core. Validate with
-  `python3 model/tools/skill-creator/scripts/validate_skill.py <skill-dir>`.
+  `python3 model/tools/agent-extension-author/scripts/validate_skill.py <skill-dir>`.
 - **Adding a skill.** Create the directory, then register it in `marketplace.json` (a `plugins`
   entry: `name`, `description`, `source: "./"`, `skills: ["./path"]`, `metadata.version:
 "1.0.0"`), bump the top-level `metadata.version` (minor), and add a row to the category README

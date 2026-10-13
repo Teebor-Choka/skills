@@ -65,7 +65,7 @@ Run five reviewers in one parallel batch, each in a fresh read-only context:
 **Reviewers are read-only.** Give them read tools only (read, search, list, git/gh read commands),
 no edit, write, or shell-with-side-effects tool, and say so in the prompt: "report only, do not
 modify any file". Enforce it by tool allowlist or sandbox, not by instruction alone; per-host
-bindings are in `code-quality/references/cross-agent.md` and the `skill-creator` platform notes. If
+bindings are in `code-quality/references/cross-agent.md` and the `agent-extension-author` platform notes. If
 a reviewer's output includes a patch, treat it as a suggested fix inside a finding, never apply it
 blind.
 

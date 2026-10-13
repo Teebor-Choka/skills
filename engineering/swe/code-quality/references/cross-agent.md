@@ -8,11 +8,11 @@ What differs is only the agent layer on top: the parallel fan-out of reviewers a
 verify pass.
 
 For general cross-agent mechanics (subagent definitions, orchestration, headless/CI
-invocation), see the skill-creator references — this file does not duplicate them:
+invocation), see the agent-extension-author references — this file does not duplicate them:
 
-- `model/tools/skill-creator/references/workflows.md` — subagents, parallel fan-out,
+- `model/tools/agent-extension-author/references/workflows.md` — subagents, parallel fan-out,
   orchestration per agent.
-- `model/tools/skill-creator/references/platforms/{claude-code,codex,opencode}.md` — exact
+- `model/tools/agent-extension-author/references/platforms/{claude-code,codex,opencode}.md` — exact
   file formats and flags.
 
 Two things are shared across every agent and read at runtime, so there is exactly one copy of

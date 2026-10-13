@@ -2,7 +2,7 @@
 
 Skills for continuous integration and delivery pipelines. Each is a portable Agent Skill
 (`SKILL.md`) that runs unchanged on Claude Code, Codex, and OpenCode — see
-[skill-creator](../../model/tools/skill-creator/SKILL.md) for the cross-agent model.
+[agent-extension-author](../../model/tools/agent-extension-author/SKILL.md) for the cross-agent model.
 
 | Skill                                       | What it does                                           | Reach for it when                                                       |
 | ------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------- |

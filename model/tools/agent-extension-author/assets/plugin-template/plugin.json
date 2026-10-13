@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "my-plugin",
+  "version": "0.1.0",
+  "description": "What this bundle adds and when to reach for it. Keep this portable; put any vendor-specific keys under a reverse-domain namespace, e.g. extensions.com.openai.",
+  "extensions": {
+    "com.openai": {
+      "interface": { "displayName": "My plugin", "category": "development" }
+    }
+  }
+}

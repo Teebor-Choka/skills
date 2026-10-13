@@ -46,7 +46,10 @@ serve Claude Code, Codex, and OpenCode at once. Frontmatter: `name` (matches dir
     },
   });
   ```
-  (Historically MCP tool calls did not fire plugin hooks — verify.)
+  (Historically MCP tool calls did not fire plugin hooks — verify.) OpenCode has no
+  skills+MCP _bundle_ format in the Agent Plugins sense; its "plugin" is this JS/TS module. To
+  distribute a skill set, check the dir into `.claude/skills` or `.agents/skills` (both read here)
+  and ship guardrails as plugin modules. Cross-agent plugin packaging: `../plugins.md`.
 
 ## Config and rules
 

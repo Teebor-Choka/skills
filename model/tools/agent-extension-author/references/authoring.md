@@ -1,6 +1,6 @@
 # Authoring a portable SKILL.md
 
-The `SKILL.md` is the one artifact all three agents read. Get it right and the skill runs
+The `SKILL.md` is the one artifact all four agents read. Get it right and the skill runs
 everywhere; the adapters only add triggering and orchestration on top.
 
 ## Frontmatter

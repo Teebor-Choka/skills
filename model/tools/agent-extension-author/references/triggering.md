@@ -3,18 +3,18 @@
 A skill can fire four ways. The first is model-driven (the description); the rest are
 deterministic and live in per-agent adapters. Pick the least machinery that does the job.
 
-| Mechanism                     | Claude Code                            | Codex                            | OpenCode                                          |
-| ----------------------------- | -------------------------------------- | -------------------------------- | ------------------------------------------------- |
-| Auto-trigger by `description` | yes (implicit)                         | yes (implicit, ~2% context cap)  | yes (via the `skill` tool)                        |
-| Explicit invocation           | `/skill-name`                          | `$skill-name` (CLI)              | model calls `skill({name})`; humans use a command |
-| Named command                 | `.claude/commands/<name>.md` → `/name` | `~/.codex/prompts/*.md` (legacy) | `.opencode/commands/<name>.md` → `/name`          |
-| Lifecycle hooks               | `settings.json` `hooks` (events)       | `[hooks.*]` in `config.toml`     | plugins in `.opencode/plugins/` (event hooks)     |
-| Headless / CI                 | `claude -p "…"`                        | `codex exec …`                   | `opencode run …`                                  |
+| Mechanism                     | Claude Code                            | Codex                            | OpenCode                                          | oh-my-pi                                        |
+| ----------------------------- | -------------------------------------- | -------------------------------- | ------------------------------------------------- | ----------------------------------------------- |
+| Auto-trigger by `description` | yes (implicit)                         | yes (implicit, ~2% context cap)  | yes (via the `skill` tool)                        | yes (name+desc in prompt; body via `skill://`)  |
+| Explicit invocation           | `/skill-name`                          | `$skill-name` (CLI)              | model calls `skill({name})`; humans use a command | `/skill:<name> [args]` (when skill commands on) |
+| Named command                 | `.claude/commands/<name>.md` → `/name` | `~/.codex/prompts/*.md` (legacy) | `.opencode/commands/<name>.md` → `/name`          | `.omp/commands/<name>.md` → `/name`             |
+| Lifecycle hooks               | `settings.json` `hooks` (events)       | `[hooks.*]` in `config.toml`     | plugins in `.opencode/plugins/` (event hooks)     | JS/TS in `.omp/hooks/pre\|post/` (event hooks)  |
+| Headless / CI                 | `claude -p "…"`                        | `codex exec …`                   | `opencode run …`                                  | `omp -p "…"`                                    |
 
-## 1. Description auto-trigger (all three)
+## 1. Description auto-trigger (all four)
 
 The default and most portable path — no adapter, just a good `description` (see
-`authoring.md`). All three read only `name` + `description` up front and load the body when a
+`authoring.md`). All four read only `name` + `description` up front and load the body when a
 task matches. Note: simple one-step requests may not trigger any skill on any agent because
 the model just does them directly; write the description for substantive, multi-step tasks.
 
@@ -29,6 +29,10 @@ inject arguments and live shell output, which makes them deterministic:
   `model`); invoke `/<name>`; same `$ARGUMENTS`/`$1`, `` !`cmd` ``, `@file` substitutions.
 - **Codex** — a real skill is invoked explicitly with `$skill-name`; the older
   `~/.codex/prompts/*.md` (`/prompts:<name>`) still works but is legacy.
+- **oh-my-pi** — `.omp/commands/<name>.md` (or `~/.omp/agent/commands/`); invoke `/<name>`;
+  substitutions `$1`, `$@[start:len]`, `$ARGUMENTS`, `$@`, Handlebars `{{args}}`. It also reads
+  `.claude/commands`, `.codex/commands`, and `.opencode/commands`, so a reused command dir works
+  here too. A discovered skill is also callable as `/skill:<name>` directly.
 
 A command usually just says "use the `<name>` skill with these inputs", so the know-how stays
 in the portable SKILL.md and the command is a thin trigger.
@@ -48,9 +52,13 @@ and "run X after Y" automation.
 - **OpenCode** — JS/TS plugins in `.opencode/plugins/` return a hooks object:
   `tool.execute.before/after`, `file.edited`, session/message events. Throwing in a
   `before` hook blocks the tool.
+- **oh-my-pi** — JS/TS factories in `.omp/hooks/pre|post/` (or `~/.omp/agent/hooks/`) calling
+  `pi.on(event, …)`; `--hook` aliases `--extension`. Events include `tool_call` (pre,
+  fail-closed — throwing blocks the tool), `tool_result` (post), the session/agent/turn
+  lifecycle, and `before_subagent_spawn`.
 
 Hooks are the portability weak point: each agent's event names and payloads differ. Keep hook
-logic in a small script the hook calls, so the same script backs all three and only the
+logic in a small script the hook calls, so the same script backs all four and only the
 wiring differs.
 
 ## 4. Headless / CI (deterministic, scriptable)
@@ -66,6 +74,9 @@ codex exec --json -p ci --sandbox workspace-write -o out.txt "\$<name> …"
 
 # OpenCode (quiet, auto-approve non-denied permissions, pick agent/model)
 opencode run --auto -q --agent build -m anthropic/claude-sonnet-4-5 "Use the <name> skill to …"
+
+# oh-my-pi (print mode; explicit skill; JSON event stream optional)
+omp -p "/skill:<name> …" --approval-mode yolo
 ```
 
 Chain steps by parsing JSON output into the next call, or keep state with session resume
@@ -81,4 +92,5 @@ Chain steps by parsing JSON output into the next call, or keep state with sessio
   determinism.
 
 Per-agent file formats and exact fields: `platforms/claude-code.md`, `platforms/codex.md`,
-`platforms/opencode.md`.
+`platforms/opencode.md`, `platforms/oh-my-pi.md`. To ship these adapters as one installable
+bundle, see `plugins.md`.
