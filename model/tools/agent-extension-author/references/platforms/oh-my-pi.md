@@ -37,8 +37,10 @@ rejected by the strict `agent-plugins` provider), so keep them out of a portable
   `.omp/AGENTS.md` (project), plus a sticky always-apply `RULES.md` (`.omp/RULES.md`,
   `~/.omp/agent/RULES.md`). It also reads standalone `AGENTS.md` (walks cwd→repo root) and
   `CLAUDE.md` as a fallback, and the Claude/Codex/OpenCode/Gemini/Copilot instruction files.
-  `@path` imports expand inline (up to 5 hops). **`AGENTS.md` is the primary** file here. No
-  documented size cap.
+  `@path` imports expand inline (up to 5 hops). **`AGENTS.md` is the primary** file here. There
+  is no per-file size cap on these files (no analogue to Codex's `project_doc_max_bytes`); the
+  loaders read full content and in-session token budgeting/compaction trims later, which is a
+  separate mechanism.
 
 ## Triggering
 
@@ -85,8 +87,10 @@ marketplace add/...`, `omp plugin install/uninstall/enable/disable`. Scopes: use
   for omp is a separate file.
 - **MCP** — full client (stdio/http/sse). `mcpServers` map in `.omp/mcp.json` (project) /
   `~/.omp/agent/mcp.json` (user); it also imports Claude, Codex, Gemini, OpenCode, Cursor, and
-  VS Code MCP configs. `/mcp add` wizard; `/mcp enable|disable|reload|list`. The tool-name prefix
-  as presented to the model is unverified from the docs (resources addressed as `mcp://` URIs).
+  VS Code MCP configs. `/mcp add` wizard; `/mcp enable|disable|reload|list`. Model-facing tool
+  names are `mcp__<server>_<tool>` (literal `mcp__`, sanitized server, a single underscore, tool;
+  lowercased, capped at 64 chars), not Claude's double-underscore form — omp accepts the doubled
+  `mcp__<server>__<tool>` as an input alias and canonicalizes it. Resources are `mcp://` URIs.
 
 ## Headless / CI
 
@@ -99,8 +103,9 @@ omp -p "…" --mode json --model opus                # NDJSON event stream
 Key flags: `-p/--print`, `--mode text|json|rpc|acp`, `--model`/`--models`/`--thinking`,
 `--approval-mode always-ask|write|yolo` (`--yolo`/`--auto-approve`), `--tools`/`--no-tools`,
 `--skills`/`--no-skills`, `-e/--extension`, `--plugin-dir`, `--config`. Resume: `-c/--continue`,
-`-r/--resume [id]`, `--fork`, and cross-harness `--from-claude`/`--from-codex`. There is no
-documented dedicated "run this skill" flag — use `-p "/skill:<name> …"`.
+`-r/--resume [id]`, `--fork`, and cross-harness `--from-claude`/`--from-codex`. No flag runs one
+named skill (`--skills`/`--no-skills` only filter discovery; the `omp skills` subcommand manages
+the skills.omp.sh registry, it does not execute) — invoke one with `-p "/skill:<name> …"`.
 
 Distinctive built-ins worth an adapter's awareness: `read` resolves `skill://`/`mcp://` URIs,
 URLs, and GitHub PRs/issues; `debug` (DAP: lldb/dlv/debugpy), `lsp`, `ast_grep`/`ast_edit`,
@@ -113,10 +118,13 @@ by omp — no omp copy needed. Add `.omp/commands/<name>.md` for a `/name` human
 on `/skill:<name>`), an `.omp/agents/<name>.md` only if the skill delegates to an omp subagent,
 and a `.omp/hooks/pre|post/` factory only for a hard, event-driven gate.
 
-## Sources (accessed 2026-10-13, raw on `main`)
+## Sources (docs accessed 2026-10-13; source facts verified 2026-10-14 at commit `b91db66`)
 
 skills `docs/skills.md`; context `docs/context-files.md`; commands
 `docs/slash-command-internals.md`; hooks `docs/hooks.md`; extensions `docs/extensions.md`;
 marketplace `docs/marketplace.md`; subagents `docs/task-agent-discovery.md`; MCP
 `docs/mcp-config.md`; CLI `docs/cli-reference.md`; settings `docs/settings.md`. All under
-`https://raw.githubusercontent.com/can1357/oh-my-pi/main/`.
+`https://raw.githubusercontent.com/can1357/oh-my-pi/main/`. The MCP tool-name scheme is from the
+source, `packages/coding-agent/src/mcp/tool-bridge.ts` (`createMCPToolName`); the absence of a
+context-file size cap and of a skill-run flag was confirmed against that commit's loaders and
+`docs/cli-reference.md`.
