@@ -45,10 +45,13 @@ in this shape, one per candidate:
 - kind: mechanical | judgement          # mechanical defaults to a check, not prose
 ```
 
-### Fast-model subagent brief (cross-session)
+### Extraction subagent brief (cross-session)
 
-Give each subagent one session and its flagged moment lines. Instruct it to read
-only those lines, emit findings in the schema above, and invent nothing that
-lacks a `moment` line. It extracts; it does not route or rank. You cluster the
-returned findings by `category` and by how many sessions share one, then apply
-the routing table and severity order in `SKILL.md`.
+Give each subagent (any cheap model) one session and its flagged moment lines.
+Instruct it to read only those lines, emit findings in the schema above, and
+invent nothing that lacks a `moment` line. It extracts; it does not route or
+rank. You cluster the returned findings by `category` and by how many sessions
+share one, then apply the routing table and severity order in `SKILL.md`. A
+flagged moment that turns out to be a false positive, or a struggle the signals
+missed, is a cue to sharpen `scan-sessions.py` so the deterministic pass catches
+it next time.
