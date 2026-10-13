@@ -141,35 +141,24 @@
                 fi
                 touch $out
               '';
-
-          # Runs model/tools/session-retrospective/tests against the stdlib-only
-          # scan-sessions.py scorer. Pure Python, so it runs on every system.
-          session-retrospective-tests =
-            pkgs.runCommand "session-retrospective-tests"
-              {
-                nativeBuildInputs = [ py ];
-                PYTHONDONTWRITEBYTECODE = "1";
-              }
-              ''
-                export HOME="$TMPDIR"
-                cd ${self}/model/tools/session-retrospective
-                python3 -m pytest tests -q -p no:cacheprovider
-                touch $out
-              '';
         }
         // pkgs.lib.optionalAttrs codeQualitySupportedSystem {
-          # Runs engineering/swe/code-quality/tests/ for real, against real
-          # tool binaries -- every tool that skill's scripts shell out to is
-          # provisioned here, either from nixpkgs directly (cargo-llvm-cov,
-          # rust-code-analysis, llvm) or from ./nix/code-quality-tools.nix
-          # (everything nixpkgs doesn't package). CARGO_NET_OFFLINE guards
+          # Single target for every pytest suite in the repo: it discovers each
+          # `tests/` directory and runs them in one invocation. Gated to the
+          # same systems as the code-quality tools, because that suite runs
+          # against real tool binaries provisioned here (from nixpkgs directly
+          # -- cargo-llvm-cov, rust-code-analysis, llvm -- or pinned in
+          # ./nix/code-quality-tools.nix for what nixpkgs doesn't package), and
+          # some of those tools ship no aarch64-linux build. The lighter suites
+          # (project-docs, session-retrospective) need only python/pytest/git,
+          # already in this env, so they ride along. CARGO_NET_OFFLINE guards
           # against this actually needing network during the build -- the
           # fixtures declare zero dependencies so it shouldn't, verified
           # directly, but this makes a regression fail loudly instead of
           # silently passing on a machine whose own Nix builds aren't
           # sandboxed (this flake's own dev machine, notably).
-          code-quality-tests =
-            pkgs.runCommand "code-quality-tests"
+          tests =
+            pkgs.runCommand "tests"
               {
                 nativeBuildInputs = [
                   pkgs.cargo
@@ -212,22 +201,26 @@
                 export LLVM_COV="${pkgs.llvm}/bin/llvm-cov"
                 export LLVM_PROFDATA="${pkgs.llvm}/bin/llvm-profdata"
 
-                # assets/*.sh use `#!/usr/bin/env bash` shebangs, fine on a
-                # normal system but unresolvable as-is on Linux's Nix
+                # Some suites' assets/*.sh use `#!/usr/bin/env bash` shebangs,
+                # fine on a normal system but unresolvable as-is on Linux's Nix
                 # sandbox -- unlike Darwin's sandbox-exec profile (which
-                # allowlists a small set of host paths, /bin/bash among
-                # them), the Linux sandbox is a full container with nothing
-                # from the host filesystem, so `/usr/bin/env` itself doesn't
-                # exist there. `${self}` is also read-only, so shebangs get
-                # patched on a writable copy instead of in place. Found by
-                # this exact check failing only on CI's x86_64-linux runner,
-                # not the aarch64-darwin this was developed and verified on.
-                cp -r ${self}/engineering/swe/code-quality "$TMPDIR/code-quality"
-                chmod -R u+w "$TMPDIR/code-quality"
-                patchShebangs "$TMPDIR/code-quality"
-                cd "$TMPDIR/code-quality"
+                # allowlists a small set of host paths, /bin/bash among them),
+                # the Linux sandbox is a full container with nothing from the
+                # host filesystem, so `/usr/bin/env` itself doesn't exist there.
+                # `${self}` is also read-only, so the whole tree is copied and
+                # shebang-patched on a writable copy. Found by the code-quality
+                # suite failing only on CI's x86_64-linux runner, not the
+                # aarch64-darwin this was developed and verified on.
+                cp -r ${self} "$TMPDIR/repo"
+                chmod -R u+w "$TMPDIR/repo"
+                patchShebangs "$TMPDIR/repo"
+                cd "$TMPDIR/repo"
 
-                python3 -m pytest tests/ -v -p no:cacheprovider
+                mapfile -t testdirs < <(
+                  find . -type d -name tests \
+                    -not -path '*/node_modules/*' -not -path '*/.claude/*' | sort
+                )
+                python3 -m pytest "''${testdirs[@]}" -v -p no:cacheprovider
                 touch $out
               '';
         };
