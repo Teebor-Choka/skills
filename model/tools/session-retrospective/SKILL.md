@@ -10,7 +10,7 @@ Two modes run on one engine: a **single** session (default), or **cross-session*
 
 ## Steps
 
-1. Call the Skill tool with `writing-for-agents`. Any file you later propose follows it.
+1. **Proposals are pointers.** Any file you later propose (an `AGENTS.md` line, a skill edit, a check) should state what it is and when it fires, stay short, and push detail behind the pointer; prefer a check that can fail over a sentence. For a new skill or steering file, the in-repo `skill-creator` skill (`model/tools/skill-creator/references/authoring.md`) is the fuller guide.
 
 2. **Fix mode and scope.**
    - Single (default): the current session, or a transcript the user names. Session logs live in `~/.claude/projects/<cwd-slug>/<uuid>.jsonl` (the slug is the working directory with `/` rewritten to `-`).

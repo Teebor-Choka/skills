@@ -26,7 +26,10 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        py = pkgs.python3.withPackages (ps: [ ps.pyyaml ]);
+        py = pkgs.python3.withPackages (ps: [
+          ps.pyyaml
+          ps.pytest
+        ]);
         codeQualityTools = import ./nix/code-quality-tools.nix { inherit pkgs; };
         codeQualitySupportedSystem = builtins.elem system [
           "aarch64-darwin"
@@ -136,6 +139,21 @@
                 if [ -n "$files" ]; then
                   echo "$files" | xargs shellcheck
                 fi
+                touch $out
+              '';
+
+          # Runs model/tools/session-retrospective/tests against the stdlib-only
+          # scan-sessions.py scorer. Pure Python, so it runs on every system.
+          session-retrospective-tests =
+            pkgs.runCommand "session-retrospective-tests"
+              {
+                nativeBuildInputs = [ py ];
+                PYTHONDONTWRITEBYTECODE = "1";
+              }
+              ''
+                export HOME="$TMPDIR"
+                cd ${self}/model/tools/session-retrospective
+                python3 -m pytest tests -q -p no:cacheprovider
                 touch $out
               '';
         }
