@@ -15,7 +15,7 @@ description: >-
 license: MIT
 compatibility: any
 metadata:
-  version: "1.11.0"
+  version: "1.12.0"
 ---
 
 # Architect: self-contained, agent-executable architecture work packages
@@ -129,12 +129,17 @@ runs steps 0–4 and 7, skipping the graph and per-node briefs.
 3. **Log the decisions as you make them.** Verified-facts table; every decision as Decision → Why →
    Grounding; a "considered and set aside: do not re-propose without new information" table. This
    is the anti-re-litigation doc. → _verify:_ nothing in the proposal is unexplained here.
-4. **Spec it into test-gated blocks.** Split into blocks: each one deliverable, one write-set, one
-   checkable done, small enough to become a ticket. Each
-   block: purpose, architecture, interfaces (input/output/config surface), **verification (positive)
-   tests AND adversarial (negative) tests**. Group preconditions as Block 0; number blocks in
+4. **Spec it into test-gated blocks, cut to the dialed depth.** Decompose top-down and stop at the
+   **decomposition depth** set for the run — interfaces → modules → components → functions
+   (`references/depth-dial.md`); if the depth (or its scope) wasn't given, **ask** — never pick a rung
+   silently. The dialed rung is the leaf grain of the blocks. Each block: one deliverable, one
+   write-set, one checkable done, small enough to become a ticket; purpose, architecture, interfaces
+   (input/output/config surface), **verification (positive) tests AND adversarial (negative) tests**.
+   ATDD runs as a **cycle across every rung traversed** — acceptance at each depth (interface, then
+   module, then component, …), not only at the leaf. Group preconditions as Block 0; number blocks in
    execution order. Add an **escalation appendix** of off-the-shelf options. → _verify:_ every block
-   has both test classes and a clear definition of done.
+   has both test classes and a clear definition of done, and the acceptance covers each rung down to
+   the dialed depth.
 5. **Graph-engineer the blocks into a work-division graph.** This is the graph-engineering
    discipline: split the work into a shape a fleet can collaborate on, then hand off, don't oversee
    how they run it. Your only judgment calls are naming the nodes (one deliverable each), their true
