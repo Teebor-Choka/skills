@@ -34,5 +34,5 @@ process constant here, never baked into a skill.
   dialog.
 
 Prose pointers (not machine-read): [`glossary.md`](./glossary.md), [`style.md`](./style.md). This file
-is optional and layered — a global `~/.agents/policy.md` is overridden per key by this local copy;
+is optional and layered — a global `~/.config/agents/policy.md` is overridden per key by this local copy;
 its absence resolves to the basic default.

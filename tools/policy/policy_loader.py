@@ -165,8 +165,11 @@ def resolve(repo_path, global_path=None):
     resolved = copy.deepcopy(BASELINE)
     provenance = {k: "baseline" for k in BASELINE}
     if global_path is None:
+        # AGENTS_POLICY_GLOBAL overrides; otherwise the user-level policy is the XDG path
+        # ($XDG_CONFIG_HOME, else ~/.config) /agents/policy.md.
+        xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
         global_path = os.environ.get("AGENTS_POLICY_GLOBAL") or \
-            os.path.join(os.path.expanduser("~"), ".agents", "policy.md")
+            os.path.join(xdg, "agents", "policy.md")
     g = _load_file(global_path)
     if g is not None:
         _overlay(resolved, g, provenance, "global")
