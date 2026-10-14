@@ -27,7 +27,7 @@ default.
 Layered, per key: **baseline < global < local**, local wins.
 
 - baseline — the built-in basic default (below).
-- global — `~/.agents/policy.md` (or `$AGENTS_POLICY_GLOBAL`).
+- global — `~/.config/agents/policy.md` (`$XDG_CONFIG_HOME/agents/policy.md`; or `$AGENTS_POLICY_GLOBAL`).
 - local — `<repo>/.agents/policy.md`.
 
 A skill reading key `K` (optionally for a target file) resolves, **most specific first**: a per-file
