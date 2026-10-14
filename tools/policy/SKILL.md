@@ -85,9 +85,15 @@ Or from the shell:
 ```
 policy_loader.py <repo> --get interaction --skill ramble
 policy_loader.py <repo> --get gate --target src/lib.rs   # honor per-file rules
+policy_loader.py <repo> --get work.tracker               # dotted key reads into a nested map
 policy_loader.py <repo> --json            # the whole resolved object
 policy_loader.py --selfcheck              # acceptance checks
 ```
+
+A **dotted key** (`work.tracker`) reads into a nested map: the head resolves by the normal
+precedence, then the remaining path descends by plain key, and any missing level yields the
+`default`. This is how a grouped setting is read from the shell; in Python either pass the dotted
+key or read the group with `get(p, "work", default={})`.
 
 Always pass the skill's own `default` to `get()` for a key the baseline doesn't define — that is the
 last fallback, so the skill still behaves sensibly with no policy at all.

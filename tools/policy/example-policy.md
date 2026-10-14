@@ -8,6 +8,8 @@ toolchain: [codegraph, pytest] # automated tools grounding/verification may use
 practices: # injected at the level they belong to
   scope: ATDD
   task: TDD
+work: # where work items / packages land; read dotted, e.g. work.tracker
+  tracker: github # github | gitlab | jira | beads | none (a binding resolves the verbs)
 ramble: # per-skill section: overrides the global key for `ramble` only
   interaction: dialog
 files: # per-file overrides: most specific matching glob wins
@@ -29,6 +31,9 @@ process constant here, never baked into a skill.
 - **grounding** — `auto` uses a code-graph / codebase-memory index when present, else plain reads.
 - **gate** — how "done" is judged: a plain checklist, executable `tests`, or a `rubric` (judge).
 - **practices** — e.g. ATDD at the scope level, TDD at the task level; empty forces none.
+- **work.tracker** — where work items and architect packages are filed; a binding maps the abstract
+  verbs (file item, checks, integrate) to the named tool. Read dotted (`work.tracker`); unset and
+  inside a GitHub repo with `gh`, the suite defaults to `github`, else `none` (no tracker).
 - **files** — per-file overrides keyed by path glob (not a policy file per directory). A skill acting
   on a file gets the most specific matching glob; here Rust files gate on tests and docs are drafted in
   dialog.

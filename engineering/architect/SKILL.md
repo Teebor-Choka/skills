@@ -15,7 +15,7 @@ description: >-
 license: MIT
 compatibility: any
 metadata:
-  version: "1.9.0"
+  version: "1.10.0"
 ---
 
 # Architect: self-contained, agent-executable architecture work packages
@@ -157,8 +157,15 @@ runs steps 0–4 and 7, skipping the graph and per-node briefs.
    blur the two. Then run `scripts/lint.py <dir> --tier <tier>` as the cross-artifact gate: it fails on unfilled
    placeholders, a spec block missing either test class, a decision with no status, a missing sources
    section, a cyclic graph, DAG edges that disagree with the spec, and dead cross-links. Fix every
-   error before agents fan out. → _verify:_ the README names the hinge decision and lists open items
-   with concrete close conditions, and `lint.py` reports zero errors.
+   error before agents fan out. Then, once lint is clean, **file the work to the tracker**
+   (`references/filing.md`): one work item per block (or the single plan), carrying its objective,
+   interface, both test tables, and an explicit `Blocked by / blocks` edge summary, filed in
+   dependency order to `work.tracker` from the policy (default `github` in a GitHub repo with `gh`,
+   else `none` — the package directory is then the deliverable). **Filing ends the architect's job**;
+   dispatch, execution, and integration belong to the executor, not here. → _verify:_ the README
+   names the hinge decision and lists open items with concrete close conditions, `lint.py` reports
+   zero errors, and each block is filed with its dependency edges (or `work.tracker: none` leaves the
+   package directory as the deliverable).
 8. **Execute the package (Phase B, when it will be deployed).** Build an unattended orchestrator
    whose waves mirror the DAG, separating _readiness gates_ (a thing exists/settled) from _verify
    gates_ (it behaves), self-healing with retry-until-wall and contacting a human only at a wall.
