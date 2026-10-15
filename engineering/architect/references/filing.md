@@ -39,6 +39,8 @@ or runs the channel.
 
 ## Terminal
 
-Filing ends the architect's responsibility. It does not dispatch agents, run the waves, or integrate
-results — an executor (e.g. `implement` plus on-demand subagent dispatch per the graph) owns all of
-that, including the mandatory serial integration pass that execution must not skip.
+Filing ends **Phase A**. Dispatching the filed items to implementers and integrating their changes
+is the executor's job — `implement` plus on-demand subagent dispatch per the graph — including the
+mandatory serial integration pass the executor must not skip. The architect does not run that loop.
+(Deploying the _designed system_ itself hands-off, when the package will be deployed, is the
+architect's separate **Phase B** — `references/execution.md` — not the work-item execution above.)

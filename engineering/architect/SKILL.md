@@ -160,9 +160,11 @@ runs steps 0–4 and 7, skipping the graph and per-node briefs.
    error before agents fan out. Then, once lint is clean, **file the work to the tracker**
    (`references/filing.md`): one work item per block (or the single plan), carrying its objective,
    interface, both test tables, and an explicit `Blocked by / blocks` edge summary, filed in
-   dependency order to `work.tracker` from the policy (default `github` in a GitHub repo with `gh`,
-   else `none` — the package directory is then the deliverable). **Filing ends the architect's job**;
-   dispatch, execution, and integration belong to the executor, not here. → _verify:_ the README
+   dependency order to the tracker `work.tracker` resolves to (default `github` in a GitHub repo
+   with `gh`, else `none` — the package directory is then the deliverable). **Filing ends Phase A**;
+   dispatching the filed items to implementers and integrating their changes is the executor's job
+   (e.g. `implement`), not the architect's. (Deploying the designed system itself, when that applies,
+   is the separate Phase B below.) → _verify:_ the README
    names the hinge decision and lists open items with concrete close conditions, `lint.py` reports
    zero errors, and each block is filed with its dependency edges (or `work.tracker: none` leaves the
    package directory as the deliverable).
