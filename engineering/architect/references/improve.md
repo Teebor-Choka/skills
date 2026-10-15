@@ -41,8 +41,9 @@ package, it never edits code. The actual refactor is a later `implement` run aga
    emitted as boxes.
 5. **Feed the pick into the main flow.** The chosen deepening becomes a normal architect package at
    its blast-radius tier (often `small`: a proposal + decision-log + spec with tests), each box
-   carrying **ATDD acceptance + end-to-end tests**, filed to the policy destination — `work.tracker`,
-   asked where it lands, typically one GitHub issue (`references/filing.md`). Carry the
+   carrying **ATDD acceptance + end-to-end tests**, filed to the tracker `work.tracker` resolves to
+   (typically a GitHub issue) — and because `:improve` is interactive, confirm that destination with
+   the user before filing (`references/filing.md`). Carry the
    **deep-module invariant** into `invariants.md` — _components and libraries stay deep: a large
    implementation behind a tiny, stable interface_ — so every brief inherits it and the fix doesn't
    regress on the next change.
