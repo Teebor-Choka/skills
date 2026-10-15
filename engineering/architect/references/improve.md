@@ -9,12 +9,18 @@ Use it when the ask is "make this codebase better to work in / build on," when a
 have no good seam to lock it down, or in a spare moment of upkeep. For a new capability, use the main
 flow; `:improve` is for structure that already exists.
 
+You give it the **target** — the whole repo, a subtree, or a named module. `:improve` never picks its
+own blast radius; **ask for the scope if it wasn't named.** And it only **scopes**: it emits a work
+package, it never edits code. The actual refactor is a later `implement` run against the boxes.
+
 ## The move
 
-1. **Ground in the graph, don't recall.** Build or refresh the code graph (codegraph preferred;
-   `references/code-graphing.md`) and read the real coupling — afferent/efferent edges, call depth,
-   module sizes. The graph is the input; a hand-read of a few files is not.
-2. **Scan for shallow modules and leaky seams.** Rank every module by **depth** — how much it hides
+1. **Ground in the graph, don't recall.** Build or refresh the code graph over the target
+   (codebase-memory / codegraph preferred; `references/code-graphing.md`) and read the real coupling —
+   afferent/efferent edges, call depth, module sizes. The graph is the input; a hand-read of a few
+   files is not. If **no indexing tool is available**, warn that it must read the codebase directly,
+   then read it systematically — never guess module structure silently.
+2. **Scan for shallow modules and leaky seams.** Rank every module in the target by **depth** — how much it hides
    behind how small an interface (Ousterhout; `references/principles.md` §9–10). The opportunities are
    the inversions of the structural red flags already in §9:
    - **Shallow module** — a large or complex interface over a thin implementation; the interface costs
@@ -29,9 +35,15 @@ flow; `:improve` is for structure that already exists.
    each to its graph evidence (the coupling edges, the call sites).
 4. **Present, then let the user pick.** A short ranked list, each candidate with its current vs.
    proposed interface shape (the before/after seam) and the leverage estimate. Don't fan out; surface
-   the few that matter.
+   the few that matter. When **nothing clears the bar**, say so plainly — an honest "nothing worth
+   deepening," never padding with marginal boxes. When **many clear it**, cap the list to the few
+   worth acting on, but **list all** found: the sub-cap tail is noted below, not dropped and not
+   emitted as boxes.
 5. **Feed the pick into the main flow.** The chosen deepening becomes a normal architect package at
-   its blast-radius tier (often `small`: a proposal + decision-log + spec with tests). Carry the
+   its blast-radius tier (often `small`: a proposal + decision-log + spec with tests), each box
+   carrying **ATDD acceptance + end-to-end tests**, filed to the tracker `work.tracker` resolves to
+   (typically a GitHub issue) — and because `:improve` is interactive, confirm that destination with
+   the user before filing (`references/filing.md`). Carry the
    **deep-module invariant** into `invariants.md` — _components and libraries stay deep: a large
    implementation behind a tiny, stable interface_ — so every brief inherits it and the fix doesn't
    regress on the next change.
