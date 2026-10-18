@@ -9,6 +9,7 @@ Pure standard library, no third-party deps beyond pytest itself.
 """
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -242,6 +243,47 @@ def test_cli_all_summarizes_per_repo(make_repo, tmp_path):
     assert result.returncode != 0  # bad repo fails the whole run
     assert "bad/docs/overview.md" in result.stdout
     assert "FAIL" in result.stderr and "PASS" in result.stderr
+
+
+def test_find_projects_includes_nested_under_documented_root(make_repo):
+    # A portfolio root that is itself documented must not hide a subproject: both
+    # are found, and a project's own docs/ subtree is never a project.
+    root = make_repo("portfolio")
+    child = make_repo("child")
+    nested = root / "sub"
+    shutil.move(str(child), str(nested))
+
+    found = set(validate_docs.find_projects(root))
+    assert root in found
+    assert nested in found
+    assert not any(p.name in {"docs", "decisions"} for p in found)
+
+
+def test_cli_all_validates_nested_under_documented_root(make_repo):
+    root = make_repo("portfolio")
+    nested = root / "sub"
+    shutil.move(str(make_repo("child")), str(nested))
+    (nested / "docs" / "overview.md").unlink()  # break only the nested one
+
+    result = run_cli("--all", str(root))
+    assert result.returncode != 0
+    assert "sub/docs/overview.md" in result.stdout
+
+
+def test_find_projects_does_not_descend_into_a_nested_git_repo(make_repo):
+    # A git repo below the root owns its subtree: its vendored docs/ must not be
+    # discovered as separate projects (the repo's own gate validates it).
+    root = make_repo("portfolio")
+    repo = root / "sub"
+    shutil.move(str(make_repo("child")), str(repo))
+    (repo / ".git").mkdir()
+    vendored = repo / "vendor" / "pkg" / "docs"
+    vendored.mkdir(parents=True)
+    (vendored / "overview.md").write_text("x\n")
+
+    found = set(validate_docs.find_projects(root))
+    assert root in found and repo in found
+    assert not any("vendor" in p.parts for p in found)
 
 
 def test_cli_all_discovers_undocumented_git_repo(tmp_path):
