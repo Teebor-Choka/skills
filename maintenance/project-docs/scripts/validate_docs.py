@@ -10,9 +10,9 @@ A "project" is any coherent unit of work: a code repo, a subproject, or a non-co
 effort. The validator treats a project as a directory holding a docs/ tree.
 
 Usage:
-    validate_docs.py <project-path>           validate one project
+    validate_docs.py [project-path]           validate one project (default: current dir)
     validate_docs.py --all <root-path>        validate every project found under root
-    validate_docs.py <project-path> --json    machine-readable findings
+    validate_docs.py [project-path] --json    machine-readable findings
 
 Exit code 0 only when every checked project passes; nonzero if any finding is raised.
 """
@@ -408,7 +408,8 @@ def _format_line(f: Finding) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate project docs against the contract.")
-    parser.add_argument("path", help="project path, or root path with --all")
+    parser.add_argument("path", nargs="?", default=".",
+                        help="project path (default: current directory), or root path with --all")
     parser.add_argument("--all", action="store_true",
                         help="treat path as a root and validate every project under it")
     parser.add_argument("--json", action="store_true", help="machine-readable findings")
