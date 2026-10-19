@@ -22,6 +22,17 @@ concurrency cap, and **detects write-set collisions within a wave** (two units t
 resource) — exiting non-zero on a cycle or a collision, a spec no fleet can run as written. Pick a
 collaboration shape, and read the per-shape failure guards, in `references/graph-patterns.md`.
 
+## Tier the graph (cost + speed)
+
+Give each node a `tier`, one of `reasoning` (design/synthesis/hard calls), `execution` (building, the
+default), `light` (reads/extraction/validation/status), or `speed` (optional fast lane), and the
+dispatcher runs each node on that model. This is where tiering pays off: the critical path's
+design/synthesis nodes get Reasoning, the wide fan-out of readers/extractors/validators gets Light, and
+the common waste (a fleet of Light reads running on a Reasoning model) disappears. A `speed`-lane node
+uses the fast System-1 model where the harness configures one and falls back to Light where it does not,
+so a latency-sensitive hot node is an optimization, not a hard dependency. Tier before you dispatch:
+untiered defaults to Execution, which is right for builders but overpays for the readers.
+
 ## When not to
 
 A single unit, or holistic work with no disjoint write-sets, has nothing to divide: the engine no-ops,
