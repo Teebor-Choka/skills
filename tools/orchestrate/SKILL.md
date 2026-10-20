@@ -30,8 +30,9 @@ work and says the same).
 
 ## Tiers: run the cheap work cheap
 
-Tier names map to models in the host config (see the model-tier guidance); the point is the routing, not
-the names.
+Tiers are capability bands; pass the matching model as the spawn override. Example Anthropic mapping:
+Reasoning to Opus, Execution to Sonnet, Light to Haiku, Speed to a fast small model or Haiku. The
+`Agent` tool's `model` override takes `opus`, `sonnet`, `haiku`, or `fable`.
 
 - **Dispatcher, watchdog, and status: Light.** A coordinator that reads large context and emits a few
   tokens per check is light work. Running it on the Reasoning tier is the canonical waste.
