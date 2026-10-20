@@ -67,6 +67,15 @@ locally.
 - **Transient `cache.nixos.org` timeouts during `nix build` are infrastructure, not a code error.**
   Retry before debugging — a failed substituter fetch looks like a build failure but isn't one.
 
+- **Gate commits with `&&`, never `;`.** `nix-instantiate --parse f.nix && git commit ...`: a
+  chain like `check; echo FAIL; git commit` commits the broken file anyway. A repo should enforce
+  the parse check in a pre-commit hook on staged `.nix` files instead of relying on the chain.
+- **Tests run from a git hook inherit `GIT_DIR`, `GIT_INDEX_FILE`, and `GIT_WORK_TREE`.** Any test
+  that builds temp repos (bats, shell, nix checks) then drives the hook's repo and fails with
+  `.git/index: Not a directory` or edits the wrong index. Fix in the test, never `--no-verify`:
+  `unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX GIT_COMMON_DIR` at the top of `setup()`
+  (or wrap with `env -u ...`). Reproduce with `GIT_INDEX_FILE=.git/index bats <file>`.
+
 ## Flake dev loop and cross-building
 
 - **Iterate a split consumer/modules flake with `--override-input`.** When a consumer flake pulls
