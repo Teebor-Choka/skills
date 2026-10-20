@@ -18,7 +18,7 @@ internally consistent, so the cross-document rules (E4-E8) do not apply.
 The rules, keyed to the document set:
   E1  required artifacts present and non-empty (tier-dependent)
   E2  required headings present in each artifact
-  E3  no leftover scaffold placeholders (TODO, TBD, $slug, <name>, <Title>, FILL-IN)
+  E3  no leftover scaffold placeholders (TODO, TBD, $slug, <name>, <Title>, FILL-IN); code spans and fences are exempt
   E4  every spec block has BOTH a Verification and an Adversarial test table, each with >=1 row
   E5  every decision-log entry carries a Status (Proposed|Accepted|Deprecated|Superseded)
   E6  research-notes.md and the proposal each carry a Sources section with >=1 URL
@@ -65,7 +65,12 @@ def find_one(root, suffix):
     return hits[0] if hits else None
 
 
+# Fenced blocks and inline code may name a placeholder on purpose (a doc about the scaffold).
+CODE = re.compile(r"```.*?```|`[^`\n]*`", re.S)
+
+
 def check_placeholders(path, text, errs):
+    text = CODE.sub("", text)
     for pat in PLACEHOLDERS:
         if re.search(pat, text):
             errs.append(f"E3 {os.path.basename(path)}: leftover placeholder matching /{pat}/")
