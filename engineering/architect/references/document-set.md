@@ -48,7 +48,7 @@ rests on an assumption. This is written first and is the factual floor everythin
 - **Greenfield vs existing**: call out what is a genuinely new capability vs an extension.
 - Implications for the proposal (candidate hubs, shared primitives, scope that is net-new).
 
-When a code-graphing capability is available (codegraph preferred), derive the current architecture
+When a code-graphing capability is available (the code indexing MCP), derive the current architecture
 from the graph rather than by hand, each claim traced to a node, and for a multi-repo project add a
 **cross-repo** current-architecture section (which repo owns what, which dependencies cross a repo
 boundary). Flag any edge the graph could not resolve. See `code-graphing.md` for the flow; with no

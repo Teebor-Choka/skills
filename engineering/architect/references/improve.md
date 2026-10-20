@@ -16,7 +16,7 @@ package, it never edits code. The actual refactor is a later `implement` run aga
 ## The move
 
 1. **Ground in the graph, don't recall.** Build or refresh the code graph over the target
-   (codebase-memory / codegraph preferred; `references/code-graphing.md`) and read the real coupling —
+   (the code indexing MCP; `references/code-graphing.md`) and read the real coupling —
    afferent/efferent edges, call depth, module sizes. The graph is the input; a hand-read of a few
    files is not. If **no indexing tool is available**, warn that it must read the codebase directly,
    then read it systematically — never guess module structure silently.

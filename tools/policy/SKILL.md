@@ -62,7 +62,7 @@ default:
 | ------------- | ------------- | ------------------------------------------------------------------------------------- |
 | `mode`        | `single`      | one actor carries the work; `team` opts into parallel splitting                       |
 | `interaction` | `batch`       | grilling rhythm: `batch` (whole frontier per round) or `dialog` (one at a time)       |
-| `grounding`   | `auto`        | use an index/tool if present (codegraph/codebase-memory), else plain reads; or `none` |
+| `grounding`   | `auto`        | use an index/tool if present (a code indexing MCP), else plain reads; or `none` |
 | `gate`        | `plain`       | acceptance style: `plain` checklist, `tests`, or `rubric`                             |
 | `practices`   | `{}`          | e.g. `{scope: ATDD, task: TDD}`; empty = none forced                                  |
 

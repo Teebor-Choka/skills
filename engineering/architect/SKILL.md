@@ -90,8 +90,7 @@ runs steps 0–4 and 7, skipping the graph and per-node briefs.
    anything, build a complete model of what exists today — breadth before depth, survey before you
    zoom to concepts. Establish scope: inside one repo, that is the scope; otherwise scan the current
    directory and ask the user which repos to include and what constitutes the project unit. Then, with
-   whatever code-graph capability is present (codebase-memory-mcp and codegraph both qualify; prefer
-   whichever has a fresh index of the in-scope repos), assemble in this order: **(a)** pull the
+   the code indexing MCP when one is connected (prefer a fresh index of the in-scope repos), assemble in this order: **(a)** pull the
    whole-system map and its de-facto module clusters — the big picture, not just the area you expect to
    touch; **(b)** walk every cluster and boundary, naming each subsystem with the node or file that
    proves it; **(c)** trace the load-bearing data flows and the cross-service / cross-repo seams end to
