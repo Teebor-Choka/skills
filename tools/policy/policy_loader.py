@@ -236,10 +236,10 @@ def _selfcheck():
         # 2. global only -> global used
         gpath = os.path.join(d, "global.md")
         with open(gpath, "w") as f:
-            f.write("---\ninteraction: dialog\ntoolchain: [codegraph, pytest]\n---\n")
+            f.write("---\ninteraction: dialog\ntoolchain: [code-index, pytest]\n---\n")
         r = resolve(d, global_path=gpath)
         check("global only -> global used", r["interaction"] == "dialog"
-              and r["toolchain"] == ["codegraph", "pytest"])
+              and r["toolchain"] == ["code-index", "pytest"])
         # 3. local overrides global, per key
         os.makedirs(os.path.join(d, ".agents"))
         with open(os.path.join(d, ".agents", "policy.md"), "w") as f:
@@ -248,7 +248,7 @@ def _selfcheck():
                     'files:\n  "*.md":\n    gate: rubric\n  "docs/*.md":\n    gate: plain\n---\n')
         r = resolve(d, global_path=gpath)
         check("local overrides global per key", r["interaction"] == "batch")
-        check("global key kept where local is silent", r["toolchain"] == ["codegraph", "pytest"])
+        check("global key kept where local is silent", r["toolchain"] == ["code-index", "pytest"])
         # 4. per-skill section overrides the global key for that skill
         check("per-skill section: ramble.interaction=dialog",
               get(r, "interaction", skill="ramble") == "dialog")

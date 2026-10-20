@@ -108,7 +108,7 @@ The [`architect`](./engineering/architect/SKILL.md) skill was written from scrat
 
 Its graph-engineering step ([`references/graph-patterns.md`](./engineering/architect/references/graph-patterns.md)) is grounded in the workflow / parallel / multi-agent-orchestration literature, every citation web-verified and authority-tagged, with the state of the art through 2026 folded in: the van der Aalst Workflow Patterns paper (2003), GPTSwarm (ICML 2024) and AFlow (ICLR 2025) on agents-as-optimizable-graphs, MaAS (ICML 2025) on query-dependent workflow-graph design, the topology-effects work of Shen et al. (EMNLP 2025) with G-Designer and AgentPrune/AGP, the MAST failure taxonomy (Cemri et al. 2025), and the Yue et al. 2026 survey of workflow optimization as agentic computation graphs. Full attribution with links, license notes, and preprint flags is in [engineering/architect/references/sources.md](./engineering/architect/references/sources.md) and [graph-patterns.md](./engineering/architect/references/graph-patterns.md).
 
-Grounding the current state can optionally run through a code graph, single- or multi-repo, via [`codegraph`](https://github.com/colbymchenry/codegraph) (MIT) when available, with a graceful fall back to manual reading otherwise ([`references/code-graphing.md`](./engineering/architect/references/code-graphing.md)).
+Grounding the current state can optionally run through a code graph, single- or multi-repo, via a code indexing MCP when available, with a graceful fall back to manual reading otherwise ([`references/code-graphing.md`](./engineering/architect/references/code-graphing.md)).
 
 ### unslop
 

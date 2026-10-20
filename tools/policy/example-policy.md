@@ -4,7 +4,7 @@ mode: single # single | team (team opts into parallel splitting)
 interaction: batch # batch | dialog — grilling rhythm
 grounding: auto # auto | none | <tool>
 gate: plain # plain | tests | rubric
-toolchain: [codegraph, pytest] # automated tools grounding/verification may use
+toolchain: [code-index, pytest] # automated tools grounding/verification may use
 practices: # injected at the level they belong to
   scope: ATDD
   task: TDD
@@ -28,7 +28,7 @@ process constant here, never baked into a skill.
   are `substrate`/`comms` read).
 - **interaction** — how the ramble front door asks: `batch` (whole frontier per round) or `dialog`
   (one question at a time).
-- **grounding** — `auto` uses a code-graph / codebase-memory index when present, else plain reads.
+- **grounding** — `auto` uses a code indexing MCP when present, else plain reads.
 - **gate** — how "done" is judged: a plain checklist, executable `tests`, or a `rubric` (judge).
 - **practices** — e.g. ATDD at the scope level, TDD at the task level; empty forces none.
 - **work.tracker** — where work items and architect packages are filed; a binding maps the abstract
