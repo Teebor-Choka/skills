@@ -49,14 +49,14 @@ Work top to bottom: the first row is the whole-system survey you do _before_ the
 walk down into it, and the last row is the per-change blast radius you return to once a design is
 forming.
 
-| Question (research-notes section)                            | Code indexing MCP                                                                                     |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| Whole-system map + de-facto module clusters (the survey)     | `get_architecture`: packages, services, dependencies, and Leiden clusters with cohesion and top nodes |
-| Each subsystem with the node/file that proves it             | `search_graph` / `get_code_snippet` per cluster; `search_code` for a pattern                          |
-| Load-bearing data flows and cross-service / cross-repo seams | `trace_path` mode `data_flow` and `cross_service`                                                     |
+| Question (research-notes section)                            | Code indexing MCP                                                                                       |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Whole-system map + de-facto module clusters (the survey)     | `get_architecture`: packages, services, dependencies, and Leiden clusters with cohesion and top nodes   |
+| Each subsystem with the node/file that proves it             | `search_graph` / `get_code_snippet` per cluster; `search_code` for a pattern                            |
+| Load-bearing data flows and cross-service / cross-repo seams | `trace_path` mode `data_flow` and `cross_service`                                                       |
 | Coupling and complexity hotspots (what to watch)             | `query_graph` over complexity metrics (cyclomatic, `transitive_loop_depth`, `linear_scan_in_loop`, ...) |
-| Where the code lives, the file structure                     | `search_graph` with a file filter; `get_architecture` packages                                        |
-| Blast radius of a specific change                            | `detect_changes`, or `trace_path` inbound from the change site                                        |
+| Where the code lives, the file structure                     | `search_graph` with a file filter; `get_architecture` packages                                          |
+| Blast radius of a specific change                            | `detect_changes`, or `trace_path` inbound from the change site                                          |
 
 Read coupling counts as afferent (callers in) and efferent (callees out); the high-fan-in,
 high-fan-out symbols and files are the hotspots. **You still make the architectural call**: naming

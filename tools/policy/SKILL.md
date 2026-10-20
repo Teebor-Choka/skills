@@ -58,13 +58,13 @@ Omit `target` for a repo-wide read.
 Minimal, least-surprising, single-actor — the fleet/parallel path is opt-in via `mode: team`, not the
 default:
 
-| key           | basic default | meaning                                                                               |
-| ------------- | ------------- | ------------------------------------------------------------------------------------- |
-| `mode`        | `single`      | one actor carries the work; `team` opts into parallel splitting                       |
-| `interaction` | `batch`       | grilling rhythm: `batch` (whole frontier per round) or `dialog` (one at a time)       |
+| key           | basic default | meaning                                                                         |
+| ------------- | ------------- | ------------------------------------------------------------------------------- |
+| `mode`        | `single`      | one actor carries the work; `team` opts into parallel splitting                 |
+| `interaction` | `batch`       | grilling rhythm: `batch` (whole frontier per round) or `dialog` (one at a time) |
 | `grounding`   | `auto`        | use an index/tool if present (a code indexing MCP), else plain reads; or `none` |
-| `gate`        | `plain`       | acceptance style: `plain` checklist, `tests`, or `rubric`                             |
-| `practices`   | `{}`          | e.g. `{scope: ATDD, task: TDD}`; empty = none forced                                  |
+| `gate`        | `plain`       | acceptance style: `plain` checklist, `tests`, or `rubric`                       |
+| `practices`   | `{}`          | e.g. `{scope: ATDD, task: TDD}`; empty = none forced                            |
 
 These are not exhaustive — a skill may read any other key and supply its own default. Keys for the
 opt-in parallel path (`substrate`, `comms`) are read only when `mode: team`.
