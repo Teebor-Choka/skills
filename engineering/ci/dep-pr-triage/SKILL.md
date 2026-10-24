@@ -6,13 +6,13 @@ description: >
   test), apply the mechanical fix on the PR branch, push, and re-check. Never merges, approves, or
   enables auto-merge. Use when asked to "go through the dependabot PRs", "fix the renovate PRs",
   "why are the bump PRs red", "babysit the dependency updates", or to sweep several repos for
-  failing dependency PRs, including on a recurring schedule. Not for reviewing human-authored PRs
-  (use code-review), for CI authoring (use github-actions), or for deciding whether to adopt an
+  failing dependency PRs, including on a recurring schedule. Not for babysitting a single PR you
+  opened (use git-workflow), reviewing human-authored PRs (use code-review), for CI authoring (use github-actions), or for deciding whether to adopt an
   upgrade that changes behaviour.
 license: MIT
 compatibility: Needs the GitHub CLI (gh), authenticated with push access to the target repos.
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # dep-pr-triage
@@ -96,7 +96,8 @@ are green and ready for a human to merge.
 
 ## Babysit recipe
 
-Run this skill repeatedly, for example every 20 minutes, using whatever scheduler or loop the agent
+This is the fleet sweep over many bot PRs. To shepherd one PR you opened, use git-workflow's
+`pr-babysit` watcher instead. Run this skill repeatedly, for example every 20 minutes, using whatever scheduler or loop the agent
 provides. Each tick:
 
 1. Re-enumerate (step 1) and re-check only PRs that were red or pending last tick.
