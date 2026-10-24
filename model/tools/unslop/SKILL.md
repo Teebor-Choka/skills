@@ -7,7 +7,9 @@ description: >
   applied by DEFAULT to all natural-language output — every reply longer than a short
   two-sentence answer, and every doc, README, code comment, commit message, and PR
   description before it is written or committed. Levels off/light/default/strict, toggled
-  per session with /unslop-mode. Also triggers on "unslop", "de-slop", "humanize", "make
+  per session with /unslop-mode. Technical text (procedures, troubleshooting, error
+  explanations, technical descriptions) also follows ASD-STE100 Simplified Technical
+  English. Also triggers on "unslop", "de-slop", "humanize", "make
   this sound less like AI", "remove AI-isms", or when text is called robotic, sycophantic,
   generic, or over-structured. Do not apply to a short two-sentence reply. Edits prose
   only: it is not a grammar checker, never changes code logic, and never invents facts.
@@ -54,6 +56,9 @@ over-explaining), not any single banned word.
   quotations, and exact strings even when they cost words.
 - **Precedence when rules collide:** facts > quotations > the author's voice > domain
   register > any anti-slop rule.
+- **Technical text uses ASD-STE100.** For procedures, troubleshooting, error explanations,
+  technical descriptions, code comments, and commit bodies, the domain register is
+  Simplified Technical English (see "Technical register" below).
 
 ## Modes and levels
 
@@ -153,6 +158,21 @@ Highest-signal surface fixes, applyable inline without the references:
 Then apply the plain-speech rules from `references/patterns.md`: say the mechanism not the
 feeling, one idea per sentence, active voice, cut adverbs, vary sentence length.
 
+## Technical register: ASD-STE100
+
+When the text is technical, write it in ASD-STE100 Simplified Technical English at every
+level except `off`. Full rules, scope, and exceptions are in `references/ste100.md`. The
+core rules:
+
+- One word, one meaning; the same term for the same thing throughout.
+- Instructions: imperative, one per sentence, 20 words maximum, condition first.
+- Descriptions: present tense, active voice, 25 words maximum.
+- Keep articles. No "-ing" verbs, no perfect tenses, noun clusters of three words or fewer.
+- Steps as a numbered list; warnings start with the command, then the reason.
+
+STE overrides the plain-speech rules on sentence length, slack, and voice for technical
+text. It does not license the staccato tell: short sentences stay whole sentences.
+
 ## Self-audit checklist
 
 - No word or metaphor-noun from the lists survives without a reason.
@@ -160,6 +180,7 @@ feeling, one idea per sentence, active voice, cut adverbs, vary sentence length.
 - Real specifics are named, and true; no invented facts.
 - Punctuation and boldface are sparing; headings sentence-case; quotes straight.
 - Register matches the source; the result is not staccato or over-casual.
+- Technical text follows ASD-STE100 (`references/ste100.md` self-check).
 - Read one paragraph aloud: would a person explaining this sound like this? If not,
   keep going.
 
@@ -192,6 +213,6 @@ For a large multi-document sweep, delegate one pass per file to subagents (see t
 ## Sources
 
 Pooled from the main open "unslop" skills and their cited research. Full list with URLs
-in `references/sources.md`. Anchors: Wikipedia "Signs of AI writing"; the cursor/pstack
+in `references/sources.md`. Anchors: Wikipedia "Signs of AI writing"; ASD-STE100 Issue 9; the cursor/pstack
 unslop base; StoryScope (arXiv:2604.03136); the UMD/DeepMind cliché-removal study;
 Berens & Kobak excess-vocabulary; the Google developer style word list.
