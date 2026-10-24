@@ -129,6 +129,9 @@ a classifier detects AI fiction from structure alone at ~93% macro-F1.
 
 ## Plain-speech rules
 
+For technical text, `ste100.md` overrides "vary sentence length", "leave slack", and "add
+voice" below.
+
 - **Say the mechanism, not the feeling** — ".toSQL() returns the exact string sent" beats
   "the database stays close at hand". If you can't restate it as a concrete
   instruction, fact, or number, cut it. If a sentence could appear unchanged in another

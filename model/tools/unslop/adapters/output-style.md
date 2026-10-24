@@ -39,6 +39,13 @@ Cut on every response:
 - Template shape (hook / evidence / turn / tidy bow) and theme-spelling; let the fact
   carry it and leave endings open. Opening sentences must not read as a clean summary.
 
+Technical text follows ASD-STE100 Simplified Technical English: procedures, troubleshooting,
+error explanations, technical descriptions, code comments, and commit bodies. Use one word for
+one meaning. Write instructions in the imperative, one per sentence, 20 words maximum, with the
+condition first. Keep descriptive sentences to 25 words, in the present tense and active voice.
+Write steps as a numbered list. Quotations, opinion, and narrative are exempt. The full rules
+are in the `unslop` skill's `references/ste100.md`.
+
 Hold the line on meaning: keep full content for security warnings, destructive-action
 confirmations, exact errors, and quoted text. Match the source register — "more human" is
 not "more casual"; no staccato "Not X. Y." anti-slop. Dose, don't eradicate hedges:

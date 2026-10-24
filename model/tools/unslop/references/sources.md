@@ -50,6 +50,10 @@ from the primary sources directly.
   https://developers.google.com/style and https://developers.google.com/style/word-list
 - hardikpandya/stop-slop — false-agency signal source. https://github.com/hardikpandya/stop-slop
 - Paul Graham essays (Good Writing, The Best Essay, and others) — prose benchmarks.
+- ASD-STE100 Simplified Technical English, Issue 9 (January 2025), ASD. The register for
+  technical text in `ste100.md`. Its writing rules are restated in our own words; the
+  specification and its approved-word dictionary are ASD copyright and are not reproduced.
+  https://www.asd-ste100.org/
 
 ## Licensing
 
