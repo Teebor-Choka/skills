@@ -97,7 +97,7 @@ are green and ready for a human to merge.
 ## Babysit recipe
 
 This is the fleet sweep over many bot PRs. To shepherd one PR you opened, use git-workflow's
-`pr-babysit` watcher instead. Run this skill repeatedly, for example every 20 minutes, using whatever scheduler or loop the agent
+`babysit` watcher instead. Run this skill repeatedly, for example every 20 minutes, using whatever scheduler or loop the agent
 provides. Each tick:
 
 1. Re-enumerate (step 1) and re-check only PRs that were red or pending last tick.

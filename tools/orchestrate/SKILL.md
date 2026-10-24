@@ -55,8 +55,8 @@ the names.
 
 - **Drive your PR to MERGED, not to "enqueued".** Handle your own rebase when it goes BEHIND or DIRTY
   (`gh pr update-branch`), the CI re-runs, and the review replies. Hand back only on MERGED or a real
-  blocker you cannot resolve. Work ends at merge, not at push. Watch the PR with a diffing watcher
-  that prints only actionable changes (git-workflow's `pr-babysit` when installed), not a poll loop.
+  blocker you cannot resolve. Work ends at merge, not at push. Watch the PR with a diffing change-request watcher
+  that prints only actionable changes (git-workflow's `babysit` when installed), not a poll loop.
 - **Queue-only:** enqueue with auto-merge; never admin-bypass a required check.
 - **Isolation and hygiene:** your own worktree; stage explicit paths (never `git add -A`); run the
   repo's checks locally and green before pushing.
@@ -71,7 +71,7 @@ it tracks state worse than the primitives do. Use the harness signals:
 - **Stall:** a task-notification fires when an agent stops with no live children. Send a short resume
   message once; if it stalls a second time, respawn it fresh rather than nudging again.
 - **Idle:** `notify_when_idle` gives a one-shot "it went idle" signal without polling.
-- **PR and CI:** each builder runs its PR watcher (`pr-babysit` under `Monitor`, re-armed on expiry);
+- **PR and CI:** each builder runs its PR watcher (`babysit` under `Monitor`, re-armed on expiry);
   `ReadNotifications` delivers GitHub activity on subscribed PRs. Let the merge queue land green, approved PRs on its own.
 - Query `mergeStateStatus` plus `statusCheckRollup`, not `mergeQueueEntry` (the latter errors on some
   `gh` versions).
