@@ -11,7 +11,7 @@ Load the skills the charter lists for this role. If it lists none, choose skills
 ## Duties
 
 1. **Lease health.** On each run, list claimed items with heartbeat age. Reap stale ones if no peer
-   has (SKILL.md rule 4). Record the reap count per agent and per item. An item reaped twice,
+   has (mechanics.md rule 4). Record the reap count per agent and per item. An item reaped twice,
    or an agent reaped repeatedly, becomes an escalation.
 2. **Load view.** Count agents by state: working, waiting, quiet (no heartbeat within the stale
    timeout), stopped. Report "idle with open work" when agents wait while items sit unclaimed.

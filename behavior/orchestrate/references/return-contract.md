@@ -16,7 +16,7 @@ fields. It must not drop these.
 Rules:
 
 1. **No evidence, no claim.** The receiver drops a return with no evidence.
-2. **Pin the revision.** A verdict without a revision is void (`SKILL.md` rule 7).
+2. **Pin the revision.** A verdict without a revision is void (`mechanics.md` rule 7).
 3. **Structured, not prose.** Return the fields above, or the specialised schema that includes
    them, so the receiver can dedupe, tally and triage mechanically.
 4. **Zero findings is valid.** Do not prompt a reviewer to find something. Name what was checked.

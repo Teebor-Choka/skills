@@ -1,8 +1,29 @@
-# Mode: assign (thin dispatcher)
+---
+name: assign
+description: >-
+  Run a thin-dispatcher fleet (alias: direct): a dispatcher files known units on a shared work
+  board, claims each for a named worker, spawns workers at the right model tier in their own
+  workspace, and drives by events and leases instead of polling or relaying. Use when the units are
+  known up front, their write-sets are disjoint and each finishes alone, or when you are told "load
+  orchestrate:assign, role X". Process (roles, states, gates) comes from an owner-approved charter.
+  Works for code and non-code work. Not for work that spawns work or peer review loops (use
+  orchestrate:pull), not for cutting work into units (use decompose), not for git and PR mechanics
+  (use git-workflow), and not for one item (just do it).
+license: MIT
+compatibility: any
+metadata:
+  version: "1.0.0"
+---
+
+# orchestrate:assign: thin dispatcher
+
+> **First read [`../../references/mechanics.md`](../../references/mechanics.md).** It defines the claim,
+> lease, reap, hand-off, escalation and wind-down rules this mode builds on, and how an agent in a
+> run loads its role card (`../../references/roles/`) and skills.
 
 Use when the units are known up front, their write-sets are disjoint (cut them with `decompose`),
 and each unit finishes on its own. A dispatcher hands units to workers and watches events. It is
-thin: it holds no state that the board lacks. The mechanics in `SKILL.md` apply unchanged; this file
+thin: it holds no state that the board lacks. The mechanics in `mechanics.md` apply unchanged; this file
 adds what is specific to assign.
 
 ## Dispatcher
@@ -10,8 +31,8 @@ adds what is specific to assign.
 1. **Put each unit on the board with its acceptance tests in the item itself**, so a worker acts
    from the item and not from relayed chat. Land shared contract seams first, so consumers can
    then proceed independently.
-2. **Spawn one worker per unit** at the Execution tier (see `cost-isolation-integration.md`) in its
-   own workspace. Claim the item for that worker's id (`SKILL.md` rule 1).
+2. **Spawn one worker per unit** at the Execution tier (see [cost-isolation-integration.md](../../references/cost-isolation-integration.md)) in its
+   own workspace. Claim the item for that worker's id (`mechanics.md` rule 1).
 3. **Verify shared facts from source before you put them in a brief** (the default branch, a path,
    a command). A wrong fact handed to the whole fleet costs one correction per worker.
 4. **Put the spawn-brief line from the charter in every brief.**
@@ -39,6 +60,6 @@ primitives do.
 
 ## Synthesize, then stop
 
-When the units are integrated, run the serial integration pass (`cost-isolation-integration.md`),
+When the units are integrated, run the serial integration pass ([cost-isolation-integration.md](../../references/cost-isolation-integration.md)),
 report once, and stop. Isolated contexts do not integrate themselves. The dispatcher's job ends
 when the work is integrated and summarized, not by watching an empty board.

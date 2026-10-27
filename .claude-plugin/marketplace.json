@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills — practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "1.15.0"
+    "version": "1.16.0"
   },
   "plugins": [
     {
@@ -115,6 +115,24 @@
       "skills": ["./model/tools/find-ai-moat"],
       "metadata": {
         "version": "0.1.0"
+      }
+    },
+    {
+      "name": "orchestrate",
+      "description": "Coordinate several agents on one shared goal through a shared work board: orchestrate:pull (alias swarm, peer-to-peer) and orchestrate:assign (alias direct, thin dispatcher), with shared claim/lease/reap mechanics, charter, escalation ladder and role cards.",
+      "source": "./behavior/orchestrate",
+      "strict": true,
+      "metadata": {
+        "version": "2.0.0"
+      }
+    },
+    {
+      "name": "decompose",
+      "description": "Cut a goal into units that agents can work on in parallel (seams, write-sets, acceptance tests, tiers), check the cut with the graph-engine, and file the units as work items in dependency order.",
+      "source": "./",
+      "skills": ["./tools/decompose"],
+      "metadata": {
+        "version": "1.0.0"
       }
     }
   ],
