@@ -1,12 +1,33 @@
-# Mode: pull (peer-to-peer swarm)
+---
+name: pull
+description: >-
+  Run a peer-to-peer swarm (alias: swarm): agents pull items from a shared work board, claim them
+  atomically, hold them on a heartbeat lease, hand off by writing to the item, and escalate up a
+  ladder that ends at the owner. No dispatcher relays or starts passes. Use when work spawns work
+  (review-fix loops, many agents on one interacting surface, items not all known up front), when a
+  run needs peers to cooperate without a hub, or when you are told "load orchestrate:pull, role X".
+  Process (roles, states, gates) comes from an owner-approved charter. Works for code and non-code
+  work. Not for known, disjoint units handed out by a dispatcher (use orchestrate:assign), not for
+  cutting work into units (use decompose), and not for one item (just do it).
+license: MIT
+compatibility: any
+metadata:
+  version: "1.0.0"
+---
+
+# orchestrate:pull: peer-to-peer swarm
+
+> **First read [`../../references/mechanics.md`](../../references/mechanics.md).** It defines the claim,
+> lease, reap, hand-off, escalation and wind-down rules this mode builds on, and how an agent in a
+> run loads its role card (`../../references/roles/`) and skills.
 
 Use when work spawns work: review-fix loops, many agents on one interacting surface, items that
 cannot all be known up front. Peers pull items from the board. No dispatcher relays or starts
-passes. The mechanics in `SKILL.md` apply unchanged; this file adds what is specific to pull.
+passes. The mechanics in `mechanics.md` apply unchanged; this file adds what is specific to pull.
 
 ## Pull rule
 
-1. Reap stale claims first (`SKILL.md` rule 4).
+1. Reap stale claims first (`mechanics.md` rule 4).
 2. List items whose state is in your role's pull set (charter). Prefer the item whose `area` label
    matches the area you touched last. Affinity is a preference, never a reason to leave an
    item unclaimed.

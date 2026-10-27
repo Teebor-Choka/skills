@@ -9,7 +9,7 @@ Load the skills the charter lists for this role. If it lists none, choose skills
 
 ## Loop
 
-1. Pull an item in your pull set. Prefer your last `area`. Claim it (SKILL.md rule 2).
+1. Pull an item in your pull set. Prefer your last `area`. Claim it (mechanics.md rule 2).
 2. Read the item and its acceptance tests. If a test is missing or cannot fail, escalate. Do not
    write the only tests for your own work, unless the charter says so.
 3. Work in your own isolated workspace (worktree, branch, copy). Heartbeat after every step.

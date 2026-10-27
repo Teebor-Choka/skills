@@ -8,6 +8,7 @@ see [agent-extension-author](../model/tools/agent-extension-author/SKILL.md) for
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
 | [forge-idea](./forge-idea/SKILL.md) | Forge a rough idea or thesis into a viable one — fan out parallel agents to stress-test each branch, prune the dead ones, reshape the rest | "will this actually work?", "tear this apart", pressure-testing a strategy or architecture |
 | [llm-wiki](./llm-wiki/SKILL.md)     | Build, grow, and query a linked Markdown knowledge wiki an LLM can navigate, every claim cited                                             | "digest my notes", "what do my notes say about X", keeping a second brain healthy          |
+| [decompose](./decompose/SKILL.md)   | Cut a goal into parallel units (write-set, acceptance, tier), check the cut with graph-engine, file the items                              | "split this work", "divide this for the agents", turning a design into work items          |
 
 `forge-idea` and `llm-wiki` carry optional multi-agent workflow support (parallel branch
 fan-out and parallel ingestion/query) in their `references/cross-agent.md`.

@@ -8,7 +8,7 @@ description: >-
   split, divide, partition or parallelise work, or when a design is ready to be turned into work
   items, for code or non-code work. Not for a single unit or holistic work with no disjoint
   write-sets (just do it), not for designing the system (use architect), and not for running the
-  units (use orchestrate).
+  units (use orchestrate:assign or orchestrate:pull).
 license: MIT
 compatibility: any
 metadata:
@@ -48,16 +48,16 @@ and integration cost often beats the wall-clock gain. Cut only where the seam is
    cycle, a dangling dependency or a write-set collision inside a wave. Fix the cut, not the check.
    `graph.py` does not read `tier` or `acceptance`: they stay on the item.
 
-5. **File the units.** Use the board verbs (`orchestrate/references/board.md`; the tracker is the
+5. **File the units.** Use the board verbs (`references/board.md` of the `orchestrate` plugin; the tracker is the
    charter's `board`, else the policy key `work.tracker`). File in dependency order so a blocker's
    id exists before the item that cites it. Each item carries its acceptance tests, a
    `blocks`/`blocked-by` summary taken from the graph, and a link back to the spec.
 6. **Pick the mode.** Units known and disjoint, each finishing alone: `assign`. Units that spawn
-   follow-on work or review loops: `pull`. Hand the filed board and the choice to `orchestrate`.
+   follow-on work or review loops: `pull`. Hand the filed board and the choice to `orchestrate:assign` or `orchestrate:pull`.
 
 ## Do not
 
 - Split units that share a write-set to gain parallelism. Merge them or order them.
 - File a unit with no acceptance tests, or tests written only by the unit's implementer.
 - Hide a shared boundary. Where two units cannot be cleanly disjoint, say so in both items.
-- Run the units. Dispatch and integration belong to `orchestrate`.
+- Run the units. Dispatch and integration belong to `orchestrate:assign` and `orchestrate:pull`.

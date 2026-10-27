@@ -21,6 +21,7 @@ to the host.
 Skills are grouped into thematic category directories, each with its own README:
 
 - `tools/` — general-purpose skills for ideas and knowledge.
+- `behavior/` — plugins for how agents behave together (`orchestrate`: pull and assign modes).
 - `model/tools/` — skills about working with the model and prose itself.
 - `engineering/` — system design; `engineering/swe/` code-level skills; `engineering/ci/` CI and
   pipeline skills.

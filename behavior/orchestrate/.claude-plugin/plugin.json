@@ -1,0 +1,5 @@
+{
+  "name": "orchestrate",
+  "version": "2.0.0",
+  "description": "Coordinate several agents on one shared goal through a shared work board: orchestrate:pull (alias swarm, peer-to-peer) and orchestrate:assign (alias direct, thin dispatcher), with shared claim/lease/reap mechanics, charter, escalation ladder and role cards."
+}

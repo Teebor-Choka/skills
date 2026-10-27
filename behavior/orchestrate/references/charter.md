@@ -22,7 +22,7 @@ An agent that meets a case the charter does not cover escalates. It does not gue
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Goal                 | One paragraph: what done means for the whole run.                                                                                                                                                                  |
 | Specification        | Five categories: valid inputs, expected outputs, failure definition, performance or scale, dependency behaviour. A blank category is a decision nobody approved. Out of scope, with reasons.                       |
-| Mode                 | `assign` or `pull`, one per run (see `SKILL.md`).                                                                                                                                                                  |
+| Mode                 | `assign` or `pull`, one per run (see `mechanics.md`).                                                                                                                                                              |
 | Board                | Board backend and how to reach it. Default: the policy key `work.tracker`. Override it when the run needs its own board (for example beads for the run while the repo tracker is GitHub). See `bindings/beads.md`. |
 | Roles                | Per role: name, count, model tier, skills to load, pull set (states it may take), write scope. An empty skills list means the agent chooses fitting skills and notes them on the item.                             |
 | States               | The state names, allowed transitions, and which role performs each.                                                                                                                                                |
@@ -45,7 +45,7 @@ An agent that meets a case the charter does not cover escalates. It does not gue
 Put this in every agent's brief, with values filled in:
 
 ```
-Load skill `orchestrate`, role `<role>`, mode `<assign|pull>`. Charter: <path>. Board: <binding and reference>.
+Load skill `orchestrate:<pull|assign>`, role `<role>`. Charter: <path>. Board: <binding and reference>.
 Agent id: <unique id>. Read and write the board directly. Do not relay through the dispatcher.
 ```
 
