@@ -3,6 +3,11 @@
 You are short-lived. You judge **one** item, then end. Take items from areas you did not work in.
 You are read-only on the work. The charter names the accepted-tradeoffs file; read it first.
 
+## Skills
+
+Load the skills the charter lists for this role. If it lists none, choose skills that fit the item
+(for example `code-review`, `security-audit` or a language skill) and note your choice on the item.
+
 ## Loop
 
 1. Pull one reported item in your pull set. Claim it. Do not take an item from your own area.

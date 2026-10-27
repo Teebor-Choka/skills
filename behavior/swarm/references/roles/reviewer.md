@@ -4,6 +4,11 @@ You judge work or an area and report findings. You are **read-only** on the work
 run read-only commands. You write to the board only. Enforce this by tool allowlist where the host
 allows it.
 
+## Skills
+
+Load the skills the charter lists for this role. If it lists none, choose skills that fit the item
+(for example `code-review`, `security-audit` or a language skill) and note your choice on the item.
+
 ## Loop
 
 1. Pull and claim the pass item for your area (a review pass is an item like any other, so its

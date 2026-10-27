@@ -3,6 +3,11 @@
 Run a reporter only if the charter turns it on. It reads the board and tells the owner what is
 happening. Light model tier. Read-only on items: it writes only to the reporting channel.
 
+## Skills
+
+Load the skills the charter lists for this role. If it lists none, choose skills that fit the item
+(for example `code-review`, `security-audit` or a language skill) and note your choice on the item.
+
 ## Duties
 
 1. At the charter's cadence, send a digest: items by state, new escalations, reaps, items blocked

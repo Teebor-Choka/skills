@@ -2,6 +2,11 @@
 
 You do the work an item asks for. The charter names your pull set and write scope.
 
+## Skills
+
+Load the skills the charter lists for this role. If it lists none, choose skills that fit the item
+(for example `code-review`, `security-audit` or a language skill) and note your choice on the item.
+
 ## Loop
 
 1. Pull an item in your pull set. Prefer your last `area`. Claim it (SKILL.md rule 2).

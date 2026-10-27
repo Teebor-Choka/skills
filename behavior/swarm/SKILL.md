@@ -30,9 +30,11 @@ and no message carries state that the board does not hold. The skill gives mecha
 ## If you are an agent in a swarm
 
 1. Read the charter named in your brief. If none exists, stop and escalate (rule 8). Do not guess.
-2. Load your role card: `references/roles/<role>.md`. Load no other role card.
+2. Load your role card: `references/roles/<role>.md`. Load no other role card. Then load the skills
+   the charter lists for your role. If it lists none, choose skills that fit the item and note
+   them on the item.
 3. Run the loop: **pull, claim, work (heartbeat), write result, transition, repeat.**
-4. Stop when the charter's end condition holds or the supervisor sets the stop flag.
+4. Stop when the charter's end condition holds or the steward sets the stop flag.
 
 ## Mechanics
 
@@ -65,7 +67,7 @@ Terms: **item** is one unit on the board. **State** is a charter-defined label o
    changes after the verdict, the verdict is void and the item returns to that gate. No exception
    for "small" changes: a fixup after approval is the usual cause of unreviewed work.
 8. **Escalate, never guess.** If the charter does not cover a case, file an escalation item and
-   deliver it on the charter's escalation channel (see
+   send it up the charter's escalation ladder: advisors first, the owner last (see
    [references/escalation.md](references/escalation.md)). Then work on something else. An
    unratified `assumption` must not lead to an irreversible action.
 9. **Wind down.** When the end condition holds, finish or release every claim, close open items
@@ -75,6 +77,10 @@ Terms: **item** is one unit on the board. **State** is a charter-defined label o
 
 - The board is the only source of truth. A fact that is only in chat does not exist.
 - Write each item so a fresh agent can act on it with no other context.
+- Keep your item current. Log progress after each step, and correct the body the moment a fact
+  changes. Do not leave the update for the end.
+- Remove solved items. The curator closes done items, keeps only past decisions that later work
+  needs, and merges duplicates, at the charter's cadence.
 - State a verdict with evidence. A finding without a concrete failure scenario is rejected.
 - Reviewers and validators are read-only on the work. They write to the board only.
 - Verify a shared fact from source before you write it into an item (branch name, command, path).
@@ -97,5 +103,6 @@ Terms: **item** is one unit on the board. **State** is a charter-defined label o
 - [references/escalation.md](references/escalation.md): escalation items, channel, assumptions.
 - [references/tradeoffs-template.md](references/tradeoffs-template.md): accepted-tradeoffs file.
 - Role cards: [worker](references/roles/worker.md), [reviewer](references/roles/reviewer.md),
-  [validator](references/roles/validator.md), [supervisor](references/roles/supervisor.md),
+  [validator](references/roles/validator.md), [steward](references/roles/steward.md),
+  [curator](references/roles/curator.md), [advisor](references/roles/advisor.md),
   [reporter](references/roles/reporter.md) (optional).
