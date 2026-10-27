@@ -15,6 +15,14 @@ cross-agent model. Each category has its own README with fuller blurbs.
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | [forge-idea](./tools/forge-idea/SKILL.md) | Forge a rough idea into a viable one by fanning out parallel agents to stress-test and prune branches |
 | [llm-wiki](./tools/llm-wiki/SKILL.md)     | Build, grow, and query a linked Markdown knowledge wiki an LLM can navigate                           |
+| [decompose](./tools/decompose/SKILL.md)   | Cut a goal into parallel units, check the cut with graph-engine, file the items                       |
+
+### behavior — [details](./behavior/README.md)
+
+| Skill                                                                              | Description                                                                       |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| [orchestrate:pull](./behavior/orchestrate/skills/pull/SKILL.md) (alias swarm)      | Peer-to-peer swarm: agents pull items from a shared board, no dispatcher relay    |
+| [orchestrate:assign](./behavior/orchestrate/skills/assign/SKILL.md) (alias direct) | Thin dispatcher hands known, disjoint units to workers; leases instead of polling |
 
 ### model/tools — [details](./model/tools/README.md)
 
@@ -75,6 +83,9 @@ Skills are grouped into thematic categories for source organization. The groupin
 tools/
   forge-idea/           # skill: forge-idea
   llm-wiki/             # skill: llm-wiki
+  decompose/            # skill: decompose
+behavior/
+  orchestrate/          # plugin: orchestrate — skills pull + assign, shared references/
 model/tools/
   unslop/               # skill: unslop
   agent-extension-author/        # skill: agent-extension-author — references/platforms + validate_skill.py

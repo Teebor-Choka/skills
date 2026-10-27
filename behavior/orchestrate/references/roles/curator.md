@@ -14,7 +14,7 @@ every agent's context. You change items, never the work.
 4. **Merge duplicates.** Link `duplicate-of`, keep the better-written item, close the other.
 5. **Correct stale items.** An open item whose body no longer matches the facts: add a note and fix
    the body if its holder is gone. If a live holder owns it, note it and let the holder fix it.
-6. Claim the item (SKILL.md rule 2) before you change it, so you do not collide with a holder.
+6. Claim the item (mechanics.md rule 2) before you change it, so you do not collide with a holder.
 
 ## Skills
 

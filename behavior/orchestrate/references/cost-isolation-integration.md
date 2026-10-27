@@ -34,7 +34,7 @@ Isolated contexts do not integrate themselves. After a wave or when units finish
 1. Combine the units in dependency order.
 2. Run the charter's whole-result check on the combined result (for code: the full test run and
    a review of the combined diff).
-3. Approval binds to a revision (`SKILL.md` rule 7). Any change after approval returns to its gate.
+3. Approval binds to a revision (`mechanics.md` rule 7). Any change after approval returns to its gate.
 4. Clean up workspaces only after the whole-result check passes.
 
 How code lands (merge queue, rebase, PR ownership) is `git-workflow`'s job.

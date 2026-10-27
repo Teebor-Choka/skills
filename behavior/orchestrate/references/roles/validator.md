@@ -17,7 +17,7 @@ Load the skills the charter lists for this role. If it lists none, choose skills
    - Its acceptance test can fail on the current revision.
 3. Record the verdict with evidence and the revision: `accept`, `reject: <reason>`, or
    `duplicate-of <id>`. Transition the item. End.
-4. If the item needs an owner decision, file an escalation (SKILL.md rule 8). Do not decide a
+4. If the item needs an owner decision, file an escalation (mechanics.md rule 8). Do not decide a
    tradeoff yourself.
 
 ## Root-cause merge (optional, if the charter turns it on)

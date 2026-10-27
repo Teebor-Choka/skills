@@ -1,26 +1,8 @@
----
-name: orchestrate
-description: >-
-  Coordinate several agents on one shared goal through a shared work board, for code or non-code
-  work. Gives the common mechanics (atomic claim, heartbeat lease, reaping silent claims, hand-off by
-  writing to the item, approvals pinned to a revision, an escalation ladder ending at the owner) and
-  two lazy-loaded modes: assign (a thin dispatcher hands known units to workers) and pull (a
-  peer-to-peer swarm claims emergent items, with no dispatcher relay). Process (roles, states, gates)
-  comes from an owner-approved charter. Load it when you spawn or join a multi-agent run ("load skill
-  orchestrate, role X, mode Y"), when you would otherwise poll or relay between agents by hand, or to
-  set up a fleet, dispatcher, swarm or p2p run. Not for one item or sequential work (just do it), for
-  cutting work into units (use decompose), or for git and PR mechanics (use git-workflow).
-license: MIT
-compatibility: any
-metadata:
-  version: "2.0.0"
----
-
-# orchestrate: shared board, lease mechanics, two modes
+# Mechanics: shared board, leases, escalation (both modes)
 
 A shared **board** holds all state. Agents read and write it directly. No agent relays for another,
 and no message carries state the board does not hold. The charter
-([references/charter.md](references/charter.md)) gives the process. This skill gives the mechanics.
+([charter.md](charter.md)) gives the process. This skill gives the mechanics.
 
 ## When it fits
 
@@ -30,19 +12,19 @@ operator that is rare: one item or sequential work needs no run. Cut the work in
 
 ## Pick a mode
 
-The charter sets one mode per run. Load only that mode's file.
+The charter sets one mode per run. Each mode is its own skill. Load only that one.
 
-| Work shape                                                             | Mode       | Load                                          |
-| ---------------------------------------------------------------------- | ---------- | --------------------------------------------- |
-| Units known up front, write-sets disjoint, each finishes alone         | **assign** | [modes/assign.md](references/modes/assign.md) |
-| Work spawns work, review loops, many agents on one interacting surface | **pull**   | [modes/pull.md](references/modes/pull.md)     |
+| Work shape                                                             | Mode (alias)        | Skill                |
+| ---------------------------------------------------------------------- | ------------------- | -------------------- |
+| Units known up front, write-sets disjoint, each finishes alone         | **assign** (direct) | `orchestrate:assign` |
+| Work spawns work, review loops, many agents on one interacting surface | **pull** (swarm)    | `orchestrate:pull`   |
 
 Unsure: start with assign. Move to pull when you relay a message by hand twice.
 
 ## If you are an agent in a run
 
 1. Read the charter named in your brief. If none exists, stop and escalate (rule 8). Do not guess.
-2. Load your role card: `references/roles/<role>.md`. Load no other role card. Then load the skills
+2. Load your role card: `roles/<role>.md`. Load no other role card. Then load the skills
    the charter lists for your role. If it lists none, choose skills that fit the item and note
    them on the item.
 3. Run the loop: **get an item, work (heartbeat), write the result, transition, repeat.**
@@ -52,7 +34,7 @@ Unsure: start with assign. Move to pull when you relay a message by hand twice.
 
 Terms: **item** is one unit on the board. **State** is a charter-defined label. **Holder** is the
 agent that claimed it. **Revision** is the version identifier of the work (commit SHA, document
-version, content hash). Item fields and verbs: [references/board.md](references/board.md).
+version, content hash). Item fields and verbs: [board.md](board.md).
 
 1. **Get an item.** Assign mode: the dispatcher claims the item for a named worker. Pull mode: the
    agent reaps stale claims, then takes an item in its pull set (prefer its last `area`).
@@ -81,7 +63,7 @@ version, content hash). Item fields and verbs: [references/board.md](references/
    for "small" changes: a fixup after approval is the usual cause of unreviewed work.
 8. **Escalate, never guess.** If the charter does not cover a case, file an escalation item and
    send it up the charter's escalation ladder: advisors first, the owner last (see
-   [references/escalation.md](references/escalation.md)). Then work on something else. An
+   [escalation.md](escalation.md)). Then work on something else. An
    unratified `assumption` must not lead to an irreversible action.
 9. **Wind down.** When the end condition holds, finish or release every claim, close open items
    with a reason, and stop. A claim must not outlive the run.
@@ -94,9 +76,9 @@ version, content hash). Item fields and verbs: [references/board.md](references/
   changes. Do not leave the update for the end.
 - Remove solved items. The curator closes done items, keeps only past decisions that later work
   needs, and merges duplicates, at the charter's cadence.
-- Every return (finding, verdict, result) follows [references/return-contract.md](references/return-contract.md).
-- Read-only roles stay read-only: [references/readonly-verify.md](references/readonly-verify.md).
-- Cost, workspace and integration: [references/cost-isolation-integration.md](references/cost-isolation-integration.md).
+- Every return (finding, verdict, result) follows [return-contract.md](return-contract.md).
+- Read-only roles stay read-only: [readonly-verify.md](readonly-verify.md).
+- Cost, workspace and integration: [cost-isolation-integration.md](cost-isolation-integration.md).
 - Verify a shared fact from source before you write it into an item (branch name, command, path).
 
 ## Anti-patterns from real runs
@@ -113,14 +95,14 @@ version, content hash). Item fields and verbs: [references/board.md](references/
 
 ## References
 
-- [charter.md](references/charter.md): what the owner defines before the run starts.
-- [board.md](references/board.md): item fields and tracker-neutral verbs.
-- [bindings/beads.md](references/bindings/beads.md): default binding to `bd`.
-- [escalation.md](references/escalation.md): the ladder, items, channel, assumptions.
-- [tradeoffs-template.md](references/tradeoffs-template.md): accepted-tradeoffs file.
-- [return-contract.md](references/return-contract.md), [readonly-verify.md](references/readonly-verify.md),
-  [cost-isolation-integration.md](references/cost-isolation-integration.md).
-- Role cards: [worker](references/roles/worker.md), [reviewer](references/roles/reviewer.md),
-  [validator](references/roles/validator.md), [steward](references/roles/steward.md),
-  [curator](references/roles/curator.md), [advisor](references/roles/advisor.md),
-  [reporter](references/roles/reporter.md) (optional).
+- [charter.md](charter.md): what the owner defines before the run starts.
+- [board.md](board.md): item fields and tracker-neutral verbs.
+- [bindings/beads.md](bindings/beads.md): default binding to `bd`.
+- [escalation.md](escalation.md): the ladder, items, channel, assumptions.
+- [tradeoffs-template.md](tradeoffs-template.md): accepted-tradeoffs file.
+- [return-contract.md](return-contract.md), [readonly-verify.md](readonly-verify.md),
+  [cost-isolation-integration.md](cost-isolation-integration.md).
+- Role cards: [worker](roles/worker.md), [reviewer](roles/reviewer.md),
+  [validator](roles/validator.md), [steward](roles/steward.md),
+  [curator](roles/curator.md), [advisor](roles/advisor.md),
+  [reporter](roles/reporter.md) (optional).
