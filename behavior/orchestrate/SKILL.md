@@ -28,6 +28,9 @@ just does. Parallelism is not free; for a solo operator the token and integratio
 wall-clock win, so reach for a fleet only when the seam is real (the `graph-engine` skill divides the
 work and says the same).
 
+Many agents on one interacting surface, where work spawns more work and review loops need hand-offs
+between peers, are a different shape: use the `swarm` skill (shared board, leases, no relay).
+
 ## Tiers: run the cheap work cheap
 
 Tier names map to models in the host config (see the model-tier guidance); the point is the routing, not
