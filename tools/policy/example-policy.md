@@ -10,6 +10,7 @@ practices: # injected at the level they belong to
   task: TDD
 work: # where work items / packages land; read dotted, e.g. work.tracker
   tracker: github # github | gitlab | jira | beads | none (a binding resolves the verbs)
+  isolation: worktree # worktree | branch | none — workspace per parallel writer
 ramble: # per-skill section: overrides the global key for `ramble` only
   interaction: dialog
 files: # per-file overrides: most specific matching glob wins
@@ -34,6 +35,9 @@ process constant here, never baked into a skill.
 - **work.tracker** — where work items and architect packages are filed; a binding maps the abstract
   verbs (file item, checks, integrate) to the named tool. Read dotted (`work.tracker`); unset and
   inside a GitHub repo with `gh`, the suite defaults to `github`, else `none` (no tracker).
+- **work.isolation** — the workspace each parallel writer gets: `worktree`, `branch` or `none`
+  (read-only roles need none). Read dotted (`work.isolation`); unset, parallel writers default to
+  `worktree`. A run's charter may override it.
 - **files** — per-file overrides keyed by path glob (not a policy file per directory). A skill acting
   on a file gets the most specific matching glob; here Rust files gate on tests and docs are drafted in
   dialog.

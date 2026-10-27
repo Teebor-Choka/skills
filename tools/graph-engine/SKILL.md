@@ -7,8 +7,8 @@ metadata:
 ---
 
 Reach for this when work is genuinely parallel — several components with **disjoint write-sets**, where
-wall-clock actually matters — and you want the division. It ships the engine; the `architect` skill
-uses it lazily at its full-tier graph step rather than bundling its own copy.
+wall-clock actually matters — and you want the division. It ships the engine; the `decompose` skill
+and the `architect` skill use it rather than bundling their own copy.
 
 ## Use it
 

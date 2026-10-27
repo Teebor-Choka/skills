@@ -1,6 +1,10 @@
 # Board contract
 
-A binding is valid if it can do every verb below. `beads.md` maps them to `bd`.
+The board is a tracker. Which one: the charter's `board` field, else the policy key `work.tracker`
+(read through the `policy` skill; `github`, `gitlab`, `jira`, `beads`, `none`). A binding maps the
+verbs below to the tool. `file` and `link` are the same verbs `architect/references/filing.md`
+uses; `claim`, `heartbeat`, `release`, `note`, `transition` and `close` are the run's additions.
+A binding is valid if it can do every verb. `bindings/beads.md` maps them to `bd`.
 
 ## Item fields
 
