@@ -172,7 +172,9 @@
                   # own absence surfacing first). Found by isolating this
                   # exact case in a minimal reproduction.
                   pkgs.stdenv.cc
-                  pkgs.cargo-llvm-cov
+                  # nixpkgs 02c087f: its own checkPhase SIGSEGVs (14 of 22 tests)
+                  # in the Linux sandbox; the suite here exercises the binary.
+                  (pkgs.cargo-llvm-cov.overrideAttrs { doCheck = false; })
                   pkgs.cargo-public-api
                   pkgs.cargo-modules
                   pkgs.llvm
