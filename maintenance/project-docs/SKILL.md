@@ -3,15 +3,14 @@ name: project-docs
 description: >
   Give a project a standard, enforceable docs/ structure: an overview, an optional deep spec, and
   ADR decision records, plus an AGENTS.md pointer, with diagrams at the right levels. A project is
-  any coherent unit of work, a code repo, a subproject, or an infra/research/strategy effort, not
-  only a codebase. Use whenever someone wants to document a project or repo, set up or standardize
-  its docs/, write or backfill an overview, an ADR, or a spec, make docs consistent across many
-  projects, add an AGENTS.md pointer, or check that a project's docs conform. Catches phrasings like
-  "document this project", "write the overview and ADRs", "standardize our docs", "add diagrams to
-  the docs", "is this documented". It authors the content (delegating ADR and spec-test discipline
-  to architect, prose under strict de-slop) and ships a validator to keep it conformant. Not for API
-  docs generated from code, prose polishing alone (unslop, prose-craft), or designing a system that
-  does not exist yet (architect).
+  any coherent unit of work (a code repo, a subproject, or an infra/research/strategy effort). Use
+  whenever someone wants to document a project, set up or standardize its docs/, write or backfill
+  an overview, ADR, or spec, add an AGENTS.md pointer, or check that docs conform. Catches
+  "document this project", "update project documentation", "improve project documentation", "is
+  this documented", including the documentation step at the end of a build or change. It authors
+  the content (ADR and spec-test discipline from architect, prose under strict de-slop) and ships a
+  validator. Not for API docs generated from code, prose polishing alone (unslop, prose-craft), or
+  designing a system that does not exist yet (architect).
 license: MIT
 compatibility: any
 metadata:
