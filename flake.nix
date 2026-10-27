@@ -3,6 +3,12 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Rust toolchain for the `tests` check, pinned at the last rev with rustc 1.98.1.
+    # rustc 1.99 (nixpkgs 02c087f+) is built with LLVM 21 but its profiler runtime
+    # expects LLVM 23's raw profile format, so every coverage-instrumented binary
+    # SIGSEGVs at exit. Drop once NixOS/nixpkgs#578990 lands and cargo-llvm-cov is
+    # updated, and use `nixpkgs` for these again.
+    nixpkgs-rust.url = "github:NixOS/nixpkgs/55bfb4d7437bd4e09ab7cba58a43bd68eb310044";
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -18,6 +24,7 @@
     {
       self,
       nixpkgs,
+      nixpkgs-rust,
       treefmt-nix,
       flake-utils,
       git-hooks,
@@ -26,6 +33,7 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        rustPkgs = nixpkgs-rust.legacyPackages.${system};
         py = pkgs.python3.withPackages (ps: [
           ps.pyyaml
           ps.pytest
@@ -161,8 +169,8 @@
             pkgs.runCommand "tests"
               {
                 nativeBuildInputs = [
-                  pkgs.cargo
-                  pkgs.rustc
+                  rustPkgs.cargo
+                  rustPkgs.rustc
                   # `cargo build` alone never needs a C linker (a library
                   # target's final output is an internal .rlib), but `cargo
                   # test`/`cargo llvm-cov` link a real executable and do --
@@ -172,12 +180,10 @@
                   # own absence surfacing first). Found by isolating this
                   # exact case in a minimal reproduction.
                   pkgs.stdenv.cc
-                  # nixpkgs 02c087f: its own checkPhase SIGSEGVs (14 of 22 tests)
-                  # in the Linux sandbox; the suite here exercises the binary.
-                  (pkgs.cargo-llvm-cov.overrideAttrs { doCheck = false; })
+                  rustPkgs.cargo-llvm-cov
                   pkgs.cargo-public-api
                   pkgs.cargo-modules
-                  pkgs.llvm
+                  rustPkgs.llvm
                   pkgs.rust-code-analysis
                   pkgs.git
                   pkgs.jq
@@ -200,8 +206,8 @@
               ''
                 export HOME="$TMPDIR"
                 export CARGO_HOME="$TMPDIR/cargo-home"
-                export LLVM_COV="${pkgs.llvm}/bin/llvm-cov"
-                export LLVM_PROFDATA="${pkgs.llvm}/bin/llvm-profdata"
+                export LLVM_COV="${rustPkgs.llvm}/bin/llvm-cov"
+                export LLVM_PROFDATA="${rustPkgs.llvm}/bin/llvm-profdata"
 
                 # Some suites' assets/*.sh use `#!/usr/bin/env bash` shebangs,
                 # fine on a normal system but unresolvable as-is on Linux's Nix
