@@ -152,3 +152,47 @@ def test_null_message_and_malformed_lines_do_not_crash(tmp_path):
     ]))
     r = scan.score_session(str(p))
     assert r["signals"]["errors"] == 1  # survived the bad lines, still scored the good one
+
+
+# --- error signal precision ---------------------------------------------------
+
+def asst_bash(use_id, command):
+    return {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": use_id, "name": "Bash", "input": {"command": command}}]}}
+
+
+def result_for(use_id, text):
+    return {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": use_id, "content": text}]}}
+
+
+def test_error_word_inside_a_diff_dump_is_not_an_error(tmp_path):
+    dump = "- model: old\n+ model: new\n" + "context line mentioning error handling\n" * 40
+    rows = [asst_bash("t1", "git diff"), result_for("t1", dump)]
+    r = scan.score_session(write(tmp_path, rows))
+    assert r["signals"]["errors"] == 0
+
+
+def test_error_word_inside_a_long_command_output_is_not_an_error(tmp_path):
+    out = "Updated expert X\n" + "note: error budget unchanged\n" * 40
+    rows = [asst_bash("t1", "just apply hopr"), result_for("t1", out)]
+    r = scan.score_session(write(tmp_path, rows))
+    assert r["signals"]["errors"] == 0
+
+
+@pytest.mark.parametrize("text", [
+    "Exit code 1\nsomething broke",
+    "PreToolUse:Bash hook error: git-guard: blocked",
+    "zsh: command not found: foo",
+    "fatal: not a git repository",
+])
+def test_line_anchored_failure_markers_count_even_for_read_commands(tmp_path, text):
+    rows = [asst_bash("t1", "cat file"), result_for("t1", text)]
+    r = scan.score_session(write(tmp_path, rows))
+    assert r["signals"]["errors"] == 1
+
+
+def test_short_loose_error_still_counts_for_a_normal_command(tmp_path):
+    rows = [asst_bash("t1", "make build"), result_for("t1", "build failed in step 2")]
+    r = scan.score_session(write(tmp_path, rows))
+    assert r["signals"]["errors"] == 1
