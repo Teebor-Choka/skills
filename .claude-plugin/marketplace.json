@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills — practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "1.16.0"
+    "version": "1.17.0"
   },
   "plugins": [
     {
@@ -131,6 +131,78 @@
       "description": "Cut a goal into units that agents can work on in parallel (seams, write-sets, acceptance tests, tiers), check the cut with the graph-engine, and file the units as work items in dependency order.",
       "source": "./",
       "skills": ["./tools/decompose"],
+      "metadata": {
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "dep-pr-triage",
+      "description": "Triage open Dependabot and Renovate PRs across orgs: classify each red check, apply the mechanical fix on the PR branch, push, re-check. Never merges or approves.",
+      "source": "./",
+      "skills": ["./engineering/ci/dep-pr-triage"],
+      "metadata": {
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "graph-engine",
+      "description": "Work-division engine: from units with dependencies and write-sets, compute collision-free parallel waves, the critical path, and barriers.",
+      "source": "./",
+      "skills": ["./tools/graph-engine"],
+      "metadata": {
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "grounded-research",
+      "description": "Research a question under a fixed evidence contract: primary sources first, every claim cited with URL and date, fact kept apart from hearsay.",
+      "source": "./",
+      "skills": ["./tools/grounded-research"],
+      "metadata": {
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "policy",
+      "description": "The shared .agents/policy format and loader: layered (global plus per-repo), open, with a basic default.",
+      "source": "./",
+      "skills": ["./tools/policy"],
+      "metadata": {
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "ramble",
+      "description": "Turn a rough idea into an aligned, gap-closed brief for the architect through a relentless grilling interview.",
+      "source": "./",
+      "skills": ["./tools/ramble"],
+      "metadata": {
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "review-gauntlet",
+      "description": "Run a block of build work through red-first roles and a read-only four-angle review gauntlet that reports findings without editing.",
+      "source": "./",
+      "skills": ["./engineering/swe/review-gauntlet"],
+      "metadata": {
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "session-retrospective",
+      "description": "Mine agent sessions for the moments the agent struggled, then propose fixes to the skills, environment, and workflows it used.",
+      "source": "./",
+      "skills": ["./model/tools/session-retrospective"],
+      "metadata": {
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "typescript-engineer",
+      "description": "Enforce TypeScript and JavaScript code quality and house guidelines on every TS/JS change.",
+      "source": "./",
+      "skills": ["./engineering/swe/typescript-engineer"],
       "metadata": {
         "version": "1.0.0"
       }

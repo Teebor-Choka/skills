@@ -11,11 +11,15 @@ cross-agent model. Each category has its own README with fuller blurbs.
 
 ### tools — [details](./tools/README.md)
 
-| Skill                                     | Description                                                                                           |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| [forge-idea](./tools/forge-idea/SKILL.md) | Forge a rough idea into a viable one by fanning out parallel agents to stress-test and prune branches |
-| [llm-wiki](./tools/llm-wiki/SKILL.md)     | Build, grow, and query a linked Markdown knowledge wiki an LLM can navigate                           |
-| [decompose](./tools/decompose/SKILL.md)   | Cut a goal into parallel units, check the cut with graph-engine, file the items                       |
+| Skill                                                   | Description                                                                                                                                    |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| [forge-idea](./tools/forge-idea/SKILL.md)               | Forge a rough idea into a viable one by fanning out parallel agents to stress-test and prune branches                                          |
+| [llm-wiki](./tools/llm-wiki/SKILL.md)                   | Build, grow, and query a linked Markdown knowledge wiki an LLM can navigate                                                                    |
+| [decompose](./tools/decompose/SKILL.md)                 | Cut a goal into parallel units, check the cut with graph-engine, file the items                                                                |
+| [graph-engine](./tools/graph-engine/SKILL.md)           | Work-division engine: from units with dependencies and write-sets, compute collision-free parallel waves, the critical path, and barriers.     |
+| [grounded-research](./tools/grounded-research/SKILL.md) | Research a question under a fixed evidence contract: primary sources first, every claim cited with URL and date, fact kept apart from hearsay. |
+| [policy](./tools/policy/SKILL.md)                       | The shared .agents/policy format and loader: layered (global plus per-repo), open, with a basic default.                                       |
+| [ramble](./tools/ramble/SKILL.md)                       | Turn a rough idea into an aligned, gap-closed brief for the architect through a relentless grilling interview.                                 |
 
 ### behavior — [details](./behavior/README.md)
 
@@ -26,11 +30,12 @@ cross-agent model. Each category has its own README with fuller blurbs.
 
 ### model/tools — [details](./model/tools/README.md)
 
-| Skill                                                                   | Description                                                                                   |
-| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| [prose-craft](./model/tools/prose-craft/SKILL.md)                       | Compose or revise clear, well-architected prose (Strunk & White + Pinker)                     |
-| [unslop](./model/tools/unslop/SKILL.md)                                 | Edit prose to remove AI tells and restore a plain, human voice                                |
-| [agent-extension-author](./model/tools/agent-extension-author/SKILL.md) | Author, port, and harden skills and plugins across Claude Code, Codex, OpenCode, and oh-my-pi |
+| Skill                                                                   | Description                                                                                                                    |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| [prose-craft](./model/tools/prose-craft/SKILL.md)                       | Compose or revise clear, well-architected prose (Strunk & White + Pinker)                                                      |
+| [unslop](./model/tools/unslop/SKILL.md)                                 | Edit prose to remove AI tells and restore a plain, human voice                                                                 |
+| [agent-extension-author](./model/tools/agent-extension-author/SKILL.md) | Author, port, and harden skills and plugins across Claude Code, Codex, OpenCode, and oh-my-pi                                  |
+| [session-retrospective](./model/tools/session-retrospective/SKILL.md)   | Mine agent sessions for the moments the agent struggled, then propose fixes to the skills, environment, and workflows it used. |
 
 ### engineering — [details](./engineering/README.md)
 
@@ -40,16 +45,19 @@ cross-agent model. Each category has its own README with fuller blurbs.
 
 ### engineering/swe — [details](./engineering/swe/README.md)
 
-| Skill                                                     | Description                                                                                   |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| [rust-engineer](./engineering/swe/rust-engineer/SKILL.md) | Enforce Rust house guidelines while writing or reviewing Rust                                 |
-| [code-quality](./engineering/swe/code-quality/SKILL.md)   | Audit code risk from complexity/coverage/duplication metrics + comment quality (reports only) |
+| Skill                                                                 | Description                                                                                                                         |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [rust-engineer](./engineering/swe/rust-engineer/SKILL.md)             | Enforce Rust house guidelines while writing or reviewing Rust                                                                       |
+| [code-quality](./engineering/swe/code-quality/SKILL.md)               | Audit code risk from complexity/coverage/duplication metrics + comment quality (reports only)                                       |
+| [review-gauntlet](./engineering/swe/review-gauntlet/SKILL.md)         | Run a block of build work through red-first roles and a read-only four-angle review gauntlet that reports findings without editing. |
+| [typescript-engineer](./engineering/swe/typescript-engineer/SKILL.md) | Enforce TypeScript and JavaScript code quality and house guidelines on every TS/JS change.                                          |
 
 ### engineering/ci — [details](./engineering/ci/README.md)
 
-| Skill                                                      | Description                                            |
-| ---------------------------------------------------------- | ------------------------------------------------------ |
-| [github-actions](./engineering/ci/github-actions/SKILL.md) | Harden GitHub Actions workflows and configure Renovate |
+| Skill                                                      | Description                                                                                                                                                        |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [github-actions](./engineering/ci/github-actions/SKILL.md) | Harden GitHub Actions workflows and configure Renovate                                                                                                             |
+| [dep-pr-triage](./engineering/ci/dep-pr-triage/SKILL.md)   | Triage open Dependabot and Renovate PRs across orgs: classify each red check, apply the mechanical fix on the PR branch, push, re-check. Never merges or approves. |
 
 ### maintenance — [details](./maintenance/README.md)
 
