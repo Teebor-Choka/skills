@@ -52,6 +52,23 @@ ERROR_RE = re.compile(
     r"panicked|exception|cannot|unable to)\b",
     re.I,
 )
+# Tool results of calls that print file or diff content: an error word inside
+# the dump is data, not a failed call.
+READ_TOOLS = {"Read", "Grep", "Glob", "WebFetch", "WebSearch"}
+READ_CMD_RE = re.compile(
+    r"^\s*(cat|head|tail|sed\s+-n|grep|rg|diff|ls|find|"
+    r"git\s+(--no-pager\s+)?(diff|show|log|status)|just\s+diff|"
+    r"gh\s+(pr|issue)\s+(view|diff|list))\b"
+)
+# Markers that the call itself failed, anchored to a line start so a dump that
+# only contains the word does not match.
+STRICT_ERROR_RE = re.compile(
+    r"^(exit code [1-9]\d*|error[:\[ ]|fatal:|traceback \(most recent|"
+    r"<tool_use_error>|[^\n]*hook error:|[^\n]*: command not found|"
+    r"[^\n]*: no such file or directory|failed to |cannot )",
+    re.I | re.M,
+)
+SHORT_RESULT = 600  # the loose error lexicon counts only in a short result
 CORRECTION_RE = re.compile(
     # "no," / "no." stand alone: a trailing \b would never follow the punctuation.
     r"\bno[,.]|"
@@ -96,6 +113,17 @@ def is_tool_result(content):
     )
 
 
+def is_error_result(text, tool_name, command):
+    """True when a tool result shows the call itself failed."""
+    if STRICT_ERROR_RE.search(text):
+        return True
+    if tool_name in READ_TOOLS:
+        return False
+    if tool_name == "Bash" and READ_CMD_RE.search(command or ""):
+        return False
+    return len(text) <= SHORT_RESULT and bool(ERROR_RE.search(text))
+
+
 def is_injected(entry, raw_line):
     """True for a harness-injected user entry, not a genuine human turn."""
     return bool(entry.get("isMeta")) or INJECTED_RE.search(raw_line) is not None
@@ -117,6 +145,7 @@ def score_session(path):
     reads = {}       # revisit target (file / search / page) -> [count, first_line]
     cmds = {}        # command -> [count, first_line]
     tool_total = 0
+    tools = {}       # tool_use id -> (tool name, bash command)
     err_hits = []    # (line, excerpt)
     corr_hits = []   # (line, excerpt)
     seen_assistant = False  # a correction is a human turn that follows agent action
@@ -150,6 +179,7 @@ def score_session(path):
                         tool_total += 1
                         name = b.get("name")
                         inp = b.get("input", {}) or {}
+                        tools[b.get("id")] = (name, inp.get("command"))
                         target = revisit_target(name, inp)
                         if target:
                             bump(reads, target, ln)
@@ -159,7 +189,10 @@ def score_session(path):
             elif typ == "user":
                 if is_tool_result(content):
                     t = text_of(content)
-                    if ERROR_RE.search(t):
+                    use_id = next((b.get("tool_use_id") for b in content
+                                   if isinstance(b, dict) and b.get("type") == "tool_result"), None)
+                    name, command = tools.get(use_id, (None, None))
+                    if is_error_result(t, name, command):
                         err_hits.append((ln, excerpt(t)))
                 elif seen_assistant and not is_injected(o, raw):
                     t = text_of(content)
