@@ -24,4 +24,4 @@ Load the skills the charter lists for this role. If it lists none, choose skills
 - Test and integrate in one chained command. Integrate only a revision whose checks passed.
 - Edit shared derived files by hand (counts, generated indexes). Regenerate them.
 - Take a second item while you hold one.
-- Wait on another agent. If blocked, file or link the blocker and release or pause the item.
+- Wait on another agent. If blocked, file or link the blocker and release or pause the item, then take the next ready item in another worktree. Never ask the owner (pull skill, "Blocked").

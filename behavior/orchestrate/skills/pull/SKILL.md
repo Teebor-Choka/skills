@@ -17,6 +17,10 @@ metadata:
 
 # orchestrate:pull: peer-to-peer swarm
 
+Loaded as a plugin, this skill is `orchestrate:pull`. Copied or symlinked as a bare skill
+directory, the host knows it only as `pull` and `Skill orchestrate:pull` fails with "Unknown
+skill". If it fails, load `pull`.
+
 > **First read [`../../references/mechanics.md`](../../references/mechanics.md).** It defines the claim,
 > lease, reap, hand-off, escalation and wind-down rules this mode builds on, and how an agent in a
 > run loads its role card (`../../references/roles/`) and skills.
@@ -34,6 +38,25 @@ passes. The mechanics in `mechanics.md` apply unchanged; this file adds what is 
 3. Claim it (rule 2). If you lose the race, pull again.
 4. If no item matches, report `waiting for next item` on the board (a note on your last item, or
    the charter's idle marker) and re-check when the board changes. Do not poll on a short timer.
+
+## Blocked: never wait, never ask
+
+1. When you are blocked on a peer or a gate (CI, review, merge queue), release nothing you own.
+   Take the next ready item in another worktree.
+2. Escalate only through the charter's escalation label. Do not message the owner or a peer.
+3. When you are blocked on the owner, post once on the item, stop the loop and resume on a board
+   event. Do not schedule a repeated wakeup with the same prompt.
+4. When the owner's phrase is ambiguous, confirm the reading once and record it in the charter.
+
+## Claims and review
+
+- A push or PR-open for an item must refuse when another assignee or a live lease exists
+  (hook or check; the rule holds without it).
+- Review is an item. Claim it atomically and hold a lease, so two reviewers never cover the same
+  PR.
+- A handoff is a comment on the item (branch, worktree, state, next step, do-not-touch) plus a
+  `handoff` label. A new session runs `swarm-status` and does not message peers: list the items
+  with holder and heartbeat age, the open PRs per item, and the stale leases. Act on that list.
 
 ## Self-starting passes
 

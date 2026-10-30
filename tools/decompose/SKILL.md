@@ -52,11 +52,17 @@ and integration cost often beats the wall-clock gain. Cut only where the seam is
    charter's `board`, else the policy key `work.tracker`). File in dependency order so a blocker's
    id exists before the item that cites it. Each item carries its acceptance tests, a
    `blocks`/`blocked-by` summary taken from the graph, and a link back to the spec.
+   Mark an item that consumes another unit's output `blocked_by` that item. Never branch one
+   unit's work from another unit's branch: the stack re-conflicts on every merge below it.
 6. **Pick the mode.** Units known and disjoint, each finishing alone: `assign`. Units that spawn
    follow-on work or review loops: `pull`. Hand the filed board and the choice to `orchestrate:assign` or `orchestrate:pull`.
 
 ## Do not
 
+- Start more work on a branch cut before a restructure that is in flight. Rebase onto the
+  restructure first.
+- Create worktrees outside the one `<repo>-worktrees/` directory the run names (for example
+  `sandy-worktrees/`).
 - Split units that share a write-set to gain parallelism. Merge them or order them.
 - File a unit with no acceptance tests, or tests written only by the unit's implementer.
 - Hide a shared boundary. Where two units cannot be cleanly disjoint, say so in both items.
