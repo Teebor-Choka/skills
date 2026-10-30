@@ -15,7 +15,7 @@ description: >-
 license: MIT
 compatibility: any
 metadata:
-  version: "1.12.0"
+  version: "1.13.0"
 ---
 
 # Architect: self-contained, agent-executable architecture work packages
@@ -89,7 +89,8 @@ runs steps 0–4 and 7, skipping the graph and per-node briefs.
 0. **Assemble the current state first: research, don't recall.** Before judging size or writing
    anything, build a complete model of what exists today — breadth before depth, survey before you
    zoom to concepts. Establish scope: inside one repo, that is the scope; otherwise scan the current
-   directory and ask the user which repos to include and what constitutes the project unit. Then, with
+   directory and ask the user which repos to include and what constitutes the project unit. Put
+   "is backward compatibility required?" in that first scoping question; don't audit or design on an assumed answer. Then, with
    the code indexing MCP when one is connected (prefer a fresh index of the in-scope repos), assemble in this order: **(a)** pull the
    whole-system map and its de-facto module clusters — the big picture, not just the area you expect to
    touch; **(b)** walk every cluster and boundary, naming each subsystem with the node or file that
@@ -138,7 +139,8 @@ runs steps 0–4 and 7, skipping the graph and per-node briefs.
    module, then component, …), not only at the leaf. Group preconditions as Block 0; number blocks in
    execution order. Add an **escalation appendix** of off-the-shelf options. → _verify:_ every block
    has both test classes and a clear definition of done, and the acceptance covers each rung down to
-   the dialed depth.
+   the dialed depth. Before presenting any phase plan, list each component with its interface,
+   properties, and acceptance test, so the owner can check what a phase delivers.
 5. **Graph-engineer the blocks into a work-division graph.** This is the graph-engineering
    discipline: split the work into a shape a fleet can collaborate on, then hand off, don't oversee
    how they run it. Your only judgment calls are naming the nodes (one deliverable each), their true

@@ -42,6 +42,8 @@ locally.
 - On macOS, a nix devshell that provides `gnused` puts GNU `sed` on `PATH` ahead of the system
   BSD `sed`. When you specifically need BSD in-place behavior, call `/usr/bin/sed` explicitly —
   GNU and BSD `sed` disagree on `-i` syntax.
+- BSD-only flags (`date -v`, `stat -f`) fail on GNU/Linux paths (ws01, CI), and GNU-only flags fail on
+  macOS. Use a portable form, or branch on `uname`.
 
 ## Build traps
 
