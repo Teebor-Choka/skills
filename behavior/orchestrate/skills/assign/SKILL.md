@@ -17,6 +17,9 @@ metadata:
 
 # orchestrate:assign: thin dispatcher
 
+Loaded as a plugin, this skill is `orchestrate:assign`. Copied or symlinked as a bare skill
+directory, it is `assign`. If `Skill orchestrate:assign` fails with "Unknown skill", load `assign`.
+
 > **First read [`../../references/mechanics.md`](../../references/mechanics.md).** It defines the claim,
 > lease, reap, hand-off, escalation and wind-down rules this mode builds on, and how an agent in a
 > run loads its role card (`../../references/roles/`) and skills.
@@ -36,6 +39,8 @@ adds what is specific to assign.
 3. **Verify shared facts from source before you put them in a brief** (the default branch, a path,
    a command). A wrong fact handed to the whole fleet costs one correction per worker.
 4. **Put the spawn-brief line from the charter in every brief.**
+5. **Brief roles and authority as `mechanics.md` says** (one structured message, merge authority
+   explicit, delegated decisions).
 
 The dispatcher runs on the Light tier. A coordinator that reads large context and emits a few
 tokens per check is light work.
