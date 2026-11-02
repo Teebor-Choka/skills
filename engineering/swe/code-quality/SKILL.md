@@ -96,6 +96,10 @@ is one copy.
    `{discovery: {available, missing}, results: {"language:metric": {metric, language, unit, threshold, rows, summary}, ...}}`
    — parse it directly; there is no table or banner to strip. Metrics are labeled
    `language:metric` (e.g. `python:crap`) since two languages can share a metric name.
+   Two traps: a Rust workspace needs its root `Cargo.toml` (two member manifests both resolve to
+   `rust` and are refused), and run through `nix develop -c` the dev-shell banner shares stdout, so
+   redirect with `> out 2>&1` and cut from the first line that starts with `{`. Filter by file
+   with `jq` before reading: `rust:api` lists every public item of every library crate.
 5. **Spot-check the highest-scoring finding per metric** by reading the actual file/function
    — a threshold crossing is not a confirmed risk on its own. This is the verify stage of the
    audit shape above; scale it up to a skeptic subagent per finding via
