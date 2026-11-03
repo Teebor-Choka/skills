@@ -65,7 +65,7 @@
     },
     {
       "name": "swe",
-      "description": "Language skills enforced on every change: rust and typescript.",
+      "description": "Engineering practice skills: rust and typescript (house guidelines on every change) and performance (profile, optimize, benchmark).",
       "source": "./engineering/swe",
       "strict": true,
       "metadata": {
