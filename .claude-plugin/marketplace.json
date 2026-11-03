@@ -6,205 +6,124 @@
   },
   "metadata": {
     "description": "Public AI agent skills — practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "1.18.0"
+    "version": "2.0.0"
   },
   "plugins": [
     {
-      "name": "architect",
-      "description": "Turn a fuzzy systems/infra requirement into a self-contained, agent-executable architecture work package, then execute it, with scaffolding, a deterministic graph-engineering step, a completeness linter, and optional code-graph grounding.",
-      "source": "./",
-      "skills": ["./engineering/architect"],
-      "metadata": {
-        "version": "1.3.0"
-      }
-    },
-    {
-      "name": "prose-craft",
-      "description": "Compose or revise clear, well-architected prose grounded in Strunk & White's concision and Pinker's classic style, with optional voice matching.",
-      "source": "./",
-      "skills": ["./model/tools/prose-craft"],
-      "metadata": {
-        "version": "1.1.1"
-      }
-    },
-    {
-      "name": "forge-idea",
-      "description": "Forge rough ideas into viable ones through cooperative, research-driven iteration.",
-      "source": "./",
-      "skills": ["./tools/forge-idea"],
-      "metadata": {
-        "version": "1.1.0"
-      }
-    },
-    {
-      "name": "llm-wiki",
-      "description": "Create, maintain, and query a personal knowledge wiki designed for LLM navigation.",
-      "source": "./",
-      "skills": ["./tools/llm-wiki"],
-      "metadata": {
-        "version": "1.1.0"
-      }
-    },
-    {
-      "name": "rust-engineer",
-      "description": "Enforce Rust code quality and guidelines throughout Rust development.",
-      "source": "./",
-      "skills": ["./engineering/swe/rust-engineer"],
-      "metadata": {
-        "version": "1.2.0"
-      }
-    },
-    {
-      "name": "code-quality",
-      "description": "Audits code for risk using complexity, coverage, structural metrics, and comment quality instead of a line-by-line read.",
-      "source": "./",
-      "skills": ["./engineering/swe/code-quality"],
-      "metadata": {
-        "version": "1.2.0"
-      }
-    },
-    {
-      "name": "project-docs",
-      "description": "Give any project a standard, enforceable docs/ structure (overview, optional spec, ADRs) with diagrams and an AGENTS.md pointer, then validate it stays conformant.",
-      "source": "./",
-      "skills": ["./maintenance/project-docs"],
-      "metadata": {
-        "version": "1.0.0"
-      }
-    },
-    {
-      "name": "unslop",
-      "description": "Edit writing to remove AI tells and restore a plain, human voice — for docs, READMEs, commits, and posts.",
-      "source": "./",
-      "skills": ["./model/tools/unslop"],
-      "metadata": {
-        "version": "1.2.0"
-      }
-    },
-    {
-      "name": "agent-extension-author",
-      "description": "Author, port, and harden agent Skills (SKILL.md) across Claude Code, Codex, OpenCode, and oh-my-pi — with programmatic triggering, native plugin packaging, multi-agent workflows, and an eval harness.",
-      "source": "./",
-      "skills": ["./model/tools/agent-extension-author"],
-      "metadata": {
-        "version": "2.0.0"
-      }
-    },
-    {
-      "name": "nix",
-      "description": "Operate correctly inside Nix + direnv development repos — dev-shell entry, nix fmt over cargo fmt, the result-symlink and crane-rustflags build traps, and a lightweight pre-commit override.",
-      "source": "./",
-      "skills": ["./environment/nix"],
-      "metadata": {
-        "version": "1.1.0"
-      }
-    },
-    {
-      "name": "github-actions",
-      "description": "Harden GitHub Actions workflows and configure Renovate — template-injection prevention, SHA-pinned actions, scoped permissions, zizmor, and dependency-bot rules.",
-      "source": "./",
-      "skills": ["./engineering/ci/github-actions"],
-      "metadata": {
-        "version": "1.0.0"
-      }
-    },
-    {
-      "name": "find-ai-moat",
-      "description": "Interview one question at a time to find where your work complements AI versus where a model already does it, then give three concrete 30-day moves to widen the gap in your favor.",
-      "source": "./",
-      "skills": ["./model/tools/find-ai-moat"],
-      "metadata": {
-        "version": "0.1.0"
-      }
-    },
-    {
       "name": "orchestrate",
       "description": "Coordinate several agents on one shared goal through a shared work board: orchestrate:pull (alias swarm, peer-to-peer) and orchestrate:assign (alias direct, thin dispatcher), with shared claim/lease/reap mechanics, charter, escalation ladder and role cards.",
-      "source": "./behavior/orchestrate",
+      "source": "./agents/orchestrate",
       "strict": true,
       "metadata": {
         "version": "2.1.0"
       }
     },
     {
-      "name": "decompose",
-      "description": "Cut a goal into units that agents can work on in parallel (seams, write-sets, acceptance tests, tiers), check the cut with the graph-engine, and file the units as work items in dependency order.",
-      "source": "./",
-      "skills": ["./tools/decompose"],
+      "name": "find-ai-moat",
+      "description": "Interview one question at a time to find where your work complements AI versus where a model already does it, then give three concrete 30-day moves to widen the gap in your favor.",
+      "source": "./education/find-ai-moat",
+      "strict": true,
       "metadata": {
-        "version": "1.1.0"
+        "version": "0.1.0"
       }
     },
     {
       "name": "dep-pr-triage",
       "description": "Triage open Dependabot and Renovate PRs across orgs: classify each red check, apply the mechanical fix on the PR branch, push, re-check. Never merges or approves.",
-      "source": "./",
-      "skills": ["./engineering/ci/dep-pr-triage"],
+      "source": "./engineering/ci/dep-pr-triage",
+      "strict": true,
       "metadata": {
         "version": "1.0.0"
       }
     },
     {
-      "name": "graph-engine",
-      "description": "Work-division engine: from units with dependencies and write-sets, compute collision-free parallel waves, the critical path, and barriers.",
-      "source": "./",
-      "skills": ["./tools/graph-engine"],
+      "name": "github-actions",
+      "description": "Harden GitHub Actions workflows and configure Renovate — template-injection prevention, SHA-pinned actions, scoped permissions, zizmor, and dependency-bot rules.",
+      "source": "./engineering/ci/github-actions",
+      "strict": true,
       "metadata": {
         "version": "1.0.0"
+      }
+    },
+    {
+      "name": "design",
+      "description": "Design and plan before building: architect (work package), ramble (grill a rough idea into a brief), decompose (cut into parallel units), graph-engine (waves and critical path), policy (the .agents/policy loader), project-docs (standard docs/ with a validator).",
+      "source": "./engineering/design",
+      "strict": true,
+      "metadata": {
+        "version": "2.0.0"
+      }
+    },
+    {
+      "name": "review",
+      "description": "Read-only review: by-angle (red-first block loop plus four review angles) and code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass).",
+      "source": "./engineering/review",
+      "strict": true,
+      "metadata": {
+        "version": "2.0.0"
+      }
+    },
+    {
+      "name": "swe",
+      "description": "Language skills enforced on every change: rust and typescript.",
+      "source": "./engineering/swe",
+      "strict": true,
+      "metadata": {
+        "version": "2.0.0"
+      }
+    },
+    {
+      "name": "llm-wiki",
+      "description": "Create, maintain, and query a personal knowledge wiki designed for LLM navigation.",
+      "source": "./knowledge/llm-wiki",
+      "strict": true,
+      "metadata": {
+        "version": "1.1.0"
+      }
+    },
+    {
+      "name": "models",
+      "description": "Work with the model itself: extension-author (skills, plugins and hooks across Claude Code, Codex, OpenCode, oh-my-pi) and reflect (mine sessions for agent struggles and propose fixes).",
+      "source": "./models/models",
+      "strict": true,
+      "metadata": {
+        "version": "2.0.0"
+      }
+    },
+    {
+      "name": "forge-idea",
+      "description": "Forge rough ideas into viable ones through cooperative, research-driven iteration.",
+      "source": "./research/forge-idea",
+      "strict": true,
+      "metadata": {
+        "version": "1.1.0"
       }
     },
     {
       "name": "grounded-research",
       "description": "Research a question under a fixed evidence contract: primary sources first, every claim cited with URL and date, fact kept apart from hearsay.",
-      "source": "./",
-      "skills": ["./tools/grounded-research"],
+      "source": "./research/grounded-research",
+      "strict": true,
       "metadata": {
         "version": "1.0.0"
       }
     },
     {
-      "name": "policy",
-      "description": "The shared .agents/policy format and loader: layered (global plus per-repo), open, with a basic default.",
-      "source": "./",
-      "skills": ["./tools/policy"],
+      "name": "nix",
+      "description": "Operate correctly inside Nix + direnv development repos — dev-shell entry, nix fmt over cargo fmt, the result-symlink and crane-rustflags build traps, and a lightweight pre-commit override.",
+      "source": "./technology/nix",
+      "strict": true,
       "metadata": {
-        "version": "1.0.0"
+        "version": "1.1.0"
       }
     },
     {
-      "name": "ramble",
-      "description": "Turn a rough idea into an aligned, gap-closed brief for the architect through a relentless grilling interview.",
-      "source": "./",
-      "skills": ["./tools/ramble"],
+      "name": "writing",
+      "description": "Plain, human prose: unslop (remove AI tells) and prose-craft (compose and tighten).",
+      "source": "./writing/writing",
+      "strict": true,
       "metadata": {
-        "version": "1.0.0"
-      }
-    },
-    {
-      "name": "review-gauntlet",
-      "description": "Run a block of build work through red-first roles and a read-only four-angle review gauntlet that reports findings without editing.",
-      "source": "./",
-      "skills": ["./engineering/swe/review-gauntlet"],
-      "metadata": {
-        "version": "1.0.0"
-      }
-    },
-    {
-      "name": "session-retrospective",
-      "description": "Mine agent sessions for the moments the agent struggled, then propose fixes to the skills, environment, and workflows it used.",
-      "source": "./",
-      "skills": ["./model/tools/session-retrospective"],
-      "metadata": {
-        "version": "1.0.1"
-      }
-    },
-    {
-      "name": "typescript-engineer",
-      "description": "Enforce TypeScript and JavaScript code quality and house guidelines on every TS/JS change.",
-      "source": "./",
-      "skills": ["./engineering/swe/typescript-engineer"],
-      "metadata": {
-        "version": "1.0.0"
+        "version": "2.0.0"
       }
     }
   ],

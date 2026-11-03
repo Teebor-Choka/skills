@@ -1,0 +1,5 @@
+{
+  "name": "llm-wiki",
+  "version": "1.1.0",
+  "description": "Create, maintain, and query a personal knowledge wiki designed for LLM navigation."
+}

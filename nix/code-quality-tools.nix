@@ -1,6 +1,6 @@
-# Custom packages for engineering/swe/code-quality's integration test --
+# Custom packages for engineering/review/skills/code-quality's integration test --
 # tools required by that skill's own scripts that aren't in nixpkgs, pinned
-# to the exact versions verified against them. See engineering/swe/
+# to the exact versions verified against them. See engineering/review/skills/code-quality/
 # code-quality/references/{rust,python}.md for what each tool is used for.
 #
 # Only aarch64-darwin and x86_64-linux are supported (this flake's local
@@ -37,7 +37,7 @@ rec {
   # in a workspace, treating each crate as a "package" and each type
   # (struct/enum/trait/type) as a "class" -- traits are the abstract ones.
   # JSON is the default output. Static syn-AST + cargo_metadata analysis, no
-  # build/coverage step. See engineering/swe/code-quality/references/rust.md.
+  # build/coverage step. See engineering/review/skills/code-quality/references/rust.md.
   cargo-anatomy = pkgs.rustPlatform.buildRustPackage {
     pname = "cargo-anatomy";
     version = "0.7.7";
@@ -53,7 +53,7 @@ rec {
   # Mutation testing: rewrites each function/operator in turn, reruns the test
   # suite, and reports which mutants survived (a killed mutant = a test caught
   # the change). Machine-readable results land in mutants.out/outcomes.json.
-  # See engineering/swe/code-quality/references/rust.md.
+  # See engineering/review/skills/code-quality/references/rust.md.
   cargo-mutants = pkgs.rustPlatform.buildRustPackage {
     pname = "cargo-mutants";
     version = "27.1.0";
@@ -68,7 +68,7 @@ rec {
 
   # Finds unused dependencies by scanning source against Cargo.toml -- a static
   # source/manifest scan, no build or network. `--with-metadata`/default JSON
-  # via `cargo-machete --json`. See engineering/swe/code-quality/references/rust.md.
+  # via `cargo-machete --json`. See engineering/review/skills/code-quality/references/rust.md.
   cargo-machete = pkgs.rustPlatform.buildRustPackage {
     pname = "cargo-machete";
     version = "0.9.2";

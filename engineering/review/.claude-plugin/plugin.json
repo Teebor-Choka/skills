@@ -1,0 +1,5 @@
+{
+  "name": "review",
+  "version": "2.0.0",
+  "description": "Read-only review: by-angle (red-first block loop plus four review angles) and code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass)."
+}
