@@ -4,7 +4,8 @@ description: >
   Enforce Rust code quality and house guidelines on every Rust change. Use whenever
   writing, modifying, or reviewing a .rs file; adding or refactoring Rust modules or
   crates; fixing rustc errors or clippy warnings; running cargo, clippy, or rustfmt;
-  implementing traits, error types, async, or unsafe blocks; editing Cargo.toml,
+  implementing traits, error types, async, or unsafe blocks; fixing lock contention, a
+  blocked async runtime, channel backpressure or a concurrency stall; editing Cargo.toml,
   Cargo.lock, rust-toolchain.toml, or .cargo/ config; or writing Rust tests or
   benchmarks. Trigger even when Rust
   is only part of a larger multi-language change — the Rust portions must still conform.
@@ -35,6 +36,13 @@ For a large multi-file or multi-crate refactor, delegate the mechanical fan-out 
 agent's subagents — each still applying this skill to its slice — while you keep the design
 decisions. This skill's `SKILL.md` loads the same on Claude Code, Codex, and OpenCode; for
 how to wire subagents, commands, or hooks per agent, see the `models:extension-author` skill.
+
+## Concurrency performance
+
+For async or threaded code with a measured latency, throughput, memory or stall problem, read
+[references/concurrency-performance.md](references/concurrency-performance.md). Profile first
+with `swe:performance`. The file pools fixes from Tokio and library docs and from fixes that
+shipped in hoprnet, each with its source.
 
 ## Guidelines index
 

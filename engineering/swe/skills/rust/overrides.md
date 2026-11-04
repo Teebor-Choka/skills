@@ -147,6 +147,8 @@ loop { do_work().await; tokio::time::sleep(duration).await; }
 
 **Use atomic swap/CAS for concurrent shadow state**, not separate load + store.
 
+Performance fixes for locks, channels, pools and atomics: `references/concurrency-performance.md`.
+
 ---
 
 ## 6. Tracing & Logging
