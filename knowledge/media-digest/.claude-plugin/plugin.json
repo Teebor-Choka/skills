@@ -1,5 +1,5 @@
 {
   "name": "media-digest",
-  "version": "0.1.0",
-  "description": "Fetch a transcript for any video or audio yt-dlp supports, save it locally, and write a compressed summary that keeps every fact."
+  "version": "0.2.0",
+  "description": "Fetch the transcript of any yt-dlp media or the text of a web article, save it locally, and write a loss-checked summary with a short version and follow-up points."
 }

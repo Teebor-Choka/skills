@@ -83,11 +83,11 @@
     },
     {
       "name": "media-digest",
-      "description": "Fetch a transcript for any video or audio yt-dlp supports, save it locally, and write a compressed summary that keeps every fact.",
+      "description": "Fetch the transcript of any yt-dlp media or the text of a web article, save it locally, and write a loss-checked summary with a short version and follow-up points.",
       "source": "./knowledge/media-digest",
       "strict": true,
       "metadata": {
-        "version": "0.1.0"
+        "version": "0.2.0"
       }
     },
     {

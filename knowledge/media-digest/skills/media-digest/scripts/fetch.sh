@@ -1,10 +1,13 @@
 #!/bin/sh
 # Fetch metadata and a transcript for a URL or local media file.
 # Usage: fetch.sh SOURCE [--out DIR] [--lang CODE] [--no-auto] [--refresh]
-#                 [--cookies FILE] [--model NAME]
+#                 [--cookies FILE] [--model NAME] [--article]
+# SOURCE is a media URL, a local media file, or a web page (article). A URL yt-dlp
+# cannot read is fetched as an article; --article skips the yt-dlp attempt.
 # Prints one JSON line on stdout: {"status","source","dir"}. Logs go to stderr.
 # status: ok | cached | no_transcript | blocked | video_unavailable | invalid_input | tool_missing | error
-# source: manual | auto | whisper | none
+# source: manual | auto | whisper | article | none
+# Text lands in transcript.txt (media) or article.txt (article).
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -22,7 +25,7 @@ if ! command -v yt-dlp >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
   exit 2
 fi
 
-src="" out="" lang=en no_auto="" refresh="" cookies="" model=base.en
+src="" out="" lang=en no_auto="" refresh="" cookies="" model=base.en force_article=""
 while [ $# -gt 0 ]; do
   case $1 in
   --out)
@@ -39,6 +42,10 @@ while [ $# -gt 0 ]; do
     ;;
   --refresh)
     refresh=1
+    shift
+    ;;
+  --article)
+    force_article=1
     shift
     ;;
   --cookies)
@@ -73,6 +80,46 @@ ck=""
 
 slugify() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\{1,\}/-/g; s/^-//; s/-$//' | cut -c1-60; }
 
+# Article path: extract the main text of a web page as markdown with trafilatura.
+article() {
+  traf() {
+    if command -v trafilatura >/dev/null 2>&1; then
+      trafilatura "$@"
+    elif command -v nix >/dev/null 2>&1; then
+      nix shell nixpkgs#python3Packages.trafilatura -c trafilatura "$@"
+    else
+      log "need trafilatura (pipx install trafilatura)"
+      return 127
+    fi
+  }
+  traf -u "$src" --json --with-metadata --no-comments >"$tmp/a.json" 2>"$tmp/err" || true
+  if [ "$(jq -r '(.raw_text // "") | length' "$tmp/a.json" 2>/dev/null || echo 0)" -lt 200 ]; then
+    cat "$tmp/err" >&2
+    log "no article text extracted from $src"
+    emit no_transcript none
+    exit 1
+  fi
+  slug=$(slugify "$(jq -r '.title // "article"' "$tmp/a.json")")-$(printf '%s' "$src" | shasum | cut -c1-8)
+  dir=${out:-./media-digest/$slug}
+  mkdir -p "$dir"
+  if [ -s "$dir/article.txt" ] && [ -s "$dir/meta.json" ] && [ -z "$refresh" ]; then
+    log "cached: $dir (use --refresh to refetch)"
+    emit cached article "$dir"
+    exit 0
+  fi
+  traf -u "$src" --markdown --no-comments >"$dir/article.txt" 2>/dev/null
+  jq --arg u "$src" --arg lang "$lang" \
+    '{kind:"article",title:(.title // "article"),id:null,channel:.author,sitename:.hostname,
+      upload_date:((.date // "") | gsub("-";"")),duration:null,chapters:[],description:(.description // ""),
+      url:$u,extractor:"trafilatura",transcript_source:"article",transcript_lang:$lang}' "$tmp/a.json" >"$dir/meta.json"
+  sha=$(shasum -a 256 "$dir/article.txt" | cut -d' ' -f1)
+  jq --arg h "$sha" '.transcript_sha256=$h' "$dir/meta.json" >"$tmp/m" && mv "$tmp/m" "$dir/meta.json"
+  emit ok article "$dir"
+  exit 0
+}
+
+[ -z "$force_article" ] || [ -f "$src" ] || article
+
 if [ -f "$src" ]; then
   is_file=1
   base=$(basename "$src")
@@ -86,7 +133,10 @@ else
     if grep -qiE 'sign in|bot|403|cookies' "$tmp/err"; then
       log "blocked: retry with --cookies FILE (exported from your browser)"
       emit blocked none
-    elif grep -qiE 'unavailable|private|removed|not exist|unsupported url' "$tmp/err"; then
+    elif grep -qiE 'unsupported url|no video formats|no media found|unable to download webpage' "$tmp/err" && printf '%s' "$src" | grep -qE '^https?://'; then
+      log "not a media URL; trying article extraction"
+      article
+    elif grep -qiE 'unavailable|private|removed|not exist' "$tmp/err"; then
       emit video_unavailable none
     else emit error none; fi
     exit 1
@@ -105,7 +155,7 @@ fi
 
 meta() { # $1 = transcript source
   jq --arg src "$1" --arg lang "$lang" \
-    '{title,id,channel:(.uploader // .channel // null),upload_date,duration,chapters:(.chapters // []),
+    '{kind:"media",title,id,channel:(.uploader // .channel // null),upload_date,duration,chapters:(.chapters // []),
       description,url:(.webpage_url // .url),extractor:(.extractor_key // "file"),
       transcript_source:$src,transcript_lang:$lang}' "$tmp/raw.json" >"$dir/meta.json"
   sha=$(shasum -a 256 "$dir/transcript.txt" | cut -d' ' -f1)

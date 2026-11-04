@@ -79,5 +79,38 @@ class Coverage(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)
 
 
+class LinkTimestamps(unittest.TestCase):
+    def link(self, text, meta):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            sm, mt = Path(d, "s.md"), Path(d, "meta.json")
+            sm.write_text(text); mt.write_text(json.dumps(meta))
+            r = run("link_timestamps.py", str(sm), str(mt))
+            return r, sm.read_text()
+
+    YT = {"extractor": "Youtube", "url": "https://www.youtube.com/watch?v=abc123"}
+
+    def test_youtube_point_and_range(self):
+        r, out = self.link("A [00:01:05] b [00:02:00–00:03:00] c", self.YT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("[00:01:05](https://www.youtube.com/watch?v=abc123&t=65s)", out)
+        self.assertIn("[00:02:00–00:03:00](https://www.youtube.com/watch?v=abc123&t=120s)", out)
+
+    def test_idempotent(self):
+        _, once = self.link("x [00:00:09] y", self.YT)
+        _, twice = self.link(once, self.YT)
+        self.assertEqual(once, twice)
+
+    def test_vimeo_fragment(self):
+        _, out = self.link("[00:00:10]", {"extractor": "Vimeo", "url": "https://vimeo.com/123"})
+        self.assertIn("(https://vimeo.com/123#t=10s)", out)
+
+    def test_unknown_site_and_article_unchanged(self):
+        for meta in ({"extractor": "Generic", "url": "https://x.org/v"},
+                     {"extractor": "trafilatura", "url": "https://x.org/a"}):
+            _, out = self.link("see [00:00:10]", meta)
+            self.assertEqual(out, "see [00:00:10]")
+
+
 if __name__ == "__main__":
     unittest.main()
