@@ -26,6 +26,7 @@ Layout: `<domain>/<plugin>/skills/<skill>`. The host shows `plugin:skill`.
 | `forge-idea`        | `forge-idea`        | Stress-test an idea with parallel agents                         |
 | `grounded-research` | `grounded-research` | Research under a fixed evidence contract                         |
 | `llm-wiki`          | `llm-wiki`          | Build and query a linked Markdown wiki                           |
+| `media-digest`      | `media-digest`      | Transcribe any yt-dlp media and write a loss-checked summary     |
 | `find-ai-moat`      | `find-ai-moat`      | Find where your work complements AI                              |
 | `github-actions`    | `github-actions`    | Harden workflows, configure Renovate                             |
 | `dep-pr-triage`     | `dep-pr-triage`     | Fix red Dependabot and Renovate PRs; never merges                |
