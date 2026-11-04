@@ -35,23 +35,9 @@ and language you're on rather than carrying it all at once:
   `references/benchmark-tooling-typescript.md` (mitata, Benchmark.js) or
   `references/benchmark-tooling-rust.md` (criterion, `cargo bench` output).
 
-## Resources
+## Sources
 
-**Papers:**
+Papers, tools and the reasoning behind each rule: `sources.md`.
 
-- "Statistically Rigorous Java Performance Evaluation" (Georges et al.)
-- "Producing Wrong Data Without Doing Anything Obviously Wrong!" (Mytkowicz et al.)
-
-**Tools:**
-
-- Criterion (Rust) — statistical benchmarking
-- mitata (JavaScript) — modern benchmarking
-- perf (Linux) — low-level profiling
-- Flamegraph — visualization
-
-**Validation:**
-
-- Always review benchmark methodology with team
-- Reproduce results on different hardware
-- Document assumptions and limitations
-- Update benchmarks as codebase evolves
+Before you trust a result: reproduce it on a second machine or run, write down the assumptions and
+limits, and rerun the benchmark when the code it covers changes.

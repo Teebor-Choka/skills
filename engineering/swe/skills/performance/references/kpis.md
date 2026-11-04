@@ -1,40 +1,49 @@
-# Key Performance Indicators
+# Key performance indicators
 
-**Latency (response time):**
+Pick the few that match the goal. Report each as a distribution or a rate, never a lone mean.
 
-- P50 (median) — typical case
-- P95 — most users
-- P99 — tail latency
-- P99.9 — outliers
-- TTFB — time to first byte
-- TTLB — time to last byte
+## Resources: USE
 
-**Throughput:**
+For each resource (CPU, memory, disk, network, a lock, a pool, a queue), check:
 
-- RPS — requests per second
-- ops/sec — operations per second
-- bytes/sec — data transfer rate
-- queries/sec — database throughput
+- **Utilization**: share of time the resource is busy.
+- **Saturation**: work waiting because the resource is full (queue length, run-queue depth).
+- **Errors**: error events on the resource.
 
-**Memory:**
+Many systems slow down before utilization reaches 100%, so set a utilization target below it.
 
-- Heap usage — allocated memory
-- GC frequency — garbage collection pauses
-- GC duration — stop-the-world time
-- Allocation rate — memory churn
-- Resident set size (RSS) — total memory
+## Services: four golden signals
 
-**CPU:**
+- **Latency**: time to serve a request. Track failed requests apart from successful ones, because a
+  slow error is worse than a fast error.
+- **Traffic**: demand, for example requests per second.
+- **Errors**: explicit, implicit and policy failures.
+- **Saturation**: how full the service is.
 
-- CPU time — total compute
-- Wall time — elapsed time
-- Hot paths — frequently executed code
-- Time complexity — algorithmic efficiency
-- CPU utilization — percentage used
+## Latency
 
-**Always measure:**
+Record counts in latency buckets or a histogram. Report P50, P95, P99, P99.9 and max. The mean hides
+the tail, and one backend's P99 can become a frontend's median when a request fans out. Histograms
+add across processes. Percentiles do not.
 
-- Before optimization (baseline)
-- After optimization (improvement)
-- Under realistic load (not toy data)
-- Multiple runs (account for variance)
+Also track TTFB (time to first byte) and TTLB (time to last byte) for streaming responses.
+
+## Throughput
+
+Requests, operations, bytes or queries per second, at a stated latency. Throughput without a latency
+bound is not a result.
+
+## Memory
+
+Heap size, resident set size, allocation rate, and for managed runtimes GC frequency and pause time.
+
+## CPU
+
+CPU time, wall time, utilization, and the hot paths a profile shows. Wall time is what users see but
+is noisy. Cycle and instruction counts are stable and make small changes visible.
+
+## Always
+
+Measure before and after, on a realistic workload, over repeated runs. See `benchmarking.md`.
+
+Sources: `sources.md` (USE method, SRE golden signals, Tene, Rust Performance Book).

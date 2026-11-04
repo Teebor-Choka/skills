@@ -1,38 +1,35 @@
-# Profiling tools — TypeScript/Bun
+# Profiling: TypeScript and Bun
 
-**Built-in timing:**
+## CPU
 
-```typescript
-console.time("operation");
-// ... code to measure
-console.timeEnd("operation");
-
-// High precision
-const start = Bun.nanoseconds();
-// ... code to measure
-const elapsed = Bun.nanoseconds() - start;
-console.log(`Took ${elapsed / 1_000_000}ms`);
+```sh
+bun --cpu-prof script.ts           # writes a .cpuprofile
+bun --cpu-prof-md script.ts        # also a markdown profile that is easy to grep
 ```
 
-**Performance API:**
+Open a `.cpuprofile` in Chrome DevTools (Performance tab) or VS Code. Tune output with
+`--cpu-prof-name` and `--cpu-prof-dir`. For Node, use `node --cpu-prof` or `--inspect` with
+DevTools.
 
-```typescript
-const mark1 = performance.mark("start");
-// ... code to measure
-const mark2 = performance.mark("end");
-performance.measure("operation", "start", "end");
-const measure = performance.getEntriesByName("operation")[0];
-console.log(`Duration: ${measure.duration}ms`);
+## Memory
+
+```sh
+bun --heap-prof script.ts          # V8-format heap snapshot on exit
+bun --heap-prof-md script.ts       # markdown version
 ```
 
-**Memory profiling:**
+In code: `heapStats()` from `bun:jsc` for the JS heap, `Bun.gc()` to force a collection before
+you compare two heap sizes, `Bun.generateHeapSnapshot()` for a snapshot. In Node: heap snapshots in
+DevTools, `process.memoryUsage()` for RSS and heap totals.
 
-- Chrome DevTools → Memory tab → heap snapshots
-- Node.js `--inspect` flag + Chrome DevTools
-- `process.memoryUsage()` for RSS/heap tracking
+## Timing
 
-**CPU profiling:**
+`performance.now()` or `Bun.nanoseconds()` for spans. For repeatable microbenchmarks use `mitata`
+(see `benchmark-tooling-typescript.md`). For a whole command use `hyperfine`.
 
-- Chrome DevTools → Performance tab → record session
-- Node.js `--prof` flag + `node --prof-process`
-- Flamegraphs for visualization
+## Load tests
+
+Drive an HTTP server with a client at least as fast as the server: `bombardier`, `oha`. A Node-based
+load tool such as `autocannon` can become the bottleneck. Use a fixed arrival rate for latency tests.
+
+Sources: Bun, Benchmarking (`sources.md`).

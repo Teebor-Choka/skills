@@ -1,5 +1,5 @@
 {
   "name": "swe",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Engineering practice skills: rust and typescript (house guidelines on every change) and performance (profile, optimize, benchmark)."
 }

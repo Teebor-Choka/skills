@@ -1,162 +1,83 @@
 ---
 name: performance
 description: >
-  Profile code, optimize bottlenecks, and benchmark implementations. Use when the user
-  mentions performance, profiling, optimization, or --perf; when diagnosing slow code
-  paths, memory leaks, or excessive allocations; when reducing latency (P95/P99), CPU
-  usage, or improving throughput (RPS, ops/sec); when benchmarking competing
-  implementations; or when working on database query optimization. Read
-  references/benchmarking.md before starting any benchmark.
+  Find and fix performance problems with measurement: profile slow code paths, memory growth
+  and allocation churn, cut latency (P95/P99) or CPU, raise throughput, tune database queries,
+  and benchmark competing implementations or catch a regression. Use when the user mentions
+  performance, profiling, a flame graph, optimization, latency, throughput, or "why is this
+  slow". Read references/benchmarking.md before any benchmark. Not for guessing at
+  bottlenecks or for optimizing code with no measured problem.
 ---
 
-# Performance engineering
+# Performance
 
-Evidence-based performance optimization: measure, profile, optimize, then validate.
+Measure first. Change only what the measurement names. Measure again.
 
-## Use when
+Sources for every rule below are in [references/sources.md](references/sources.md).
 
-- Profiling slow code paths or bottlenecks
-- Identifying memory leaks or excessive allocations
-- Optimizing latency-critical operations (P95, P99)
-- Benchmarking competing implementations
-- Database query optimization
-- Reducing CPU usage in hot paths
-- Improving throughput (RPS, ops/sec)
+## Rule
 
-**Not for:** premature optimization, optimization without measurement, guessing at
-bottlenecks.
+Do not optimize without a measurement that shows the problem. Knuth's point is that about 97%
+of small efficiencies are not worth the effort, and the critical 3% is found by measuring.
 
-## Iron law
+## Procedure
 
-**NO OPTIMIZATION WITHOUT MEASUREMENT**
+1. State the goal as a number: metric, workload, threshold (for example "P99 under 100 ms at
+   500 requests per second").
+2. Measure the baseline on a realistic workload, on the same machine and build you will compare
+   against. Record the commit.
+3. Locate the bottleneck, top down:
+   1. Check each resource for utilization, saturation and errors (the USE method).
+   2. Profile the code that owns the busy or saturated resource. Read the flame graph from the
+      widest frames down. Use an off-CPU profile when the time is spent waiting.
+4. State the cause in one sentence that the profile supports. If the profile names no cause,
+   return to step 3. Do not guess.
+5. Make one change. Keep it small enough to revert on its own.
+6. Measure again with the same method. Keep the change only if the gain is larger than the
+   run-to-run noise and the metric moves toward its threshold.
+7. Check for regressions in the other metrics: memory, tail latency, binary size, correctness.
+8. Record baseline, change, result and trade-offs where the next reader looks (commit body, PR,
+   or the project docs).
 
-Required workflow:
+Stop when the goal is met. Further gains need a new goal.
 
-1. Measure baseline performance with realistic workload
-2. Profile to identify actual bottleneck
-3. Optimize the bottleneck (not what you think is slow)
-4. Measure again to verify improvement
-5. Document gains and tradeoffs
+## Choosing what to read
 
-Optimizing unmeasured code wastes time and introduces bugs.
+| Need | Read |
+|------|------|
+| Metric definitions, targets, how to report a distribution | [references/kpis.md](references/kpis.md) |
+| Any benchmark (always, before you write one) | [references/benchmarking.md](references/benchmarking.md) |
+| Run design, variance, significance, pitfalls | [references/benchmark-measurement.md](references/benchmark-measurement.md) |
+| Rust profiling, build settings | [references/profiling-rust.md](references/profiling-rust.md) |
+| Rust benchmark harness | [references/benchmark-tooling-rust.md](references/benchmark-tooling-rust.md) |
+| TypeScript or Bun profiling | [references/profiling-typescript.md](references/profiling-typescript.md) |
+| TypeScript benchmark harness | [references/benchmark-tooling-typescript.md](references/benchmark-tooling-typescript.md) |
+| A bottleneck class is named and you need options | [references/optimization-patterns.md](references/optimization-patterns.md) |
 
-## Stages
+Read only the file for your language and step.
 
-Load the **maintain-tasks** skill for stage tracking:
+## Measurement traps
 
-**Stage 1: Establishing baseline**
+- A mean hides the tail. Report the distribution (P50, P95, P99, max) as a histogram or buckets.
+- A load generator that waits for each reply before it sends the next hides queueing delay
+  (coordinated omission). Drive latency tests at a fixed arrival rate.
+- Setup details shift results: environment size, link order and memory layout can move a
+  benchmark by more than the change under test. Repeat runs and vary the setup.
+- Noisy wall time needs many runs. Instruction or cycle counts are stable but do not equal
+  user-visible time. Use both when the gain is small.
+- A benchmark that does nothing observable can be optimized away. Consume the result.
+- Poor measurement still beats none. Start with a rough benchmark and improve it when a
+  decision depends on a small difference.
 
-- content: "Establish performance baseline with realistic workload"
-- activeForm: "Establishing performance baseline"
+## Done when
 
-**Stage 2: Profiling bottlenecks**
+- The goal metric meets its threshold on the realistic workload.
+- The gain exceeds the noise across repeated runs, with the data kept.
+- No tracked metric got worse without a stated reason.
+- Tests pass and the behavior is unchanged.
+- Baseline, change, result and trade-offs are recorded.
 
-- content: "Profile code to identify actual bottlenecks"
-- activeForm: "Profiling code to identify bottlenecks"
+## Related skills
 
-**Stage 3: Analyzing root cause**
-
-- content: "Analyze profiling data to determine root cause"
-- activeForm: "Analyzing profiling data"
-
-**Stage 4: Implementing optimization**
-
-- content: "Implement targeted optimization for identified bottleneck"
-- activeForm: "Implementing optimization"
-
-**Stage 5: Validating improvement**
-
-- content: "Measure performance gains and verify no regressions"
-- activeForm: "Validating performance improvement"
-
-## Key performance indicators
-
-Metric definitions and what to watch (latency P50–P99.9, throughput, memory/GC, CPU): read [references/kpis.md](references/kpis.md) when setting a target or reporting results.
-
-## Profiling tools
-
-Profiler setup and commands — read only your language: [references/profiling-typescript.md](references/profiling-typescript.md) (TypeScript/Bun) or [references/profiling-rust.md](references/profiling-rust.md) (Rust).
-
-## Optimization patterns
-
-Catalog — algorithm, memory, I/O, and database, with TS and Rust code — once profiling has named the bottleneck class: read [references/optimization-patterns.md](references/optimization-patterns.md).
-
-## Workflow
-
-Loop: measure, profile, analyze, optimize, then validate.
-
-1. **Define performance goal** — target metric (e.g., P95 < 100ms)
-2. **Establish baseline** — measure current performance under realistic load
-3. **Profile systematically** — identify actual bottleneck (not guesses)
-4. **Analyze root cause** — understand why code is slow
-5. **Design optimization** — plan targeted improvement
-6. **Implement optimization** — make focused change
-7. **Measure improvement** — verify gains, check for regressions
-8. **Document results** — record baseline, optimization, gains, tradeoffs
-
-At each step:
-
-- Document measurements with methodology
-- Note profiling tool output
-- Track optimization attempts (what worked/failed)
-- Update performance documentation
-
-## Validation
-
-Before declaring optimization complete:
-
-**Check gains:**
-
-- Measured improvement meets target?
-- Improvement statistically significant?
-- Tested under realistic load?
-- Multiple runs confirm consistency?
-
-**Check regressions:**
-
-- No degradation in other metrics?
-- Memory usage still acceptable?
-- Code complexity still manageable?
-- Tests still pass?
-
-**Check documentation:**
-
-- Baseline measurements recorded?
-- Optimization approach explained?
-- Gains quantified with numbers?
-- Tradeoffs documented?
-
-## Rules
-
-Always:
-
-- Measure before optimizing (baseline)
-- Profile to find actual bottleneck
-- Use realistic workload (not toy data)
-- Measure multiple runs (account for variance)
-- Document baseline and improvements
-- Check for regressions in other metrics
-- Consider readability vs performance tradeoff
-- Verify statistical significance
-
-Never:
-
-- Optimize without measuring first
-- Guess at bottleneck without profiling
-- Benchmark with unrealistic data
-- Trust single-run measurements
-- Skip documentation of results
-- Sacrifice correctness for speed
-- Optimize without clear performance goal
-- Ignore algorithmic improvements
-
-## References
-
-- [references/benchmarking.md](references/benchmarking.md) — rigorous benchmarking
-  methodology (read before starting any benchmark)
-- [references/kpis.md](references/kpis.md) — metric definitions and targets
-- [references/profiling-typescript.md](references/profiling-typescript.md) — profiler setup/commands (TypeScript/Bun)
-- [references/profiling-rust.md](references/profiling-rust.md) — profiler setup/commands (Rust)
-- [references/optimization-patterns.md](references/optimization-patterns.md) — algorithm/memory/I/O/database optimization catalog
-
-Related skills: codebase-recon, debugging, typescript-dev.
+- `swe:rust` and `swe:typescript` for the language rules a change must still follow.
+- `review:code-quality` to check the cost in complexity before you merge an optimization.
