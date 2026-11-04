@@ -192,12 +192,12 @@ Source: [tokio::select!](https://docs.rs/tokio/latest/tokio/macro.select.html).
 
 ## 7. Find the cause, then prove the fix
 
-| Question | Tool |
-|----------|------|
-| Which tasks never yield, or wake themselves? | [tokio-console](https://github.com/tokio-rs/console) (build with `--cfg tokio_unstable`) |
-| Are tasks waiting long in the run queue? | [tokio-metrics](https://docs.rs/tokio-metrics/latest/tokio_metrics/struct.TaskMetrics.html) task metrics (a rising mean scheduled time) |
-| Is a shared cache line contended? | `perf c2c record`, then `perf c2c report` (Linux): [man page](https://man7.org/linux/man-pages/man1/perf-c2c.1.html) |
-| Is the lock-free fix correct? | [loom](https://docs.rs/loom/latest/loom/) model test; it cannot model every `Relaxed` behaviour |
+| Question                                     | Tool                                                                                                                                    |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Which tasks never yield, or wake themselves? | [tokio-console](https://github.com/tokio-rs/console) (build with `--cfg tokio_unstable`)                                                |
+| Are tasks waiting long in the run queue?     | [tokio-metrics](https://docs.rs/tokio-metrics/latest/tokio_metrics/struct.TaskMetrics.html) task metrics (a rising mean scheduled time) |
+| Is a shared cache line contended?            | `perf c2c record`, then `perf c2c report` (Linux): [man page](https://man7.org/linux/man-pages/man1/perf-c2c.1.html)                    |
+| Is the lock-free fix correct?                | [loom](https://docs.rs/loom/latest/loom/) model test; it cannot model every `Relaxed` behaviour                                         |
 
 The tokio-metrics docs do not say that a rising scheduled time proves blocking. Treat it as a lead to
 confirm with a profile.

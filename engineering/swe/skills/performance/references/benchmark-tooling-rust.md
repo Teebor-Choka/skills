@@ -2,13 +2,13 @@
 
 ## Pick a harness
 
-| Tool | Use for |
-|------|---------|
+| Tool      | Use for                                                                                            |
+| --------- | -------------------------------------------------------------------------------------------------- |
 | Criterion | statistical microbenchmarks with outlier detection, regression detection across runs, HTML reports |
-| Divan | a more sophisticated alternative to the built-in bench, like Criterion |
-| Hyperfine | timing a whole command or binary |
-| Gungraun | `cargo bench` integration with high-precision measurements |
-| Bencher | continuous benchmarking in CI, tracking results over time |
+| Divan     | a more sophisticated alternative to the built-in bench, like Criterion                             |
+| Hyperfine | timing a whole command or binary                                                                   |
+| Gungraun  | `cargo bench` integration with high-precision measurements                                         |
+| Bencher   | continuous benchmarking in CI, tracking results over time                                          |
 
 Built-in `#[bench]` needs nightly and is a starting point only.
 

@@ -22,14 +22,14 @@ names (`_ZN`, `_R`) read better through `rustfilt`, or build with `-C symbol-man
 
 ## Pick the tool by question
 
-| Question | Tool |
-|----------|------|
-| Where does CPU time go? | `perf record` and `perf report` (Linux), Instruments (macOS), `samply`, `cargo flamegraph` |
-| Where is the time spent waiting? | an off-CPU profile (`perf`, tracing) |
-| Where do allocations come from? | DHAT (`dhat-rs`), `heaptrack`, `bytehound` |
-| Is the cache or branch predictor the cost? | Cachegrind, Callgrind, `perf stat` |
-| What does speeding this function up buy end to end? | Coz (causal profiler) |
-| How many times does it run? | `counts` |
+| Question                                            | Tool                                                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Where does CPU time go?                             | `perf record` and `perf report` (Linux), Instruments (macOS), `samply`, `cargo flamegraph` |
+| Where is the time spent waiting?                    | an off-CPU profile (`perf`, tracing)                                                       |
+| Where do allocations come from?                     | DHAT (`dhat-rs`), `heaptrack`, `bytehound`                                                 |
+| Is the cache or branch predictor the cost?          | Cachegrind, Callgrind, `perf stat`                                                         |
+| What does speeding this function up buy end to end? | Coz (causal profiler)                                                                      |
+| How many times does it run?                         | `counts`                                                                                   |
 
 ## Change the build before the code
 

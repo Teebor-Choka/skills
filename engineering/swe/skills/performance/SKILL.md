@@ -43,16 +43,16 @@ Stop when the goal is met. Further gains need a new goal.
 
 ## Choosing what to read
 
-| Need | Read |
-|------|------|
-| Metric definitions, targets, how to report a distribution | [references/kpis.md](references/kpis.md) |
-| Any benchmark (always, before you write one) | [references/benchmarking.md](references/benchmarking.md) |
-| Run design, variance, significance, pitfalls | [references/benchmark-measurement.md](references/benchmark-measurement.md) |
-| Rust profiling, build settings | [references/profiling-rust.md](references/profiling-rust.md) |
-| Rust benchmark harness | [references/benchmark-tooling-rust.md](references/benchmark-tooling-rust.md) |
-| TypeScript or Bun profiling | [references/profiling-typescript.md](references/profiling-typescript.md) |
-| TypeScript benchmark harness | [references/benchmark-tooling-typescript.md](references/benchmark-tooling-typescript.md) |
-| A bottleneck class is named and you need options | [references/optimization-patterns.md](references/optimization-patterns.md) |
+| Need                                                      | Read                                                                                     |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Metric definitions, targets, how to report a distribution | [references/kpis.md](references/kpis.md)                                                 |
+| Any benchmark (always, before you write one)              | [references/benchmarking.md](references/benchmarking.md)                                 |
+| Run design, variance, significance, pitfalls              | [references/benchmark-measurement.md](references/benchmark-measurement.md)               |
+| Rust profiling, build settings                            | [references/profiling-rust.md](references/profiling-rust.md)                             |
+| Rust benchmark harness                                    | [references/benchmark-tooling-rust.md](references/benchmark-tooling-rust.md)             |
+| TypeScript or Bun profiling                               | [references/profiling-typescript.md](references/profiling-typescript.md)                 |
+| TypeScript benchmark harness                              | [references/benchmark-tooling-typescript.md](references/benchmark-tooling-typescript.md) |
+| A bottleneck class is named and you need options          | [references/optimization-patterns.md](references/optimization-patterns.md)               |
 
 Read only the file for your language and step.
 
