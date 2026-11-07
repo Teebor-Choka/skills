@@ -56,20 +56,20 @@
     },
     {
       "name": "review",
-      "description": "Read-only review: by-angle (red-first block loop plus four review angles) and code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass).",
+      "description": "Read-only review: by-angle (red-first block loop plus four review angles), code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass), and security (gitleaks, trufflehog, osv-scanner, semgrep, zizmor, SkillSpector, garak, nuclei, strix plus an AI triage pass).",
       "source": "./engineering/review",
       "strict": true,
       "metadata": {
-        "version": "2.0.0"
+        "version": "2.1.0"
       }
     },
     {
       "name": "swe",
-      "description": "Engineering practice skills: rust and typescript (house guidelines on every change), performance (profile, optimize, benchmark), and security (combine gitleaks, trufflehog, osv-scanner, semgrep, zizmor, SkillSpector, garak, nuclei, strix with an AI review pass).",
+      "description": "Engineering practice skills: rust and typescript (house guidelines on every change) and performance (profile, optimize, benchmark).",
       "source": "./engineering/swe",
       "strict": true,
       "metadata": {
-        "version": "2.3.0"
+        "version": "2.2.0"
       }
     },
     {
