@@ -65,11 +65,11 @@
     },
     {
       "name": "swe",
-      "description": "Engineering practice skills: rust and typescript (house guidelines on every change) and performance (profile, optimize, benchmark).",
+      "description": "Engineering practice skills: rust and typescript (house guidelines on every change), performance (profile, optimize, benchmark), and security (combine gitleaks, trufflehog, osv-scanner, semgrep, zizmor, SkillSpector, garak, nuclei, strix with an AI review pass).",
       "source": "./engineering/swe",
       "strict": true,
       "metadata": {
-        "version": "2.2.0"
+        "version": "2.3.0"
       }
     },
     {

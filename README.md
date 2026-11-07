@@ -17,6 +17,7 @@ Layout: `<domain>/<plugin>/skills/<skill>`. The host shows `plugin:skill`.
 | `review`            | `by-angle`          | Red-first block loop plus four read-only review angles           |
 |                     | `code-quality`      | Risk audit from complexity, coverage, duplication metrics        |
 | `swe`               | `rust`              | Rust house guidelines on every change                            |
+|                     | `security`          | Combine secret, dependency, SAST, CI, agent, LLM scanners + AI triage |
 |                     | `typescript`        | TypeScript and JavaScript house guidelines on every change       |
 | `orchestrate`       | `assign`, `pull`    | Multi-agent runs: dispatcher or peer swarm over a shared board   |
 | `models`            | `extension-author`  | Author and port skills and plugins across agents                 |
