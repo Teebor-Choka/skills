@@ -60,7 +60,8 @@ A live verified secret is high at minimum: rotate first, then fix the source.
 
 ## 5. Review prompt for diff or PR review
 
-Use this when reviewing a diff with the model. Replace `<base>` and keep the quoted rules.
+Fallback for the AI review step when the policy `handoff` list is unset or its review skill is
+missing. Replace `<base>` and keep the quoted rules.
 
 ```
 Review `git diff <base>...HEAD` for security vulnerabilities only. For each changed area,
