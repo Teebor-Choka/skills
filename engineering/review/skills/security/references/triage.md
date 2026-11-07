@@ -60,7 +60,7 @@ A live verified secret is high at minimum: rotate first, then fix the source.
 
 ## 5. Review prompt for diff or PR review
 
-Fallback for the AI review step when the policy `handoff` list is unset or its review skill is
+Fallback for the AI review step when the `security-review` skill (or the policy-named review skill) is
 missing. Replace `<base>` and keep the quoted rules.
 
 ```

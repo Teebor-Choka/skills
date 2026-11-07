@@ -43,7 +43,7 @@ Hold these before any stage runs.
 | 3 | SAST | semgrep | code patterns: injection, crypto, authz | on |
 | 4 | CI | zizmor | workflow injection, unpinned actions, token scope | on if `.github/workflows` exists |
 | 5 | Agent supply chain | SkillSpector | malicious or unsafe skills and MCP configs | on if `SKILL.md` or MCP config exists |
-| 6 | Handoff | AI security review, then deep audit | logic, authz, and business-logic flaws tools miss | on when `handoff` is set |
+| 6 | Handoff | AI security review, then deep audit | logic, authz, and business-logic flaws tools miss | on |
 | 7 | LLM endpoint | garak | jailbreak, injection, leakage in a served model | ask first |
 | 8 | Dynamic | nuclei, strix | exposed or exploitable running services | ask first, authorized targets only |
 
@@ -69,22 +69,27 @@ Commands, flags, and caveats per tool are in [references/tools.md](references/to
 ## Handoff chain
 
 Scanner output is the first wave, not the whole job. When the scripted stages are done,
-hand the run to two skills in a fixed order: first a diff-aware AI security review, then a
-source-first deep-audit skill (coverage ledger, isolated hunters, independent
-verification). The skill names come from the development policy, not from this file. Read
-the ordered list `handoff` from the `security` section of `.agents/policy.md` (see the
-`policy` skill). Set it in the repo or global policy:
+hand the run to two skills in a fixed order: first the AI security review, then the
+source-first deep audit (coverage ledger, isolated hunters, independent verification).
+
+Default chain, with no policy needed:
+
+1. `security-review` (anthropics/claude-code-security-review): diff-aware AI review.
+2. `security-audit` (cloudflare/security-audit-skill): full source-first audit.
+
+A policy may override the chain. Check `.agents/policy.md` for an ordered `handoff` list in
+the `security` section (see the `policy` skill). If one exists, it replaces the default:
 
 ```yaml
 security:
-  handoff: [<ai-review-skill>, <deep-audit-skill>]
+  handoff: [<first-skill>, <second-skill>]
 ```
 
-For each name, in order:
+For each skill, in order:
 
 1. Invoke it with the same target and scope. A diff or path scope stays a scoped run. A
-   whole-repo scope needs the paths named in the request, because an AI review defaults
-   to the pending diff.
+   whole-repo scope needs the paths named in the request, because `security-review`
+   defaults to the pending diff.
 2. Give it the stage results, `summary.tsv`, and every earlier handoff result as unverified
    leads. It must re-derive each one from source. A lead is not evidence and must not
    narrow which surfaces it covers.
@@ -92,10 +97,9 @@ For each name, in order:
    the user's approval. Run the deep-audit skill in its full audit mode.
 4. Keep its output files and findings for step 5.
 
-If `handoff` is unset, use the review prompt in `references/triage.md` for the AI review
-step and say in the coverage statement that no deep audit ran. If a named skill is not
-installed, record that gap and continue with the rest of the chain. Never claim a full
-audit from scanner output alone.
+If a skill in the chain is not installed, record the gap in the coverage statement and
+continue with the rest. For a missing AI review, use the fallback prompt in
+`references/triage.md`. Never claim a full audit from scanner output alone.
 
 ## Anti-patterns
 
