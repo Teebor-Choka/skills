@@ -36,16 +36,16 @@ Hold these before any stage runs.
 
 ## Stages
 
-| # | Stage | Tool | Finds | Default |
-|---|-------|------|-------|---------|
-| 1 | Secrets | gitleaks, trufflehog | credentials in tree and git history | on |
-| 2 | Dependencies | osv-scanner | known-vulnerable lockfile entries | on |
-| 3 | SAST | semgrep | code patterns: injection, crypto, authz | on |
-| 4 | CI | zizmor | workflow injection, unpinned actions, token scope | on if `.github/workflows` exists |
-| 5 | Agent supply chain | SkillSpector | malicious or unsafe skills and MCP configs | on if `SKILL.md` or MCP config exists |
-| 6 | Handoff | AI security review, then deep audit | logic, authz, and business-logic flaws tools miss | on |
-| 7 | LLM endpoint | garak | jailbreak, injection, leakage in a served model | ask first |
-| 8 | Dynamic | nuclei, strix | exposed or exploitable running services | ask first, authorized targets only |
+| #   | Stage              | Tool                                | Finds                                             | Default                               |
+| --- | ------------------ | ----------------------------------- | ------------------------------------------------- | ------------------------------------- |
+| 1   | Secrets            | gitleaks, trufflehog                | credentials in tree and git history               | on                                    |
+| 2   | Dependencies       | osv-scanner                         | known-vulnerable lockfile entries                 | on                                    |
+| 3   | SAST               | semgrep                             | code patterns: injection, crypto, authz           | on                                    |
+| 4   | CI                 | zizmor                              | workflow injection, unpinned actions, token scope | on if `.github/workflows` exists      |
+| 5   | Agent supply chain | SkillSpector                        | malicious or unsafe skills and MCP configs        | on if `SKILL.md` or MCP config exists |
+| 6   | Handoff            | AI security review, then deep audit | logic, authz, and business-logic flaws tools miss | on                                    |
+| 7   | LLM endpoint       | garak                               | jailbreak, injection, leakage in a served model   | ask first                             |
+| 8   | Dynamic            | nuclei, strix                       | exposed or exploitable running services           | ask first, authorized targets only    |
 
 Commands, flags, and caveats per tool are in [references/tools.md](references/tools.md).
 
