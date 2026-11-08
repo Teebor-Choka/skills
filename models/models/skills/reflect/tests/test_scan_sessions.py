@@ -205,7 +205,8 @@ def asst_text(text="ok"):
 
 
 def notice(agent_id, status="completed", tokens=1000, tools=5, ms=1000):
-    body = (f"<task-notification>\n<task-id>{agent_id}</task-id>\n<status>{status}</status>\n"
+    # Claude Code's task-notification format: the scanner reads Claude Code transcripts only.
+    body =(f"<task-notification>\n<task-id>{agent_id}</task-id>\n<status>{status}</status>\n"
             f"<usage><subagent_tokens>{tokens}</subagent_tokens><tool_uses>{tools}</tool_uses>"
             f"<duration_ms>{ms}</duration_ms></usage>\n</task-notification>")
     return user_text(body)
