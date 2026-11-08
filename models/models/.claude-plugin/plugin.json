@@ -1,5 +1,5 @@
 {
   "name": "models",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Work with the model itself: extension-author (skills, plugins and hooks across Claude Code, Codex, OpenCode, oh-my-pi) and reflect (mine sessions for agent struggles and propose fixes)."
 }

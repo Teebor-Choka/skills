@@ -37,7 +37,7 @@ WEIGHTS = {
     "read_repeat": 2.0, # per re-read of the same file beyond READ_REPEAT_MIN
     "cmd_repeat": 1.5,  # per repeat of an identical bash command beyond CMD_REPEAT_MIN
     "tool_volume": 1.0, # log(total tool calls), a weak size prior
-    "steer": 1.0,       # a human turn without the correction lexicon: plain redirection
+    "steer": 0.3,       # a plain human turn: usually a new task, so ranks low; the moment is the value
     "rework": 1.5,      # a parent's follow-up message to a subagent: another round
     "agent_failure": 2.0,  # a subagent the harness reports as not completed
     "coordination": 2.0,   # a negative event in an orchestrator's log
@@ -323,7 +323,7 @@ def score_session(path, moments_override=None, seen_uuids=None):
             if not isinstance(o, dict):
                 continue
             sidechain = sidechain or bool(o.get("isSidechain"))
-            if seen_uuids is not None and o.get("uuid"):
+            if seen_uuids is not None and isinstance(o.get("uuid"), str) and o["uuid"]:
                 if o["uuid"] in seen_uuids:
                     seen_assistant = seen_assistant or o.get("type") == "assistant"
                     continue
@@ -348,7 +348,7 @@ def score_session(path, moments_override=None, seen_uuids=None):
                         if not isinstance(b, dict) or b.get("type") != "tool_use":
                             continue
                         # A call logged again (another entry, same tool_use id) is one call.
-                        if b.get("id"):
+                        if isinstance(b.get("id"), str) and b["id"]:
                             if "tool:" + b["id"] in seen:
                                 continue
                             seen.add("tool:" + b["id"])
