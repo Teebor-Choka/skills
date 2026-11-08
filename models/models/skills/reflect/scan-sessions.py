@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
 """Deterministic friction scorer over Claude Code session jsonl.
 
-Ranks sessions by how much the agent struggled and emits the exact jsonl line
+Ranks runs by how much the agents struggled and emits the exact jsonl line
 of each friction moment, so a retrospective reads flagged ranges, not whole
 transcripts. No model, no network. Weights live in WEIGHTS below and are the
 single source of truth; references/friction-signals.md describes the signals.
 
+A run is one session together with the subagents it started: a main transcript
+<uuid>.jsonl and every <uuid>/subagents/*.jsonl beside it. --run treats all
+given transcripts as one run, for a session continued under a new id.
+
 Usage:
-    scan-sessions.py PATH [PATH ...] [--since ISO] [--until ISO] [--top N] [--json]
+    scan-sessions.py PATH [PATH ...] [--since ISO] [--until ISO] [--top N]
+                     [--run] [--coordination LOG ...] [--coordination-kinds RE]
+                     [--moments N] [--json]
 
 PATH is a .jsonl session file or a directory of them (scanned recursively, so
 subagents/ transcripts are included). --since/--until filter by file mtime
-(YYYY-MM-DD or full ISO). Default output is a table; --json emits the full
-structure including per-session moments.
+(YYYY-MM-DD or full ISO). --coordination adds an orchestrator's event log
+(JSONL, one event per line) to a single run. Default output is a table; --json
+emits the full structure including per-transcript moments.
 """
 import argparse
 import datetime as dt
@@ -21,6 +28,7 @@ import json
 import math
 import os
 import re
+import statistics
 import sys
 
 WEIGHTS = {
@@ -29,6 +37,10 @@ WEIGHTS = {
     "read_repeat": 2.0, # per re-read of the same file beyond READ_REPEAT_MIN
     "cmd_repeat": 1.5,  # per repeat of an identical bash command beyond CMD_REPEAT_MIN
     "tool_volume": 1.0, # log(total tool calls), a weak size prior
+    "steer": 1.0,       # a human turn without the correction lexicon: plain redirection
+    "rework": 1.5,      # a parent's follow-up message to a subagent: another round
+    "agent_failure": 2.0,  # a subagent the harness reports as not completed
+    "coordination": 2.0,   # a negative event in an orchestrator's log
 }
 
 # A target reached more than this many times is a navigation anchor; a bash
@@ -65,9 +77,24 @@ READ_CMD_RE = re.compile(
 STRICT_ERROR_RE = re.compile(
     r"^(exit code [1-9]\d*|error[:\[ ]|fatal:|traceback \(most recent|"
     r"<tool_use_error>|[^\n]*hook error:|[^\n]*: command not found|"
-    r"[^\n]*: no such file or directory|failed to |cannot )",
+    r"[^\n]*: no such file or directory|failed to |cannot |"
+    # lint summaries: ruff/flake8 "Found 2 errors.", eslint "✖ 3 problems", black/ruff format
+    r"found [1-9]\d* errors?\b|(✖\s*)?[1-9]\d* problems?\b|would reformat\b)",
     re.I | re.M,
 )
+# A bare nonzero exit that only means "nothing found" or "differs" for these commands
+# (grep/rg/diff/test exit 1, ls exit 2 on a missing path): a deliberate probe, not a failure.
+QUIET_EXIT = {"grep": 1, "egrep": 1, "fgrep": 1, "rg": 1, "diff": 1, "test": 1, "[": 1,
+              "ls": 2}
+EXIT_RE = re.compile(r"^exit code (\d+)", re.I)
+# A test runner's result: a failure may be one the agent caused on purpose (a mutation
+# check), so it stays counted but carries a tag the reader can weigh.
+TEST_CMD_RE = re.compile(r"\b(pytest|py\.test|cargo\s+test|go\s+test|npm\s+(run\s+)?test|"
+                         r"yarn\s+test|pnpm\s+test|just\s+test|make\s+test|tox|nox|tlock)\b")
+# In a subagent's transcript, a message from another agent that asks for another round.
+REWORK_RE = re.compile(
+    r"\b(NOT APPROVED|REVISE|REWORK|REDO|refused?|rejected|conflict|"
+    r"fix (it|this|that|the)|try again|still (fails|wrong|broken))\b", re.I)
 SHORT_RESULT = 600  # the loose error lexicon counts only in a short result
 CORRECTION_RE = re.compile(
     # "no," / "no." stand alone: a trailing \b would never follow the punctuation.
@@ -82,9 +109,30 @@ CORRECTION_RE = re.compile(
 # it, which would bias the ranking, so they are skipped on the correction path.
 INJECTED_RE = re.compile(
     r"<(system-reminder|command-name|command-message|command-args|"
-    r"local-command-stdout|task-notification|agent-message)>"
+    r"local-command-stdout|task-notification|agent-message|"
+    r"cross-session-message|teammate-message)(\s[^>]*)?>"
 )
-MOMENT_CAP = 20  # most flagged moments reported per session
+PEER_RE = re.compile(r"<(cross-session-message|teammate-message)\b")
+# A message from another agent of the same session (a subagent's own reviewer, a lead).
+AGENT_MSG_RE = re.compile(r"<agent-message\b")
+# The message itself inside the harness's wrapper, whose intro and closing note (which says
+# "refuse ...") are the same on every message and must not be read as its content.
+MESSAGE_TAG_RE = re.compile(
+    r"<(cross-session-message|teammate-message|agent-message)\b[^>]*>(.*?)(</\1>|$)", re.S)
+LEAD_WRAPPER_RE = re.compile(
+    r"^[^\n]*sent a message while you were working:\n(.*?)(\n\nAddress this before[^\n]*)?$", re.S)
+# The harness reports each subagent's end, with its usage, in the parent's transcript.
+NOTIFICATION_RE = re.compile(r"<task-notification>(.*?)</task-notification>", re.S)
+MOMENT_CAP = 20  # flagged moments reported per transcript of up to 1500 lines
+MOMENT_CAP_MAX = 120  # a longer transcript gets 20 more per 1500 lines, up to this
+COORDINATION_CAP = 60  # coordination moments reported per run
+COORDINATION_KINDS = (
+    r"stop|stall|quiet|invalid|duplicate|unresolved|revise|reject|block|dispute|"
+    r"timeout|fail|lost|conflict|retry|abandon|error|expired|refus"
+)
+# Moment kinds filled in this order, tier by tier: the user's own turns first, then
+# scored agent friction, then peer messages, which are context and not scored.
+PRIORITY_TIERS = (("correction", "steer"), ("rework", "agent_failure"), ("peer",))
 
 
 def text_of(content):
@@ -113,8 +161,31 @@ def is_tool_result(content):
     )
 
 
+def last_program(command):
+    """The program whose exit status a shell command reports: the last one in its pipeline.
+    None when a list (&&, ||, ;) could have stopped at an earlier program, except after cd."""
+    command = re.sub(r"^(\s*cd\s+[^&|;\n]+&&)+", "", (command or "").strip())
+    if re.search(r"&&|\|\||[;\n]", command):
+        return None
+    tail = command.split("|")[-1].split()
+    while tail and re.match(r"^\w+=", tail[0]):  # VAR=value prefixes
+        tail = tail[1:]
+    return os.path.basename(tail[0]) if tail else None
+
+
+def is_quiet_exit(text, command):
+    """A nonzero exit that a probe like grep or ls reports for "nothing found"."""
+    m = EXIT_RE.match(text.strip())
+    if not m:
+        return False
+    expected = QUIET_EXIT.get(last_program(command))
+    return expected is not None and int(m.group(1)) == expected
+
+
 def is_error_result(text, tool_name, command):
     """True when a tool result shows the call itself failed."""
+    if tool_name == "Bash" and is_quiet_exit(text, command):
+        return False
     if STRICT_ERROR_RE.search(text):
         return True
     if tool_name in READ_TOOLS:
@@ -122,6 +193,14 @@ def is_error_result(text, tool_name, command):
     if tool_name == "Bash" and READ_CMD_RE.search(command or ""):
         return False
     return len(text) <= SHORT_RESULT and bool(ERROR_RE.search(text))
+
+
+def message_body(origin, text):
+    """What another session or agent actually wrote, without the harness's wrapper."""
+    if isinstance(origin, dict) and isinstance(origin.get("body"), str):
+        return origin["body"]
+    m = MESSAGE_TAG_RE.search(text) or LEAD_WRAPPER_RE.match(text)
+    return (m.group(2) if m.re is MESSAGE_TAG_RE else m.group(1)).strip() if m else text
 
 
 def is_injected(entry, raw_line):
@@ -141,14 +220,65 @@ def excerpt(s, n=160):
     return re.sub(r"\s+", " ", s[: n + 240]).strip()[:n]
 
 
-def score_session(path):
+def moment_cap(lines, override=None):
+    """More room in longer transcripts, so a long session is not judged by its start."""
+    if override is not None:
+        return override
+    return min(MOMENT_CAP_MAX, MOMENT_CAP * max(1, math.ceil(lines / 1500)))
+
+
+def spread(items, k):
+    """k items picked evenly across items in line order: the start, middle and end all show."""
+    if k <= 0:
+        return []
+    if len(items) <= k:
+        return list(items)
+    if k == 1:
+        return [items[0]]
+    return [items[round(i * (len(items) - 1) / (k - 1))] for i in range(k)]
+
+
+def notification(text):
+    """id, status and usage of one task notification, from the harness's tags."""
+    def tag(name):
+        m = re.search(rf"<{name}>\s*([^<]*?)\s*</{name}>", text)
+        return m.group(1) if m else None
+
+    def number(*names):
+        for name in names:
+            value = tag(name)
+            if value and value.isdigit():
+                return int(value)
+        return None
+
+    return {
+        "id": tag("task-id"),
+        "status": tag("status"),
+        "tokens": number("subagent_tokens", "total_tokens"),
+        "tool_uses": number("tool_uses"),
+        "duration_ms": number("duration_ms"),
+    }
+
+
+def score_session(path, moments_override=None, seen_uuids=None):
+    """Signals and moments of one transcript. seen_uuids: entries and tool calls an earlier
+    member of the run already counted (a continuation repeats its parent's turns); updated in
+    place."""
+    seen = seen_uuids if seen_uuids is not None else set()
     reads = {}       # revisit target (file / search / page) -> [count, first_line]
     cmds = {}        # command -> [count, first_line]
     tool_total = 0
     tools = {}       # tool_use id -> (tool name, bash command)
     err_hits = []    # (line, excerpt)
     corr_hits = []   # (line, excerpt)
+    steer_hits = []  # (line, excerpt): human turns without the correction lexicon
+    rework_hits = [] # (line, excerpt): a parent's follow-up to this subagent
+    peer_hits = []   # (line, excerpt): messages from other sessions or agents
+    peer_seen = set()  # one message is logged several times (queued, then delivered)
+    usage = {}       # subagent id -> totals over its notifications, with the latest line
+    sidechain = "/subagents/" in path.replace(os.sep, "/")
     seen_assistant = False  # a correction is a human turn that follows agent action
+    lines = 0
 
     def bump(d, key, ln):
         e = d.get(key)
@@ -157,8 +287,32 @@ def score_session(path):
         else:
             d[key] = [1, ln]
 
+    def note_peer(origin, text, ln):
+        # Keyed on the message itself: a queued copy and its delivery wrap it differently.
+        key = re.sub(r"\s+", " ", message_body(origin, text))[:400]
+        if key not in peer_seen:
+            peer_seen.add(key)
+            peer_hits.append((ln, excerpt(text)))
+
+    def add_usage(n, ln):
+        # Tokens are cumulative over a subagent's rounds; tool uses and duration cover only
+        # the round that just ended, so they add up. A repeated notice of one round (same
+        # tokens) is not a new round.
+        u = usage.get(n["id"])
+        if u is None:
+            usage[n["id"]] = {**n, "tool_uses": n["tool_uses"] or 0,
+                              "duration_ms": n["duration_ms"] or 0, "rounds": 1, "line": ln}
+            return
+        if n["tokens"] is not None and n["tokens"] == u["tokens"]:
+            return
+        u.update(status=n["status"], line=ln, rounds=u["rounds"] + 1,
+                 tokens=max(n["tokens"] or 0, u["tokens"] or 0),
+                 tool_uses=u["tool_uses"] + (n["tool_uses"] or 0),
+                 duration_ms=u["duration_ms"] + (n["duration_ms"] or 0))
+
     with open(path, errors="replace") as fh:
         for ln, raw in enumerate(fh, 1):
+            lines = ln
             raw = raw.strip()
             if not raw:
                 continue
@@ -166,9 +320,26 @@ def score_session(path):
                 o = json.loads(raw)
             except ValueError:
                 continue
+            if not isinstance(o, dict):
+                continue
+            sidechain = sidechain or bool(o.get("isSidechain"))
+            if seen_uuids is not None and o.get("uuid"):
+                if o["uuid"] in seen_uuids:
+                    seen_assistant = seen_assistant or o.get("type") == "assistant"
+                    continue
+                seen_uuids.add(o["uuid"])
             typ = o.get("type")
             msg = o.get("message")
             content = msg.get("content") if isinstance(msg, dict) else None
+
+            if typ == "attachment":
+                # A message queued while the agent worked arrives as an attachment.
+                att = o.get("attachment")
+                if isinstance(att, dict) and isinstance(att.get("prompt"), str):
+                    t = att["prompt"]
+                    if PEER_RE.search(t) or AGENT_MSG_RE.search(t):
+                        note_peer(att.get("origin"), t, ln)
+                continue
 
             if typ == "assistant":
                 seen_assistant = True
@@ -176,6 +347,11 @@ def score_session(path):
                     for b in content:
                         if not isinstance(b, dict) or b.get("type") != "tool_use":
                             continue
+                        # A call logged again (another entry, same tool_use id) is one call.
+                        if b.get("id"):
+                            if "tool:" + b["id"] in seen:
+                                continue
+                            seen.add("tool:" + b["id"])
                         tool_total += 1
                         name = b.get("name")
                         inp = b.get("input", {}) or {}
@@ -193,33 +369,80 @@ def score_session(path):
                                    if isinstance(b, dict) and b.get("type") == "tool_result"), None)
                     name, command = tools.get(use_id, (None, None))
                     if is_error_result(t, name, command):
-                        err_hits.append((ln, excerpt(t)))
-                elif seen_assistant and not is_injected(o, raw):
+                        test_run = name == "Bash" and bool(TEST_CMD_RE.search(command or ""))
+                        err_hits.append((ln, excerpt(t), test_run))
+                elif is_injected(o, raw):
                     t = text_of(content)
-                    if t and CORRECTION_RE.search(t):
+                    origin = o.get("origin") if isinstance(o.get("origin"), dict) else {}
+                    notified = NOTIFICATION_RE.findall(t)
+                    for block in notified:
+                        n = notification(block)
+                        if n["id"]:
+                            add_usage(n, ln)
+                    if notified or t.startswith("[SYSTEM NOTIFICATION"):
+                        continue  # the harness reporting, not an agent asking
+                    body = message_body(origin, t)
+                    if PEER_RE.search(t) or AGENT_MSG_RE.search(t) or origin.get("kind") == "peer":
+                        note_peer(origin, t, ln)
+                        if sidechain and REWORK_RE.search(body):
+                            rework_hits.append((ln, excerpt(body)))
+                    elif sidechain and origin.get("kind") and REWORK_RE.search(body):
+                        # e.g. a lead agent's "REVISE R4-2"; a new assignment is not rework
+                        rework_hits.append((ln, excerpt(body)))
+                elif seen_assistant:
+                    t = text_of(content)
+                    if not t:
+                        continue
+                    if sidechain:
+                        # In a subagent's transcript the "user" is the agent that started it.
+                        rework_hits.append((ln, excerpt(t)))
+                    elif CORRECTION_RE.search(t):
                         corr_hits.append((ln, excerpt(t)))
+                    else:
+                        steer_hits.append((ln, excerpt(t)))
 
     read_repeat = sum(max(0, c - READ_REPEAT_MIN) for c, _ in reads.values())
     cmd_repeat = sum(max(0, c - CMD_REPEAT_MIN) for c, _ in cmds.values())
+    failures = [n for n in usage.values() if n["status"] and n["status"] != "completed"]
     signals = {
         "errors": len(err_hits),
         "corrections": len(corr_hits),
+        "steers": len(steer_hits),
+        "reworks": len(rework_hits),
+        "peer_messages": len(peer_hits),
+        "agent_failures": len(failures),
         "read_repeats": read_repeat,
         "cmd_repeats": cmd_repeat,
         "tool_calls": tool_total,
+        "lines": lines,
     }
     score = (
         WEIGHTS["error"] * len(err_hits)
         + WEIGHTS["correction"] * len(corr_hits)
+        + WEIGHTS["steer"] * len(steer_hits)
+        + WEIGHTS["rework"] * len(rework_hits)
+        + WEIGHTS["agent_failure"] * len(failures)
         + WEIGHTS["read_repeat"] * read_repeat
         + WEIGHTS["cmd_repeat"] * cmd_repeat
         + WEIGHTS["tool_volume"] * math.log1p(tool_total)
     )
 
-    hits = (
-        [{"line": l, "kind": "error", "excerpt": e} for l, e in err_hits]
-        + [{"line": l, "kind": "correction", "excerpt": e} for l, e in corr_hits]
+    def as_moments(found, kind):
+        return [{"line": line, "kind": kind, "excerpt": text} for line, text in found]
+
+    priority = (
+        as_moments(corr_hits, "correction")
+        + as_moments(steer_hits, "steer")
+        + as_moments(rework_hits, "rework")
+        + as_moments(peer_hits, "peer")
+        + [
+            {"line": n["line"], "kind": "agent_failure",
+             "excerpt": f"subagent {n['id']} ended {n['status']}"}
+            for n in failures
+        ]
     )
+    errors = [{"line": line, "kind": "error", "excerpt": text, **({"tag": "test_run"} if t else {})}
+              for line, text, t in err_hits]
     # busiest revisit / repeated command, each anchored to its first occurrence.
     # These drive read_repeats/cmd_repeats in the score, so they always survive
     # the cap; only the error/correction hits are trimmed to fit.
@@ -232,15 +455,170 @@ def score_session(path):
         if c > CMD_REPEAT_MIN:
             anchors.append({"line": fl, "kind": "cmd_repeat",
                             "excerpt": f"{c}x {excerpt(cmd, 80)}"})
-    hits.sort(key=lambda m: m["line"])
-    moments = hits[: max(0, MOMENT_CAP - len(anchors))] + anchors
-    moments.sort(key=lambda m: m["line"])
+    # Fill the budget tier by tier (PRIORITY_TIERS), so many peer messages never crowd
+    # out the user's own turns; errors fill what is left. Each tier is spread across the
+    # whole transcript, so a long session is not judged by its start.
+    room = max(0, moment_cap(lines, moments_override) - len(anchors))
+    chosen = []
+    for tier in PRIORITY_TIERS:
+        group = sorted((m for m in priority if m["kind"] in tier), key=lambda m: m["line"])
+        chosen += spread(group, room - len(chosen))
+    errors.sort(key=lambda m: m["line"])
+    chosen += spread(errors, room - len(chosen))
+    moments = sorted(chosen + anchors, key=lambda m: m["line"])
     return {
         "session": path,
         "score": round(score, 2),
         "signals": signals,
         "moments": moments,
+        "usage": usage,
+        "sidechain": sidechain,
     }
+
+
+# --- runs: a session with its subagents ---------------------------------------
+
+
+def run_key(path):
+    """A subagent's transcript belongs to the run of the session folder it sits in."""
+    parts = os.path.normpath(path).split(os.sep)
+    if "subagents" in parts:
+        return parts[parts.index("subagents") - 1]
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def agent_meta(path):
+    """What the harness recorded about a subagent beside its transcript, if anything."""
+    meta = os.path.splitext(path)[0] + ".meta.json"
+    try:
+        with open(meta) as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    name = os.path.splitext(os.path.basename(path))[0]
+    return {
+        "id": name.removeprefix("agent-"),
+        "type": data.get("agentType"),
+        "description": data.get("description"),
+        "finished": data.get("finished"),
+    }
+
+
+def read_coordination(paths, kinds):
+    """Negative events from orchestrator logs, as moments, plus counts of every kind."""
+    pattern = re.compile(kinds, re.I)
+    counts, by_agent, moments = {}, {}, []
+    for path in paths:
+        try:
+            fh = open(path, errors="replace")
+        except OSError as e:
+            print(f"skipped coordination log {path}: {e}", file=sys.stderr)
+            continue
+        with fh:
+            for ln, raw in enumerate(fh, 1):
+                try:
+                    event = json.loads(raw)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                kind = next(
+                    (str(event[k]) for k in ("kind", "type", "event", "status") if event.get(k)),
+                    None,
+                )
+                if kind is None:
+                    continue
+                counts[kind] = counts.get(kind, 0) + 1
+                if not pattern.search(kind):
+                    continue
+                agent = next(
+                    (str(event[k]) for k in ("agent", "actor", "role") if event.get(k)), "?"
+                )
+                by_agent[agent] = by_agent.get(agent, 0) + 1
+                detail = " ".join(
+                    str(event[k]) for k in ("id", "msg", "message") if event.get(k)
+                )
+                moments.append({"file": path, "line": ln, "kind": "coordination",
+                                "excerpt": excerpt(f"{agent} {kind} {detail}")})
+    return counts, by_agent, moments
+
+
+def score_run(key, files, coordination=(), kinds=COORDINATION_KINDS, moments_override=None):
+    members = []
+    seen_uuids = set()  # a continuation repeats its parent's entries: count each once
+    for f in sorted(files, key=lambda f: (os.path.getmtime(f), f)):
+        try:
+            member = score_session(f, moments_override, seen_uuids)
+        except OSError as e:
+            print(f"skipped {f}: {e}", file=sys.stderr)
+            continue
+        member["agent"] = agent_meta(f)
+        members.append(member)
+
+    # Usage comes from notifications in the parent; join it to each subagent by id.
+    usage = {}
+    for member in members:
+        for agent_id, n in member["usage"].items():
+            usage[agent_id] = {**n, "file": member["session"]}
+    for member in members:
+        agent = member["agent"]
+        member["cost"] = usage.get(agent["id"]) if agent else None
+
+    moments = []
+    for member in members:
+        agent = member["agent"]
+        if agent and agent["finished"] is False:
+            moments.append({"file": member["session"], "line": 1, "kind": "unfinished",
+                            "excerpt": f"{agent['type']}: {agent['description']}"})
+    # Rank cost per round, so an agent resumed many times is not an outlier for living long.
+    spent = [n for n in usage.values() if n.get("tokens")]
+    if len(spent) >= 3:
+        def per_round(n):
+            return n["tokens"] / max(1, n.get("rounds") or 1)
+        middle = statistics.median(per_round(n) for n in spent)
+        heavy = sorted(spent, key=lambda n: -per_round(n))[:3]
+        for n in heavy:
+            if per_round(n) > 2 * middle:
+                moments.append({"file": n["file"], "line": n["line"], "kind": "cost",
+                                "excerpt": f"subagent {n['id']}: {int(per_round(n))} tokens per "
+                                           f"round over {n.get('rounds')} rounds, "
+                                           f"{n.get('tool_uses')} tool calls, "
+                                           f"{n.get('duration_ms')} ms (median {int(middle)})"})
+
+    counts, by_agent, events = {}, {}, []
+    if coordination:
+        counts, by_agent, events = read_coordination(coordination, kinds)
+    moments += spread(events, COORDINATION_CAP)
+
+    signals = {}
+    for member in members:
+        for name, value in member["signals"].items():
+            signals[name] = signals.get(name, 0) + value
+    signals["subagents"] = sum(1 for m in members if m["sidechain"])
+    signals["coordination"] = len(events)
+    signals["tokens"] = sum(n.get("tokens") or 0 for n in usage.values())
+    score = sum(m["score"] for m in members) + WEIGHTS["coordination"] * len(events)
+    members.sort(key=lambda m: -m["score"])
+    for member in members:
+        del member["usage"]
+    return {
+        "run": key,
+        "score": round(score, 2),
+        "signals": signals,
+        "moments": sorted(moments, key=lambda m: (m["file"], m["line"])),
+        "coordination_kinds": counts,
+        "coordination_by_agent": by_agent,
+        "members": members,
+    }
+
+
+def group_runs(files, one_run=False):
+    runs = {}
+    for f in files:
+        runs.setdefault("run" if one_run else run_key(f), []).append(f)
+    return runs
 
 
 def collect(paths):
@@ -273,6 +651,13 @@ def main():
     ap.add_argument("--until")
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--run", action="store_true",
+                    help="treat every given transcript as one run, e.g. a continued session")
+    ap.add_argument("--coordination", action="append", default=[],
+                    help="an orchestrator's JSONL event log, for a single run")
+    ap.add_argument("--coordination-kinds", default=COORDINATION_KINDS,
+                    help="regex of event kinds that count as friction")
+    ap.add_argument("--moments", type=int, help="moments per transcript, instead of by length")
     a = ap.parse_args()
 
     since = parse_date(a.since) if a.since else None
@@ -289,12 +674,15 @@ def main():
         print("no session files matched", file=sys.stderr)
         return 1
 
-    scored = []
-    for f in files:
-        try:
-            scored.append(score_session(f))
-        except OSError as e:
-            print(f"skipped {f}: {e}", file=sys.stderr)
+    runs = group_runs(files, a.run)
+    if a.coordination and len(runs) != 1:
+        print("--coordination needs exactly one run: name one session, or add --run",
+              file=sys.stderr)
+        return 2
+    scored = [
+        score_run(key, members, a.coordination, a.coordination_kinds, a.moments)
+        for key, members in runs.items()
+    ]
     ranked = sorted(scored, key=lambda r: -r["score"])[:a.top]
 
     if a.json:
@@ -302,14 +690,23 @@ def main():
         print()
         return 0
 
-    print(f"{'score':>7}  {'err':>3} {'corr':>4} {'rrd':>3} {'cmd':>3} "
-          f"{'tool':>4}  session")
+    header = (f"{'score':>8}  {'err':>4} {'corr':>4} {'steer':>5} {'rwk':>4} "
+              f"{'fail':>4} {'coord':>5} {'tool':>5}  run / transcript")
+    print(header)
     for r in ranked:
         s = r["signals"]
-        print(f"{r['score']:>7.1f}  {s['errors']:>3} {s['corrections']:>4} "
-              f"{s['read_repeats']:>3} {s['cmd_repeats']:>3} {s['tool_calls']:>4}  "
-              f"{os.path.basename(r['session'])}")
-    print("\nrun with --json for per-session moment lines", file=sys.stderr)
+        print(f"{r['score']:>8.1f}  {s['errors']:>4} {s['corrections']:>4} {s['steers']:>5} "
+              f"{s['reworks']:>4} {s['agent_failures']:>4} {s['coordination']:>5} "
+              f"{s['tool_calls']:>5}  {r['run']} ({s['subagents']} subagents, "
+              f"{s['tokens']} subagent tokens)")
+        for m in r["members"][:10]:
+            ms, agent = m["signals"], m["agent"]
+            who = f"{agent['type']}: {agent['description']}" if agent else "main"
+            print(f"{m['score']:>8.1f}  {ms['errors']:>4} {ms['corrections']:>4} "
+                  f"{ms['steers']:>5} {ms['reworks']:>4} {ms['agent_failures']:>4} "
+                  f"{'':>5} {ms['tool_calls']:>5}    {os.path.basename(m['session'])} "
+                  f"{excerpt(who, 60)}")
+    print("\nrun with --json for per-transcript moment lines", file=sys.stderr)
     return 0
 
 
