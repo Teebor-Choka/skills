@@ -535,3 +535,15 @@ def test_a_tool_call_logged_twice_counts_once(tmp_path):
             {"type": "api-request-blob", "message": {"content": [call]}}]
     r = scan.score_session(write(tmp_path, rows))
     assert (r["signals"]["tool_calls"], r["signals"]["cmd_repeats"]) == (1, 0)
+
+
+def test_a_missing_transcript_is_skipped_not_fatal(tmp_path):
+    r = scan.score_run("run", [str(tmp_path / "missing.jsonl")])
+    assert r["members"] == []
+    assert r["signals"]["errors"] == 0
+
+
+def test_a_run_with_every_transcript_skipped_still_has_table_signals(tmp_path):
+    r = scan.score_run("run", [str(tmp_path / "missing.jsonl")])
+    for name in ("errors", "corrections", "steers", "reworks", "agent_failures", "tool_calls"):
+        assert r["signals"][name] == 0

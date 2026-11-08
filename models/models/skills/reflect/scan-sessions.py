@@ -548,7 +548,13 @@ def read_coordination(paths, kinds):
 def score_run(key, files, coordination=(), kinds=COORDINATION_KINDS, moments_override=None):
     members = []
     seen_uuids = set()  # a continuation repeats its parent's entries: count each once
-    for f in sorted(files, key=lambda f: (os.path.getmtime(f), f)):
+    def mtime(f):
+        try:
+            return os.path.getmtime(f)
+        except OSError:
+            return 0  # score_session reports the file as skipped
+
+    for f in sorted(files, key=lambda f: (mtime(f), f)):
         try:
             member = score_session(f, moments_override, seen_uuids)
         except OSError as e:
@@ -592,7 +598,10 @@ def score_run(key, files, coordination=(), kinds=COORDINATION_KINDS, moments_ove
         counts, by_agent, events = read_coordination(coordination, kinds)
     moments += spread(events, COORDINATION_CAP)
 
-    signals = {}
+    # Zero-filled so the table still prints when every transcript was skipped.
+    signals = dict.fromkeys(("errors", "corrections", "steers", "reworks", "peer_messages",
+                             "agent_failures", "read_repeats", "cmd_repeats", "tool_calls",
+                             "lines"), 0)
     for member in members:
         for name, value in member["signals"].items():
             signals[name] = signals.get(name, 0) + value
