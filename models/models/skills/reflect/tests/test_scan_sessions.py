@@ -547,3 +547,25 @@ def test_a_run_with_every_transcript_skipped_still_has_table_signals(tmp_path):
     r = scan.score_run("run", [str(tmp_path / "missing.jsonl")])
     for name in ("errors", "corrections", "steers", "reworks", "agent_failures", "tool_calls"):
         assert r["signals"][name] == 0
+
+
+def test_a_non_string_uuid_does_not_abort_the_scan(tmp_path):
+    rows = [{"uuid": ["x"], **user_text("task")}, asst_text()]
+    r = scan.score_run("run", [write(tmp_path, rows)])
+    assert r["members"]
+
+
+def test_a_non_string_tool_use_id_does_not_abort_the_scan(tmp_path):
+    row = {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": 5, "name": "Bash", "input": {"command": "ls"}}]}}
+    r = scan.score_session(write(tmp_path, [row]))
+    assert r["signals"]["tool_calls"] == 1
+
+
+def test_plain_steers_rank_below_a_real_error(tmp_path):
+    steers = [asst_text(), user_text("The timer should start later"),
+              asst_text(), user_text("Also add a flag")]
+    r = scan.score_session(write(tmp_path, steers))
+    assert r["signals"]["steers"] == 2
+    assert r["score"] == pytest.approx(2 * scan.WEIGHTS["steer"])
+    assert scan.WEIGHTS["steer"] < scan.WEIGHTS["error"] / 2
