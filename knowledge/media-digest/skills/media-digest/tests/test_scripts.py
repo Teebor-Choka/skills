@@ -1,4 +1,4 @@
-import subprocess, sys, tempfile, unittest
+import shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
 S = Path(__file__).resolve().parent.parent / "scripts"
@@ -74,9 +74,57 @@ class Coverage(unittest.TestCase):
                        "Bob spoke.\n\n## Omitted\n- 7: filler count\n")
         self.assertEqual(r.returncode, 0, r.stdout)
 
+    def test_sentence_start_filler_before_a_name_is_not_part_of_it(self):
+        r = self.check("[00:00:01] But Rich Dad said so. Meet David. Say Warren Buffett won.\n",
+                       "Rich Dad, David and Warren Buffett.")
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_contractions_and_possessives_are_not_names(self):
+        r = self.check("[00:00:01] We think I'm right. That's fair. Azer's way. We'll see.\n",
+                       "Azer.")
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_comma_separated_names_stay_separate(self):
+        r = self.check("[00:00:01] in Tokyo, New York, or Cairo.\n", "Tokyo; New York; Cairo.")
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_real_missing_name_at_sentence_start_still_reported(self):
+        r = self.check("[00:00:01] Alice Smith left.\n", "Alice left.")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Smith", r.stdout)
+
     def test_sentence_initial_capital_is_not_a_name(self):
         r = self.check("[00:00:01] Today we ship. Then we rest.\n", "We ship and rest.")
         self.assertEqual(r.returncode, 0, r.stdout)
+
+
+@unittest.skipUnless(shutil.which("jq"), "jq needed")
+class FetchPlaylist(unittest.TestCase):
+    ENTRIES = ('{"id":"aaa","title":"One","duration":10,"playlist_index":1}\n'
+               '{"id":"bbb","title":"Two","duration":20,"playlist_index":2}\n')
+
+    def fetch(self, url, *flags):
+        import os
+        with tempfile.TemporaryDirectory() as d:
+            stub = Path(d, "yt-dlp")
+            stub.write_text("#!/bin/sh\ncat <<'EOF'\n" + self.ENTRIES + "EOF\n"); stub.chmod(0o755)
+            env = {**os.environ, "PATH": f"{d}:{os.environ['PATH']}", "MEDIA_DIGEST_IN_NIX": "1"}
+            return subprocess.run(["sh", str(S / "fetch.sh"), url, *flags],
+                                  capture_output=True, text=True, env=env)
+
+    def test_playlist_url_lists_entries_instead_of_fetching_one_video(self):
+        import json
+        r = self.fetch("https://www.youtube.com/playlist?list=PLabc")
+        self.assertEqual(r.returncode, 3, r.stderr)
+        out = json.loads(r.stdout.strip().splitlines()[-1])
+        self.assertEqual(out["status"], "playlist")
+        self.assertEqual([e["id"] for e in out["entries"]], ["aaa", "bbb"])
+        self.assertEqual(out["entries"][0]["url"], "https://www.youtube.com/watch?v=aaa")
+
+    def test_watch_url_with_list_param_is_not_a_playlist(self):
+        with tempfile.TemporaryDirectory() as out:
+            r = self.fetch("https://www.youtube.com/watch?v=aaa&list=PLabc", "--out", out)
+        self.assertNotIn('"playlist"', r.stdout)
 
 
 class LinkTimestamps(unittest.TestCase):

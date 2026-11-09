@@ -11,6 +11,9 @@
 The article path uses `trafilatura` (`nix shell nixpkgs#python3Packages.trafilatura`, or `pipx install trafilatura`).
 `scripts/shell.nix` lists the same tools for an interactive `nix-shell`.
 
+`MEDIA_DIGEST_OUT` sets the base directory for output (default `./media-digest`); `--out` overrides it.
+Call `yt-dlp` only through `scripts/fetch.sh`; a bare call fails when it is not on `PATH`.
+
 ## Transcript sources
 
 | Order | Source                         | Flag                                                        |
