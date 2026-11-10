@@ -5,7 +5,10 @@
 # SOURCE is a media URL, a local media file, or a web page (article). A URL yt-dlp
 # cannot read is fetched as an article; --article skips the yt-dlp attempt.
 # Prints one JSON line on stdout: {"status","source","dir"}. Logs go to stderr.
-# status: ok | cached | no_transcript | blocked | video_unavailable | invalid_input | tool_missing | error
+# A playlist URL is not fetched: it prints {"status","source","dir","entries":[{index,id,title,duration,url}]}
+# and exits 3. Fetch each entry with its own call, e.g. --out DIR/<id>.
+# Default DIR is ${MEDIA_DIGEST_OUT:-./media-digest}/<slug>.
+# status: ok | cached | no_transcript | blocked | video_unavailable | invalid_input | tool_missing | playlist | error
 # source: manual | auto | whisper | article | none
 # Text lands in transcript.txt (media) or article.txt (article).
 set -eu
@@ -100,7 +103,7 @@ article() {
     exit 1
   fi
   slug=$(slugify "$(jq -r '.title // "article"' "$tmp/a.json")")-$(printf '%s' "$src" | shasum | cut -c1-8)
-  dir=${out:-./media-digest/$slug}
+  dir=${out:-${MEDIA_DIGEST_OUT:-./media-digest}/$slug}
   mkdir -p "$dir"
   if [ -s "$dir/article.txt" ] && [ -s "$dir/meta.json" ] && [ -z "$refresh" ]; then
     log "cached: $dir (use --refresh to refetch)"
@@ -119,6 +122,20 @@ article() {
 }
 
 [ -z "$force_article" ] || [ -f "$src" ] || article
+
+# Playlist: --no-playlist below would silently fetch one video, so list the entries instead.
+if [ ! -f "$src" ] && printf '%s' "$src" | grep -qE '(/playlist\?|[?&]list=)' && ! printf '%s' "$src" | grep -qE '[?&]v='; then
+  # shellcheck disable=SC2086
+  yt-dlp $ck --flat-playlist --dump-json --no-warnings "$src" >"$tmp/list.json" 2>"$tmp/err" || {
+    cat "$tmp/err" >&2
+    emit error none
+    exit 1
+  }
+  jq -sc '{status:"playlist",source:"none",dir:"",
+    entries:(to_entries | map(.value as $e | {index:($e.playlist_index // (.key + 1)),id:$e.id,title:$e.title,
+      duration:$e.duration,url:("https://www.youtube.com/watch?v=" + $e.id)}))}' "$tmp/list.json"
+  exit 3
+fi
 
 if [ -f "$src" ]; then
   is_file=1
@@ -144,7 +161,7 @@ else
   slug=$(slugify "$(jq -r '.title' "$tmp/raw.json")")-$(jq -r '.id' "$tmp/raw.json")
 fi
 
-dir=${out:-./media-digest/$slug}
+dir=${out:-${MEDIA_DIGEST_OUT:-./media-digest}/$slug}
 mkdir -p "$dir"
 
 if [ -s "$dir/transcript.txt" ] && [ -s "$dir/meta.json" ] && [ -z "$refresh" ]; then

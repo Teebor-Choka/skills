@@ -8,17 +8,18 @@ import re, sys
 
 STAMP = re.compile(r"^\[\d\d:\d\d:\d\d\]\s*", re.M)
 NUM = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")
+CONTRACTION = re.compile(r"['’](?:s|m|d|ll|re|ve|t)$", re.I)
 QUOTE = re.compile(r'"([^"\n]{3,})"')
 
 
 def names(text):
-    found = set()
+    found = {}  # reported phrase -> phrase that must appear in the summary
     for line in text.splitlines():
         run, lead = [], False  # lead: run began at a sentence start, so one word proves nothing
         sentence_start = True
-        for m in re.finditer(r"[A-Za-z][\w'’-]*|[.!?]", line):
-            w = m.group()
-            if w in ".!?":
+        for m in re.finditer(r"[A-Za-z][\w'’-]*|[.!?,;:]", line):
+            w = CONTRACTION.sub("", m.group())
+            if w in ".!?,;:":
                 _flush(run, lead, found)
                 run, lead, sentence_start = [], False, True
                 continue
@@ -35,8 +36,10 @@ def names(text):
 
 
 def _flush(run, lead, found):
+    # A capital at a sentence start proves nothing, so a lead run is covered when its tail
+    # is in the summary ("But Rich Dad" -> "Rich Dad"). A lone lead word is skipped.
     if run and not (lead and len(run) == 1):
-        found.add(" ".join(run))
+        found.setdefault(" ".join(run), " ".join(run[1:] if lead else run))
 
 
 def missing(transcript, summary):
@@ -47,8 +50,8 @@ def missing(transcript, summary):
     for n in sorted(set(NUM.findall(body))):
         if not re.search(r"(?<![\d.])" + re.escape(n.replace(",", "")) + r"(?![\d])", norm):
             out["numbers"].append(n)
-    for n in sorted(names(body)):
-        if n.lower() not in low:
+    for n, need in sorted(names(body).items()):
+        if need.lower() not in low:
             out["names"].append(n)
     for q in sorted(set(QUOTE.findall(body))):
         if q.lower() not in low:
