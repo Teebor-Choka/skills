@@ -15,7 +15,7 @@ description: >-
 license: MIT
 compatibility: any
 metadata:
-  version: "1.13.0"
+  version: "1.14.0"
 ---
 
 # Architect: self-contained, agent-executable architecture work packages
@@ -120,7 +120,13 @@ runs steps 0–4 and 7, skipping the graph and per-node briefs.
    linked set consistent from the start — fill documents in dependency order and leave cross-document
    consistency to the single lint gate at step 7. → _verify:_ the tier is recorded with the assembly
    findings that justify it, and the scaffolded artifact(s) exist.
-2. **Write the proposal.** Requirements become fixed constraints. **Design it twice**: sketch at
+2. **Confirm the hard constraints, then write the proposal.** Gate: before drafting, list the
+   constraints the design may not break and get the user's yes (the interaction policy decides how
+   you ask): which credentials, tokens, or secrets may touch which host; which tools or products are
+   required; which are excluded; what must stay local. Reasons: assumed constraints cost a full
+   redesign in three past sessions (an architecture built on a secrets path the user ruled out; a
+   required tool dropped, then an excluded one built on). Requirements become fixed constraints.
+   **Design it twice**: sketch at
    least two structurally distinct approaches and synthesize the strongest (principles §9), then
    present the design as a chain where each step is a _consequence_ of the prior one, not an
    independent pick. End with a **validation pass** that attacks your own design and folds the fixes
