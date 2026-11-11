@@ -3,7 +3,8 @@ name: nix
 description: >
   Operate correctly inside Nix + direnv development repos. Use whenever working in a repo
   that has a .envrc or a Nix flake (flake.nix): entering the dev shell, running builds,
-  formatting, or editing pre-commit setup, on macOS or Linux. Covers direnv allow per
+  formatting, or editing pre-commit setup, on macOS or Linux, including a `cd` into another
+  repo whose `.envrc` is blocked and new files a flake cannot see. Covers direnv allow per
   worktree, why to format with nix fmt rather than cargo fmt alone, GNU vs BSD sed on macOS,
   the result symlink rotation trap across successive nix build runs, CARGO_BUILD_RUSTFLAGS
   silently replacing .cargo/config.toml rustflags in crane builds, silencing direnv log
@@ -25,6 +26,11 @@ locally.
 
 - When a `.envrc` is present, enter the dev shell with `direnv allow <path>` — it works from
   anywhere, so you do not have to be inside the directory first.
+- On `direnv: error <path>/.envrc is blocked`, a `cd` into another repo or worktree hit an
+  unapproved `.envrc`; it repeats on every command until fixed. Run `direnv allow <path>`
+  yourself, without asking (the user has pre-approved it), then rerun the command. Allow only
+  `.envrc` files inside the user's own repos and worktrees, not one from a downloaded or
+  extracted archive.
 - Each git worktree needs its own `direnv allow <worktree-path>` after creation; the parent
   repo's allow does not carry over.
 - A fresh worktree does not inherit a `.pre-commit-config.yaml` that is a symlink into the nix
@@ -79,6 +85,11 @@ locally.
   (or wrap with `env -u ...`). Reproduce with `GIT_INDEX_FILE=.git/index bats <file>`.
 
 ## Flake dev loop and cross-building
+
+- **Flakes only see git-tracked files.** To make a new file visible to `nix eval`/`nix build`
+  before committing, run `git add -N <explicit paths>`. Never `git add -N .`: the git-guard
+  hook denies `.` (it also sweeps in `result` symlinks and scratch files), and the denial drops
+  the rest of a compound command.
 
 - **Iterate a split consumer/modules flake with `--override-input`.** When a consumer flake pulls
   its modules from a separate repo, point the input at a local sibling checkout
