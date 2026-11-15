@@ -76,6 +76,9 @@ ignored by the validator.
     names an entity or `owner`. A KPI may name only metrics a stage declares.
 16. A non-empty delta carries a `change` map: `metrics` that exist, a `direction` of `up` or
     `down`, and an observation `window` such as `5 runs`. An empty delta needs none.
+17. A delta cannot change the protected set: an existing entity's `escalates-to`, an existing
+    loop's `on-exhausted`, the `owner` of a KPI, or remove a loop or a KPI. It cannot raise a loop's
+    `bound`; it can lower it. A delta can add entities, loops and KPIs.
 
 `tier` on a floor stage is not locked: it sets cost, not whether the stage runs.
 
@@ -109,6 +112,10 @@ entities:
     escalates-to: lead
     may-spawn: [worker]
 ```
+
+The ladder's last rung, where loops escalate and who owns a KPI are protected: a swarm can grow
+below them but cannot move them. Changing them needs the owner, and the validator rejects the
+delta. A caller with the owner's approval applies it outside the validator.
 
 An entity asks the next rung for advice and keeps its item. The answer is `sure` or
 `unsure: <why>`, and `unsure` climbs one rung. `owner` is the user and the last rung. Spawning is
