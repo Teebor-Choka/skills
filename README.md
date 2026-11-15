@@ -20,6 +20,7 @@ Layout: `<domain>/<plugin>/skills/<skill>`. The host shows `plugin:skill`.
 |                     | `typescript`        | TypeScript and JavaScript house guidelines on every change       |
 | `orchestrate`       | `assign`, `pull`    | Multi-agent runs: dispatcher or peer swarm over a shared board   |
 | `operating-model`   | `policy`            | The `.agents/policy` format and loader                           |
+|                     | `procedure`         | Define and validate a named graph of stages                      |
 | `models`            | `extension-author`  | Author and port skills and plugins across agents                 |
 |                     | `reflect`           | Mine sessions for agent struggles and propose fixes              |
 | `writing`           | `unslop`            | Remove AI tells from prose                                       |

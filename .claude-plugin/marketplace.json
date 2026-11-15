@@ -20,11 +20,11 @@
     },
     {
       "name": "operating-model",
-      "description": "How work is run, independent of the domain: policy (the layered .agents/policy settings and loader a skill reads instead of hardcoding a constant).",
+      "description": "Run work, independent of the domain: policy (the layered .agents/policy settings a skill reads instead of hardcoding a constant) and procedure (a named graph of stages with a structure validator).",
       "source": "./agents/operating-model",
       "strict": true,
       "metadata": {
-        "version": "1.0.0"
+        "version": "1.1.0"
       }
     },
     {
