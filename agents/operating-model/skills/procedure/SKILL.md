@@ -28,35 +28,35 @@ indentation; no inline `{}` maps, no block lists). The body is free prose. Examp
 
 Stage keys, all under `stages.<id>`:
 
-| key                    | meaning                                                                      |
-| ---------------------- | ---------------------------------------------------------------------------- |
-| `needs`                | List of stage ids that run first. No `needs` marks an entry stage.           |
-| `consumes`, `produces` | Lists of artifact kinds. Kinds are open strings.                             |
-| `skill`                | Who executes the stage. Free string.                                         |
-| `when`                 | Condition to run. Free string; the stage owner interprets it.                |
-| `on-fail`              | Map: `to` (a stage id) and optional `bound`. A retry loop, not a dependency. |
-| `review`               | List of review angles for this stage.                                        |
-| `tier`                 | Model tier: `reasoning`, `execution`, `light`, `speed`.                      |
-| `floor`                | `true` marks a stage no delta may disable.                                   |
-| `disabled`             | In a delta: `true` removes the stage.                                        |
+| key                    | meaning                                                                                         |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| `needs`                | List of stage ids that run first. No `needs` marks an entry stage.                              |
+| `consumes`, `produces` | Lists of artifact kinds. Kinds are open strings.                                                |
+| `skill`                | Who executes the stage. Free string.                                                            |
+| `when`                 | Condition to run. Free string; the stage owner interprets it.                                   |
+| `on-fail`              | Map: `to` (this stage or an upstream one) and optional `bound`. A retry loop, not a dependency. |
+| `review`               | List of review angles for this stage.                                                           |
+| `tier`                 | Model tier: `reasoning`, `execution`, `light`, `speed`.                                         |
+| `floor`                | `true` marks a stage no delta may disable.                                                      |
+| `disabled`             | In a delta: `true` removes the stage.                                                           |
 
 Top-level `trigger` is a free map for what starts the procedure. Any other key is allowed and
 ignored by the validator.
 
 ## Rules the validator enforces
 
-1. Every `needs` entry names a stage. `on-fail.to` names a stage.
+1. Every `needs` entry names a stage. `on-fail` is a map whose `to` names this stage or an upstream stage.
 2. `needs` has no cycle. `on-fail` is not a dependency, so a retry loop is valid.
 3. `needs`, `consumes`, `produces` and `review` are lists.
 4. A stage with `needs` consumes only kinds an upstream stage produces. An entry stage consumes
    external input and is not checked.
 5. A kind whose upstream producers all carry `when` is rejected: skip the condition and the
    consumer has no input.
-6. A delta cannot disable a `floor` stage.
+6. A delta cannot disable a `floor` stage, change its `floor` flag, or add `when` to it. A delta cannot disable an unknown stage id.
 
 The validator checks structure, never content. Run
 `python3 scripts/validate_procedure.py FILE`, or `--base BASE --delta DELTA` to check an overlay.
-Both exit 1 on any error.
+Exit 1 on a validation or read error and 2 on a usage error. `when` is checked one hop: what a skipped stage's dependents do is the stage owner's call.
 
 ## Layering
 
