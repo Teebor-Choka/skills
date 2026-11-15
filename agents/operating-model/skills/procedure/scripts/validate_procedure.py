@@ -282,7 +282,7 @@ def _metric_errors(proc):
 
 
 def _change_errors(change, merged):
-    """A change to the procedure names what it should move, which way, and how long to watch."""
+    """A change names why, what it should move, which way, and how long to watch."""
     if not isinstance(change, dict):
         return ["a delta needs a 'change' map: metrics, direction, window"]
     errs = []
@@ -294,6 +294,9 @@ def _change_errors(change, merged):
         errs += [f"change: metric '{m}' is not declared by any stage" for m in ms if m not in declared]
     if change.get("direction") not in ("up", "down"):
         errs.append("change: 'direction' must be 'up' or 'down'")
+    reason = change.get("reason")
+    if not isinstance(reason, str) or not reason:
+        errs.append("change: 'reason' must say why, so the owner can judge the change")
     window = change.get("window")
     if not isinstance(window, str) or not window:
         errs.append("change: 'window' must name the observation window, such as '5 runs'")
@@ -338,22 +341,31 @@ def _floor_delta_errors(sid, base_stage, over):
 
 
 def _merge_stages(base_stages, delta_stages):
-    """Per stage id, a delta's keys replace the base's; `disabled: true` removes the stage."""
+    """Per stage id, a delta's keys replace the base's; `disabled: true` removes the stage.
+
+    Returns (merged, structural errors, protected errors). A protected error is a change only
+    the owner may approve; a structural error is a mistake no approval fixes."""
     merged = {k: dict(v) for k, v in base_stages.items()}
-    errs = []
+    errs, protected = [], []
     for sid, over in delta_stages.items():
         is_floor = merged.get(sid, {}).get("floor") is True
         if over.get("disabled") is True:
             if sid not in merged:
                 errs.append(f"delta disables unknown stage '{sid}'")
             elif is_floor:
-                errs.append(f"stage '{sid}' is floor and cannot be disabled")
+                protected.append(f"stage '{sid}' is floor and cannot be disabled")
+            else:
+                gates = [f for f in _ancestors(base_stages, sid) if base_stages[f].get("floor") is True]
+                if gates:
+                    protected.append(
+                        f"stage '{sid}' waits on floor stage '{gates[0]}' and cannot be removed"
+                    )
             merged.pop(sid, None)
             continue
         if is_floor:
-            errs += _floor_delta_errors(sid, merged[sid], over)
+            protected += _floor_delta_errors(sid, merged[sid], over)
         merged.setdefault(sid, {}).update(over)
-    return merged, errs
+    return merged, errs, protected
 
 
 def _raises(new, old):
@@ -387,14 +399,14 @@ def _merge_map(name, base_map, delta_map):
 
 
 def merge(base, delta):
-    """Overlay a delta procedure on a base. Returns (merged, errors)."""
-    stages, errs = _merge_stages(base["stages"], delta["stages"])
+    """Overlay a delta procedure on a base. Returns (merged, structural errors, protected errors)."""
+    stages, errs, protected = _merge_stages(base["stages"], delta["stages"])
     merged = {"stages": stages}
     for name in ID_MAPS:
         if name in base or name in delta:
             merged[name], more = _merge_map(name, base.get(name, {}), delta.get(name, {}))
-            errs += more
-    return merged, errs
+            protected += more
+    return merged, errs, protected
 
 
 def _floor_errors(base, merged):
@@ -411,8 +423,12 @@ def _floor_errors(base, merged):
     return errs
 
 
-def validate_layers(base_text, delta_text, src="<delta>", strict=True):
-    """Overlay a delta on a baseline, then validate the merged procedure."""
+def validate_layers(base_text, delta_text, src="<delta>", strict=True, ratified=False):
+    """Overlay a delta on a baseline, then validate the merged procedure.
+
+    A protected change (a floor stage, the ladder, loop escalation, a KPI) is rejected unless
+    `ratified` is true. Only a caller holding the owner's approval may pass it: the CLI has no
+    such flag. Ratification never excuses a structural error or a missing change hypothesis."""
     base, errs = _load(base_text, "<base>")
     delta, errs2 = _load(delta_text, src, required=False)
     if errs or errs2:
@@ -420,8 +436,14 @@ def validate_layers(base_text, delta_text, src="<delta>", strict=True):
     errs = _validate(base, strict)
     if errs:
         return [f"<base>: {e}" for e in errs]
-    merged, errs = merge(base, delta)
-    errs = errs or _validate(merged, strict) or _floor_errors(base["stages"], merged["stages"])
+    merged, errs, protected = merge(base, delta)
+    if errs:
+        return errs
+    if protected and not ratified:
+        return protected
+    errs = _validate(merged, strict)
+    if not errs and not ratified:
+        errs = _floor_errors(base["stages"], merged["stages"])
     if errs or not strict or _is_empty(delta):
         return errs
     return _change_errors(delta.get("change"), merged)
