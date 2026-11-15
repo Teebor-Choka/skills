@@ -143,3 +143,51 @@ def test_the_cli_exits_one_on_a_silent_drop(tmp_path, capsys):
     p.write_text(PROC)
     assert check_translation_main([str(t), str(p)]) == 1
     assert "s2" in capsys.readouterr().err
+
+
+def raw(body):
+    return f"---\n{body}---\n"
+
+
+def test_a_repeated_sentence_id_is_rejected_because_the_parser_keeps_only_the_last():
+    text = raw("sentences:\n  s1: first sentence\n  s1: second sentence\ntrace:\n  s1: [loops.fix]\n")
+    errors, _ = check_translation(text, PROC)
+    assert has(errors, "s1") and has(errors, "twice")
+
+
+def test_a_repeated_trace_id_is_rejected():
+    text = raw("sentences:\n  s1: a\ntrace:\n  s1: [loops.fix]\n  s1: [stages.build]\n")
+    assert has(check_translation(text, PROC)[0], "twice")
+
+
+def test_a_repeated_gap_id_is_rejected():
+    text = raw("sentences:\n  s1: a\ngaps:\n  s1:\n    needs: one thing\n  s1:\n    needs: other thing\n")
+    assert has(check_translation(text, PROC)[0], "twice")
+
+
+def test_an_unquoted_hash_that_would_truncate_a_sentence_is_rejected():
+    text = raw("sentences:\n  s1: close issue #12 after review passes\ntrace:\n  s1: [loops.fix]\n")
+    errors, _ = check_translation(text, PROC)
+    assert has(errors, "s1") and has(errors, "quote")
+
+
+def test_nested_keys_with_the_same_name_are_not_repeated_ids():
+    text = raw(
+        "sentences:\n  a: x\n  b: y\ngaps:\n  a:\n    needs: first missing thing\n"
+        "  b:\n    needs: second missing thing\n"
+    )
+    assert check_translation(text, PROC)[0] == []
+
+
+def test_comments_and_blank_lines_do_not_confuse_the_scan():
+    text = raw("sentences:\n\n  # a note\n  s1: do it\n  s2: do more\ntrace:\n  s1: [loops.fix]\n  s2: [stages.build]\n")
+    assert check_translation(text, PROC)[0] == []
+
+
+def test_the_cli_exits_one_on_a_repeated_id(tmp_path, capsys):
+    t = tmp_path / "t.md"
+    t.write_text(raw("sentences:\n  s1: a\n  s1: b\ntrace:\n  s1: [loops.fix]\n"))
+    p = tmp_path / "p.md"
+    p.write_text(PROC)
+    assert check_translation_main([str(t), str(p)]) == 1
+    assert "twice" in capsys.readouterr().err
