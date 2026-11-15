@@ -175,3 +175,7 @@ def test_delta_without_stages_passes():
 def test_cli_missing_file_prints_error_and_exits_1(capsys):
     assert main(["/nonexistent/procedure.md"]) == 1
     assert "ERROR" in capsys.readouterr().err
+
+
+def test_delta_with_empty_stages_map_is_a_no_op():
+    assert validate_layers(BASE, "---\nstages:\n---\n") == []
