@@ -111,8 +111,14 @@ def test_delta_cannot_disable_floor_stage():
     assert has(layered(delta), "floor")
 
 
-def test_delta_can_disable_non_floor_stage():
-    assert layered("  build:\n    disabled: true\n") == []
+def test_delta_can_disable_a_stage_that_does_not_wait_on_a_floor_stage():
+    base = BASE[:-4] + "  notes:\n    produces: [n]\n---\n"
+    assert validate_layers(base, "---\nstages:\n  notes:\n    disabled: true\n---\n") == []
+
+
+def test_delta_cannot_disable_a_stage_that_waits_on_a_floor_stage():
+    delta = "---\nstages:\n  build:\n    disabled: true\n---\n"
+    assert has(validate_layers(BASE, delta), "floor")
 
 
 def test_delta_adds_stage_with_needs():

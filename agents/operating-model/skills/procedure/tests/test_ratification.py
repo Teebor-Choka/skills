@@ -48,7 +48,11 @@ DISABLE_AND_REPLACE = (
     "stages:\n  release:\n    disabled: true\n"
     "  ship:\n    entity: pm\n    needs: [build]\n    consumes: [change]\n    metrics: [m]\n"
 )
-DISABLE_FLOOR = "stages:\n  gate:\n    disabled: true\n"
+DISABLE_FLOOR = (
+    "stages:\n  gate:\n    disabled: true\n"
+    "  release:\n    needs: [build]\n    consumes: [change]\n"
+    "loops:\n  fix:\n    stages: [build]\n    exit:\n      kind: change\n"
+)
 KPI_OWNER = "kpis:\n  flow:\n    owner: dev\n"
 LOOP_GONE = "loops:\n  fix:\n    disabled: true\n"
 

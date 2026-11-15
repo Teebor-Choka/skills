@@ -74,11 +74,13 @@ ignored by the validator.
     produces.
 15. Every stage declares a metric, every metric links to a `kpis` entry, and each KPI's `owner`
     names an entity or `owner`. A KPI may name only metrics a stage declares.
-16. A non-empty delta carries a `change` map: `metrics` that exist, a `direction` of `up` or
-    `down`, and an observation `window` such as `5 runs`. An empty delta needs none.
+16. A non-empty delta carries a `change` map: a `reason`, `metrics` that exist, a `direction` of
+    `up` or `down`, and an observation `window` such as `5 runs`. An empty delta needs none.
 17. A delta cannot change the protected set: an existing entity's `escalates-to`, an existing
     loop's `on-exhausted`, the `owner` of a KPI, or remove a loop or a KPI. It cannot raise a loop's
     `bound`; it can lower it. A delta can add entities, loops and KPIs.
+18. A delta cannot remove a stage that waits on a floor stage, since a replacement could route
+    around the floor. It can add stages anywhere.
 
 `tier` on a floor stage is not locked: it sets cost, not whether the stage runs.
 
@@ -153,6 +155,7 @@ A delta that changes the procedure carries the reason it can be judged and rolle
 
 ```
 change:
+  reason: reviews bounce on missing tests; add a test-first check
   metrics: [rework]
   direction: down
   window: 5 runs
@@ -160,6 +163,18 @@ change:
 
 The validator checks that these exist and are linked. Comparing the metrics after the window and
 proposing a rollback on a regression is a runner's job. That runner is not built yet.
+
+## Changes always reach the owner
+
+A change to the procedure, a policy file or a charter never applies on its own. This line does
+not move. The swarm drafts the change as a delta with its `change` map, runs the validator, and
+sends it to the owner with the metrics and the reasoning. Work continues on the snapshot it
+started with until the owner ratifies.
+
+The validator classifies a delta. A protected change is rejected until a caller passes
+`ratified=True`, and only a caller holding the owner's approval does that. The CLI has no such
+flag. Ratification never excuses a structural error or a missing `change` map. Applying any delta,
+protected or not, is the runner's step, and it always waits for the owner.
 
 ## Layering
 
