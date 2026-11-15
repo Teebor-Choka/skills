@@ -1,4 +1,4 @@
-from procedure_testkit import FIXTURES, main, validate_layers, validate_text
+from procedure_testkit import FIXTURES, has, main, validate_layers, validate_text
 
 
 def proc(stages):
@@ -33,10 +33,6 @@ def layered(stages):
 
 def errs(stages):
     return validate_text(proc(stages))
-
-
-def has(errors, word):
-    return any(word in e for e in errors)
 
 
 def test_valid_chain_passes():

@@ -1,5 +1,5 @@
 import pytest
-from procedure_testkit import has, main, strict_validate_layers as layers
+from procedure_testkit import delta, has, main, strict_validate_layers as layers
 
 BASE = """---
 entities:
@@ -37,13 +37,6 @@ stages:
     metrics: [m]
 ---
 """
-CHANGE = "change:\n  reason: tested\n  metrics: [m]\n  direction: down\n  window: 5 runs\n"
-
-
-def delta(body):
-    return f"---\n{CHANGE}{body}---\n"
-
-
 DISABLE_AND_REPLACE = (
     "stages:\n  release:\n    disabled: true\n"
     "  ship:\n    entity: pm\n    needs: [build]\n    consumes: [change]\n    metrics: [m]\n"

@@ -10,6 +10,7 @@ entities form a ladder that reaches the owner with downward-only spawning. Unkno
     validate_procedure.py --base B --delta D   overlay D on B, then validate
 """
 import argparse
+import functools
 import os
 import sys
 from graphlib import CycleError, TopologicalSorter
@@ -18,18 +19,24 @@ from graphlib import CycleError, TopologicalSorter
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "policy"))
 from policy_loader import PolicyError, _parse_frontmatter, _split_frontmatter  # noqa: E402
 
+__all__ = ("validate_text", "validate_layers", "main")
+
 OWNER = "owner"  # the user: the reserved last rung of every ladder
 LIST_KEYS = ("needs", "consumes", "produces", "review", "metrics")
 BOOL_KEYS = ("disabled", "floor")
 # A delta may not change these on a floor stage; `review` may only grow.
 FLOOR_LOCKED = ("needs", "consumes", "produces", "skill", "entity")
-# Top-level maps of id -> map that a delta overlays per id, like `stages`.
-ID_MAPS = ("entities", "loops", "kpis")
-# The protected set: keys a delta cannot change on an existing id, and ids it cannot remove.
-PROTECTED_KEYS = {"entities": ("escalates-to",), "loops": ("on-exhausted",), "kpis": ("owner",)}
-PROTECTED_IDS = ("loops", "kpis")
-# The closed vocabulary of `when` and loop `exit` conditions: a runner evaluates these without a model.
-PREDICATES = {"paths": list, "kind": str, "policy": str}
+# Id maps a delta overlays per id, like `stages`, and what protects each. `protected`: keys a delta
+# cannot change on an existing id. `removable`: whether a delta may disable an id. `lower_only`:
+# numeric keys a delta may lower but not raise. A new map is one entry here.
+ID_MAPS = {
+    "entities": {"protected": ("escalates-to",), "removable": True},
+    "loops": {"protected": ("on-exhausted",), "removable": False, "lower_only": ("bound",)},
+    "kpis": {"protected": ("owner",), "removable": False},
+}
+# The closed vocabulary of `when` and loop `exit` conditions: key -> (value type, the context set
+# the value must belong to, or None). A runner evaluates these without a model.
+PREDICATES = {"paths": (list, None), "kind": (str, "kinds"), "policy": (str, None)}
 
 
 def _load(text, src, required=True):
@@ -135,6 +142,16 @@ def _kind_errors(stages):
     return errs
 
 
+def _names_entity(value, ents):
+    """True when `value` names a defined entity or the owner."""
+    return isinstance(value, str) and (value == OWNER or value in ents)
+
+
+def _posint(value):
+    """The value as a positive integer, or None."""
+    return int(value) if isinstance(value, str) and value.isdecimal() and int(value) > 0 else None
+
+
 def _chain(ents, eid):
     """The entities above `eid` on its escalation ladder, nearest first; None if it loops."""
     seen, above = {eid}, []
@@ -157,7 +174,7 @@ def _entity_errors(proc):
     errs = [f"entity '{OWNER}' is reserved for the user, the last rung"] if OWNER in ents else []
     for eid, e in ents.items():
         to = e.get("escalates-to")
-        if not isinstance(to, str) or (to != OWNER and to not in ents):
+        if not _names_entity(to, ents):
             errs.append(f"entity '{eid}': escalates-to names unknown entity '{to}'")
         may = e.get("may-spawn", [])
         if not isinstance(may, list):
@@ -198,18 +215,21 @@ def _known_kinds(stages):
 
 
 def _predicate_errors(where, pred, kinds):
+    ctx = {"kinds": kinds}
     names = ", ".join(sorted(PREDICATES))
     if not isinstance(pred, dict) or not pred:
         return [f"{where}: must be a map of predicates ({names})"]
     errs = []
     for key, val in pred.items():
-        want = PREDICATES.get(key)
-        if want is None:
+        spec = PREDICATES.get(key)
+        if spec is None:
             errs.append(f"{where}: unknown predicate '{key}' (allowed: {names})")
-        elif not isinstance(val, want) or not val:
+            continue
+        want, scope = spec
+        if not isinstance(val, want) or not val:
             errs.append(f"{where}: '{key}' must be a non-empty {want.__name__}")
-        elif key == "kind" and val not in kinds:
-            errs.append(f"{where}: kind '{val}' is not produced by any stage")
+        elif scope and val not in ctx[scope]:
+            errs.append(f"{where}: {key} '{val}' is not known to the procedure")
     return errs
 
 
@@ -236,14 +256,14 @@ def _loop_errors(proc):
             members = []
         errs += [f"{where}: stage '{m}' does not exist" for m in members if m not in stages]
         bound = lp.get("bound")
-        if not (isinstance(bound, str) and bound.isdecimal() and int(bound) > 0):
+        if _posint(bound) is None:
             errs.append(f"{where}: 'bound' must be a positive integer, the maximum rounds")
         if "exit" not in lp:
             errs.append(f"{where}: needs an 'exit' condition")
         else:
             errs += _predicate_errors(f"{where}: 'exit'", lp["exit"], kinds)
         to = lp.get("on-exhausted")
-        if not isinstance(to, str) or (to != OWNER and to not in (ents or {})):
+        if not _names_entity(to, ents or {}):
             errs.append(f"{where}: 'on-exhausted' must name an entity or '{OWNER}', not '{to}'")
         carries = lp.get("carries")
         if carries is not None and not any(
@@ -269,7 +289,7 @@ def _metric_errors(proc):
     linked = set()
     for name, k in kpis.items():
         owner = k.get("owner")
-        if not isinstance(owner, str) or (owner != OWNER and owner not in ents):
+        if not _names_entity(owner, ents):
             errs.append(f"kpi '{name}': 'owner' must name an entity or '{OWNER}'")
         ms = k.get("metrics")
         if not isinstance(ms, list) or not ms:
@@ -303,19 +323,27 @@ def _change_errors(change, merged):
     return errs
 
 
+# The checks in the order they must run: each assumes the ones before it passed, since ancestors
+# need resolved `needs`. Every rule takes the whole procedure. A new rule is one entry here.
+# `strict_only` rules are the ones every real procedure meets and a structure test may skip.
+RULES = (
+    (lambda p: _shape_errors(p["stages"]), False),
+    (lambda p: _when_errors(p["stages"]), False),
+    (lambda p: _graph_errors(p["stages"]), False),
+    (lambda p: _retry_errors(p["stages"]), False),
+    (lambda p: _kind_errors(p["stages"]), False),
+    (_entity_errors, False),
+    (_loop_errors, False),
+    (_metric_errors, True),
+)
+
+
 def _validate(proc, strict=True):
-    # Each check assumes the one before it passed: ancestors need resolved `needs`.
-    stages = proc["stages"]
-    return (
-        _shape_errors(stages)
-        or _when_errors(stages)
-        or _graph_errors(stages)
-        or _retry_errors(stages)
-        or _kind_errors(stages)
-        or _entity_errors(proc)
-        or _loop_errors(proc)
-        or (_metric_errors(proc) if strict else [])
-    )
+    for rule, strict_only in RULES:
+        errs = rule(proc) if strict or not strict_only else []
+        if errs:
+            return errs
+    return []
 
 
 def validate_text(text, src="<text>", strict=True):
@@ -334,8 +362,9 @@ def _floor_delta_errors(sid, base_stage, over):
     for key in FLOOR_LOCKED:
         if key in over and over[key] != base_stage.get(key):
             errs.append(f"stage '{sid}' is floor: a delta cannot change '{key}'")
-    kept = over.get("review", base_stage.get("review") or [])
-    if not isinstance(kept, list) or not set(base_stage.get("review") or []) <= set(kept):
+    old = base_stage.get("review") or []
+    kept = over.get("review", old)
+    if not isinstance(kept, list) or not set(old) <= set(kept):
         errs.append(f"stage '{sid}' is floor: a delta cannot remove review angles")
     return errs
 
@@ -370,35 +399,38 @@ def _merge_stages(base_stages, delta_stages):
 
 def _raises(new, old):
     """True when both are positive integers and `new` is larger."""
-    return all(isinstance(x, str) and x.isdecimal() for x in (new, old)) and int(new) > int(old)
+    n, o = _posint(new), _posint(old)
+    return n is not None and o is not None and n > o
 
 
 def _merge_map(name, base_map, delta_map):
     """Overlay an id map per id; `disabled: true` removes the id.
 
-    The protected set stays out of a delta's reach: the ladder's rungs, where a loop escalates,
-    a loop's round bound, and who owns a KPI. Changing them needs the owner."""
+    What a delta may not do comes from the map's registry entry: change a protected key, remove an
+    id the map keeps, or raise a key that may only fall. Changing those needs the owner."""
+    spec = ID_MAPS[name]
     merged = {k: dict(v) for k, v in base_map.items()}
     errs = []
     for key, over in delta_map.items():
         old = merged.get(key)
         if over.get("disabled") is True:
-            if old is not None and name in PROTECTED_IDS:
+            if old is not None and not spec["removable"]:
                 errs.append(f"{name}.{key} is protected: a delta cannot remove it")
             else:
                 merged.pop(key, None)
             continue
         if old is not None:
-            for k in PROTECTED_KEYS.get(name, ()):
+            for k in spec["protected"]:
                 if k in over and over[k] != old.get(k):
                     errs.append(f"{name}.{key}: '{k}' is protected; changing it needs the owner")
-            if name == "loops" and "bound" in over and _raises(over["bound"], old.get("bound")):
-                errs.append(f"loops.{key}: a delta cannot raise 'bound'")
+            for k in spec.get("lower_only", ()):
+                if k in over and _raises(over[k], old.get(k)):
+                    errs.append(f"{name}.{key}: a delta cannot raise '{k}'")
         merged.setdefault(key, {}).update(over)
     return merged, errs
 
 
-def merge(base, delta):
+def _merge(base, delta):
     """Overlay a delta procedure on a base. Returns (merged, structural errors, protected errors)."""
     stages, errs, protected = _merge_stages(base["stages"], delta["stages"])
     merged = {"stages": stages}
@@ -411,16 +443,29 @@ def merge(base, delta):
 
 def _floor_errors(base, merged):
     """A floor stage keeps everything that waited on it, and nothing upstream is conditional."""
+    anc_base = {s: _ancestors(base, s) for s in base}
+    anc_merged = {s: _ancestors(merged, s) for s in merged}
     errs = []
     for fid, bst in base.items():
         if bst.get("floor") is not True or fid not in merged:
             continue
-        if any("when" in merged[a] for a in _ancestors(merged, fid)):
+        if any("when" in merged[a] for a in anc_merged[fid]):
             errs.append(f"stage '{fid}' is floor: no upstream stage may carry 'when'")
         for sid in base:
-            if sid in merged and fid in _ancestors(base, sid) and fid not in _ancestors(merged, sid):
+            if sid in merged and fid in anc_base[sid] and fid not in anc_merged[sid]:
                 errs.append(f"stage '{sid}' no longer runs after floor stage '{fid}'")
     return errs
+
+
+@functools.lru_cache(maxsize=8)
+def _checked_base(base_text, strict):
+    """Parse and validate a baseline once: a swarm overlays many proposals on one baseline.
+
+    The result is shared across calls, so a caller must not mutate it."""
+    base, errs = _load(base_text, "<base>")
+    if errs:
+        return base, errs
+    return base, [f"<base>: {e}" for e in _validate(base, strict)]
 
 
 def validate_layers(base_text, delta_text, src="<delta>", strict=True, ratified=False):
@@ -429,14 +474,11 @@ def validate_layers(base_text, delta_text, src="<delta>", strict=True, ratified=
     A protected change (a floor stage, the ladder, loop escalation, a KPI) is rejected unless
     `ratified` is true. Only a caller holding the owner's approval may pass it: the CLI has no
     such flag. Ratification never excuses a structural error or a missing change hypothesis."""
-    base, errs = _load(base_text, "<base>")
+    base, errs = _checked_base(base_text, strict)
     delta, errs2 = _load(delta_text, src, required=False)
     if errs or errs2:
         return errs + errs2
-    errs = _validate(base, strict)
-    if errs:
-        return [f"<base>: {e}" for e in errs]
-    merged, errs, protected = merge(base, delta)
+    merged, errs, protected = _merge(base, delta)
     if errs:
         return errs
     if protected and not ratified:
@@ -444,14 +486,11 @@ def validate_layers(base_text, delta_text, src="<delta>", strict=True, ratified=
     errs = _validate(merged, strict)
     if not errs and not ratified:
         errs = _floor_errors(base["stages"], merged["stages"])
-    if errs or not strict or _is_empty(delta):
+    empty = not delta["stages"] and not any(delta.get(name) for name in ID_MAPS)
+    if errs or not strict or empty:
         return errs
     return _change_errors(delta.get("change"), merged)
 
-
-def _is_empty(delta):
-    """A delta that overlays nothing needs no change hypothesis."""
-    return not delta["stages"] and not any(delta.get(name) for name in ID_MAPS)
 
 
 def main(argv=None):

@@ -26,3 +26,11 @@ def validate_layers(base_text, delta_text, src="<delta>"):
 
 def has(errors, word):
     return any(word in e for e in errors)
+
+
+CHANGE = "change:\n  reason: tested\n  metrics: [m]\n  direction: down\n  window: 5 runs\n"
+
+
+def delta(body, change=CHANGE):
+    """A delta overlay with a change hypothesis, the way every non-empty delta must come."""
+    return f"---\n{change}{body}---\n"
