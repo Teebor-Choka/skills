@@ -1,4 +1,4 @@
-from procedure_testkit import has, strict_validate_layers as layers, strict_validate_text as check
+from procedure_testkit import delta, has, strict_validate_layers as layers, strict_validate_text as check
 
 BASE = """---
 entities:
@@ -34,13 +34,6 @@ stages:
     metrics: [m]
 ---
 """
-CHANGE = "change:\n  reason: tested\n  metrics: [m]\n  direction: down\n  window: 5 runs\n"
-
-
-def delta(body):
-    return f"---\n{CHANGE}{body}---\n"
-
-
 def test_the_base_is_valid():
     assert check(BASE) == []
 
