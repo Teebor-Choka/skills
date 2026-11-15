@@ -18,6 +18,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from policy_loader import PolicyError, _parse_frontmatter, _split_frontmatter  # noqa: E402
 
 LIST_KEYS = ("needs", "consumes", "produces", "review")
+BOOL_KEYS = ("disabled", "floor")
+# A delta may not change these on a floor stage; `review` may only grow.
+FLOOR_LOCKED = ("needs", "consumes", "produces", "skill")
 
 
 def _load(text, src, required=True):
@@ -41,6 +44,9 @@ def _shape_errors(stages):
         for key in LIST_KEYS:
             if key in st and not isinstance(st[key], list):
                 errs.append(f"stage '{sid}': '{key}' must be a list like [a, b]")
+        for key in BOOL_KEYS:
+            if key in st and not isinstance(st[key], bool):
+                errs.append(f"stage '{sid}': '{key}' must be true or false")
         of = st.get("on-fail")
         if of is not None and not (isinstance(of, dict) and isinstance(of.get("to"), str)):
             errs.append(f"stage '{sid}': 'on-fail' must be a map with a stage id in 'to'")
@@ -122,6 +128,20 @@ def validate_text(text, src="<text>"):
     return errs or _validate_stages(stages)
 
 
+def _floor_delta_errors(sid, base_stage, over):
+    """What a delta may not do to a floor stage: change its flag, wiring, skill, or drop reviews."""
+    errs = []
+    if "floor" in over or "when" in over:
+        errs.append(f"stage '{sid}' is floor: a delta cannot change 'floor' or add 'when'")
+    for key in FLOOR_LOCKED:
+        if key in over and over[key] != base_stage.get(key):
+            errs.append(f"stage '{sid}' is floor: a delta cannot change '{key}'")
+    kept = over.get("review", base_stage.get("review") or [])
+    if not isinstance(kept, list) or not set(base_stage.get("review") or []) <= set(kept):
+        errs.append(f"stage '{sid}' is floor: a delta cannot remove review angles")
+    return errs
+
+
 def merge(base_stages, delta_stages):
     """Per stage id, a delta's keys replace the base's; `disabled: true` removes the stage."""
     merged = {k: dict(v) for k, v in base_stages.items()}
@@ -135,8 +155,8 @@ def merge(base_stages, delta_stages):
                 errs.append(f"stage '{sid}' is floor and cannot be disabled")
             merged.pop(sid, None)
             continue
-        if is_floor and ("floor" in over or "when" in over):
-            errs.append(f"stage '{sid}' is floor: a delta cannot change 'floor' or add 'when'")
+        if is_floor:
+            errs += _floor_delta_errors(sid, merged[sid], over)
         merged.setdefault(sid, {}).update(over)
     return merged, errs
 
@@ -147,8 +167,25 @@ def validate_layers(base_text, delta_text, src="<delta>"):
     delta, errs2 = _load(delta_text, src, required=False)
     if errs or errs2:
         return errs + errs2
+    errs = _validate_stages(base)
+    if errs:
+        return [f"<base>: {e}" for e in errs]
     merged, errs = merge(base, delta)
-    return errs or _validate_stages(merged)
+    return errs or _validate_stages(merged) or _floor_errors(base, merged)
+
+
+def _floor_errors(base, merged):
+    """A floor stage keeps everything that waited on it, and nothing upstream is conditional."""
+    errs = []
+    for fid, bst in base.items():
+        if bst.get("floor") is not True or fid not in merged:
+            continue
+        if any("when" in merged[a] for a in _ancestors(merged, fid)):
+            errs.append(f"stage '{fid}' is floor: no upstream stage may carry 'when'")
+        for sid in base:
+            if sid in merged and fid in _ancestors(base, sid) and fid not in _ancestors(merged, sid):
+                errs.append(f"stage '{sid}' no longer runs after floor stage '{fid}'")
+    return errs
 
 
 def main(argv=None):
