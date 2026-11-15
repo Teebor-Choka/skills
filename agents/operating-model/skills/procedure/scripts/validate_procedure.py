@@ -19,7 +19,7 @@ from graphlib import CycleError, TopologicalSorter
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "policy"))
 from policy_loader import PolicyError, _parse_frontmatter, _split_frontmatter  # noqa: E402
 
-__all__ = ("validate_text", "validate_layers", "main")
+__all__ = ("validate_text", "validate_layers", "parse_frontmatter", "parse_procedure", "main")
 
 OWNER = "owner"  # the user: the reserved last rung of every ladder
 LIST_KEYS = ("needs", "consumes", "produces", "review", "metrics")
@@ -39,13 +39,24 @@ ID_MAPS = {
 PREDICATES = {"paths": (list, None), "kind": (str, "kinds"), "policy": (str, None)}
 
 
-def _load(text, src, required=True):
-    """Parse a procedure and return (proc, errors). A delta may omit `stages`."""
+def parse_frontmatter(text, src="<text>"):
+    """Parse a frontmatter document with the policy skill's subset. Returns (map, errors)."""
     try:
-        fm = _parse_frontmatter(_split_frontmatter(text, src), src)
+        return _parse_frontmatter(_split_frontmatter(text, src), src), []
     except PolicyError as exc:
         return None, [str(exc)]
-    errs = []
+
+
+def parse_procedure(text, src="<text>"):
+    """Parse a procedure into its stages and id maps. Returns (procedure, errors)."""
+    return _load(text, src)
+
+
+def _load(text, src, required=True):
+    """Parse a procedure and return (proc, errors). A delta may omit `stages`."""
+    fm, errs = parse_frontmatter(text, src)
+    if errs:
+        return None, errs
     proc = {}
     for name in ID_MAPS:
         found = fm.get(name)
