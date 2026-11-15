@@ -1,5 +1,13 @@
-from conftest import FIXTURES
-from validate_procedure import main, validate_layers, validate_text
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+FIXTURES = HERE / "fixtures"
+# Self-contained: CI runs every suite in one pytest session, where a shared `conftest`
+# module name resolves to another suite's file.
+sys.path.insert(0, str(HERE.parent / "scripts"))
+
+from validate_procedure import main, validate_layers, validate_text  # noqa: E402
 
 
 def proc(stages, top=""):
