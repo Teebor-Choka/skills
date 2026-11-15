@@ -20,14 +20,14 @@ from policy_loader import PolicyError, _parse_frontmatter, _split_frontmatter  #
 LIST_KEYS = ("needs", "consumes", "produces", "review")
 
 
-def _parse(text, src):
+def _load(text, src, required=True):
+    """Parse a procedure and return (stages, errors). A delta may omit `stages`."""
     try:
-        return _parse_frontmatter(_split_frontmatter(text, src), src), []
+        fm = _parse_frontmatter(_split_frontmatter(text, src), src)
     except PolicyError as exc:
         return None, [str(exc)]
-
-
-def _stages(fm, src):
+    if not required and "stages" not in fm:
+        return {}, []
     stages = fm.get("stages")
     if not isinstance(stages, dict) or not stages:
         return None, [f"{src}: no 'stages' map"]
@@ -53,9 +53,9 @@ def _graph_errors(stages):
         for dep in st.get("needs") or []:
             if dep not in stages:
                 errs.append(f"stage '{sid}': needs unknown stage '{dep}'")
-        of = st.get("on-fail")
-        if of and of["to"] not in stages:
-            errs.append(f"stage '{sid}': on-fail.to names unknown stage '{of['to']}'")
+        to = st.get("on-fail", {}).get("to")
+        if to and to not in stages:
+            errs.append(f"stage '{sid}': on-fail.to names unknown stage '{to}'")
     if errs:
         return errs
     ts = TopologicalSorter({s: list(st.get("needs") or []) for s, st in stages.items()})
@@ -63,13 +63,13 @@ def _graph_errors(stages):
         ts.prepare()
     except CycleError as exc:
         return [f"cycle in needs: {' -> '.join(map(str, exc.args[1]))}"]
-    return _retry_errors(stages)
+    return []
 
 
 def _retry_errors(stages):
     errs = []
     for sid, st in stages.items():
-        to = (st.get("on-fail") or {}).get("to")
+        to = st.get("on-fail", {}).get("to")
         if to and to != sid and to not in _ancestors(stages, sid):
             errs.append(f"stage '{sid}': on-fail.to '{to}' is not this stage or upstream of it")
     return errs
@@ -107,19 +107,18 @@ def _kind_errors(stages):
 
 
 def _validate_stages(stages):
-    errs = _shape_errors(stages)
-    if errs:
-        return errs
-    errs = _graph_errors(stages)
-    return errs or _kind_errors(stages)
+    # Each check assumes the one before it passed: ancestors need resolved `needs`.
+    return (
+        _shape_errors(stages)
+        or _graph_errors(stages)
+        or _retry_errors(stages)
+        or _kind_errors(stages)
+    )
 
 
 def validate_text(text, src="<text>"):
     """Return error strings for one procedure file; empty means valid."""
-    fm, errs = _parse(text, src)
-    if errs:
-        return errs
-    stages, errs = _stages(fm, src)
+    stages, errs = _load(text, src)
     return errs or _validate_stages(stages)
 
 
@@ -144,12 +143,8 @@ def merge(base_stages, delta_stages):
 
 def validate_layers(base_text, delta_text, src="<delta>"):
     """Overlay a delta on a baseline, then validate the merged stages."""
-    base_fm, errs = _parse(base_text, "<base>")
-    delta_fm, errs2 = _parse(delta_text, src)
-    if errs or errs2:
-        return errs + errs2
-    base, errs = _stages(base_fm, "<base>")
-    delta, errs2 = _stages(delta_fm, src) if "stages" in delta_fm else ({}, [])
+    base, errs = _load(base_text, "<base>")
+    delta, errs2 = _load(delta_text, src, required=False)
     if errs or errs2:
         return errs + errs2
     merged, errs = merge(base, delta)
@@ -173,7 +168,8 @@ def main(argv=None):
     except (OSError, UnicodeDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
-    errs = validate_layers(*texts, paths[-1]) if len(texts) == 2 else validate_text(texts[0], paths[0])
+    layered = bool(a.base)
+    errs = validate_layers(*texts, paths[-1]) if layered else validate_text(texts[0], paths[0])
     for e in errs:
         print(f"ERROR: {e}", file=sys.stderr)
     return 1 if errs else 0

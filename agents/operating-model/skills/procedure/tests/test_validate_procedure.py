@@ -10,8 +10,8 @@ sys.path.insert(0, str(HERE.parent / "scripts"))
 from validate_procedure import main, validate_layers, validate_text  # noqa: E402
 
 
-def proc(stages, top=""):
-    return f"---\nname: t\n{top}stages:\n{stages}---\nbody\n"
+def proc(stages):
+    return f"---\nname: t\nstages:\n{stages}---\nbody\n"
 
 
 OK = """  a:
@@ -22,9 +22,26 @@ OK = """  a:
     produces: [y]
 """
 
+BASE = """---
+name: base
+stages:
+  spec:
+    floor: true
+    produces: [item]
+  build:
+    needs: [spec]
+    consumes: [item]
+    produces: [change]
+---
+"""
 
-def errs(stages, top=""):
-    return validate_text(proc(stages, top))
+
+def layered(stages):
+    return validate_layers(BASE, f"---\nstages:\n{stages}---\n")
+
+
+def errs(stages):
+    return validate_text(proc(stages))
 
 
 def has(errors, word):
@@ -96,39 +113,25 @@ def test_malformed_frontmatter_fails():
     assert validate_text("no frontmatter here") != []
 
 
-BASE = """---
-name: base
-stages:
-  spec:
-    floor: true
-    produces: [item]
-  build:
-    needs: [spec]
-    consumes: [item]
-    produces: [change]
----
-"""
 
 
 def test_delta_cannot_disable_floor_stage():
-    delta = "---\nstages:\n  spec:\n    disabled: true\n---\n"
-    assert has(validate_layers(BASE, delta), "floor")
+    delta = "  spec:\n    disabled: true\n"
+    assert has(layered(delta), "floor")
 
 
 def test_delta_can_disable_non_floor_stage():
-    assert validate_layers(BASE, "---\nstages:\n  build:\n    disabled: true\n---\n") == []
+    assert layered("  build:\n    disabled: true\n") == []
 
 
 def test_delta_adds_stage_with_needs():
-    delta = ("---\nstages:\n  ship:\n    needs: [build]\n"
-             "    consumes: [change]\n    produces: [release]\n---\n")
-    assert validate_layers(BASE, delta) == []
+    delta = "  ship:\n    needs: [build]\n    consumes: [change]\n    produces: [release]\n"
+    assert layered(delta) == []
 
 
 def test_delta_stage_with_unmet_kind_fails():
-    delta = ("---\nstages:\n  ship:\n    needs: [build]\n"
-             "    consumes: [nope]\n    produces: [release]\n---\n")
-    assert has(validate_layers(BASE, delta), "nope")
+    delta = "  ship:\n    needs: [build]\n    consumes: [nope]\n    produces: [release]\n"
+    assert has(layered(delta), "nope")
 
 
 def test_on_fail_to_must_be_a_stage_name_not_a_list():
@@ -151,18 +154,18 @@ def test_on_fail_to_self_passes():
 
 
 def test_delta_cannot_change_floor_flag():
-    delta = "---\nstages:\n  spec:\n    floor: false\n---\n"
-    assert has(validate_layers(BASE, delta), "floor")
+    delta = "  spec:\n    floor: false\n"
+    assert has(layered(delta), "floor")
 
 
 def test_floor_stage_cannot_be_made_conditional():
-    delta = "---\nstages:\n  spec:\n    when: never\n---\n"
-    assert has(validate_layers(BASE, delta), "floor")
+    delta = "  spec:\n    when: never\n"
+    assert has(layered(delta), "floor")
 
 
 def test_delta_disabling_unknown_stage_fails():
-    delta = "---\nstages:\n  bulid:\n    disabled: true\n---\n"
-    assert has(validate_layers(BASE, delta), "bulid")
+    delta = "  bulid:\n    disabled: true\n"
+    assert has(layered(delta), "bulid")
 
 
 def test_delta_without_stages_passes():
