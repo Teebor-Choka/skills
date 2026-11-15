@@ -34,7 +34,7 @@ stages:
     metrics: [m]
 ---
 """
-CHANGE = "change:\n  metrics: [m]\n  direction: down\n  window: 5 runs\n"
+CHANGE = "change:\n  reason: tested\n  metrics: [m]\n  direction: down\n  window: 5 runs\n"
 
 
 def delta(body):
@@ -82,7 +82,7 @@ def test_a_delta_can_add_a_kpi_for_a_new_metric():
         "kpis:\n  quality:\n    owner: owner\n    metrics: [defects]\n"
         "stages:\n  review:\n    metrics: [m, defects]\n"
     )
-    change = "change:\n  metrics: [defects]\n  direction: down\n  window: 3 runs\n"
+    change = "change:\n  reason: tested\n  metrics: [defects]\n  direction: down\n  window: 3 runs\n"
     assert layers(BASE, f"---\n{change}{body}---\n") == []
 
 
