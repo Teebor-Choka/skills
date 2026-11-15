@@ -24,7 +24,9 @@ BOOL_KEYS = ("disabled", "floor")
 # A delta may not change these on a floor stage; `review` may only grow.
 FLOOR_LOCKED = ("needs", "consumes", "produces", "skill", "entity")
 # Top-level maps of id -> map that a delta overlays per id, like `stages`.
-ID_MAPS = ("entities",)
+ID_MAPS = ("entities", "loops")
+# The closed vocabulary of `when` and loop `exit` conditions: a runner evaluates these without a model.
+PREDICATES = {"paths": list, "kind": str, "policy": str}
 
 
 def _load(text, src, required=True):
@@ -180,15 +182,83 @@ def _entity_errors(proc):
     return errs
 
 
+def _known_kinds(stages):
+    """Kinds a predicate may name: produced by a stage, or supplied to an entry stage."""
+    kinds = set()
+    for st in stages.values():
+        kinds.update(st.get("produces") or [])
+        if not st.get("needs"):
+            kinds.update(st.get("consumes") or [])
+    return kinds
+
+
+def _predicate_errors(where, pred, kinds):
+    names = ", ".join(sorted(PREDICATES))
+    if not isinstance(pred, dict) or not pred:
+        return [f"{where}: must be a map of predicates ({names})"]
+    errs = []
+    for key, val in pred.items():
+        want = PREDICATES.get(key)
+        if want is None:
+            errs.append(f"{where}: unknown predicate '{key}' (allowed: {names})")
+        elif not isinstance(val, want) or not val:
+            errs.append(f"{where}: '{key}' must be a non-empty {want.__name__}")
+        elif key == "kind" and val not in kinds:
+            errs.append(f"{where}: kind '{val}' is not produced by any stage")
+    return errs
+
+
+def _when_errors(stages):
+    kinds = _known_kinds(stages)
+    return [
+        e
+        for sid, st in stages.items()
+        if "when" in st
+        for e in _predicate_errors(f"stage '{sid}': 'when'", st["when"], kinds)
+    ]
+
+
+def _loop_errors(proc):
+    """A loop names its members, a closed exit, a positive bound and who hears of exhaustion."""
+    stages, ents = proc["stages"], proc.get("entities")
+    kinds = _known_kinds(stages)
+    errs = []
+    for name, lp in (proc.get("loops") or {}).items():
+        where = f"loop '{name}'"
+        members = lp.get("stages")
+        if not isinstance(members, list) or not members:
+            errs.append(f"{where}: 'stages' must be a non-empty list like [a, b]")
+            members = []
+        errs += [f"{where}: stage '{m}' does not exist" for m in members if m not in stages]
+        bound = lp.get("bound")
+        if not (isinstance(bound, str) and bound.isdigit() and int(bound) > 0):
+            errs.append(f"{where}: 'bound' must be a positive integer, the maximum rounds")
+        if "exit" not in lp:
+            errs.append(f"{where}: needs an 'exit' condition")
+        else:
+            errs += _predicate_errors(f"{where}: 'exit'", lp["exit"], kinds)
+        to = lp.get("on-exhausted")
+        if not isinstance(to, str) or (to != OWNER and to not in (ents or {})):
+            errs.append(f"{where}: 'on-exhausted' must name an entity or '{OWNER}', not '{to}'")
+        carries = lp.get("carries")
+        if carries is not None and not any(
+            carries in (stages[m].get("produces") or []) for m in members if m in stages
+        ):
+            errs.append(f"{where}: carries '{carries}', which no member stage produces")
+    return errs
+
+
 def _validate(proc):
     # Each check assumes the one before it passed: ancestors need resolved `needs`.
     stages = proc["stages"]
     return (
         _shape_errors(stages)
+        or _when_errors(stages)
         or _graph_errors(stages)
         or _retry_errors(stages)
         or _kind_errors(stages)
         or _entity_errors(proc)
+        or _loop_errors(proc)
     )
 
 
