@@ -84,13 +84,13 @@ def test_entry_stage_may_consume_external_input():
 
 
 def test_sole_conditional_producer_fails():
-    s = ("  a:\n    when: has-ui\n    produces: [x]\n"
+    s = ("  a:\n    when:\n      policy: has-ui\n    produces: [x]\n"
          "  b:\n    needs: [a]\n    consumes: [x]\n    produces: [y]\n")
     assert has(errs(s), "conditional")
 
 
 def test_conditional_producer_with_unconditional_peer_passes():
-    s = ("  a:\n    when: has-ui\n    produces: [x]\n"
+    s = ("  a:\n    when:\n      policy: has-ui\n    produces: [x]\n"
          "  a2:\n    produces: [x]\n"
          "  b:\n    needs: [a, a2]\n    consumes: [x]\n    produces: [y]\n")
     assert errs(s) == []
@@ -159,7 +159,7 @@ def test_delta_cannot_change_floor_flag():
 
 
 def test_floor_stage_cannot_be_made_conditional():
-    delta = "  spec:\n    when: never\n"
+    delta = "  spec:\n    when:\n      policy: never\n"
     assert has(layered(delta), "floor")
 
 
@@ -220,7 +220,7 @@ def test_delta_may_add_a_review_angle_to_a_floor_stage():
 
 
 def test_floor_stage_cannot_sit_downstream_of_a_conditional_stage():
-    s = "  hold:\n    when: never\n    produces: [x]\n  gate:\n    needs: [build, hold]\n"
+    s = "  hold:\n    when:\n      policy: never\n    produces: [x]\n  gate:\n    needs: [build, hold]\n"
     assert has(gated(s), "floor")
 
 
