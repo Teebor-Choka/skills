@@ -42,8 +42,8 @@ def _shape_errors(stages):
             if key in st and not isinstance(st[key], list):
                 errs.append(f"stage '{sid}': '{key}' must be a list like [a, b]")
         of = st.get("on-fail")
-        if of is not None and not isinstance(of, dict):
-            errs.append(f"stage '{sid}': 'on-fail' must be a map with 'to'")
+        if of is not None and not (isinstance(of, dict) and isinstance(of.get("to"), str)):
+            errs.append(f"stage '{sid}': 'on-fail' must be a map with a stage id in 'to'")
     return errs
 
 
@@ -54,7 +54,7 @@ def _graph_errors(stages):
             if dep not in stages:
                 errs.append(f"stage '{sid}': needs unknown stage '{dep}'")
         of = st.get("on-fail")
-        if isinstance(of, dict) and "to" in of and of["to"] not in stages:
+        if of and of["to"] not in stages:
             errs.append(f"stage '{sid}': on-fail.to names unknown stage '{of['to']}'")
     if errs:
         return errs
@@ -63,7 +63,16 @@ def _graph_errors(stages):
         ts.prepare()
     except CycleError as exc:
         return [f"cycle in needs: {' -> '.join(map(str, exc.args[1]))}"]
-    return []
+    return _retry_errors(stages)
+
+
+def _retry_errors(stages):
+    errs = []
+    for sid, st in stages.items():
+        to = (st.get("on-fail") or {}).get("to")
+        if to and to != sid and to not in _ancestors(stages, sid):
+            errs.append(f"stage '{sid}': on-fail.to '{to}' is not this stage or upstream of it")
+    return errs
 
 
 def _ancestors(stages, sid):
@@ -117,15 +126,20 @@ def validate_text(text, src="<text>"):
 def merge(base_stages, delta_stages):
     """Per stage id, a delta's keys replace the base's; `disabled: true` removes the stage."""
     merged = {k: dict(v) for k, v in base_stages.items()}
-    floor_hit = []
+    errs = []
     for sid, over in delta_stages.items():
+        is_floor = merged.get(sid, {}).get("floor") is True
         if over.get("disabled") is True:
-            if merged.get(sid, {}).get("floor") is True:
-                floor_hit.append(sid)
+            if sid not in merged:
+                errs.append(f"delta disables unknown stage '{sid}'")
+            elif is_floor:
+                errs.append(f"stage '{sid}' is floor and cannot be disabled")
             merged.pop(sid, None)
-        else:
-            merged.setdefault(sid, {}).update(over)
-    return merged, floor_hit
+            continue
+        if is_floor and ("floor" in over or "when" in over):
+            errs.append(f"stage '{sid}' is floor: a delta cannot change 'floor' or add 'when'")
+        merged.setdefault(sid, {}).update(over)
+    return merged, errs
 
 
 def validate_layers(base_text, delta_text, src="<delta>"):
@@ -135,11 +149,10 @@ def validate_layers(base_text, delta_text, src="<delta>"):
     if errs or errs2:
         return errs + errs2
     base, errs = _stages(base_fm, "<base>")
-    delta, errs2 = _stages(delta_fm, src)
+    delta, errs2 = _stages(delta_fm, src) if "stages" in delta_fm else ({}, [])
     if errs or errs2:
         return errs + errs2
-    merged, floor_hit = merge(base, delta)
-    errs = [f"stage '{s}' is floor and cannot be disabled" for s in floor_hit]
+    merged, errs = merge(base, delta)
     return errs or _validate_stages(merged)
 
 
@@ -149,13 +162,18 @@ def main(argv=None):
     ap.add_argument("--base")
     ap.add_argument("--delta")
     a = ap.parse_args(argv)
-    read = lambda p: open(p, encoding="utf-8").read()  # noqa: E731
-    if a.base and a.delta:
-        errs = validate_layers(read(a.base), read(a.delta), a.delta)
+    if a.base and a.delta and not a.file:
+        paths = (a.base, a.delta)
     elif a.file and not (a.base or a.delta):
-        errs = validate_text(read(a.file), a.file)
+        paths = (a.file,)
     else:
         ap.error("give FILE, or both --base and --delta")
+    try:
+        texts = [open(p, encoding="utf-8").read() for p in paths]
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    errs = validate_layers(*texts, paths[-1]) if len(texts) == 2 else validate_text(texts[0], paths[0])
     for e in errs:
         print(f"ERROR: {e}", file=sys.stderr)
     return 1 if errs else 0
