@@ -25,6 +25,9 @@ BOOL_KEYS = ("disabled", "floor")
 FLOOR_LOCKED = ("needs", "consumes", "produces", "skill", "entity")
 # Top-level maps of id -> map that a delta overlays per id, like `stages`.
 ID_MAPS = ("entities", "loops", "kpis")
+# The protected set: keys a delta cannot change on an existing id, and ids it cannot remove.
+PROTECTED_KEYS = {"entities": ("escalates-to",), "loops": ("on-exhausted",), "kpis": ("owner",)}
+PROTECTED_IDS = ("loops", "kpis")
 # The closed vocabulary of `when` and loop `exit` conditions: a runner evaluates these without a model.
 PREDICATES = {"paths": list, "kind": str, "policy": str}
 
@@ -233,7 +236,7 @@ def _loop_errors(proc):
             members = []
         errs += [f"{where}: stage '{m}' does not exist" for m in members if m not in stages]
         bound = lp.get("bound")
-        if not (isinstance(bound, str) and bound.isdigit() and int(bound) > 0):
+        if not (isinstance(bound, str) and bound.isdecimal() and int(bound) > 0):
             errs.append(f"{where}: 'bound' must be a positive integer, the maximum rounds")
         if "exit" not in lp:
             errs.append(f"{where}: needs an 'exit' condition")
@@ -274,7 +277,7 @@ def _metric_errors(proc):
             continue
         linked.update(ms)
         errs += [f"kpi '{name}': metric '{m}' is not declared by any stage" for m in ms if m not in declared]
-    errs += [f"metric '{m}' is not linked to any kpi" for m in sorted(declared - linked)]
+    errs += [f"metric '{m}' is not linked to any kpi" for m in sorted(declared - linked, key=str)]
     return errs
 
 
@@ -353,15 +356,34 @@ def _merge_stages(base_stages, delta_stages):
     return merged, errs
 
 
-def _merge_map(base_map, delta_map):
-    """Overlay an id map per id; `disabled: true` removes the id."""
+def _raises(new, old):
+    """True when both are positive integers and `new` is larger."""
+    return all(isinstance(x, str) and x.isdecimal() for x in (new, old)) and int(new) > int(old)
+
+
+def _merge_map(name, base_map, delta_map):
+    """Overlay an id map per id; `disabled: true` removes the id.
+
+    The protected set stays out of a delta's reach: the ladder's rungs, where a loop escalates,
+    a loop's round bound, and who owns a KPI. Changing them needs the owner."""
     merged = {k: dict(v) for k, v in base_map.items()}
+    errs = []
     for key, over in delta_map.items():
+        old = merged.get(key)
         if over.get("disabled") is True:
-            merged.pop(key, None)
-        else:
-            merged.setdefault(key, {}).update(over)
-    return merged
+            if old is not None and name in PROTECTED_IDS:
+                errs.append(f"{name}.{key} is protected: a delta cannot remove it")
+            else:
+                merged.pop(key, None)
+            continue
+        if old is not None:
+            for k in PROTECTED_KEYS.get(name, ()):
+                if k in over and over[k] != old.get(k):
+                    errs.append(f"{name}.{key}: '{k}' is protected; changing it needs the owner")
+            if name == "loops" and "bound" in over and _raises(over["bound"], old.get("bound")):
+                errs.append(f"loops.{key}: a delta cannot raise 'bound'")
+        merged.setdefault(key, {}).update(over)
+    return merged, errs
 
 
 def merge(base, delta):
@@ -370,7 +392,8 @@ def merge(base, delta):
     merged = {"stages": stages}
     for name in ID_MAPS:
         if name in base or name in delta:
-            merged[name] = _merge_map(base.get(name, {}), delta.get(name, {}))
+            merged[name], more = _merge_map(name, base.get(name, {}), delta.get(name, {}))
+            errs += more
     return merged, errs
 
 
