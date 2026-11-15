@@ -45,18 +45,22 @@ ignored by the validator.
 
 ## Rules the validator enforces
 
-1. Every `needs` entry names a stage. `on-fail` is a map whose `to` names this stage or an upstream stage.
+1. Every `needs` entry names a stage. `on-fail` is a map whose `to` names this stage or an
+   upstream stage.
 2. `needs` has no cycle. `on-fail` is not a dependency, so a retry loop is valid.
 3. `needs`, `consumes`, `produces` and `review` are lists.
 4. A stage with `needs` consumes only kinds an upstream stage produces. An entry stage consumes
    external input and is not checked.
-5. A kind whose upstream producers all carry `when` is rejected: skip the condition and the
+5. A kind whose upstream producers all carry `when` is rejected: when the condition is false, the
    consumer has no input.
-6. A delta cannot disable a `floor` stage, change its `floor` flag, or add `when` to it. A delta cannot disable an unknown stage id.
+6. A delta cannot disable a `floor` stage, change its `floor` flag, or add `when` to it.
+7. A delta cannot disable an unknown stage id.
 
 The validator checks structure, never content. Run
 `python3 scripts/validate_procedure.py FILE`, or `--base BASE --delta DELTA` to check an overlay.
-Exit 1 on a validation or read error and 2 on a usage error. `when` is checked one hop: what a skipped stage's dependents do is the stage owner's call.
+The command exits 1 on a validation or read error and 2 on a usage error.
+
+Rule 5 looks one hop upstream. What a skipped stage's dependents do is the stage owner's decision.
 
 ## Layering
 
@@ -74,6 +78,6 @@ not a resolver that finds those files.
 4. On failure, follow `on-fail`. With none, escalate to the owner. Do not guess.
 5. Hand off by writing the artifact where the next stage reads it.
 
-The `floor` flag is checked here, at validation. Runtime blocking is the hook layer's job, and the
-shipped git hooks block only in team mode: they warn in single mode. Do not claim the floor holds
+The validator checks the `floor` flag. Runtime blocking belongs to the hook layer, and the shipped
+git hooks block only in team mode: in single mode they warn. Do not claim the floor holds
 unconditionally.
