@@ -179,3 +179,56 @@ def test_cli_missing_file_prints_error_and_exits_1(capsys):
 
 def test_delta_with_empty_stages_map_is_a_no_op():
     assert validate_layers(BASE, "---\nstages:\n---\n") == []
+
+
+GATED = """---
+stages:
+  build:
+    produces: [change]
+  gate:
+    floor: true
+    needs: [build]
+    review: [adversarial]
+    produces: [approval]
+  release:
+    needs: [gate]
+    consumes: [approval]
+---
+"""
+
+
+def gated(stages):
+    return validate_layers(GATED, f"---\nstages:\n{stages}---\n")
+
+
+def test_delta_cannot_rewire_around_a_floor_stage():
+    s = "  release:\n    needs: [build]\n    consumes: [change]\n"
+    assert has(gated(s), "floor")
+
+
+def test_delta_cannot_change_a_floor_stage_wiring_or_skill():
+    for tail in ("needs: []", "skill: noop", "produces: [other]"):
+        assert has(gated(f"  gate:\n    {tail}\n"), "floor"), tail
+
+
+def test_delta_cannot_remove_a_review_angle_from_a_floor_stage():
+    assert has(gated("  gate:\n    review: []\n"), "floor")
+
+
+def test_delta_may_add_a_review_angle_to_a_floor_stage():
+    assert gated("  gate:\n    review: [adversarial, security]\n") == []
+
+
+def test_floor_stage_cannot_sit_downstream_of_a_conditional_stage():
+    s = "  hold:\n    when: never\n    produces: [x]\n  gate:\n    needs: [build, hold]\n"
+    assert has(gated(s), "floor")
+
+
+def test_delta_may_add_a_stage_after_a_floor_stage():
+    s = "  ship:\n    needs: [release]\n"
+    assert gated(s) == []
+
+
+def test_non_boolean_disabled_or_floor_fails():
+    assert has(gated("  gate:\n    disabled: yes\n"), "disabled")
+    assert has(errs("  a:\n    floor: yes\n    produces: [x]\n"), "floor")
