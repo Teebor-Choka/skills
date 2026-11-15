@@ -77,7 +77,7 @@ def test_metrics_are_required_when_strict_by_default():
     assert has(check("---\nstages:\n  a:\n    produces: [x]\n---\n"), "metric")
 
 
-CHANGE = "change:\n  metrics: [rework]\n  direction: down\n  window: 5 runs\n"
+CHANGE = "change:\n  reason: tested\n  metrics: [rework]\n  direction: down\n  window: 5 runs\n"
 
 
 def delta(body, change=CHANGE):
@@ -99,17 +99,17 @@ def test_a_delta_without_a_change_hypothesis_fails():
 
 
 def test_a_change_must_name_metrics_that_exist():
-    bad = "change:\n  metrics: [ghost]\n  direction: down\n  window: 5 runs\n"
+    bad = "change:\n  reason: tested\n  metrics: [ghost]\n  direction: down\n  window: 5 runs\n"
     assert has(layers(GOOD, delta(ADD_STAGE, bad)), "ghost")
 
 
 def test_a_change_needs_a_direction_up_or_down():
-    bad = "change:\n  metrics: [rework]\n  direction: sideways\n  window: 5 runs\n"
+    bad = "change:\n  reason: tested\n  metrics: [rework]\n  direction: sideways\n  window: 5 runs\n"
     assert has(layers(GOOD, delta(ADD_STAGE, bad)), "direction")
 
 
 def test_a_change_needs_an_observation_window():
-    bad = "change:\n  metrics: [rework]\n  direction: down\n"
+    bad = "change:\n  reason: tested\n  metrics: [rework]\n  direction: down\n"
     assert has(layers(GOOD, delta(ADD_STAGE, bad)), "window")
 
 
@@ -123,7 +123,7 @@ def test_a_delta_may_swap_a_metric_when_the_kpi_follows():
         "kpis:\n  flow:\n    metrics: [lead-time, defects]\n"
         "stages:\n  review:\n    metrics: [defects]\n"
     )
-    change = "change:\n  metrics: [defects]\n  direction: down\n  window: 3 runs\n"
+    change = "change:\n  reason: tested\n  metrics: [defects]\n  direction: down\n  window: 3 runs\n"
     assert layers(GOOD, delta(body, change)) == []
 
 
