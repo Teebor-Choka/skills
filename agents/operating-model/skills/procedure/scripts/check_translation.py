@@ -26,26 +26,54 @@ def _ref_error(sid, ref, proc):
     return None
 
 
+def _raw_errors(text, src):
+    """Errors only the raw text shows: the parser keeps the last of a repeated key and cuts a value
+    at an unquoted ` #`, so both would silently shorten what the translator wrote."""
+    lines = text.splitlines()
+    body = lines[1:lines.index("---", 1)] if lines[:1] == ["---"] and "---" in lines[1:] else []
+    errs, section, base, seen = [], None, None, {}
+    for line in body:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        key, _, value = stripped.partition(":")
+        if indent == 0:
+            section, base, seen = key, None, {}
+            continue
+        base = indent if base is None else base
+        if indent != base:
+            continue
+        if key in seen:
+            errs.append(f"{src}: '{key}' appears twice under {section}: the parser keeps only the last")
+        seen[key] = True
+        value = value.strip()
+        if section == "sentences" and value[:1] not in ('"', "'") and " #" in f" {value}":
+            errs.append(f"sentence '{key}': ' #' starts a comment and would cut the text; quote the sentence")
+    return errs
+
+
 def _named_text(value):
     return isinstance(value, str) and bool(value)
 
 
-def check_translation(translation_text, procedure_text, src="<translation>"):
+def check_translation(translation_text, procedure_text, src="<translation>", prose=None):
     """Return (errors, gaps). A gap is a sentence the machine cannot express yet."""
     proc, errs = parse_procedure(procedure_text, "<procedure>")
     fm, errs2 = parse_frontmatter(translation_text, src)
     if errs or errs2:
         return errs + errs2, []
+    errs = _raw_errors(translation_text, src)
     sentences, trace, gaps = fm.get("sentences"), fm.get("trace") or {}, fm.get("gaps") or {}
     if not isinstance(sentences, dict) or not sentences:
         return [f"{src}: needs a 'sentences' map with at least one sentence"], []
-    errs = [
+    shape = [
         f"{src}: '{name}' must be a map of ids"
         for name, value in (("trace", trace), ("gaps", gaps))
         if not isinstance(value, dict)
     ]
-    if errs:
-        return errs, []
+    if shape:
+        return errs + shape, []
     errs += [f"sentence '{sid}' must be non-empty text" for sid, text in sentences.items() if not _named_text(text)]
     errs += [f"'{sid}' is in trace or gaps but is not a sentence" for sid in (*trace, *gaps) if sid not in sentences]
     for sid in sentences:
@@ -73,6 +101,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("translation")
     ap.add_argument("procedure")
+    ap.add_argument("--source")
+    ap.add_argument("--fail-on-gap", action="store_true")
     a = ap.parse_args(argv)
     try:
         texts = [open(p, encoding="utf-8").read() for p in (a.translation, a.procedure)]

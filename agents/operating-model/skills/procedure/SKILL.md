@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # procedure: a named graph of stages
@@ -175,6 +175,37 @@ The validator classifies a delta. A protected change is rejected until a caller 
 `ratified=True`, and only a caller holding the owner's approval does that. The CLI has no such
 flag. Ratification never excuses a structural error or a missing `change` map. Applying any delta,
 protected or not, is the runner's step, and it always waits for the owner.
+
+## Behaviour as text
+
+The owner states desired behaviour in prose. A translator, an LLM, maps each sentence onto the
+procedure format and writes a translation file next to it:
+
+```
+sentences:
+  s1: "When review finds defects, build runs again, at most 3 rounds, then escalate."
+  s2: "Wait for the vendor to confirm, and time out after two days."
+trace:
+  s1: [loops.fix, stages.build]
+gaps:
+  s2:
+    needs: a stage that waits for an external event with a timeout
+```
+
+The translator uses only what the format already has: stages, `needs`, `when`, loops, `on-fail`,
+entities and KPIs. It invents no construct. A sentence the format cannot express is a gap that names
+the missing capability, and the gap goes to the owner as an improvement to the format. That is how
+the language grows. Run `python3 scripts/check_translation.py TRANSLATION PROCEDURE`. It prints each
+gap and exits 1 on an error.
+
+The checker enforces that every sentence is traced or a gap and never both, that each traced element
+exists, that every gap names its capability, that no id is repeated, and that a sentence containing
+` #` is quoted. A repeated id or an unquoted ` #` would silently shorten the translation, because
+the parser keeps the last duplicate and cuts a value at the hash.
+
+The checker proves coverage. It does not prove fidelity: a translator can trace a sentence to an
+element that exists but does not do what the sentence says. Fidelity rests on replaying acceptance
+scenarios derived from the prose, which needs the runtime, and on the owner's review of the change.
 
 ## Layering
 
