@@ -26,7 +26,7 @@ def _load(text, src, required=True):
         fm = _parse_frontmatter(_split_frontmatter(text, src), src)
     except PolicyError as exc:
         return None, [str(exc)]
-    if not required and "stages" not in fm:
+    if not required and not fm.get("stages", {}):
         return {}, []
     stages = fm.get("stages")
     if not isinstance(stages, dict) or not stages:

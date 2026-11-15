@@ -60,7 +60,9 @@ The validator checks structure, never content. Run
 `python3 scripts/validate_procedure.py FILE`, or `--base BASE --delta DELTA` to check an overlay.
 The command exits 1 on a validation or read error and 2 on a usage error.
 
-Rule 5 looks one hop upstream. What a skipped stage's dependents do is the stage owner's decision.
+Rule 5 reads only the producers' own `when`. It does not follow a condition on a stage between the
+producer and the consumer, so a skipped middle stage can still starve a consumer. What a skipped
+stage's dependents do is the stage owner's decision.
 
 ## Layering
 
