@@ -19,12 +19,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from policy_loader import PolicyError, _parse_frontmatter, _split_frontmatter  # noqa: E402
 
 OWNER = "owner"  # the user: the reserved last rung of every ladder
-LIST_KEYS = ("needs", "consumes", "produces", "review")
+LIST_KEYS = ("needs", "consumes", "produces", "review", "metrics")
 BOOL_KEYS = ("disabled", "floor")
 # A delta may not change these on a floor stage; `review` may only grow.
 FLOOR_LOCKED = ("needs", "consumes", "produces", "skill", "entity")
 # Top-level maps of id -> map that a delta overlays per id, like `stages`.
-ID_MAPS = ("entities", "loops")
+ID_MAPS = ("entities", "loops", "kpis")
 # The closed vocabulary of `when` and loop `exit` conditions: a runner evaluates these without a model.
 PREDICATES = {"paths": list, "kind": str, "policy": str}
 
@@ -45,6 +45,8 @@ def _load(text, src, required=True):
             proc[name] = found
         else:
             errs.append(f"{src}: '{name}' must be a map of maps")
+    if "change" in fm:
+        proc["change"] = fm["change"]
     stages = fm.get("stages", {})
     if not required and not stages:
         proc["stages"] = {}
@@ -248,6 +250,53 @@ def _loop_errors(proc):
     return errs
 
 
+def _declared_metrics(stages):
+    return {m for st in stages.values() for m in (st.get("metrics") or [])}
+
+
+def _metric_errors(proc):
+    """Every stage declares a metric, and a KPI that its project manager or the user owns links it."""
+    stages, kpis, ents = proc["stages"], proc.get("kpis") or {}, proc.get("entities") or {}
+    declared = _declared_metrics(stages)
+    errs = [
+        f"stage '{sid}': needs at least one metric in 'metrics', linked to a kpi"
+        for sid, st in stages.items()
+        if not st.get("metrics")
+    ]
+    linked = set()
+    for name, k in kpis.items():
+        owner = k.get("owner")
+        if not isinstance(owner, str) or (owner != OWNER and owner not in ents):
+            errs.append(f"kpi '{name}': 'owner' must name an entity or '{OWNER}'")
+        ms = k.get("metrics")
+        if not isinstance(ms, list) or not ms:
+            errs.append(f"kpi '{name}': 'metrics' must be a non-empty list like [a, b]")
+            continue
+        linked.update(ms)
+        errs += [f"kpi '{name}': metric '{m}' is not declared by any stage" for m in ms if m not in declared]
+    errs += [f"metric '{m}' is not linked to any kpi" for m in sorted(declared - linked)]
+    return errs
+
+
+def _change_errors(change, merged):
+    """A change to the procedure names what it should move, which way, and how long to watch."""
+    if not isinstance(change, dict):
+        return ["a delta needs a 'change' map: metrics, direction, window"]
+    errs = []
+    ms = change.get("metrics")
+    if not isinstance(ms, list) or not ms:
+        errs.append("change: 'metrics' must list the metrics the change should move")
+    else:
+        declared = _declared_metrics(merged["stages"])
+        errs += [f"change: metric '{m}' is not declared by any stage" for m in ms if m not in declared]
+    if change.get("direction") not in ("up", "down"):
+        errs.append("change: 'direction' must be 'up' or 'down'")
+    window = change.get("window")
+    if not isinstance(window, str) or not window:
+        errs.append("change: 'window' must name the observation window, such as '5 runs'")
+    return errs
+
+
 def _validate(proc, strict=True):
     # Each check assumes the one before it passed: ancestors need resolved `needs`.
     stages = proc["stages"]
@@ -259,6 +308,7 @@ def _validate(proc, strict=True):
         or _kind_errors(stages)
         or _entity_errors(proc)
         or _loop_errors(proc)
+        or (_metric_errors(proc) if strict else [])
     )
 
 
@@ -348,7 +398,15 @@ def validate_layers(base_text, delta_text, src="<delta>", strict=True):
     if errs:
         return [f"<base>: {e}" for e in errs]
     merged, errs = merge(base, delta)
-    return errs or _validate(merged, strict) or _floor_errors(base["stages"], merged["stages"])
+    errs = errs or _validate(merged, strict) or _floor_errors(base["stages"], merged["stages"])
+    if errs or not strict or _is_empty(delta):
+        return errs
+    return _change_errors(delta.get("change"), merged)
+
+
+def _is_empty(delta):
+    """A delta that overlays nothing needs no change hypothesis."""
+    return not delta["stages"] and not any(delta.get(name) for name in ID_MAPS)
 
 
 def main(argv=None):
