@@ -191,3 +191,99 @@ def test_the_cli_exits_one_on_a_repeated_id(tmp_path, capsys):
     p.write_text(PROC)
     assert check_translation_main([str(t), str(p)]) == 1
     assert "twice" in capsys.readouterr().err
+
+
+PROSE = f"{S1}\n{S2}\n"
+FULL = raw(
+    f"sentences:\n  s1: {S1}\n  s2: {S2}\ntrace:\n  s1: [loops.fix]\n"
+    "gaps:\n  s2:\n    needs: an event wait with a timeout\n"
+)
+
+
+def with_prose(text, prose=PROSE):
+    return check_translation(text, PROC, prose=prose)
+
+
+def test_a_translation_that_keeps_every_source_sentence_passes():
+    assert with_prose(FULL)[0] == []
+
+
+def test_a_source_sentence_the_translation_omits_is_rejected():
+    text = raw(f"sentences:\n  s1: {S1}\ntrace:\n  s1: [loops.fix]\n")
+    errors, _ = with_prose(text)
+    assert has(errors, "Wait for the vendor") and has(errors, "missing")
+
+
+def test_a_sentence_the_translator_softened_is_rejected():
+    soft = S1.replace("at most 3 rounds, ", "")
+    text = raw(f"sentences:\n  s1: {soft}\n  s2: {S2}\ntrace:\n  s1: [loops.fix]\ngaps:\n  s2:\n    needs: an event wait with a timeout\n")
+    assert has(with_prose(text)[0], "not in the source")
+
+
+def test_a_sentence_the_owner_never_wrote_is_rejected():
+    text = FULL.replace("sentences:\n", "sentences:\n  s0: Deploy on Fridays\n", 1).replace("trace:\n", "trace:\n  s0: [loops.fix]\n", 1)
+    assert has(with_prose(text)[0], "not in the source")
+
+
+def test_source_comparison_ignores_whitespace_and_blank_lines():
+    assert with_prose(FULL, prose=f"\n  {S1}  \n\n{S2}\n\n")[0] == []
+
+
+def test_a_quoted_key_and_a_bare_key_are_the_same_id():
+    text = raw('sentences:\n  "s1": first\n  s1: second\ntrace:\n  s1: [loops.fix]\n')
+    assert has(check_translation(text, PROC)[0], "twice")
+
+
+def test_a_repeated_top_level_section_is_rejected():
+    text = raw("sentences:\n  s1: a\nsentences:\n  s2: b\ntrace:\n  s2: [loops.fix]\n")
+    assert has(check_translation(text, PROC)[0], "twice")
+
+
+def test_an_unknown_top_level_key_is_rejected_so_a_dedented_sentence_cannot_hide():
+    text = raw("sentences:\n  s1: a\ns2: hidden\ntrace:\n  s1: [loops.fix]\n")
+    assert has(check_translation(text, PROC)[0], "s2")
+
+
+def test_an_extra_fence_that_would_end_the_file_early_is_rejected():
+    text = raw("sentences:\n  s1: a\n---\n  s2: hidden\ntrace:\n  s1: [loops.fix]\n")
+    assert has(check_translation(text, PROC)[0], "---")
+
+
+def test_whitespace_only_text_is_not_a_sentence_or_a_capability():
+    assert has(run({"s1": '"   "'}, "s1: [loops.fix]")[0], "s1")
+    assert has(run({"s1": S1}, gaps='  s1:\n    needs: "   "')[0], "needs")
+
+
+def test_a_gap_needs_more_than_a_filler_word():
+    for filler in ("x", "n/a", "todo later"):
+        assert has(run({"s1": S1}, gaps=f"  s1:\n    needs: {filler}")[0], "needs"), filler
+
+
+def test_a_trace_to_a_disabled_element_does_not_count():
+    proc = PROC.replace("    produces: [change]\n", "    produces: [change]\n    disabled: true\n", 1)
+    errors, _ = check_translation(doc({"s1": S1}, "s1: [stages.build]"), proc)
+    assert has(errors, "stages.build")
+
+
+def test_a_translation_against_a_procedure_that_fails_validation_is_rejected():
+    cyclic = PROC.replace("  build:\n    entity: pm\n", "  build:\n    needs: [review]\n    entity: pm\n", 1)
+    errors, _ = check_translation(doc({"s1": S1}, "s1: [loops.fix]"), cyclic)
+    assert has(errors, "cycle")
+
+
+def test_the_cli_fails_on_gaps_when_asked(tmp_path):
+    t, p, s = tmp_path / "t.md", tmp_path / "p.md", tmp_path / "s.txt"
+    t.write_text(FULL)
+    p.write_text(PROC)
+    s.write_text(PROSE)
+    base = [str(t), str(p), "--source", str(s)]
+    assert check_translation_main(base) == 0
+    assert check_translation_main(base + ["--fail-on-gap"]) == 1
+
+
+def test_the_cli_warns_when_no_source_is_given(tmp_path, capsys):
+    t, p = tmp_path / "t.md", tmp_path / "p.md"
+    t.write_text(FULL)
+    p.write_text(PROC)
+    check_translation_main([str(t), str(p)])
+    assert "no --source" in capsys.readouterr().err
