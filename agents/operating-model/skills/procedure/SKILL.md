@@ -195,13 +195,24 @@ gaps:
 The translator uses only what the format already has: stages, `needs`, `when`, loops, `on-fail`,
 entities and KPIs. It invents no construct. A sentence the format cannot express is a gap that names
 the missing capability, and the gap goes to the owner as an improvement to the format. That is how
-the language grows. Run `python3 scripts/check_translation.py TRANSLATION PROCEDURE`. It prints each
-gap and exits 1 on an error.
+the language grows. Write the owner's prose as a source file, one sentence per non-blank line, and
+run `python3 scripts/check_translation.py TRANSLATION PROCEDURE --source PROSE`. It prints each gap
+and exits 1 on an error. Add `--fail-on-gap` to exit 1 while any gap remains. Without `--source` it
+warns, because a sentence lost before translation cannot be detected.
 
-The checker enforces that every sentence is traced or a gap and never both, that each traced element
-exists, that every gap names its capability, that no id is repeated, and that a sentence containing
-` #` is quoted. A repeated id or an unquoted ` #` would silently shorten the translation, because
-the parser keeps the last duplicate and cuts a value at the hash.
+The checker enforces that:
+
+- the procedure itself passes validation;
+- the translation carries exactly the source sentences, none omitted, softened or invented;
+- every sentence is traced or a gap and never both, and each traced element exists and is not
+  disabled;
+- every gap names the missing capability in at least three words;
+- no id or section is repeated, there is no unknown top-level key, and no extra `---` line;
+- a sentence containing ` #` is quoted.
+
+The last three guard the parser, which keeps the last of a repeated key, files a dedented line under
+the root, stops at any `---` line, and cuts a value at an unquoted ` #`. Each would silently shorten
+the translation.
 
 The checker proves coverage. It does not prove fidelity: a translator can trace a sentence to an
 element that exists but does not do what the sentence says. Fidelity rests on replaying acceptance
