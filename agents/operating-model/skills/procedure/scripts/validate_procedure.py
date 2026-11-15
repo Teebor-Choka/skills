@@ -248,7 +248,7 @@ def _loop_errors(proc):
     return errs
 
 
-def _validate(proc):
+def _validate(proc, strict=True):
     # Each check assumes the one before it passed: ancestors need resolved `needs`.
     stages = proc["stages"]
     return (
@@ -262,10 +262,12 @@ def _validate(proc):
     )
 
 
-def validate_text(text, src="<text>"):
-    """Return error strings for one procedure file; empty means valid."""
+def validate_text(text, src="<text>", strict=True):
+    """Return error strings for one procedure file; empty means valid.
+
+    `strict` adds the rules every real procedure must meet (metrics and KPIs)."""
     proc, errs = _load(text, src)
-    return errs or _validate(proc)
+    return errs or _validate(proc, strict)
 
 
 def _floor_delta_errors(sid, base_stage, over):
@@ -336,17 +338,17 @@ def _floor_errors(base, merged):
     return errs
 
 
-def validate_layers(base_text, delta_text, src="<delta>"):
+def validate_layers(base_text, delta_text, src="<delta>", strict=True):
     """Overlay a delta on a baseline, then validate the merged procedure."""
     base, errs = _load(base_text, "<base>")
     delta, errs2 = _load(delta_text, src, required=False)
     if errs or errs2:
         return errs + errs2
-    errs = _validate(base)
+    errs = _validate(base, strict)
     if errs:
         return [f"<base>: {e}" for e in errs]
     merged, errs = merge(base, delta)
-    return errs or _validate(merged) or _floor_errors(base["stages"], merged["stages"])
+    return errs or _validate(merged, strict) or _floor_errors(base["stages"], merged["stages"])
 
 
 def main(argv=None):
