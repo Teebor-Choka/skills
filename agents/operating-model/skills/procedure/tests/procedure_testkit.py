@@ -7,7 +7,21 @@ HERE = Path(__file__).resolve().parent
 FIXTURES = HERE / "fixtures"
 sys.path.insert(0, str(HERE.parent / "scripts"))
 
-from validate_procedure import validate_layers, validate_text  # noqa: E402,F401
+import validate_procedure as _vp  # noqa: E402
+
+# Structure tests build minimal procedures with no metrics, so they run non-strict.
+# `strict_*` and the CLI enforce the metrics, KPI and change-hypothesis rules.
+strict_validate_text = _vp.validate_text
+strict_validate_layers = _vp.validate_layers
+main = _vp.main
+
+
+def validate_text(text, src="<text>"):
+    return _vp.validate_text(text, src, strict=False)
+
+
+def validate_layers(base_text, delta_text, src="<delta>"):
+    return _vp.validate_layers(base_text, delta_text, src, strict=False)
 
 
 def has(errors, word):
