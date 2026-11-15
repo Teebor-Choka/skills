@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Validate a procedure's structure, never its content. Stdlib only.
 
-A procedure is a frontmatter file with a `stages` map. This checks shape and wiring:
-list-typed keys, dangling `needs`, cycles, `on-fail` targets, and that every kind a
-non-entry stage consumes has an unconditional producer upstream. Unknown keys pass.
+A procedure is a frontmatter file with a `stages` map and optional id maps such as `entities`.
+This checks shape and wiring: list-typed keys, dangling `needs`, cycles, `on-fail` targets,
+that every kind a non-entry stage consumes has an unconditional producer upstream, and that
+entities form a ladder that reaches the owner with downward-only spawning. Unknown keys pass.
 
     validate_procedure.py FILE                 validate one procedure
     validate_procedure.py --base B --delta D   overlay D on B, then validate
@@ -17,25 +18,40 @@ from graphlib import CycleError, TopologicalSorter
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "policy"))
 from policy_loader import PolicyError, _parse_frontmatter, _split_frontmatter  # noqa: E402
 
+OWNER = "owner"  # the user: the reserved last rung of every ladder
 LIST_KEYS = ("needs", "consumes", "produces", "review")
 BOOL_KEYS = ("disabled", "floor")
 # A delta may not change these on a floor stage; `review` may only grow.
-FLOOR_LOCKED = ("needs", "consumes", "produces", "skill")
+FLOOR_LOCKED = ("needs", "consumes", "produces", "skill", "entity")
+# Top-level maps of id -> map that a delta overlays per id, like `stages`.
+ID_MAPS = ("entities",)
 
 
 def _load(text, src, required=True):
-    """Parse a procedure and return (stages, errors). A delta may omit `stages`."""
+    """Parse a procedure and return (proc, errors). A delta may omit `stages`."""
     try:
         fm = _parse_frontmatter(_split_frontmatter(text, src), src)
     except PolicyError as exc:
         return None, [str(exc)]
-    if not required and not fm.get("stages", {}):
-        return {}, []
-    stages = fm.get("stages")
+    errs = []
+    proc = {}
+    for name in ID_MAPS:
+        found = fm.get(name)
+        if found is None:
+            continue
+        if isinstance(found, dict) and all(isinstance(v, dict) for v in found.values()):
+            proc[name] = found
+        else:
+            errs.append(f"{src}: '{name}' must be a map of maps")
+    stages = fm.get("stages", {})
+    if not required and not stages:
+        proc["stages"] = {}
+        return proc, errs
     if not isinstance(stages, dict) or not stages:
-        return None, [f"{src}: no 'stages' map"]
+        return None, errs + [f"{src}: no 'stages' map"]
+    proc["stages"] = stages
     bad = [k for k, v in stages.items() if not isinstance(v, dict)]
-    return stages, [f"{src}: stage '{k}' is not a map" for k in bad]
+    return proc, errs + [f"{src}: stage '{k}' is not a map" for k in bad]
 
 
 def _shape_errors(stages):
@@ -112,20 +128,74 @@ def _kind_errors(stages):
     return errs
 
 
-def _validate_stages(stages):
+def _chain(ents, eid):
+    """The entities above `eid` on its escalation ladder, nearest first; None if it loops."""
+    seen, above = {eid}, []
+    while True:
+        nxt = ents[eid]["escalates-to"]
+        if nxt == OWNER:
+            return above
+        if nxt in seen:
+            return None
+        seen.add(nxt)
+        above.append(nxt)
+        eid = nxt
+
+
+def _entity_errors(proc):
+    """Entities form a ladder that reaches the owner; spawning only goes down or to a peer."""
+    ents = proc.get("entities")
+    if ents is None:
+        return []
+    errs = [f"entity '{OWNER}' is reserved for the user, the last rung"] if OWNER in ents else []
+    for eid, e in ents.items():
+        to = e.get("escalates-to")
+        if not isinstance(to, str) or (to != OWNER and to not in ents):
+            errs.append(f"entity '{eid}': escalates-to names unknown entity '{to}'")
+        may = e.get("may-spawn", [])
+        if not isinstance(may, list):
+            errs.append(f"entity '{eid}': 'may-spawn' must be a list like [a, b]")
+            continue
+        for t in may:
+            if t == OWNER:
+                errs.append(f"entity '{eid}': may-spawn names '{OWNER}', which cannot be spawned")
+            elif t not in ents:
+                errs.append(f"entity '{eid}': may-spawn names unknown entity '{t}'")
+    if errs:
+        return errs
+    chains = {eid: _chain(ents, eid) for eid in ents}
+    errs = [f"entity '{e}': escalation chain never reaches {OWNER}" for e, c in chains.items() if c is None]
+    if errs:
+        return errs
+    for eid, e in ents.items():
+        for t in e.get("may-spawn", []):
+            if t != eid and eid not in chains[t]:
+                errs.append(f"entity '{eid}': may-spawn '{t}', which is not below it on the ladder")
+    for sid, st in proc["stages"].items():
+        ent = st.get("entity")
+        if ent is None:
+            errs.append(f"stage '{sid}': needs an 'entity' because entities are defined")
+        elif not isinstance(ent, str) or ent not in ents:
+            errs.append(f"stage '{sid}': entity '{ent}' is not defined")
+    return errs
+
+
+def _validate(proc):
     # Each check assumes the one before it passed: ancestors need resolved `needs`.
+    stages = proc["stages"]
     return (
         _shape_errors(stages)
         or _graph_errors(stages)
         or _retry_errors(stages)
         or _kind_errors(stages)
+        or _entity_errors(proc)
     )
 
 
 def validate_text(text, src="<text>"):
     """Return error strings for one procedure file; empty means valid."""
-    stages, errs = _load(text, src)
-    return errs or _validate_stages(stages)
+    proc, errs = _load(text, src)
+    return errs or _validate(proc)
 
 
 def _floor_delta_errors(sid, base_stage, over):
@@ -142,7 +212,7 @@ def _floor_delta_errors(sid, base_stage, over):
     return errs
 
 
-def merge(base_stages, delta_stages):
+def _merge_stages(base_stages, delta_stages):
     """Per stage id, a delta's keys replace the base's; `disabled: true` removes the stage."""
     merged = {k: dict(v) for k, v in base_stages.items()}
     errs = []
@@ -161,17 +231,25 @@ def merge(base_stages, delta_stages):
     return merged, errs
 
 
-def validate_layers(base_text, delta_text, src="<delta>"):
-    """Overlay a delta on a baseline, then validate the merged stages."""
-    base, errs = _load(base_text, "<base>")
-    delta, errs2 = _load(delta_text, src, required=False)
-    if errs or errs2:
-        return errs + errs2
-    errs = _validate_stages(base)
-    if errs:
-        return [f"<base>: {e}" for e in errs]
-    merged, errs = merge(base, delta)
-    return errs or _validate_stages(merged) or _floor_errors(base, merged)
+def _merge_map(base_map, delta_map):
+    """Overlay an id map per id; `disabled: true` removes the id."""
+    merged = {k: dict(v) for k, v in base_map.items()}
+    for key, over in delta_map.items():
+        if over.get("disabled") is True:
+            merged.pop(key, None)
+        else:
+            merged.setdefault(key, {}).update(over)
+    return merged
+
+
+def merge(base, delta):
+    """Overlay a delta procedure on a base. Returns (merged, errors)."""
+    stages, errs = _merge_stages(base["stages"], delta["stages"])
+    merged = {"stages": stages}
+    for name in ID_MAPS:
+        if name in base or name in delta:
+            merged[name] = _merge_map(base.get(name, {}), delta.get(name, {}))
+    return merged, errs
 
 
 def _floor_errors(base, merged):
@@ -186,6 +264,19 @@ def _floor_errors(base, merged):
             if sid in merged and fid in _ancestors(base, sid) and fid not in _ancestors(merged, sid):
                 errs.append(f"stage '{sid}' no longer runs after floor stage '{fid}'")
     return errs
+
+
+def validate_layers(base_text, delta_text, src="<delta>"):
+    """Overlay a delta on a baseline, then validate the merged procedure."""
+    base, errs = _load(base_text, "<base>")
+    delta, errs2 = _load(delta_text, src, required=False)
+    if errs or errs2:
+        return errs + errs2
+    errs = _validate(base)
+    if errs:
+        return [f"<base>: {e}" for e in errs]
+    merged, errs = merge(base, delta)
+    return errs or _validate(merged) or _floor_errors(base["stages"], merged["stages"])
 
 
 def main(argv=None):
