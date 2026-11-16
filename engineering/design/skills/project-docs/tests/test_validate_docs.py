@@ -217,6 +217,133 @@ def test_spec_is_optional(make_repo):
     assert validate_docs.validate_project(repo) == []
 
 
+# --- optional process.md ------------------------------------------------------
+
+PROCESS_DOC = (
+    "---\n"
+    "title: widgetd process\n"
+    "kind: process\n"
+    "project: widgetd\n"
+    "updated: 2026-10-13\n"
+    "procedure: sw-development\n"
+    "---\n\n"
+    "# widgetd process\n\n"
+    "```mermaid\n"
+    "flowchart LR\n"
+    "    spec --> build --> review\n"
+    "```\n"
+)
+
+
+def add_process(repo: Path, text: str = PROCESS_DOC, procedure_file: str | None = "sw-development") -> Path:
+    """Write docs/process.md and, unless procedure_file is None, a stub procedure
+    under .agents/procedures/ so the procedure-exists rule has something to find."""
+    doc = repo / "docs" / "process.md"
+    doc.write_text(text)
+    if procedure_file is not None:
+        proc = repo / ".agents" / "procedures"
+        proc.mkdir(parents=True, exist_ok=True)
+        (proc / f"{procedure_file}.md").write_text("# stub\n")
+    return doc
+
+
+def test_conformant_fixture_carries_a_process_doc(conformant_src):
+    # The fixture exercises the process rules end to end: doc plus procedure file.
+    assert (conformant_src / "docs" / "process.md").is_file()
+    assert (conformant_src / ".agents" / "procedures" / "sw-development.md").is_file()
+
+
+def test_process_doc_is_optional(make_repo):
+    repo = make_repo()
+    (repo / "docs" / "process.md").unlink(missing_ok=True)
+    # Absent doc is fine even when .agents/procedures/ exists.
+    (repo / ".agents" / "procedures").mkdir(parents=True, exist_ok=True)
+    (repo / ".agents" / "procedures" / "sw-development.md").write_text("# stub\n")
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_valid_process_doc_passes(make_repo):
+    repo = make_repo()
+    add_process(repo)
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_process_doc_without_agents_dir_passes(make_repo):
+    repo = make_repo()
+    add_process(repo, procedure_file=None)
+    assert not (repo / ".agents").exists()
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_agents_dir_without_procedures_dir_passes(make_repo):
+    # The procedure file is checked only when .agents/procedures/ exists.
+    repo = make_repo()
+    add_process(repo, procedure_file=None)
+    (repo / ".agents").mkdir()
+    (repo / ".agents" / "policy.md").write_text("# policy\n")
+    assert validate_docs.validate_project(repo) == []
+
+
+@pytest.mark.parametrize(
+    "old, new, rule",
+    [
+        pytest.param("kind: process", "kind: overview", "frontmatter-kind", id="wrong-kind"),
+        pytest.param("procedure: sw-development\n", "", "process-procedure", id="missing-procedure"),
+        pytest.param("procedure: sw-development", "procedure:", "process-procedure",
+                     id="empty-procedure"),
+        pytest.param("procedure: sw-development", "procedure: Sw_Development", "process-procedure",
+                     id="procedure-not-kebab"),
+        pytest.param("procedure: sw-development", "procedure: ../policy", "process-procedure",
+                     id="procedure-path-traversal"),
+        pytest.param("project: widgetd", "project: other-name", "project-divergence",
+                     id="divergent-project-name"),
+        pytest.param("updated: 2026-10-13", "updated: Oct 2026", "frontmatter-updated",
+                     id="bad-updated-date"),
+        pytest.param("title: widgetd process\n", "", "frontmatter-key", id="missing-title"),
+    ],
+)
+def test_process_doc_single_edit_raises_one_rule(make_repo, old, new, rule):
+    repo = make_repo()
+    assert old in PROCESS_DOC, f"fixture drift: {old!r}"
+    add_process(repo, PROCESS_DOC.replace(old, new))
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == [rule]
+    assert findings[0].file == "docs/process.md"
+
+
+def test_process_doc_malformed_frontmatter(make_repo):
+    repo = make_repo()
+    # Opening fence never closed: treated as missing frontmatter.
+    add_process(repo, "---\ntitle: widgetd process\nkind: process\n\n# body\n")
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == ["frontmatter-missing"]
+    assert findings[0].file == "docs/process.md"
+
+
+def test_process_doc_without_mermaid(make_repo):
+    repo = make_repo()
+    start = PROCESS_DOC.index("```mermaid")
+    add_process(repo, PROCESS_DOC[:start])
+    assert rules(repo) == ["diagram"]
+
+
+def test_process_procedure_file_missing_when_procedures_dir_exists(make_repo):
+    repo = make_repo()
+    add_process(repo, procedure_file="other-procedure")
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == ["process-procedure-missing"]
+    assert findings[0].file == "docs/process.md"
+    assert ".agents/procedures/sw-development.md" in findings[0].message
+
+
+def test_process_procedure_dir_is_not_a_file(make_repo):
+    # A directory named <procedure>.md does not satisfy the rule.
+    repo = make_repo()
+    add_process(repo, procedure_file=None)
+    (repo / ".agents" / "procedures" / "sw-development.md").mkdir(parents=True)
+    assert rules(repo) == ["process-procedure-missing"]
+
+
 # --- extra docs under docs/ are ignored --------------------------------------
 
 
