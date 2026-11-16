@@ -19,7 +19,10 @@ from graphlib import CycleError, TopologicalSorter
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "policy"))
 from policy_loader import PolicyError, _parse_frontmatter, _split_frontmatter  # noqa: E402
 
-__all__ = ("validate_text", "validate_layers", "apply_delta", "parse_frontmatter", "parse_procedure", "main")
+__all__ = (
+    "validate_text", "validate_layers", "apply_delta", "check_bindings", "override_violations",
+    "parse_frontmatter", "parse_procedure", "main",
+)
 
 OWNER = "owner"  # the user: the reserved last rung of every ladder
 LIST_KEYS = ("needs", "consumes", "produces", "review", "metrics")
@@ -533,6 +536,17 @@ def apply_delta(base, delta_text, src="<delta>", strict=True, ratified=False):
     if not errs and strict and not empty:
         errs = _change_errors(delta.get("change"), merged)
     return (None if errs else merged), errs, bool(protected)
+
+
+
+def check_bindings(proc, policy, name=None):
+    """Errors for each policy key a procedure declares that the resolved policy does not set. Stub."""
+    return []
+
+
+def override_violations(base, other):
+    """What `other` (a whole procedure) changes in the protected set of `base`. Stub."""
+    return []
 
 
 def main(argv=None):
