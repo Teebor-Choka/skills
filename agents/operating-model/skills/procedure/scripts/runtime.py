@@ -99,11 +99,20 @@ SOURCES = ("agent", "executor", "owner")
 TRUST = ("claims", "signed")
 
 
+SOURCE_OF = {}  # event type -> who may send it: "agent", "executor" or "owner"
+
+
 def register(event_type, source="agent"):
-    """Register a handler `fn(state, event, ctx) -> [actions]` for an event type."""
+    """Register a handler `fn(state, event, ctx) -> [actions]` for an event type.
+
+    `source` says who may send it in a signed run: an `agent` (a verified entity), the `executor`
+    (a fact), or the `owner` (a decision the handler verifies itself)."""
+    if source not in SOURCES:
+        raise ValueError(f"source must be one of {', '.join(SOURCES)}, not {source!r}")
 
     def wrap(fn):
         HANDLERS[event_type] = fn
+        SOURCE_OF[event_type] = source
         return fn
 
     return wrap
@@ -112,8 +121,9 @@ def register(event_type, source="agent"):
 class Ctx:
     """What a handler may ask of its caller, beyond the state and the event."""
 
-    def __init__(self, verify_owner=None):
+    def __init__(self, verify_owner=None, sender=None):
         self.verify_owner = verify_owner
+        self.sender = sender  # the verified entity behind an agent event; None in claims mode
 
 
 def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="claims"):
@@ -123,6 +133,10 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="
         raise ValueError("invalid procedure: " + "; ".join(errs))
     proc, _ = parse_procedure(procedure_text, "<procedure>")
     proc.pop("change", None)  # a hypothesis belongs to a delta, not to a frozen base
+    if trust not in TRUST:
+        raise ValueError(f"trust must be one of {', '.join(TRUST)}, not {trust!r}")
+    if trust == "signed" and not proc.get("entities"):
+        raise ValueError("a signed run needs entities: a sender must be one of them")
     policy = dict(policy or {})
     for key in CAPS:
         if key in policy and not (type(policy[key]) is int and policy[key] >= 0):
@@ -140,6 +154,7 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="
         "run_id": run_id,
         "version": 1,
         "status": "new",
+        "trust": trust,
         "proc": proc,
         "policy": policy,
         "stages": {sid: {"status": "pending", "locators": {}} for sid in proc["stages"]},
@@ -202,6 +217,39 @@ def _reject(state, event, reason):
     return out, [_error(reason, event)]
 
 
+def _authenticate(state, event, source, verify_sender, verify_executor):
+    """In a signed run, check who sent an event. Returns the verified entity for an agent event.
+
+    The caller's verifier gets a copy of the event plus the run id, so it can bind a signature to
+    both, and it cannot change what the reducer goes on to use. It fails closed."""
+    if state["trust"] != "signed":
+        return None
+    if source is None:  # a handler placed in HANDLERS without `register` has no declared sender
+        raise Rejected(f"event type '{event['type']}' has no declared source")
+    if source == "owner":
+        return None
+    signed = {**copy.deepcopy(event), "run_id": state["run_id"]}
+    try:
+        if source == "executor":
+            if verify_executor is None or verify_executor(signed) is not True:
+                raise Rejected("event was not sent by the executor")
+            return None
+        sender = verify_sender(signed) if verify_sender is not None else None
+    except Rejected:
+        raise
+    except Exception:
+        sender = None
+    if not isinstance(sender, str) or sender not in (state["proc"].get("entities") or {}):
+        raise Rejected("event has no verified sender")
+    return sender
+
+
+def _acting(state, ctx, claimed):
+    """In a signed run, the entity an event names must be the one that sent it."""
+    if state["trust"] == "signed" and ctx.sender != claimed:
+        raise Rejected(f"event names '{claimed}' but its verified sender is '{ctx.sender}'")
+
+
 def step(state, event, *, verify_owner=None, verify_sender=None, verify_executor=None):
     """Apply one event. Returns (new state, actions). Pure: `state` is never changed."""
     if not isinstance(event, dict) or not isinstance(event.get("type"), str) or not event["type"]:
@@ -213,7 +261,8 @@ def step(state, event, *, verify_owner=None, verify_sender=None, verify_executor
         return _reject(state, event, f"unknown event type '{event['type']}'")
     work, mine = copy.deepcopy(state), copy.deepcopy(event)
     try:
-        actions = copy.deepcopy(handler(work, mine, Ctx(verify_owner)))
+        sender = _authenticate(state, event, SOURCE_OF.get(event["type"]), verify_sender, verify_executor)
+        actions = copy.deepcopy(handler(work, mine, Ctx(verify_owner, sender)))
     except Rejected as exc:
         return _reject(state, event, str(exc))
     except Exception as exc:  # a handler bug must be visible and must change nothing
@@ -423,7 +472,7 @@ def _norm_path(path):
     return norm
 
 
-@register("run-started")
+@register("run-started", source="executor")
 def _run_started(state, event, ctx):
     if state["status"] != "new":
         raise Rejected("the run has already started")
@@ -473,6 +522,7 @@ def _stage_done(state, event, ctx):
     if st["status"] != "running":
         raise Rejected(f"stage '{sid}' is {st['status']}, not running")
     spec = state["proc"]["stages"][sid]
+    _acting(state, ctx, spec.get("entity"))
     locators = _locators(sid, spec, event, whole=True)
     st["status"] = "done"
     st["locators"] = {k: locators[k] for k in spec.get("produces") or []}
@@ -511,6 +561,7 @@ def _stage_failed(state, event, ctx):
     if st["status"] != "running":
         raise Rejected(f"stage '{sid}' is {st['status']}, not running")
     spec = state["proc"]["stages"][sid]
+    _acting(state, ctx, spec.get("entity"))
     locators = _locators(sid, spec, event, whole=False)
     name, lp = _loop_of(state, sid)
     reason = str(event.get("reason") or "failed")[:200]
@@ -575,6 +626,7 @@ def _advice_requested(state, event, ctx):
     _require_live(state)
     frm = event.get("from")
     _entity(state, frm)
+    _acting(state, ctx, frm)
     question = event.get("question")
     if not isinstance(question, str) or not question.strip():
         raise Rejected("advice needs a question")
@@ -587,6 +639,7 @@ def _advice_given(state, event, ctx):
     item = _item(state, event.get("item"))
     by, answer = event.get("by"), event.get("answer")
     _entity(state, by)  # the owner is not an entity: its answer comes only through `owner-decided`
+    _acting(state, ctx, by)
     if item["status"] != "open" or item["at"] != by:
         raise Rejected(f"item '{item['id']}' is with '{item['at']}', not '{by}'")
     if not isinstance(answer, str):
@@ -616,7 +669,7 @@ def _forward(item, to, frm, analysis):
     return {"do": "escalate", "to": to, **shared}
 
 
-@register("owner-decided")
+@register("owner-decided", source="owner")
 def _owner_decided(state, event, ctx):
     """Only a verified owner decision applies. With none, none does. `abort` ends the run."""
     item = _item(state, event.get("item"))
@@ -665,6 +718,7 @@ def _spawn_requested(state, event, ctx):
     _require_live(state)
     by, role, why = event.get("by"), event.get("role"), event.get("why")
     allowed = _entity(state, by).get("may-spawn") or []
+    _acting(state, ctx, by)
     if role not in (state["proc"].get("entities") or {}):
         raise Rejected(f"unknown role '{role}'")
     if role not in allowed:
@@ -749,6 +803,7 @@ def _amendment_proposed(state, event, ctx):
     _require_live(state)
     by = event.get("by")
     _entity(state, by)
+    _acting(state, ctx, by)
     delta = event.get("delta")
     if not isinstance(delta, str) or not delta.strip():
         raise Rejected("an amendment needs a delta")
