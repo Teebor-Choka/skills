@@ -12,23 +12,26 @@ entities form a ladder that reaches the owner with downward-only spawning. Unkno
 import argparse
 import functools
 import os
+import re
 import sys
 from graphlib import CycleError, TopologicalSorter
 
 # Same parser the policy skill uses, so both files accept one frontmatter subset.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "policy"))
 from policy_loader import PolicyError, _parse_frontmatter, _split_frontmatter  # noqa: E402
+from policy_loader import get as policy_get  # noqa: E402
 
 __all__ = (
     "validate_text", "validate_layers", "apply_delta", "check_bindings", "override_violations",
     "parse_frontmatter", "parse_procedure", "main",
 )
 
+POLICY_KEY = re.compile(r"^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*\Z")  # dotted lowercase names
 OWNER = "owner"  # the user: the reserved last rung of every ladder
-LIST_KEYS = ("needs", "consumes", "produces", "review", "metrics")
+LIST_KEYS = ("needs", "consumes", "produces", "review", "metrics", "uses")
 BOOL_KEYS = ("disabled", "floor")
 # A delta may not change these on a floor stage; `review` may only grow.
-FLOOR_LOCKED = ("needs", "consumes", "produces", "skill", "entity")
+FLOOR_LOCKED = ("needs", "consumes", "produces", "skill", "entity", "uses")
 # Id maps a delta overlays per id, like `stages`, and what protects each. `protected`: keys a delta
 # cannot change on an existing id. `removable`: whether a delta may disable an id. `lower_only`:
 # numeric keys a delta may lower but not raise. A new map is one entry here.
@@ -71,6 +74,12 @@ def _load(text, src, required=True):
             proc[name] = found
         else:
             errs.append(f"{src}: '{name}' must be a map of maps")
+    if "policy" in fm:
+        found = fm["policy"]
+        if isinstance(found, dict) and all(isinstance(v, str) and v.strip() for v in found.values()):
+            proc["policy"] = found
+        else:
+            errs.append(f"{src}: 'policy' must map each policy key to a non-empty purpose, such as 'work.tracker: where issues live'")
     if "change" in fm:
         proc["change"] = fm["change"]
     stages = fm.get("stages", {})
@@ -355,11 +364,24 @@ def _floor_when_errors(proc):
     return errs
 
 
+def _policy_errors(proc):
+    """A procedure names the policy keys it needs and each stage the ones it uses: the specifics (where
+    to push, where issues live, how nodes talk) belong to the policy, never to the procedure."""
+    declared = proc.get("policy") or {}
+    errs = [f"policy key '{k}' must be dotted lowercase names, such as 'work.tracker'" for k in declared if not POLICY_KEY.match(k)]
+    for sid, st in proc["stages"].items():
+        for key in st.get("uses") or []:
+            if not isinstance(key, str) or key not in declared:
+                errs.append(f"stage '{sid}': uses '{key}', which the procedure does not declare under 'policy'")
+    return errs
+
+
 # The checks in the order they must run: each assumes the ones before it passed, since ancestors
 # need resolved `needs`. Every rule takes the whole procedure. A new rule is one entry here.
 # `strict_only` rules are the ones every real procedure meets and a structure test may skip.
 RULES = (
     (lambda p: _shape_errors(p["stages"]), False),
+    (_policy_errors, False),
     (lambda p: _when_errors(p["stages"]), False),
     (lambda p: _graph_errors(p["stages"]), False),
     (lambda p: _retry_errors(p["stages"]), False),
@@ -390,7 +412,7 @@ def validate_text(text, src="<text>", strict=True):
 def _floor_delta_errors(sid, base_stage, over):
     """What a delta may not do to a floor stage: change its flag, wiring, skill, or drop reviews."""
     errs = []
-    if "floor" in over or "when" in over:
+    if any(k in over and over[k] != base_stage.get(k) for k in ("floor", "when")):
         errs.append(f"stage '{sid}' is floor: a delta cannot change 'floor' or add 'when'")
     for key in FLOOR_LOCKED:
         if key in over and over[key] != base_stage.get(key):
@@ -468,6 +490,8 @@ def _merge(base, delta):
     """Overlay a delta procedure on a base. Returns (merged, structural errors, protected errors)."""
     stages, errs, protected = _merge_stages(base["stages"], delta["stages"])
     merged = {"stages": stages}
+    if "policy" in base or "policy" in delta:
+        merged["policy"] = {**base.get("policy", {}), **delta.get("policy", {})}  # keys may be added or reworded
     for name in ID_MAPS:
         if name in base or name in delta:
             merged[name], more = _merge_map(name, base.get(name, {}), delta.get(name, {}))
@@ -539,14 +563,45 @@ def apply_delta(base, delta_text, src="<delta>", strict=True, ratified=False):
 
 
 
+def _present(value):
+    """A policy value counts as set unless it is empty. `False` is a real setting."""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (dict, list)):
+        return bool(value)
+    return True
+
+
 def check_bindings(proc, policy, name=None):
-    """Errors for each policy key a procedure declares that the resolved policy does not set. Stub."""
-    return []
+    """Errors for each policy key a procedure declares that the resolved policy does not set.
+
+    A dotted key reads through nested maps: `work.tracker` is a `work:` map holding `tracker:`."""
+    errs, missing = [], object()
+    for key in sorted(proc.get("policy") or {}):
+        value = policy_get(policy, key, default=missing)
+        if not _present(None if value is missing else value):
+            hint = " (nest it: a `work:` map holding `tracker:`, not a flat `work.tracker:` key)" if key in policy else ""
+            who = f" by procedure '{name}'" if name else ""
+            errs.append(f"policy key '{key}' is needed{who} but is not set{hint}")
+    return errs
 
 
 def override_violations(base, other):
-    """What `other` (a whole procedure) changes in the protected set of `base`. Stub."""
-    return []
+    """What `other` (a whole procedure that replaces `base`) changes in the protected set of `base`.
+
+    A project's procedure may replace the user's, but it must not weaken it: dropping or rewiring a
+    floor stage, moving the ladder, loops or KPIs. Anything `other` leaves out is treated as removed."""
+    gone = {"disabled": True}
+    delta = {"stages": {**{k: dict(gone) for k in base["stages"] if k not in other["stages"]}, **other["stages"]}}
+    for name in ID_MAPS:
+        merged = {k: dict(gone) for k in base.get(name, {}) if k not in other.get(name, {})}
+        merged.update(other.get(name, {}))
+        if merged:
+            delta[name] = merged
+    _, _, protected = _merge(base, delta)
+    return protected
 
 
 def main(argv=None):
