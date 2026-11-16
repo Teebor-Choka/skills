@@ -17,7 +17,10 @@ import re
 
 from validate_procedure import apply_delta, parse_frontmatter, parse_procedure, validate_text
 
-__all__ = ("new_state", "step", "replay", "register", "collector", "observed_rates", "COLLECTORS", "HANDLERS", "Rejected")
+__all__ = (
+    "new_state", "step", "replay", "register", "collector", "observed_rates", "regressed",
+    "iteration_report", "COLLECTORS", "HANDLERS", "Rejected",
+)
 
 HANDLERS = {}
 CAPS = ("max-agents", "max-depth")
@@ -57,6 +60,16 @@ def observed_rates(state, version=None):
     """Each observable metric's rate under a snapshot version: its count per finished stage."""
     counters = state["metrics"][str(version or state["version"])]
     return {name: fn(counters) for name, fn in sorted(COLLECTORS.items())}
+
+
+def regressed(observed, baseline, direction, threshold):
+    """Whether a metric moved the wrong way past the tolerance. Stub."""
+    return None
+
+
+def iteration_report(state):
+    """One record per snapshot: its change, baseline, observed rates and outcome. Stub."""
+    return []
 
 
 class Rejected(Exception):
