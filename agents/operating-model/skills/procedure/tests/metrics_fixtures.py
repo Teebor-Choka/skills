@@ -64,3 +64,24 @@ def amended(**kw):
     state, _ = run_with(approve(item_of(acts[0])), state=state)
     state, acts = run_with(done("align"), state=state)
     return state, acts[0]
+
+
+def v2(window="2 stages", policy=None):
+    """A run with amendment v2 (adds `lint`) applied: spec has just started under snapshot 2."""
+    state, acts = run_with(propose(window=window), policy=policy or {})
+    state, _ = run_with(approve(item_of(acts[0])), state=state)
+    state, _ = run_with(done("align"), state=state)
+    return state
+
+
+NOTE = {"verdict": "note://defects"}
+
+
+def regressed_run(**kw):
+    """Under v2 with a 3-stage window: review fails once, so rework rises before the window ends."""
+    from runtime_fixtures import failed
+
+    state = v2(window="3 stages", **kw)
+    state, _ = run_with(done("spec"), done("build"), failed("review", NOTE), state=state)
+    state, acts = run_with(done("build"), state=state)
+    return state, acts[0]
