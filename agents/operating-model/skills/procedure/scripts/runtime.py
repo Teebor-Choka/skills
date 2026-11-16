@@ -95,7 +95,11 @@ class Rejected(Exception):
     """A handler raises this to refuse an event. The state is left exactly as it was."""
 
 
-def register(event_type):
+SOURCES = ("agent", "executor", "owner")
+TRUST = ("claims", "signed")
+
+
+def register(event_type, source="agent"):
     """Register a handler `fn(state, event, ctx) -> [actions]` for an event type."""
 
     def wrap(fn):
@@ -112,7 +116,7 @@ class Ctx:
         self.verify_owner = verify_owner
 
 
-def new_state(procedure_text, *, policy=None, strict=True, run_id="run"):
+def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="claims"):
     """Validate and freeze a procedure for one run. Raises ValueError when it is invalid."""
     errs = validate_text(procedure_text, "<procedure>", strict)
     if errs:
@@ -198,7 +202,7 @@ def _reject(state, event, reason):
     return out, [_error(reason, event)]
 
 
-def step(state, event, *, verify_owner=None):
+def step(state, event, *, verify_owner=None, verify_sender=None, verify_executor=None):
     """Apply one event. Returns (new state, actions). Pure: `state` is never changed."""
     if not isinstance(event, dict) or not isinstance(event.get("type"), str) or not event["type"]:
         return _reject(state, event, "malformed event: needs a non-empty text 'type'")
@@ -220,10 +224,10 @@ def step(state, event, *, verify_owner=None):
 
 def replay(procedure_text, events, **kwargs):
     """Fold a recorded event log from a fresh state. Returns (state, every action in order)."""
-    verify = kwargs.pop("verify_owner", None)
+    verifiers = {k: kwargs.pop(k, None) for k in ("verify_owner", "verify_sender", "verify_executor")}
     state, out = new_state(procedure_text, **kwargs), []
     for event in events:
-        state, actions = step(state, event, verify_owner=verify)
+        state, actions = step(state, event, **verifiers)
         out += actions
     return state, out
 
