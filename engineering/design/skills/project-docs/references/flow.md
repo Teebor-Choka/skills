@@ -52,6 +52,11 @@ content is yours to fit the project):
   adversarial), and a diagram. Only when the opt-in test in the contract says the project needs it.
 - `assets/adr.skeleton.md`: one decision, in architect's shape. One file per decision under
   `decisions/`, kebab-named for the decision.
+- `assets/process.skeleton.md`: write it when the project has an `.agents/` directory (skip it
+  otherwise). It names the procedure the project runs, where its documents live under `.agents/`, who
+  decides what, and points to `.agents/iterations/` for the record of changes. Do not copy the
+  procedure into it. Set `procedure` to the file name of `.agents/procedures/<name>.md`, without the
+  extension.
 - `assets/decisions-README.skeleton.md`: the index: a table linking every ADR. Keep it in sync
   with the directory; the validator checks both directions.
 - `assets/AGENTS.pointer.md`: the root pointer. Create it, or splice its pointers into an existing
