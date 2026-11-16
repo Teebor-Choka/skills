@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.4.0"
+  version: "1.4.1"
 ---
 
 # procedure: a named graph of stages
@@ -233,21 +233,23 @@ state, actions = step(state, {"type": "stage-done", "stage": "align", "locators"
 
 `new_state` validates the procedure and raises `ValueError` when it is invalid. `step` never mutates
 its input and never raises on a bad event: it returns an `error` action, records the event under
-`rejected`, and leaves the state unchanged. `replay` folds a recorded log, and the same log gives
-the same state. The state is plain data and survives JSON.
+`rejected`, and leaves the stages unchanged. A refused event still counts as a refusal and is logged,
+because the metrics depend on it. `replay` folds a recorded log, and the same log gives the same
+state, with the same `verify_owner`. An event too large or deep to store is logged as an
+`unreadable-event` placeholder, which a replay refuses the same way. The state is plain data and survives JSON.
 
 Events and what the reducer enforces:
 
-| Event                | Effect and gate                                                                                                                                                                                                                                                                                                                                                                |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `run-started`        | Starts the entry stages. `changed` lists the paths the run touches; they are normalised and a path that leaves the project is refused.                                                                                                                                                                                                                                         |
-| `stage-done`         | Needs a non-empty text locator for every kind the stage produces, and no other kind. The next stage gets only the kinds it consumes.                                                                                                                                                                                                                                           |
-| `stage-failed`       | In a loop: another round with only what this round found, until `bound`, then escalate to `on-exhausted` and block. With `on-fail`: retry to a bound, from the named stage. Otherwise escalate up the entity ladder. A redo also redoes every stage downstream, and cancels any still running on the old input (`stage-cancelled`).                                            |
-| `advice-requested`   | Goes to the entity above the asker, which keeps its stage.                                                                                                                                                                                                                                                                                                                     |
-| `advice-given`       | `sure` closes it. `unsure: <why>` moves the same item up one rung with the analysis. Only the holder answers. The owner is not an entity and cannot answer here. A `sure` on an item that blocks the run resumes it.                                                                                                                                                           |
-| `owner-decided`      | Applies only when the caller passes `verify_owner` and it returns exactly `True`. The verifier receives the event plus `run_id`, so it can refuse a decision signed for another run. On an escalation it resumes a blocked run, or ends it when the decision is `abort`. On a change it is `approve` or `reject`. On a rollback proposal it is `rollback` or `keep`.           |
-| `spawn-requested`    | Allowed only for roles in the spawner's `may-spawn`, with a reason. `parent` must be an agent id the runtime issued. Depth counts the deepest agent of the spawner's own role, so leaving out `parent` does not reset it. `max-agents` and `max-depth` refuse a spawn and ask the owner to raise the cap.                                                                      |
-| `amendment-proposed` | An entity drafts a delta. The runtime validates it against the _current_ snapshot, adds its reason, metrics, direction and window, says whether it touches the protected set, and puts it to the owner. It applies nothing. It is refused if invalid, if it changes nothing, if a named metric has no collector, or if the window is not a count of stages such as `5 stages`. |
+| Event                | Effect and gate                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `run-started`        | Starts the entry stages. `changed` lists the paths the run touches; they are normalised and a path that leaves the project is refused.                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `stage-done`         | Needs a non-empty text locator for every kind the stage produces, and no other kind. The next stage gets only the kinds it consumes.                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `stage-failed`       | In a loop: another round with only what this round found, until `bound`, then escalate to `on-exhausted` and block. With `on-fail`: retry to a bound, from the named stage. Otherwise escalate up the entity ladder. A redo also redoes every stage downstream, and cancels any still running on the old input (`stage-cancelled`).                                                                                                                                                                                                              |
+| `advice-requested`   | Goes to the entity above the asker, which keeps its stage.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `advice-given`       | `sure` closes it. `unsure: <why>` moves the same item up one rung with the analysis. Only the holder answers. The owner is not an entity and cannot answer here. A `sure` on an item that blocks the run resumes it.                                                                                                                                                                                                                                                                                                                             |
+| `owner-decided`      | Applies only when the caller passes `verify_owner` and it returns exactly `True`. The verifier receives the event plus `run_id` and an `item_digest` of what is being decided, so it can bind a signature to the run and to the content, not only to an id. Set a unique `run_id` per run: item ids repeat. On an escalation it resumes a blocked run, or ends it when the decision is `abort`. On a change it is `approve` or `reject`. On a rollback proposal it is `rollback` or `keep`.                                                      |
+| `spawn-requested`    | Allowed only for roles in the spawner's `may-spawn`, with a reason. `parent` must be an agent id the runtime issued. Depth counts the deepest agent of the spawner's own role, so leaving out `parent` does not reset it. `max-agents` and `max-depth` refuse a spawn and ask the owner to raise the cap.                                                                                                                                                                                                                                        |
+| `amendment-proposed` | An entity drafts a delta. The runtime validates it against the _current_ snapshot, adds its reason, metrics, direction and window, says whether it touches the protected set, and puts it to the owner. It applies nothing. It is refused if invalid, if it changes nothing, if a named metric has no collector, or if the window is not a count of 1 to 999 stages such as `5 stages`. It is bound to the snapshot it was validated against: if the procedure changes first, approval reports `amendment-failed` and it must be proposed again. |
 
 A resumed loop gets a fresh bound. Advice and spawning work while a run is blocked, and are refused
 before it starts and after it ends. An event over 5000 values, deeper than 16 levels, with a
@@ -267,7 +269,8 @@ What this does not do:
 - It trusts `run-started`. An agent that sends it chooses the change list, and so which `paths`
   stages run. Only the executor should send it.
 - Replay needs the same `verify_owner`: a decision accepted once is refused by a verifier that
-  cannot check it. `rejected` is not rebuilt from the log.
+  cannot check it. `rejected` summarises an unreadable event, so it differs from a replay's.
+- The log grows with every event, refused ones included. The executor should rate-limit.
 - `register` is a global registry. Code that can call it can replace the owner gate, so only
   trusted code may.
 - Paths match case-sensitively. A case-insensitive filesystem needs its changes lowercased first.
@@ -277,7 +280,7 @@ What this does not do:
 
 A change to the procedure never applies on its own. It is a delta with a `change` map, proposed with
 `amendment-proposed`, and it applies only on a verified owner `approve`, as the next snapshot, at a
-stage boundary: while a stage is running it waits. History is append-only. Each snapshot keeps its
+stage boundary: while a stage is running it waits in a queue, and each queued change is checked again when it applies. One that no longer fits is reported (`amendment-failed`, `rollback-stale`), never dropped. History is append-only. Each snapshot keeps its
 procedure, its change, the baseline rates it replaced, and an outcome.
 
 The runtime counts, under each snapshot version: finished stages, rework (stages run again), loop
@@ -293,9 +296,14 @@ the baseline, once:
 - A regression past `regression-threshold` (policy, default 0.1): a rollback proposal goes to the
   project-manager entity, or to the owner when none has that role, and the run goes on. The manager
   answering `sure`, or a verified owner decision of `rollback`, restores the earlier procedure as a
-  new snapshot at the next boundary. `keep` leaves the change.
+  new snapshot at the next boundary. `keep` leaves the change. A rollback applies only to the change
+  it was raised for and only while that change is still the latest: if another change was approved
+  first, the rollback is closed as `rollback-stale`.
 - A regression in a metric named in policy `safety-metrics`: rolled back at once, with `inform-owner`.
   The default is none, so nothing rolls back on its own.
+
+A finished stage whose `produces` or `consumes` changed in a new snapshot is run again, with every
+stage downstream of it. An open item never waits on a stage that a change removed.
 
 `iteration_report(state)` returns one record per snapshot: change, baseline, observed, stages done and
 outcome. That is the record of what each iteration changed and what it did.
@@ -303,8 +311,14 @@ outcome. That is the record of what each iteration changed and what it did.
 Limits:
 
 - Every metric is influenced by agent events. An agent that sends junk can raise `refusals` or
-  `escalations`. That is why automatic rollback needs a metric the owner named, and why a rollback only
-  restores a snapshot the owner already approved.
+  `escalations`, before a change (inflating the baseline so a real regression looks fine) or after it
+  (forcing a regression). Automatic rollback needs a metric the owner named, and a rollback only
+  restores a snapshot the owner already approved. `refusals` also counts honest refusals, such as a
+  cancelled stage's late result, so it makes a poor safety metric.
+- The project manager is an entity, and an entity is a claim. Any agent can answer as it, so a rollback
+  of the latest regressed change can be forced. It cannot revert an older change.
+- `up` from a zero baseline never regresses. Adding cheap stages raises the finished-stage count and
+  dilutes every rate.
 - The window counts stages only, not runs. A change judged across runs needs a store this does not
   have.
 - A rate over a window of a few stages is noisy. Pick a window and a tolerance that fit.

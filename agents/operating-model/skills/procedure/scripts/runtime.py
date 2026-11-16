@@ -12,6 +12,9 @@ an agent cannot talk its way past one.
 """
 import copy
 import fnmatch
+import hashlib
+import json
+import math
 import posixpath
 import re
 
@@ -27,7 +30,7 @@ CAPS = ("max-agents", "max-depth")
 DEFAULT_TOLERANCE = 0.1  # how far a metric may move the wrong way before it counts as a regression
 COLLECTORS = {}  # metric name -> fn(counters) -> number. Only code here may observe: agents cannot write one.
 COUNTERS = ("stages-done", "rework", "escalations", "refusals", "rounds")
-WINDOW = re.compile(r"^([1-9][0-9]{0,5}) stages$")
+WINDOW = re.compile(r"^([1-9][0-9]{0,2}) stages\Z")  # at most 999: a longer window is never judged
 SETTLED = ("done", "skipped")  # a skipped stage satisfies `needs`: it chose not to run
 LIVE = ("running", "blocked")  # advice and spawning work while a run waits on an answer
 # Bounds on an event, checked before any copy: a hostile payload must not cost a crash.
@@ -115,16 +118,20 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run"):
     if errs:
         raise ValueError("invalid procedure: " + "; ".join(errs))
     proc, _ = parse_procedure(procedure_text, "<procedure>")
+    proc.pop("change", None)  # a hypothesis belongs to a delta, not to a frozen base
     policy = dict(policy or {})
     for key in CAPS:
         if key in policy and not (type(policy[key]) is int and policy[key] >= 0):
             raise ValueError(f"policy '{key}' must be a non-negative integer, not {policy[key]!r}")
     tol = policy.get("regression-threshold", DEFAULT_TOLERANCE)
-    if type(tol) not in (int, float) or tol < 0:
+    if type(tol) not in (int, float) or not math.isfinite(tol) or tol < 0:
         raise ValueError(f"policy 'regression-threshold' must be a non-negative number, not {tol!r}")
     safety = policy.get("safety-metrics", [])
     if not isinstance(safety, list) or not all(isinstance(m, str) for m in safety):
         raise ValueError(f"policy 'safety-metrics' must be a list of metric names, not {safety!r}")
+    unknown = sorted(set(safety) - set(COLLECTORS))
+    if unknown:
+        raise ValueError(f"policy 'safety-metrics' names {', '.join(unknown)}, which nothing observes")
     return {
         "run_id": run_id,
         "version": 1,
@@ -133,7 +140,7 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run"):
         "policy": policy,
         "stages": {sid: {"status": "pending", "locators": {}} for sid in proc["stages"]},
         "snapshots": [{"version": 1, "proc": copy.deepcopy(proc), "change": None, "baseline": {}, "outcome": "initial"}],
-        "pending": None,
+        "pending": [],
         "metrics": {"1": _fresh_counters()},
         "log": [],
         "rejected": [],
@@ -178,6 +185,9 @@ def _error(reason, event=None):
 def _reject(state, event, reason):
     out = copy.deepcopy(state)
     _count(out, "refusals")
+    # A refused event is logged too: it moved a metric, so a replay needs it. One that cannot be
+    # stored is logged as a placeholder of an unknown type, which a replay refuses the same way.
+    out["log"].append(copy.deepcopy(event) if isinstance(event, dict) and _sane(event) else {"type": "unreadable-event"})
     if isinstance(event, dict) and _sane(event):
         shown = copy.deepcopy(event)
     elif isinstance(event, dict):
@@ -375,7 +385,8 @@ def _raise_to(state, to, asks, frm, blocks=(), loop=None, **extra):
     if extra.get("kind") not in ("amendment", "rollback"):  # a proposal is not a sign of trouble
         _count(state, "escalations")
     state["items"].append(
-        {"id": item, "from": frm, "at": to, "asks": asks, "status": "open", "blocks": list(blocks), "loop": loop, **extra}
+        {"id": item, "from": frm, "at": to, "asks": asks, "status": "open", "blocks": list(blocks),
+         "blocking": bool(blocks), "loop": loop, **extra}
     )
     shown = {k: extra[k] for k in ("change", "protected", "kind", "evidence") if k in extra}
     if to == "owner":
@@ -385,14 +396,14 @@ def _raise_to(state, to, asks, frm, blocks=(), loop=None, **extra):
 
 def _resume(state, item):
     """An answered item that was blocking the run lets it continue, with a fresh bound for a loop."""
-    if state["status"] != "blocked" or not item["blocks"]:
+    if state["status"] != "blocked" or not item.get("blocking"):
         return []
     state["status"] = "running"
     name = item.get("loop")
     if name:
         state.get("rounds", {}).pop(name, None)
         state.get("carried", {}).pop(name, None)
-    _reset(state, item["blocks"], round=1 if name else None)
+    _reset(state, [sid for sid in item["blocks"] if sid in state["stages"]], round=1 if name else None)
     return _advance(state)
 
 
@@ -580,8 +591,10 @@ def _advice_given(state, event, ctx):
         item["status"] = "advice-ruled"
         resolved = [{"do": "advice-resolved", "item": item["id"], "by": by, "answer": answer}]
         if item.get("kind") == "rollback":
-            state["pending"] = {"kind": "rollback", "item": item["id"], "to": item["target"]}
-            return resolved + _apply_pending(state)
+            if not _rollback_current(state, item["target"]):
+                return resolved + [_stale(state, item)]
+            state["pending"].append({"kind": "rollback", "item": item["id"], "to": item["target"]})
+            return resolved + _apply_pending(state) + (_advance(state) if state["status"] == "running" else [])
         return resolved + _resume(state, item)
     kind, _, why = answer.partition(":")
     if kind.strip() != "unsure" or not why.strip():
@@ -603,31 +616,37 @@ def _forward(item, to, frm, analysis):
 def _owner_decided(state, event, ctx):
     """Only a verified owner decision applies. With none, none does. `abort` ends the run."""
     item = _item(state, event.get("item"))
-    signed = {**event, "run_id": state["run_id"]}  # a verifier can bind a decision to this run
+    if state["status"] in ("done", "halted"):
+        raise Rejected(f"the run is {state['status']}: nothing is left to decide")
+    # The verifier sees the run and a digest of what is being decided, so it can bind to both.
+    signed = {**event, "run_id": state["run_id"], "item_digest": _digest(item)}
     if ctx.verify_owner is None or ctx.verify_owner(signed) is not True:
         raise Rejected("owner decision has no valid signature")
     if item["status"] != "open" or item["at"] != "owner":
         raise Rejected(f"item '{item['id']}' is not waiting on the owner")
-    item["status"] = "owner-ruled"
-    item["decision"] = event.get("decision")
-    actions = [{"do": "owner-ruled", "item": item["id"], "decision": item["decision"]}]
-    if item.get("kind") == "rollback":
-        if item["decision"] not in ("rollback", "keep"):
-            raise Rejected("a rollback is decided with 'rollback' or 'keep'")
-        if item["decision"] == "keep":
+    kind, decision = item.get("kind"), event.get("decision")
+    if kind == "rollback" and decision not in ("rollback", "keep"):
+        raise Rejected("a rollback is decided with 'rollback' or 'keep'")
+    if kind == "amendment" and decision not in ("approve", "reject"):
+        raise Rejected("a change is decided with 'approve' or 'reject'")
+    item["status"], item["decision"] = "owner-ruled", decision
+    actions = [{"do": "owner-ruled", "item": item["id"], "decision": decision}]
+    if kind == "rollback":
+        if decision == "keep":
             _mark(state, item["target"] + 1, "kept")
             return actions
-        state["pending"] = {"kind": "rollback", "item": item["id"], "to": item["target"]}
+        if not _rollback_current(state, item["target"]):
+            return actions + [_stale(state, item)]
+        state["pending"].append({"kind": "rollback", "item": item["id"], "to": item["target"]})
         return actions + _apply_pending(state) + (_advance(state) if state["status"] == "running" else [])
-    if item.get("kind") == "amendment":
-        if item["decision"] not in ("approve", "reject"):
-            raise Rejected("a change is decided with 'approve' or 'reject'")
-        if item["decision"] != "approve":
+    if kind == "amendment":
+        if decision != "approve":
             return actions
-        state["pending"] = {"kind": "amendment", "item": item["id"], "delta": item["delta"]}
-        actions += _apply_pending(state)
-        return actions + (_advance(state) if state["status"] == "running" else [])
-    if item["decision"] == "abort":
+        state["pending"].append(
+            {"kind": "amendment", "item": item["id"], "delta": item["delta"], "base_version": item["base_version"]}
+        )
+        return actions + _apply_pending(state) + (_advance(state) if state["status"] == "running" else [])
+    if decision == "abort":
         state["status"] = "halted"
         return actions + [{"do": "run-halted", "item": item["id"]}]
     return actions + _resume(state, item)
@@ -668,15 +687,29 @@ def _spawn_requested(state, event, ctx):
 
 
 def _apply_pending(state):
-    """Apply an approved change, at a stage boundary: never while a stage is running."""
-    pending = state.get("pending")
-    if not pending or any(st["status"] == "running" for st in state["stages"].values()):
+    """Apply approved changes in order, at a stage boundary: never while a stage is running.
+
+    Each is checked again when it applies. One that no longer fits is reported, never dropped."""
+    if not state["pending"] or any(st["status"] == "running" for st in state["stages"].values()):
         return []
-    state["pending"] = None
+    queue, state["pending"] = state["pending"], []
+    actions = []
+    for pending in queue:
+        actions += _apply_one(state, pending)
+    return actions
+
+
+def _apply_one(state, pending):
     if pending["kind"] == "rollback":
+        item = next((i for i in state.get("items", []) if i["id"] == pending["item"]), None)
+        if not pending.get("auto") and not _rollback_current(state, pending["to"]):
+            return [_stale(state, item)]
         return _roll_back(state, pending)
+    if pending["base_version"] != state["version"]:
+        return [{"do": "amendment-failed", "item": pending["item"],
+                 "errors": ["the procedure changed since this was proposed: propose it again"]}]
     merged, errs, _ = apply_delta(state["proc"], pending["delta"], "<amendment>", True, ratified=True)
-    if errs:  # the procedure moved on since the proposal: it no longer applies
+    if errs:
         return [{"do": "amendment-failed", "item": pending["item"], "errors": errs}]
     change = parse_frontmatter(pending["delta"], "<amendment>")[0].get("change")
     return _install(state, merged, change)
@@ -691,10 +724,19 @@ def _install(state, proc, change, outcome="pending"):
     state["snapshots"].append(
         {"version": version, "proc": copy.deepcopy(proc), "change": copy.deepcopy(change), "baseline": baseline, "outcome": outcome}
     )
+    old = state["proc"]["stages"]
     state["stages"] = {sid: state["stages"].get(sid, {"status": "pending", "locators": {}}) for sid in proc["stages"]}
     state["proc"], state["version"] = copy.deepcopy(proc), version
     state["metrics"][str(version)] = _fresh_counters()
-    return [{"do": "snapshot-applied", "version": version, "change": change}]
+    for item in state.get("items", []):
+        item["blocks"] = [sid for sid in item["blocks"] if sid in state["stages"]]  # never wait on a stage that is gone
+    # A finished stage whose inputs or outputs changed no longer holds what its dependents need.
+    redo = [
+        sid for sid, spec in proc["stages"].items()
+        if sid in old and state["stages"][sid]["status"] == "done"
+        and any(spec.get(k) != old[sid].get(k) for k in ("produces", "consumes"))
+    ]
+    return [{"do": "snapshot-applied", "version": version, "change": change}] + (_invalidate(state, redo) if redo else [])
 
 
 @register("amendment-proposed")
@@ -718,10 +760,30 @@ def _amendment_proposed(state, event, ctx):
     if not WINDOW.match(str(change.get("window", ""))):
         raise Rejected(f"window '{change.get('window')}' must be a count of stages, such as '5 stages'")
     asks = f"approve change: {change.get('reason')}"
-    return [_raise_to(state, "owner", asks, by, kind="amendment", delta=delta, change=change, protected=protected)]
+    return [
+        _raise_to(state, "owner", asks, by, kind="amendment", delta=delta, change=change, protected=protected,
+                  base_version=state["version"])
+    ]
 
 
 # ---------------------------------------------------------------- judging a change
+
+
+def _digest(item):
+    """What the owner is deciding on, so a signature can cover content and not only an id."""
+    body = [item.get("kind", "escalation"), item.get("delta"), item.get("target"), item["asks"], item["at"], item.get("base_version")]
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+
+
+def _rollback_current(state, target):
+    """A rollback still applies only to the change it was raised for, and only while it is the latest."""
+    return state["version"] == target + 1 and state["snapshots"][-1]["outcome"] == "regressed"
+
+
+def _stale(state, item):
+    if item is not None:
+        item["status"] = "stale"
+    return {"do": "rollback-stale", "item": item["id"] if item else None, "why": "the change it was raised for is no longer the current one"}
 
 
 def _mark(state, version, outcome):
@@ -757,8 +819,8 @@ def _evaluate(state):
     bad_safety = sorted(m for m, e in safety.items() if regressed(e["observed"], e["baseline"], "down", tol))
     bad_named = sorted(m for m, e in named.items() if regressed(e["observed"], e["baseline"], e["direction"], tol))
     if bad_safety:
-        snap["outcome"] = "rolled-back"
-        state["pending"] = {"kind": "rollback", "item": None, "to": snap["version"] - 1, "auto": True}
+        snap["outcome"] = "regressed"  # becomes rolled-back only when the rollback is installed
+        state["pending"].append({"kind": "rollback", "item": None, "to": snap["version"] - 1, "auto": True})
         shown = {**named, **{m: safety[m] for m in bad_safety}}
         return [
             {"do": "change-regressed", "version": snap["version"], "metrics": shown, "auto": True},

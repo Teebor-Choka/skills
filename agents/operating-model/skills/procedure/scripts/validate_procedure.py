@@ -526,7 +526,7 @@ def apply_delta(base, delta_text, src="<delta>", strict=True, ratified=False):
     errs = _validate(merged, strict)
     if not errs and not ratified:
         errs = _floor_errors(base["stages"], merged["stages"])
-    empty = not delta["stages"] and not any(delta.get(name) for name in ID_MAPS)
+    empty = merged == base  # a delta that changes nothing needs no hypothesis
     if not errs and strict and not empty:
         errs = _change_errors(delta.get("change"), merged)
     return (None if errs else merged), errs, bool(protected)
