@@ -36,12 +36,22 @@ def verify_executor(event):
     )
 
 
-def owner_sign(item, decision):
-    return hmac.new(OWNER_KEY, json.dumps([item, decision]).encode(), hashlib.sha256).hexdigest()
+def owner_sign(item, decision, run_id="run", digest=""):
+    """The owner signs the run, the item, what is being decided and the decision."""
+    body = json.dumps([run_id, item, digest, decision]).encode()
+    return hmac.new(OWNER_KEY, body, hashlib.sha256).hexdigest()
 
 
 def verify_owner(event):
-    return hmac.compare_digest(event.get("signature", ""), owner_sign(event["item"], event["decision"]))
+    want = owner_sign(event.get("item"), event.get("decision"), event.get("run_id"), event.get("item_digest"))
+    return hmac.compare_digest(event.get("signature", ""), want)
+
+
+def decide(state, item, decision):
+    """An owner decision signed for this run and for the content of `item` as it now stands."""
+    from runtime import item_digest
+    return {"type": "owner-decided", "item": item, "decision": decision,
+            "signature": owner_sign(item, decision, state["run_id"], item_digest(state, item))}
 
 
 VERIFIERS = {"verify_sender": verify_sender, "verify_executor": verify_executor, "verify_owner": verify_owner}
@@ -66,12 +76,14 @@ def go(text=SWE, **kw):
     return state, acts[0]
 
 
-def sdone(stage, locators=None, by=None):
+def sdone(stage, locators=None, by=None, round=1):
     return seal(
-        {"type": "stage-done", "stage": stage, "locators": locators if locators is not None else LOCATORS[stage]},
+        {"type": "stage-done", "stage": stage, "round": round,
+         "locators": locators if locators is not None else LOCATORS[stage]},
         by or STAGE_ENTITY[stage],
     )
 
 
-def sfailed(stage, by=None, locators=None):
-    return seal({"type": "stage-failed", "stage": stage, "reason": "defects", "locators": locators or {}}, by or STAGE_ENTITY[stage])
+def sfailed(stage, by=None, locators=None, round=1):
+    return seal({"type": "stage-failed", "stage": stage, "round": round, "reason": "defects",
+                 "locators": locators or {}}, by or STAGE_ENTITY[stage])
