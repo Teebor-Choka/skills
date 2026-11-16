@@ -323,3 +323,100 @@ def _between(state, start, end):
 
     inside = {s for s in stages if (s == start or start in anc(s)) and (s == end or s in anc(end))}
     return _rank(state, inside)
+
+
+# ---------------------------------------------------------------- the ladder
+
+
+def _item(state, item_id):
+    for item in state.get("items", []):
+        if item["id"] == item_id:
+            return item
+    raise Rejected(f"unknown item '{item_id}'")
+
+
+def _entity(state, name):
+    if not isinstance(name, str) or name not in state["proc"].get("entities", {}):
+        raise Rejected(f"unknown entity '{name}'")
+    return state["proc"]["entities"][name]
+
+
+@register("advice-requested")
+def _advice_requested(state, event, ctx):
+    """A specialist asks the entity above it. The asker keeps its own work."""
+    frm = event.get("from")
+    _entity(state, frm)
+    question = event.get("question")
+    if not isinstance(question, str) or not question.strip():
+        raise Rejected("advice needs a question")
+    return [_escalate_up(state, frm, question)]
+
+
+@register("advice-given")
+def _advice_given(state, event, ctx):
+    item = _item(state, event.get("item"))
+    by, answer = event.get("by"), event.get("answer")
+    if item["status"] != "open" or item["at"] != by:
+        raise Rejected(f"item '{item['id']}' is with '{item['at']}', not '{by}'")
+    if not isinstance(answer, str):
+        raise Rejected("an answer is 'sure' or 'unsure: <why>'")
+    if answer.split(":")[0].strip() == "sure":
+        item["status"] = "advice-ruled"
+        return [{"do": "advice-resolved", "item": item["id"], "by": by, "answer": answer}]
+    kind, _, why = answer.partition(":")
+    if kind.strip() != "unsure" or not why.strip():
+        raise Rejected("an answer is 'sure' or 'unsure: <why>'")
+    return [_forward(item, _entity(state, by)["escalates-to"], by, why.strip())]
+
+
+def _forward(item, to, frm, analysis):
+    """The same item climbs one rung. The analysis so far travels with it."""
+    item["at"] = to
+    item.setdefault("analysis", []).append(analysis)
+    shared = {"item": item["id"], "asks": item["asks"], "from": frm, "analysis": list(item["analysis"])}
+    if to == "owner":
+        return {"do": "notify-owner", "default-if-silent": "wait", **shared}
+    return {"do": "escalate", "to": to, **shared}
+
+
+@register("owner-decided")
+def _owner_decided(state, event, ctx):
+    """Only a verified owner decision applies. With no verifier, none does."""
+    item = _item(state, event.get("item"))
+    if ctx.verify_owner is None or not ctx.verify_owner(event):
+        raise Rejected("owner decision has no valid signature")
+    if item["status"] != "open" or item["at"] != "owner":
+        raise Rejected(f"item '{item['id']}' is not waiting on the owner")
+    item["status"] = "owner-ruled"
+    item["decision"] = event.get("decision")
+    actions = [{"do": "owner-ruled", "item": item["id"], "decision": item["decision"]}]
+    if state["status"] == "blocked" and item["blocks"]:
+        state["status"] = "running"
+        for sid in item["blocks"]:
+            _reset(state, [sid])
+        actions += _advance(state)
+    return actions
+
+
+# ---------------------------------------------------------------- spawning
+
+
+@register("spawn-requested")
+def _spawn_requested(state, event, ctx):
+    """Authority runs down the ladder: an entity spawns only the roles its `may-spawn` lists."""
+    by, role, why = event.get("by"), event.get("role"), event.get("why")
+    allowed = _entity(state, by).get("may-spawn") or []
+    if role not in state["proc"].get("entities", {}):
+        raise Rejected(f"unknown role '{role}'")
+    if role not in allowed:
+        raise Rejected(f"'{by}' may not spawn '{role}': not in may-spawn")
+    if not isinstance(why, str) or not why.strip():
+        raise Rejected("a spawn must say why")
+    spawned = state.setdefault("spawned", [])
+    depth = 1 + (spawned[event["parent"] - 1]["depth"] if isinstance(event.get("parent"), int) and 0 < event["parent"] <= len(spawned) else 0)
+    for key, value in (("max-agents", len(spawned) + 1), ("max-depth", depth)):
+        cap = state["policy"].get(key)
+        if isinstance(cap, int) and value > cap:
+            return [_raise_to(state, "owner", f"spawn of '{role}' by '{by}' exceeds {key} {cap}: raise the cap?", by)]
+    spawned.append({"id": len(spawned) + 1, "role": role, "by": by, "why": why.strip(), "depth": depth})
+    return [{"do": "spawn", "id": len(spawned), "role": role, "by": by, "why": why.strip(), "depth": depth}]
