@@ -82,7 +82,7 @@ def test_the_project_manager_saying_sure_rolls_back_to_the_snapshot_before_the_c
     state, acts = regressed_run()
     item = next(a["item"] for a in acts if a["do"] == "escalate")
     state, acts = run_with({"type": "advice-given", "item": item, "by": "pm", "answer": "sure: roll back"}, state=state)
-    assert state["version"] == 2 and state["pending"]["kind"] == "rollback"
+    assert state["version"] == 2 and state["pending"][0]["kind"] == "rollback"
     state, acts = run_with(done("lint", {"lint-report": "l://1"}), done("review"), state=state)
     assert state["version"] == 3 and "lint" not in state["proc"]["stages"]
     assert state["proc"] == state["snapshots"][0]["proc"]

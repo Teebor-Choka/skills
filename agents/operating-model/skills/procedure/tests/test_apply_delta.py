@@ -52,3 +52,18 @@ def test_a_non_strict_delta_needs_no_change_hypothesis():
 def test_an_empty_delta_is_a_no_op_with_no_hypothesis_needed():
     merged, errs, protected = apply_delta(BASE, "---\nstages:\n---\n")
     assert errs == [] and merged == BASE and protected is False
+
+
+NO_LOOPS = MET.replace(MET[MET.index("loops:"):MET.index("stages:")], "")
+
+
+def test_a_delta_that_adds_an_empty_map_still_needs_a_change_hypothesis():
+    base, _ = parse_procedure(NO_LOOPS, "<base>")
+    merged, errs, _ = apply_delta(base, "---\nloops:\n---\n")
+    assert merged is None and has(errs, "change")
+
+
+def test_a_delta_that_changes_nothing_needs_no_hypothesis():
+    base, _ = parse_procedure(MET, "<base>")
+    merged, errs, _ = apply_delta(base, "---\nstages:\n  align:\n    entity: pm\n---\n")
+    assert errs == [] and merged == base
