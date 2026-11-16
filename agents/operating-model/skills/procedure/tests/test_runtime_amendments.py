@@ -2,7 +2,7 @@ import json
 
 import pytest
 from procedure_testkit import step
-from metrics_fixtures import LINT, MET, approve, change, delta, item_of, propose, run_with, verify
+from metrics_fixtures import LINT, MET, amended, approve, change, delta, item_of, propose, run_with, verify
 from runtime_fixtures import dos, done, fresh, of, started
 
 PROTECTED = delta("kpis:\n  flow:\n    owner: lead\n")
@@ -66,11 +66,9 @@ def test_only_an_entity_may_propose_and_only_on_a_live_run():
 
 
 def test_an_owner_approval_applies_the_change_as_the_next_snapshot():
-    state, acts = run_with(propose())
-    item = item_of(acts[0])
-    state, acts = run_with(approve(item), state=state)
+    state, acts = amended()
     assert state["version"] == 2 and "lint" in state["proc"]["stages"]
-    assert {"do": "snapshot-applied", "version": 2} in acts[0] or any(a["do"] == "snapshot-applied" and a["version"] == 2 for a in acts[0])
+    assert [a["version"] for a in acts if a["do"] == "snapshot-applied"] == [2]
     assert state["snapshots"][1]["change"]["reason"] == "tighten review"
 
 
@@ -78,15 +76,17 @@ def test_snapshot_history_is_append_only():
     state, acts = run_with(propose())
     before = json.dumps(state["snapshots"][0], sort_keys=True)
     state, _ = run_with(approve(item_of(acts[0])), state=state)
+    state, _ = run_with(done("align"), state=state)
     assert json.dumps(state["snapshots"][0], sort_keys=True) == before and len(state["snapshots"]) == 2
 
 
 def test_stages_already_done_keep_their_status_and_a_new_stage_becomes_ready():
     state, acts = run_with(propose())
-    state, _ = run_with(done("align"), done("spec"), done("build"), state=state)
-    state, acts = run_with(approve(item_of(acts[0])), state=state)
+    state, _ = run_with(done("align"), done("spec"), state=state)
+    state, _ = run_with(approve(item_of(acts[0])), state=state)
+    state, acts = run_with(done("build"), state=state)
     assert state["stages"]["build"]["status"] == "done"
-    assert any(a["do"] == "start-stage" and a["stage"] == "lint" for a in acts[0])
+    assert {a["stage"] for a in of(acts[0], "start-stage")} == {"review", "lint"}
 
 
 def test_an_approval_waits_for_a_stage_boundary_when_a_stage_is_running():
@@ -117,12 +117,12 @@ def test_any_other_decision_closes_the_proposal_without_applying_it():
 def test_an_owner_approval_applies_a_protected_change():
     state, acts = run_with(propose(PROTECTED))
     state, _ = run_with(approve(item_of(acts[0])), state=state)
+    state, _ = run_with(done("align"), state=state)
     assert state["proc"]["kpis"]["flow"]["owner"] == "lead"
 
 
 def test_a_proposal_is_checked_against_the_current_snapshot_not_the_first():
-    state, acts = run_with(propose())
-    state, _ = run_with(approve(item_of(acts[0])), state=state)
+    state, acts = amended()
     again = delta("stages:\n  lint:\n    disabled: true\n")
     state, acts = run_with(propose(again), state=state)
     assert dos(acts[0]) == ["notify-owner"]

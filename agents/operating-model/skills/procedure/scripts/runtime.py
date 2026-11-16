@@ -15,16 +15,43 @@ import fnmatch
 import posixpath
 import re
 
-from validate_procedure import parse_procedure, validate_text
+from validate_procedure import apply_delta, parse_frontmatter, parse_procedure, validate_text
 
-__all__ = ("new_state", "step", "replay", "register", "HANDLERS", "Rejected")
+__all__ = ("new_state", "step", "replay", "register", "collector", "observed_rates", "COLLECTORS", "HANDLERS", "Rejected")
 
 HANDLERS = {}
 CAPS = ("max-agents", "max-depth")
+COLLECTORS = {}  # metric name -> fn(counters) -> number. Only code here may observe: agents cannot write one.
+COUNTERS = ("stages-done", "rework", "escalations", "refusals", "rounds")
+WINDOW = re.compile(r"^([1-9][0-9]{0,5}) stages$")
 SETTLED = ("done", "skipped")  # a skipped stage satisfies `needs`: it chose not to run
 LIVE = ("running", "blocked")  # advice and spawning work while a run waits on an answer
 # Bounds on an event, checked before any copy: a hostile payload must not cost a crash.
 MAX_DEPTH, MAX_NODES, MAX_TEXT = 16, 5000, 4096
+
+
+def collector(name):
+    """Register a metric the runtime can observe: `fn(counters) -> number`. Trusted code only."""
+
+    def wrap(fn):
+        COLLECTORS[name] = fn
+        return fn
+
+    return wrap
+
+
+for _name in ("rework", "escalations", "refusals", "rounds"):
+    COLLECTORS[_name] = lambda c, n=_name: c.get(n, 0) / max(1, c.get("stages-done", 0))
+
+
+def _fresh_counters():
+    return {name: 0 for name in COUNTERS}
+
+
+def observed_rates(state, version=None):
+    """Each observable metric's rate under a snapshot version: its count per finished stage."""
+    counters = state["metrics"][str(version or state["version"])]
+    return {name: fn(counters) for name, fn in sorted(COLLECTORS.items())}
 
 
 class Rejected(Exception):
@@ -65,6 +92,9 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run"):
         "proc": proc,
         "policy": policy,
         "stages": {sid: {"status": "pending", "locators": {}} for sid in proc["stages"]},
+        "snapshots": [{"version": 1, "proc": copy.deepcopy(proc), "change": None, "baseline": {}, "outcome": "initial"}],
+        "pending": None,
+        "metrics": {"1": _fresh_counters()},
         "log": [],
         "rejected": [],
     }
@@ -199,7 +229,7 @@ def _start(state, sid):
 
 def _advance(state):
     """Start every ready stage, skipping those whose `when` fails, until nothing new is ready."""
-    actions = []
+    actions = _apply_pending(state)
     while True:
         skipped = False
         for sid in _ready(state):
@@ -297,14 +327,16 @@ def _escalate_up(state, entity, asks, blocks=()):
     return _raise_to(state, to, asks, entity, blocks)
 
 
-def _raise_to(state, to, asks, frm, blocks=(), loop=None):
+def _raise_to(state, to, asks, frm, blocks=(), loop=None, **extra):
+    """Open an item for `to`. `extra` keys go on the item. `change` and `protected` are shown too."""
     item = f"esc-{len(state.setdefault('items', [])) + 1}"
     state["items"].append(
-        {"id": item, "from": frm, "at": to, "asks": asks, "status": "open", "blocks": list(blocks), "loop": loop}
+        {"id": item, "from": frm, "at": to, "asks": asks, "status": "open", "blocks": list(blocks), "loop": loop, **extra}
     )
+    shown = {k: extra[k] for k in ("change", "protected", "kind") if k in extra}
     if to == "owner":
-        return {"do": "notify-owner", "item": item, "asks": asks, "from": frm, "default-if-silent": "wait"}
-    return {"do": "escalate", "item": item, "to": to, "asks": asks, "from": frm}
+        return {"do": "notify-owner", "item": item, "asks": asks, "from": frm, "default-if-silent": "wait", **shown}
+    return {"do": "escalate", "item": item, "to": to, "asks": asks, "from": frm, **shown}
 
 
 def _resume(state, item):
@@ -525,6 +557,12 @@ def _owner_decided(state, event, ctx):
     item["status"] = "owner-ruled"
     item["decision"] = event.get("decision")
     actions = [{"do": "owner-ruled", "item": item["id"], "decision": item["decision"]}]
+    if item.get("kind") == "amendment":
+        if item["decision"] != "approve":
+            return actions
+        state["pending"] = {"kind": "amendment", "item": item["id"], "delta": item["delta"]}
+        actions += _apply_pending(state)
+        return actions + (_advance(state) if state["status"] == "running" else [])
     if item["decision"] == "abort":
         state["status"] = "halted"
         return actions + [{"do": "run-halted", "item": item["id"]}]
@@ -560,3 +598,56 @@ def _spawn_requested(state, event, ctx):
             return [_raise_to(state, "owner", f"spawn of '{role}' by '{by}' exceeds {key} {cap}: raise the cap?", by)]
     spawned.append({"id": len(spawned) + 1, "role": role, "by": by, "why": why.strip(), "depth": depth})
     return [{"do": "spawn", "id": len(spawned), "role": role, "by": by, "why": why.strip(), "depth": depth}]
+
+
+# ---------------------------------------------------------------- amendments and snapshots
+
+
+def _apply_pending(state):
+    """Apply an approved change, at a stage boundary: never while a stage is running."""
+    pending = state.get("pending")
+    if not pending or any(st["status"] == "running" for st in state["stages"].values()):
+        return []
+    state["pending"] = None
+    merged, errs, _ = apply_delta(state["proc"], pending["delta"], "<amendment>", True, ratified=True)
+    if errs:  # the procedure moved on since the proposal: it no longer applies
+        return [{"do": "amendment-failed", "item": pending["item"], "errors": errs}]
+    change = parse_frontmatter(pending["delta"], "<amendment>")[0].get("change")
+    return _install(state, merged, change)
+
+
+def _install(state, proc, change):
+    """Make `proc` the next snapshot. Stages already run keep their status."""
+    baseline = observed_rates(state)
+    version = state["version"] + 1
+    state["snapshots"].append(
+        {"version": version, "proc": copy.deepcopy(proc), "change": copy.deepcopy(change), "baseline": baseline, "outcome": "pending"}
+    )
+    state["stages"] = {sid: state["stages"].get(sid, {"status": "pending", "locators": {}}) for sid in proc["stages"]}
+    state["proc"], state["version"] = copy.deepcopy(proc), version
+    state["metrics"][str(version)] = _fresh_counters()
+    return [{"do": "snapshot-applied", "version": version, "change": change}]
+
+
+@register("amendment-proposed")
+def _amendment_proposed(state, event, ctx):
+    """An entity drafts a change to the procedure. It never applies on its own: the owner decides."""
+    _require_live(state)
+    by = event.get("by")
+    _entity(state, by)
+    delta = event.get("delta")
+    if not isinstance(delta, str) or not delta.strip():
+        raise Rejected("an amendment needs a delta")
+    merged, errs, protected = apply_delta(state["proc"], delta, "<amendment>", True, ratified=True)
+    if errs:
+        raise Rejected("amendment is invalid: " + "; ".join(errs))
+    if merged == state["proc"]:
+        raise Rejected("amendment changes nothing")
+    change = parse_frontmatter(delta, "<amendment>")[0].get("change") or {}
+    for metric in change.get("metrics", []):
+        if metric not in COLLECTORS:
+            raise Rejected(f"metric '{metric}' has no collector, so the change cannot be judged")
+    if not WINDOW.match(str(change.get("window", ""))):
+        raise Rejected(f"window '{change.get('window')}' must be a count of stages, such as '5 stages'")
+    asks = f"approve change: {change.get('reason')}"
+    return [_raise_to(state, "owner", asks, by, kind="amendment", delta=delta, change=change, protected=protected)]

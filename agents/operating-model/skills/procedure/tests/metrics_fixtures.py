@@ -57,8 +57,10 @@ def item_of(acts):
 
 
 def amended(**kw):
-    """A run at stage boundary with amendment v2 (adds `lint`) applied."""
+    """A run with amendment v2 (adds `lint`) applied at the first stage boundary.
+
+    Returns (state, actions of the stage-done that applied it)."""
     state, acts = run_with(propose(**kw))
-    item = item_of(acts[0])
-    state, acts = run_with(approve(item), state=state)
+    state, _ = run_with(approve(item_of(acts[0])), state=state)
+    state, acts = run_with(done("align"), state=state)
     return state, acts[0]

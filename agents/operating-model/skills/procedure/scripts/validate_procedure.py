@@ -503,21 +503,9 @@ def validate_layers(base_text, delta_text, src="<delta>", strict=True, ratified=
     `ratified` is true. Only a caller holding the owner's approval may pass it: the CLI has no
     such flag. Ratification never excuses a structural error or a missing change hypothesis."""
     base, errs = _checked_base(base_text, strict)
-    delta, errs2 = _load(delta_text, src, required=False)
-    if errs or errs2:
-        return errs + errs2
-    merged, errs, protected = _merge(base, delta)
     if errs:
-        return errs
-    if protected and not ratified:
-        return protected
-    errs = _validate(merged, strict)
-    if not errs and not ratified:
-        errs = _floor_errors(base["stages"], merged["stages"])
-    empty = not delta["stages"] and not any(delta.get(name) for name in ID_MAPS)
-    if errs or not strict or empty:
-        return errs
-    return _change_errors(delta.get("change"), merged)
+        return errs + _load(delta_text, src, required=False)[1]
+    return apply_delta(base, delta_text, src, strict, ratified)[1]
 
 
 
@@ -527,7 +515,21 @@ def apply_delta(base, delta_text, src="<delta>", strict=True, ratified=False):
 
     `protected` is true when the delta changes the protected set and so needs the owner. Errors
     exclude protected errors only when `ratified`. `base` is not changed."""
-    return None, [], False
+    delta, errs = _load(delta_text, src, required=False)
+    if errs:
+        return None, errs, False
+    merged, errs, protected = _merge(base, delta)
+    if errs:
+        return None, errs, bool(protected)
+    if protected and not ratified:
+        return None, protected, True
+    errs = _validate(merged, strict)
+    if not errs and not ratified:
+        errs = _floor_errors(base["stages"], merged["stages"])
+    empty = not delta["stages"] and not any(delta.get(name) for name in ID_MAPS)
+    if not errs and strict and not empty:
+        errs = _change_errors(delta.get("change"), merged)
+    return (None if errs else merged), errs, bool(protected)
 
 
 def main(argv=None):
