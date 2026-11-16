@@ -334,6 +334,22 @@ def _change_errors(change, merged):
     return errs
 
 
+def _floor_when_errors(proc):
+    """A floor stage must always run: neither it nor anything upstream may be conditional."""
+    stages, errs = proc["stages"], []
+    for sid, st in stages.items():
+        if st.get("floor") is not True:
+            continue
+        if "when" in st:
+            errs.append(f"stage '{sid}' is floor: it cannot carry 'when'")
+        errs += [
+            f"stage '{sid}' is floor: upstream stage '{a}' carries 'when'"
+            for a in sorted(_ancestors(stages, sid))
+            if "when" in stages[a]
+        ]
+    return errs
+
+
 # The checks in the order they must run: each assumes the ones before it passed, since ancestors
 # need resolved `needs`. Every rule takes the whole procedure. A new rule is one entry here.
 # `strict_only` rules are the ones every real procedure meets and a structure test may skip.
@@ -343,6 +359,7 @@ RULES = (
     (lambda p: _graph_errors(p["stages"]), False),
     (lambda p: _retry_errors(p["stages"]), False),
     (lambda p: _kind_errors(p["stages"]), False),
+    (_floor_when_errors, False),
     (_entity_errors, False),
     (_loop_errors, False),
     (_metric_errors, True),

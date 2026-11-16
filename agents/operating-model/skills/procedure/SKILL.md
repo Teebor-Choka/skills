@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.3.0"
+  version: "1.3.1"
 ---
 
 # procedure: a named graph of stages
@@ -59,8 +59,9 @@ ignored by the validator.
 6. A delta cannot disable a `floor` stage, change its `floor` flag, or add `when` to it.
 7. A delta cannot change a floor stage's `needs`, `consumes`, `produces` or `skill`, or remove one
    of its `review` angles. It can add angles.
-8. Every stage that ran after a floor stage in the baseline still runs after it, and no stage
-   upstream of a floor stage carries `when`.
+8. Every stage that ran after a floor stage in the baseline still runs after it. A floor stage and
+   every stage upstream of it always run: none carries `when`. This holds for a standalone
+   procedure as well as for an overlay.
 9. `disabled` and `floor` are `true` or `false`. A value such as `yes` is an error.
 10. A delta cannot disable an unknown stage id.
 11. `entities` form a ladder: every `escalates-to` names an entity or the reserved `owner`, and every
@@ -237,15 +238,20 @@ the same state. The state is plain data and survives JSON.
 
 Events and what the reducer enforces:
 
-| Event              | Effect and gate                                                                                                                                                                                                |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `run-started`      | Starts the entry stages. `changed` lists the paths the run touches.                                                                                                                                            |
-| `stage-done`       | Needs a non-empty text locator for every kind the stage produces, and no other kind. The next stage gets only the kinds it consumes.                                                                           |
-| `stage-failed`     | In a loop: another round with the carried kind, until `bound`, then escalate to `on-exhausted` and block. With `on-fail`: retry to a bound, from the named stage. Otherwise escalate up the entity ladder.     |
-| `advice-requested` | Goes to the entity above the asker, which keeps its stage.                                                                                                                                                     |
-| `advice-given`     | `sure` closes it. `unsure: <why>` moves the same item up one rung with the analysis. Only the holder answers. The owner is not an entity and cannot answer here.                                               |
-| `owner-decided`    | Applies only when the caller passes `verify_owner` and it returns exactly `True`. With none, or on any other result, it is refused and logged.                                                                 |
-| `spawn-requested`  | Allowed only for roles in the spawner's `may-spawn`, with a reason. `parent` must be an agent id the runtime issued. `max-agents` and `max-depth` in policy refuse a spawn and ask the owner to raise the cap. |
+| Event              | Effect and gate                                                                                                                                                                                                                                                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run-started`      | Starts the entry stages. `changed` lists the paths the run touches; they are normalised and a path that leaves the project is refused.                                                                                                                                                                                              |
+| `stage-done`       | Needs a non-empty text locator for every kind the stage produces, and no other kind. The next stage gets only the kinds it consumes.                                                                                                                                                                                                |
+| `stage-failed`     | In a loop: another round with only what this round found, until `bound`, then escalate to `on-exhausted` and block. With `on-fail`: retry to a bound, from the named stage. Otherwise escalate up the entity ladder. A redo also redoes every stage downstream, and cancels any still running on the old input (`stage-cancelled`). |
+| `advice-requested` | Goes to the entity above the asker, which keeps its stage.                                                                                                                                                                                                                                                                          |
+| `advice-given`     | `sure` closes it. `unsure: <why>` moves the same item up one rung with the analysis. Only the holder answers. The owner is not an entity and cannot answer here. A `sure` on an item that blocks the run resumes it.                                                                                                                |
+| `owner-decided`    | Applies only when the caller passes `verify_owner` and it returns exactly `True`. The verifier receives the event plus `run_id`, so it can refuse a decision signed for another run. A decision resumes a blocked run, or ends it when the decision is `abort`.                                                                     |
+| `spawn-requested`  | Allowed only for roles in the spawner's `may-spawn`, with a reason. `parent` must be an agent id the runtime issued. Depth counts the deepest agent of the spawner's own role, so leaving out `parent` does not reset it. `max-agents` and `max-depth` refuse a spawn and ask the owner to raise the cap.                           |
+
+A resumed loop gets a fresh bound. Advice and spawning work while a run is blocked, and are refused
+before it starts and after it ends. An event over 5000 values, deeper than 16 levels, with a
+non-text key or a number beyond 64 bits is refused before it is copied, so no event can make `step`
+raise. The state never holds an object the caller still holds, and the actions are copies.
 
 A stage whose `when` fails is skipped, reported with `stage-skipped`, and counts as settled for the
 stages that need it. `when` and a loop's `exit` use the closed predicates: `paths` against the
@@ -253,12 +259,19 @@ change list, `policy`, `kind`. A caller adds an event type with `register`, with
 
 What this does not do:
 
-- It does not authenticate the agents. The entity named in an event is a claim. Only owner decisions
+- It does not authenticate the agents. The entity named in an event is a claim, so an agent can
+  answer as the entity that holds an item, and can name itself as any spawner. Only owner decisions
   are verified, through the caller's `verify_owner`. The key behind it must never be readable by an
   agent process.
+- It trusts `run-started`. An agent that sends it chooses the change list, and so which `paths`
+  stages run. Only the executor should send it.
+- Replay needs the same `verify_owner`: a decision accepted once is refused by a verifier that
+  cannot check it. `rejected` is not rebuilt from the log.
+- `register` is a global registry. Code that can call it can replace the owner gate, so only
+  trusted code may.
+- Paths match case-sensitively. A case-insensitive filesystem needs its changes lowercased first.
 - It does not build the executor, record metrics, apply an amendment, or roll back. Those are the
   next layers.
-- The `blocked` state stops stage events. Advice and spawning still work while blocked.
 
 ## Layering
 
