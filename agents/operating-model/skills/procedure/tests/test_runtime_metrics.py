@@ -106,7 +106,10 @@ def test_trusted_code_can_register_a_collector_for_a_custom_metric():
         return c.get("rounds", 0) * 10
 
     try:
-        text = MET.replace("metrics: [rework]", "metrics: [rework, defects]", 1)
+        text = MET.replace(
+            "  align:\n    entity: pm\n    produces: [brief]\n    metrics: [rework]",
+            "  align:\n    entity: pm\n    produces: [brief]\n    metrics: [rework, defects]",
+        ).replace("    metrics: [rework]\nloops:", "    metrics: [rework, defects]\nloops:")
         state, acts = started(text)
         assert not of(acts, "metrics-unobserved") and "defects" in observed_rates(state)
     finally:

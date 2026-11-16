@@ -44,6 +44,11 @@ for _name in ("rework", "escalations", "refusals", "rounds"):
     COLLECTORS[_name] = lambda c, n=_name: c.get(n, 0) / max(1, c.get("stages-done", 0))
 
 
+def _count(state, name, n=1):
+    """Only the runtime counts: an event can carry no number into a metric."""
+    state["metrics"][str(state["version"])][name] += n
+
+
 def _fresh_counters():
     return {name: 0 for name in COUNTERS}
 
@@ -137,6 +142,7 @@ def _error(reason, event=None):
 
 def _reject(state, event, reason):
     out = copy.deepcopy(state)
+    _count(out, "refusals")
     if isinstance(event, dict) and _sane(event):
         shown = copy.deepcopy(event)
     elif isinstance(event, dict):
@@ -311,6 +317,7 @@ def _invalidate(state, sids, keep=None):
 
     A stage still running on the old input is cancelled, so its late result is refused."""
     span = _rank(state, set(sids) | _descendants(state, set(sids)))
+    _count(state, "rework", sum(1 for sid in span if state["stages"][sid]["status"] in ("done", "running", "failed")))
     actions = [
         {"do": "stage-cancelled", "stage": sid, "why": "its input is being redone"}
         for sid in span
@@ -330,6 +337,7 @@ def _escalate_up(state, entity, asks, blocks=()):
 def _raise_to(state, to, asks, frm, blocks=(), loop=None, **extra):
     """Open an item for `to`. `extra` keys go on the item. `change` and `protected` are shown too."""
     item = f"esc-{len(state.setdefault('items', [])) + 1}"
+    _count(state, "escalations")
     state["items"].append(
         {"id": item, "from": frm, "at": to, "asks": asks, "status": "open", "blocks": list(blocks), "loop": loop, **extra}
     )
@@ -373,7 +381,10 @@ def _run_started(state, event, ctx):
         raise Rejected("'changed' must be a list of paths")
     state["changed"] = [_norm_path(p) for p in changed]
     state["status"] = "running"
-    return _advance(state)
+    declared = {m for st in state["proc"]["stages"].values() for m in st.get("metrics") or []}
+    missing = sorted(declared - set(COLLECTORS))
+    notice = [{"do": "metrics-unobserved", "metrics": missing}] if missing else []
+    return notice + _advance(state)
 
 
 def _require_running(state):
@@ -414,6 +425,7 @@ def _stage_done(state, event, ctx):
     locators = _locators(sid, spec, event, whole=True)
     st["status"] = "done"
     st["locators"] = {k: locators[k] for k in spec.get("produces") or []}
+    _count(state, "stages-done")
     name, lp = _loop_of(state, sid)
     if name and sid == _rank(state, lp["stages"])[-1]:
         if not _holds(state, lp.get("exit")):
@@ -427,6 +439,7 @@ def _next_round(state, name, lp, why, failed=None):
     """Run the loop again, or escalate when its bound is spent."""
     rounds = state.setdefault("rounds", {})
     rounds[name] = rounds.get(name, 1) + 1
+    _count(state, "rounds")
     members = _rank(state, lp["stages"])
     if rounds[name] > _bound(lp["bound"]):
         state["status"] = "blocked"
