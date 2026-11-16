@@ -89,7 +89,7 @@ def test_the_cli_has_no_flag_that_ratifies(tmp_path):
 
 
 def test_a_change_must_give_a_reason_the_owner_can_judge():
-    body = "stages:\n  release:\n    metrics: [m]\n"
+    body = "stages:\n  release:\n    entity: dev\n"
     no_reason = "---\nchange:\n  metrics: [m]\n  direction: down\n  window: 5 runs\n" + body + "---\n"
     assert has(layers(BASE, no_reason), "reason")
     empty = no_reason.replace("change:\n", "change:\n  reason:\n")

@@ -107,7 +107,7 @@ def test_an_unknown_event_type_is_an_error_and_is_logged_as_rejected():
     after, acts = step(state, {"type": "teleport"})
     assert dos(acts) == ["error"] and "teleport" in acts[0]["reason"]
     assert after["rejected"][-1]["event"]["type"] == "teleport"
-    assert len(after["log"]) == len(state["log"])
+    assert after["log"][-1]["type"] == "teleport"  # a refused event is logged, so a replay can reproduce it
 
 
 def test_step_never_mutates_the_state_it_is_given():

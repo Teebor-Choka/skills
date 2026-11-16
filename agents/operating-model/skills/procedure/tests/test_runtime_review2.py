@@ -137,7 +137,7 @@ def test_removing_the_stage_a_blocked_run_waits_on_does_not_wedge_the_run():
     state = v2(window="9 stages")
     state, _ = run_with(done("spec"), done("build"), done("review"), done("integrate", {"merged": "m://1"}), state=state)
     state, acts = run_with(failed("lint"), state=state)
-    item = rollback_item(acts)
+    item = rollback_item(acts[0])
     state, a = run_with(propose(delta(LINT_OFF, window="2 stages")), state=state)
     state, _ = run_with(approve(item_of(a[0])), state=state)
     assert "lint" not in state["stages"]
