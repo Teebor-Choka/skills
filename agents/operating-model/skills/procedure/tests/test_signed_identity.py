@@ -3,8 +3,8 @@ import json
 import pytest
 from procedure_testkit import HANDLERS, new_state, register, replay, step
 from runtime_fixtures import SWE, dos, fresh, of, snapshot, started
-from signed_fixtures import (VERIFIERS, go, owner_sign, sdone, seal, sfailed, sfresh, srun, verify_executor,
-                             verify_sender)
+from signed_fixtures import (VERIFIERS, decide, go, owner_sign, sdone, seal, sfailed, sfresh, srun,
+                             verify_executor, verify_sender)
 
 
 def refused(acts, word=None):
@@ -187,8 +187,7 @@ def test_an_agent_cannot_send_an_owner_decision_through_the_agent_path():
     item = acts[0][0]["item"]
     forged = seal({"type": "owner-decided", "item": item, "decision": "retry"}, "pm")
     assert refused(srun(state, forged)[1][0])
-    ok = {"type": "owner-decided", "item": item, "decision": "retry", "signature": owner_sign(item, "retry")}
-    assert dos(srun(state, ok)[1][0])[0] == "owner-ruled"
+    assert dos(srun(state, decide(state, item, "retry"))[1][0])[0] == "owner-ruled"
 
 
 # ---- the registry knows each event's source

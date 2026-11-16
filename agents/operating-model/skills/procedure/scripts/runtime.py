@@ -22,7 +22,7 @@ from validate_procedure import apply_delta, parse_frontmatter, parse_procedure, 
 
 __all__ = (
     "new_state", "step", "replay", "register", "collector", "observed_rates", "regressed",
-    "iteration_report", "COLLECTORS", "HANDLERS", "Rejected",
+    "iteration_report", "item_digest", "COLLECTORS", "HANDLERS", "Rejected",
 )
 
 HANDLERS = {}
@@ -826,6 +826,11 @@ def _amendment_proposed(state, event, ctx):
 
 
 # ---------------------------------------------------------------- judging a change
+
+
+def item_digest(state, item_id):
+    """What an owner is deciding on, for a signature to cover. Raises KeyError for an unknown item."""
+    return ""  # stub
 
 
 def _digest(item):
