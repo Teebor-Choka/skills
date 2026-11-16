@@ -55,7 +55,7 @@ def test_an_unsure_answer_climbs_one_rung_with_the_analysis_attached():
     item = acts[0][0]["item"]
     state, acts = run(state, given(item, "lead", "unsure: needs a design call"))
     assert [(a["do"], a["to"]) for a in acts[0]] == [("escalate", "pm")]
-    assert "needs a design call" in acts[0][0]["analysis"]
+    assert "needs a design call" in acts[0][0]["analysis"][-1]
 
 
 def test_unsure_at_the_top_reaches_the_owner_with_a_safe_default_and_nothing_blocks():
