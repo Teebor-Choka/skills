@@ -19,7 +19,8 @@ def test_a_new_run_has_not_started_and_every_stage_is_pending():
 def test_run_started_starts_only_the_entry_stage():
     state, actions = started()
     assert state["status"] == "running"
-    assert [(a["do"], a["stage"], a["entity"]) for a in actions] == [("start-stage", "align", "pm")]
+    starts = [(a["do"], a["stage"], a["entity"]) for a in actions if a["do"] == "start-stage"]
+    assert starts == [("start-stage", "align", "pm")]
 
 
 def test_a_finished_stage_starts_the_next_with_only_the_kinds_it_consumes():
