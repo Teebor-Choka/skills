@@ -237,7 +237,9 @@ PROCESS_DOC = (
 
 def add_process(repo: Path, text: str = PROCESS_DOC, procedure_file: str | None = "sw-development") -> Path:
     """Write docs/process.md and, unless procedure_file is None, a stub procedure
-    under .agents/procedures/ so the procedure-exists rule has something to find."""
+    under .agents/procedures/ so the procedure-exists rule has something to find.
+    Starts from a clean slate: the fixture's own .agents/ is removed first."""
+    shutil.rmtree(repo / ".agents", ignore_errors=True)
     doc = repo / "docs" / "process.md"
     doc.write_text(text)
     if procedure_file is not None:
@@ -255,10 +257,9 @@ def test_conformant_fixture_carries_a_process_doc(conformant_src):
 
 def test_process_doc_is_optional(make_repo):
     repo = make_repo()
-    (repo / "docs" / "process.md").unlink(missing_ok=True)
-    # Absent doc is fine even when .agents/procedures/ exists.
-    (repo / ".agents" / "procedures").mkdir(parents=True, exist_ok=True)
-    (repo / ".agents" / "procedures" / "sw-development.md").write_text("# stub\n")
+    # Absent doc is fine even when .agents/procedures/ exists (the fixture has it).
+    (repo / "docs" / "process.md").unlink()
+    assert (repo / ".agents" / "procedures").is_dir()
     assert validate_docs.validate_project(repo) == []
 
 
@@ -314,7 +315,7 @@ def test_process_doc_single_edit_raises_one_rule(make_repo, old, new, rule):
 def test_process_doc_malformed_frontmatter(make_repo):
     repo = make_repo()
     # Opening fence never closed: treated as missing frontmatter.
-    add_process(repo, "---\ntitle: widgetd process\nkind: process\n\n# body\n")
+    add_process(repo, "---\ntitle: widgetd process\nkind: process\n\n# body\n\n```mermaid\nflowchart LR\n    a --> b\n```\n")
     findings = validate_docs.validate_project(repo)
     assert [f.rule for f in findings] == ["frontmatter-missing"]
     assert findings[0].file == "docs/process.md"

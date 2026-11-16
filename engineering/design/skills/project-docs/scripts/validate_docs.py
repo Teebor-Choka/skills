@@ -71,6 +71,7 @@ FM_KEYS: tuple[object, ...] = ("title", "kind", NAME_KEYS, "updated")
 SINGLETON_DOCS = (
     DocSpec("overview.md", "overview", True),
     DocSpec("spec.md", "spec", True),
+    DocSpec("process.md", "process", True),
     DocSpec("decisions/README.md", "decisions-index", False),
 )
 # ADRs have no `kind`; they carry `status` and never require a diagram.
@@ -255,6 +256,11 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
     if index.is_file():
         findings.extend(_check_index(project, project_path, texts[index], decisions, adr_files))
 
+    # --- optional process.md: procedure name and its file ------------------
+    process = docs / "process.md"
+    if process in texts:
+        findings.extend(_check_process(project, project_path, texts[process]))
+
     # --- AGENTS.md pointer -------------------------------------------------
     findings.extend(_check_agents(project, project_path))
 
@@ -355,6 +361,28 @@ def _index_links_in_dir(text: str) -> set[str]:
             continue
         out.add(t)
     return out
+
+
+def _check_process(project: str, project_path: Path, text: str) -> list[Finding]:
+    """docs/process.md names the procedure the project runs. The name must be
+    kebab-case; when .agents/procedures/ exists, <name>.md must be a file there.
+    Only the file's existence is checked, never its content (that is the
+    agents-dir validator's job)."""
+    rel = "docs/process.md"
+    fm, _ = split_frontmatter(text)
+    if fm is None:
+        return []  # frontmatter-missing is already reported
+    procedure = fm.get("procedure")
+    if not _nonempty_str(procedure) or not KEBAB_RE.match(procedure.strip()):  # type: ignore[union-attr]
+        return [Finding(project, rel, "process-procedure",
+                        f"procedure {procedure!r} must be a non-empty kebab-case name "
+                        r"(^[a-z0-9]+(-[a-z0-9]+)*$)")]
+    name = procedure.strip()  # type: ignore[union-attr]
+    procedures = project_path / ".agents" / "procedures"
+    if procedures.is_dir() and not (procedures / f"{name}.md").is_file():
+        return [Finding(project, rel, "process-procedure-missing",
+                        f"procedure {name!r} has no file .agents/procedures/{name}.md")]
+    return []
 
 
 def _check_agents(project: str, project_path: Path) -> list[Finding]:
