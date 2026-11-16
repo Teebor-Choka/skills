@@ -187,6 +187,21 @@ def _runs_ignored(repo, errs):
         errs.append(f"{AGENTS}/runs/ must be git-ignored: it holds run output, never a source")
 
 
+def _covered(repo, added):
+    """The process documents that the iteration records added in this change say they touch."""
+    covered = set()
+    for rel in added:
+        try:
+            with open(os.path.join(repo, rel), encoding="utf-8") as f:
+                fm, ferrs = parse_frontmatter(f.read(), rel)
+        except (OSError, UnicodeDecodeError):
+            continue
+        touches = fm.get("touches") if not ferrs else None
+        if isinstance(touches, list):
+            covered.update(f"{AGENTS}/{t}" for t in touches if isinstance(t, str))
+    return covered
+
+
 def _changed_since(repo, base, errs):
     """The change rule: a process document changes only together with an iteration record."""
     if _git(repo, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}") is None:
@@ -210,6 +225,10 @@ def _changed_since(repo, base, errs):
             added.append(old)
     if process and not added:
         errs.append(f"{', '.join(sorted(process))} changed with no new iteration record in {AGENTS}/iterations/")
+    elif process:
+        covered = _covered(repo, added)
+        for path in sorted(process - covered):
+            errs.append(f"{path} changed but is not covered by the 'touches' of any new iteration record")
 
 
 def check_agents_dir(repo, base=None):
