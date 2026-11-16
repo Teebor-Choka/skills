@@ -93,9 +93,9 @@ def test_an_approval_waits_for_a_stage_boundary_when_a_stage_is_running():
     state, acts = run_with(propose())
     item = item_of(acts[0])
     state, acts = run_with(approve(item), state=state)
-    assert state["version"] == 1 and state["pending"]["kind"] == "amendment"
+    assert state["version"] == 1 and state["pending"][0]["kind"] == "amendment"
     state, acts = run_with(done("align"), state=state)
-    assert state["version"] == 2 and state["pending"] is None
+    assert state["version"] == 2 and state["pending"] == []
 
 
 def test_an_approval_with_no_valid_signature_applies_nothing():
