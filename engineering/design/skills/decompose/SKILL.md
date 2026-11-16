@@ -12,7 +12,7 @@ description: >-
 license: MIT
 compatibility: any
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # decompose: cut the work, check the cut, file the units
@@ -20,6 +20,15 @@ metadata:
 A cut is good when each unit has one write-set, one deliverable and a check that can fail. Splitting
 is not free: isolated contexts need a serial integration pass, and for a solo operator the token
 and integration cost often beats the wall-clock gain. Cut only where the seam is real.
+
+## Scope
+
+- **Takes in:** the architect's spec blocks and dependency graph (or any goal with real seams).
+- **Files:** non-overlapping units of work as board items. Each item is the per-unit brief for a
+  worker. It is not a separate artifact. It carries the unit's objective, interface, positive AND
+  adversarial acceptance tests, write-set, dependencies and tier, taken from the spec blocks.
+- **Never does:** design the system (use `architect`), write a second brief beside the item, or run
+  the units (use `orchestrate:assign` or `orchestrate:pull`).
 
 ## Steps
 
@@ -32,6 +41,8 @@ and integration cost often beats the wall-clock gain. Cut only where the seam is
    | Field       | Content                                                                                           |
    | ----------- | ------------------------------------------------------------------------------------------------- |
    | id          | Stable, unique.                                                                                   |
+   | objective   | What the unit achieves, in a short paragraph. Taken from the spec block.                          |
+   | interface   | The contract the unit exposes or consumes: inputs, outputs, config surface.                       |
    | deliverable | One thing, nameable in a sentence.                                                                |
    | deps        | Ids it consumes. Only true dependencies.                                                          |
    | write_set   | Every file or resource it mutates. Parallel safety is decided on this.                            |
@@ -50,7 +61,7 @@ and integration cost often beats the wall-clock gain. Cut only where the seam is
 
 5. **File the units.** Use the board verbs (`references/board.md` of the `orchestrate` plugin; the tracker is the
    charter's `board`, else the policy key `work.tracker`). File in dependency order so a blocker's
-   id exists before the item that cites it. Each item carries its acceptance tests, a
+   id exists before the item that cites it. Each item is the unit's brief: it carries the objective, interface, acceptance tests, write-set, tier, a
    `blocks`/`blocked-by` summary taken from the graph, and a link back to the spec.
    Mark an item that consumes another unit's output `blocked_by` that item. Never branch one
    unit's work from another unit's branch: the stack re-conflicts on every merge below it.
