@@ -194,3 +194,58 @@ def test_a_spawn_chain_deeper_than_the_cap_is_rejected():
     state, _ = started(policy={"max-depth": 1})
     state, acts = run(state, spawn("lead", "worker"), spawn("worker", "worker", parent=1))
     assert dos(acts[0]) == ["spawn"] and dos(acts[1]) == ["notify-owner"]
+
+
+def test_an_agent_cannot_answer_an_owner_item_by_claiming_to_be_the_owner():
+    state, item = at_owner()
+    for answer in ("sure: fine", "unsure: hmm"):
+        after, acts = run(state, given(item, "owner", answer))
+        assert dos(acts[0]) == ["error"]
+        assert next(i for i in after["items"] if i["id"] == item)["status"] == "open"
+
+
+def test_the_real_owner_can_still_decide_after_a_forged_answer_is_refused():
+    state, item = at_owner()
+    state, _ = run(state, given(item, "owner", "sure"))
+    state, acts = run(state, owner(item, "yes", sign(item, "yes")), verify_owner=verifier)
+    assert dos(acts[0]) == ["owner-ruled"]
+
+
+@pytest.mark.parametrize("answer", ["no", 1, "yes", [True], {"ok": True}])
+def test_a_verifier_must_return_exactly_true(answer):
+    state, item = at_owner()
+    state, acts = run(state, owner(item, "yes", "anything"), verify_owner=lambda e: answer)
+    assert dos(acts[0]) == ["error"]
+
+
+def test_a_verifier_that_raises_fails_closed():
+    state, item = at_owner()
+    state, acts = run(state, owner(item, "yes", "x"), verify_owner=lambda e: 1 / 0)
+    assert dos(acts[0]) == ["error"]
+    assert next(i for i in state["items"] if i["id"] == item)["status"] == "open"
+
+
+@pytest.mark.parametrize("cap", [True, False, -1, "3", 2.5, None])
+def test_a_policy_cap_must_be_a_non_negative_integer(cap):
+    with pytest.raises(ValueError, match="max-agents"):
+        fresh(policy={"max-agents": cap})
+
+
+def test_a_cap_of_zero_means_no_agent_may_be_spawned():
+    state, _ = started(policy={"max-agents": 0})
+    state, acts = run(state, spawn("lead", "worker"))
+    assert dos(acts[0]) == ["notify-owner"] and not state.get("spawned")
+
+
+@pytest.mark.parametrize("parent", [-1, 0, 99, True, "1", 1.0, [1]])
+def test_a_spawn_parent_must_be_an_agent_the_runtime_issued(parent):
+    state, _ = started(policy={"max-depth": 1})
+    state, acts = run(state, spawn("lead", "worker"), spawn("worker", "worker", parent=parent))
+    assert dos(acts[1]) == ["error"] and "parent" in acts[1][0]["reason"]
+    assert len(state["spawned"]) == 1
+
+
+def test_a_spawn_without_a_parent_is_a_root_agent_at_depth_one():
+    state, _ = started()
+    state, acts = run(state, spawn("lead", "worker"))
+    assert acts[0][0]["depth"] == 1
