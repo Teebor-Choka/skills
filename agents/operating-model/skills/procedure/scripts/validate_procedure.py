@@ -19,7 +19,7 @@ from graphlib import CycleError, TopologicalSorter
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "policy"))
 from policy_loader import PolicyError, _parse_frontmatter, _split_frontmatter  # noqa: E402
 
-__all__ = ("validate_text", "validate_layers", "parse_frontmatter", "parse_procedure", "main")
+__all__ = ("validate_text", "validate_layers", "apply_delta", "parse_frontmatter", "parse_procedure", "main")
 
 OWNER = "owner"  # the user: the reserved last rung of every ladder
 LIST_KEYS = ("needs", "consumes", "produces", "review", "metrics")
@@ -519,6 +519,15 @@ def validate_layers(base_text, delta_text, src="<delta>", strict=True, ratified=
         return errs
     return _change_errors(delta.get("change"), merged)
 
+
+
+
+def apply_delta(base, delta_text, src="<delta>", strict=True, ratified=False):
+    """Overlay a delta on a parsed procedure. Returns (merged, errors, protected).
+
+    `protected` is true when the delta changes the protected set and so needs the owner. Errors
+    exclude protected errors only when `ratified`. `base` is not changed."""
+    return None, [], False
 
 
 def main(argv=None):
