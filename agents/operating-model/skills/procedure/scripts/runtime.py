@@ -19,6 +19,7 @@ from validate_procedure import parse_procedure, validate_text
 __all__ = ("new_state", "step", "replay", "register", "HANDLERS", "Rejected")
 
 HANDLERS = {}
+SETTLED = ("done", "skipped")  # a skipped stage satisfies `needs`: it chose not to run
 
 
 class Rejected(Exception):
@@ -115,7 +116,7 @@ def _ready(state):
         sid
         for sid, st in state["stages"].items()
         if st["status"] == "pending"
-        and all(state["stages"][n]["status"] == "done" for n in stages[sid].get("needs") or [])
+        and all(state["stages"][n]["status"] in SETTLED for n in stages[sid].get("needs") or [])
     ]
 
 
@@ -150,8 +151,21 @@ def _start(state, sid):
 
 
 def _advance(state):
-    actions = [_start(state, sid) for sid in _ready(state)]
-    if not actions and all(st["status"] == "done" for st in state["stages"].values()):
+    """Start every ready stage, skipping those whose `when` fails, until nothing new is ready."""
+    actions = []
+    while True:
+        skipped = False
+        for sid in _ready(state):
+            when = state["proc"]["stages"][sid].get("when")
+            if when is not None and not _holds(state, when):
+                state["stages"][sid]["status"] = "skipped"
+                actions.append({"do": "stage-skipped", "stage": sid, "why": "when not met"})
+                skipped = True
+            else:
+                actions.append(_start(state, sid))
+        if not skipped:
+            break
+    if all(st["status"] in SETTLED for st in state["stages"].values()):
         state["status"] = "done"
         actions.append({"do": "run-complete"})
     return actions
@@ -225,6 +239,10 @@ def _bound(text):
 def _run_started(state, event, ctx):
     if state["status"] != "new":
         raise Rejected("the run has already started")
+    changed = event.get("changed", [])
+    if not isinstance(changed, list) or not all(isinstance(p, str) and p for p in changed):
+        raise Rejected("'changed' must be a list of paths")
+    state["changed"] = list(changed)
     state["status"] = "running"
     return _advance(state)
 
