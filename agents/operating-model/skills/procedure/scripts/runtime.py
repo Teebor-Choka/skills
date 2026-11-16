@@ -11,6 +11,8 @@ The state is plain data (it survives JSON). An action is an intent for an execut
 an agent cannot talk its way past one.
 """
 import copy
+import fnmatch
+import re
 
 from validate_procedure import parse_procedure, validate_text
 
@@ -129,14 +131,20 @@ def _inputs(state, sid):
 
 
 def _start(state, sid):
-    state["stages"][sid]["status"] = "running"
+    st = state["stages"][sid]
+    st["status"] = "running"
     spec = state["proc"]["stages"][sid]
+    inputs = _inputs(state, sid)
+    name, lp = _loop_of(state, sid)
+    carried = state.get("carried", {}).get(name) if name else None
+    if carried and sid == _rank(state, lp["stages"])[0]:
+        inputs[lp["carries"]] = carried
     return {
         "do": "start-stage",
         "stage": sid,
         "entity": spec.get("entity"),
-        "inputs": _inputs(state, sid),
-        "round": 1,
+        "inputs": inputs,
+        "round": st.get("round", 1),
         "verify": True,
     }
 
@@ -147,6 +155,70 @@ def _advance(state):
         state["status"] = "done"
         actions.append({"do": "run-complete"})
     return actions
+
+
+def _holds(state, pred):
+    """Evaluate a closed predicate map against the run. Every key must hold."""
+    for key, val in (pred or {}).items():
+        if key == "kind":
+            ok = any(val in st["locators"] for st in state["stages"].values())
+        elif key == "policy":
+            ok = bool(state["policy"].get(val))
+        elif key == "paths":
+            ok = any(fnmatch.fnmatch(p, g) for p in state.get("changed", []) for g in val)
+        else:
+            ok = False
+        if not ok:
+            return False
+    return True
+
+
+def _loop_of(state, sid):
+    for name, lp in (state["proc"].get("loops") or {}).items():
+        if sid in lp.get("stages", []):
+            return name, lp
+    return None, None
+
+
+def _rank(state, sids):
+    """The stages in `needs` order."""
+    stages, order, seen = state["proc"]["stages"], [], set()
+
+    def visit(s):
+        if s in seen or s not in sids:
+            return
+        seen.add(s)
+        for n in stages[s].get("needs") or []:
+            visit(n)
+        order.append(s)
+
+    for s in sids:
+        visit(s)
+    return order
+
+
+def _reset(state, sids):
+    for sid in sids:
+        state["stages"][sid] = {"status": "pending", "locators": {}, "round": state["stages"][sid].get("round", 1)}
+
+
+def _escalate_up(state, entity, asks, blocks=()):
+    """Put a question to the entity above `entity`, or to the owner at the top of the ladder."""
+    to = state["proc"]["entities"][entity]["escalates-to"] if entity else "owner"
+    return _raise_to(state, to, asks, entity, blocks)
+
+
+def _raise_to(state, to, asks, frm, blocks=()):
+    item = f"esc-{len(state.setdefault('items', [])) + 1}"
+    state["items"].append({"id": item, "from": frm, "at": to, "asks": asks, "status": "open", "blocks": list(blocks)})
+    if to == "owner":
+        return {"do": "notify-owner", "item": item, "asks": asks, "from": frm, "default-if-silent": "wait"}
+    return {"do": "escalate", "item": item, "to": to, "asks": asks, "from": frm}
+
+
+def _bound(text):
+    m = re.search(r"\d+", str(text or ""))
+    return int(m.group()) if m else 1
 
 
 @register("run-started")
@@ -180,4 +252,74 @@ def _stage_done(state, event, ctx):
             raise Rejected(f"stage '{sid}' needs a non-empty locator for '{kind}'")
     st["status"] = "done"
     st["locators"] = {k: locators[k] for k in produces}
+    name, lp = _loop_of(state, sid)
+    if name and sid == _rank(state, lp["stages"])[-1] and not _holds(state, lp.get("exit")):
+        return _next_round(state, name, lp, f"loop '{name}' exit condition not met")
     return _advance(state)
+
+
+def _next_round(state, name, lp, why):
+    """Run the loop again, or escalate when its bound is spent."""
+    rounds = state.setdefault("rounds", {})
+    rounds[name] = rounds.get(name, 1) + 1
+    if rounds[name] > _bound(lp["bound"]):
+        state["status"] = "blocked"
+        return [_raise_to(state, lp["on-exhausted"], f"loop '{name}' spent its bound of {lp['bound']} rounds: {why}", None)]
+    members = _rank(state, lp["stages"])
+    _reset(state, members)
+    for sid in members:
+        state["stages"][sid]["round"] = rounds[name]
+    return _advance(state)
+
+
+@register("stage-failed")
+def _stage_failed(state, event, ctx):
+    _require_running(state)
+    sid = event.get("stage")
+    st = _stage(state, sid)
+    if st["status"] != "running":
+        raise Rejected(f"stage '{sid}' is {st['status']}, not running")
+    spec = state["proc"]["stages"][sid]
+    produces = spec.get("produces") or []
+    locators = event.get("locators") if isinstance(event.get("locators"), dict) else {}
+    extra = sorted(set(locators) - set(produces))
+    if extra:
+        raise Rejected(f"stage '{sid}' registered kinds it does not produce: {', '.join(map(str, extra))}")
+    name, lp = _loop_of(state, sid)
+    reason = str(event.get("reason") or "failed")
+    if name:
+        carries = lp.get("carries")
+        if carries and carries in locators:
+            state.setdefault("carried", {})[name] = locators[carries]
+        return _next_round(state, name, lp, reason)
+    retry = spec.get("on-fail")
+    if retry:
+        target = retry["to"]
+        count = state.setdefault("retries", {}).get(sid, 0) + 1
+        state["retries"][sid] = count
+        if count <= _bound(retry.get("bound")):
+            span = _between(state, target, sid)
+            _reset(state, span)
+            for member in span:
+                state["stages"][member]["round"] = count + 1
+            return _advance(state)
+    st["status"] = "failed"
+    state["status"] = "blocked"
+    return [_escalate_up(state, spec.get("entity"), f"stage '{sid}' failed: {reason}", [sid])]
+
+
+def _between(state, start, end):
+    """`start`, `end` and every stage that runs after `start` and before `end`."""
+    stages = state["proc"]["stages"]
+
+    def anc(s):
+        out, todo = set(), list(stages[s].get("needs") or [])
+        while todo:
+            n = todo.pop()
+            if n not in out:
+                out.add(n)
+                todo.extend(stages[n].get("needs") or [])
+        return out
+
+    inside = {s for s in stages if (s == start or start in anc(s)) and (s == end or s in anc(end))}
+    return _rank(state, inside)
