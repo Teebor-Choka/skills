@@ -245,3 +245,15 @@ def test_a_signed_run_replays_exactly_with_the_same_verifiers():
 def test_the_signed_state_survives_json():
     state, _ = go()
     assert json.loads(json.dumps(state))["trust"] == "signed"
+
+
+def test_a_handler_added_without_declaring_a_source_is_refused_in_a_signed_run():
+    HANDLERS["sneaky"] = lambda state, event, ctx: [{"do": "ran"}]
+    try:
+        state, _ = go()
+        for sender in ("lead", "executor"):
+            assert refused(srun(state, seal({"type": "sneaky"}, sender))[1][0], "source")
+        from runtime_fixtures import started
+        assert dos(step(started()[0], {"type": "sneaky"})[1]) == ["ran"]  # claims mode has no sources
+    finally:
+        HANDLERS.pop("sneaky", None)
