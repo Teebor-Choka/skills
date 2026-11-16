@@ -72,18 +72,18 @@ def srun(state, *events, **overrides):
 
 def go(text=SWE, **kw):
     """A signed run that the executor has started."""
-    state, acts = srun(sfresh(text, **kw), seal({"type": "run-started"}, "executor"))
+    state, acts = srun(sfresh(text, **kw), seal({"type": "run-started"}, "executor", run_id=kw.get("run_id", "run")))
     return state, acts[0]
 
 
-def sdone(stage, locators=None, by=None, round=1):
+def sdone(stage, locators=None, by=None, round=1, run_id="run"):
     return seal(
         {"type": "stage-done", "stage": stage, "round": round,
          "locators": locators if locators is not None else LOCATORS[stage]},
-        by or STAGE_ENTITY[stage],
+        by or STAGE_ENTITY[stage], run_id,
     )
 
 
-def sfailed(stage, by=None, locators=None, round=1):
+def sfailed(stage, by=None, locators=None, round=1, run_id="run"):
     return seal({"type": "stage-failed", "stage": stage, "round": round, "reason": "defects",
-                 "locators": locators or {}}, by or STAGE_ENTITY[stage])
+                 "locators": locators or {}}, by or STAGE_ENTITY[stage], run_id)

@@ -115,6 +115,9 @@ def test_a_round_one_result_is_refused_in_round_two():
     state, _ = srun(state, d1, sfailed("review", locators={"verdict": "note://d"}, by="lead"))
     assert state["stages"]["build"]["status"] == "running" and state["stages"]["build"]["round"] == 2
     state, acts = srun(state, sdone("build", round=1))
+    assert refused(acts[0], "replay")  # the very same bytes are caught first
+    stale = sdone("build", locators={"change": "pr://other"}, round=1)  # a different round-one result
+    state, acts = srun(state, stale)
     assert refused(acts[0], "round") and state["stages"]["build"]["status"] == "running"
     state, acts = srun(state, sdone("build", round=2))
     assert of(acts[0], "start-stage")
@@ -165,7 +168,7 @@ def test_the_seen_signatures_survive_json_and_replay():
 
 def at_owner(run_id="run"):
     state, _ = go(run_id=run_id)
-    state, acts = srun(state, sfailed("align"))
+    state, acts = srun(state, sfailed("align", run_id=run_id))
     return state, acts[0][0]["item"]
 
 
@@ -239,7 +242,11 @@ def test_an_open_item_held_by_a_removed_entity_moves_up_the_ladder():
     state, a = srun(state, advice("worker"))
     item = a[0][0]["item"]
     assert state["items"][0]["at"] == "lead"
-    gone = "entities:\n  lead:\n    disabled: true\nstages:\n  spec:\n    entity: pm\n  review:\n    entity: pm\n"
+    gone = (
+        "entities:\n  lead:\n    disabled: true\n  pm:\n    may-spawn: [worker]\n  worker:\n    escalates-to: pm\n"
+        "loops:\n  fix:\n    on-exhausted: pm\n"
+        "stages:\n  spec:\n    entity: pm\n  review:\n    entity: pm\n"
+    )
     state, a = srun(state, amend(delta(gone, window="2 stages")))
     state, _ = srun(state, decide(state, a[0][0]["item"], "approve"))
     state, acts = srun(state, sdone("align"))
@@ -271,10 +278,9 @@ def test_verify_owner_cannot_change_the_decision_the_reducer_stores():
     state, item = at_owner()
 
     def meddling(event):
-        event["decision"] = "abort"
-        event["note"]["x"] = 1
+        event["decision"]["action"] = "abort"
         return True
 
-    ev = decide(state, item, "retry")
-    state, acts = srun(state, {**ev, "note": {"y": 2}}, verify_owner=meddling)
-    assert state["items"][0]["decision"] == "retry" and state["status"] == "running"
+    ev = {"type": "owner-decided", "item": item, "decision": {"action": "retry"}, "signature": "x"}
+    state, acts = srun(state, ev, verify_owner=meddling)
+    assert state["items"][0]["decision"] == {"action": "retry"} and state["status"] == "running"
