@@ -132,7 +132,7 @@ class Ctx:
         self.sender = sender  # the verified entity behind an agent event; None in claims mode
 
 
-def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="claims"):
+def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="claims", bindings=None, revision=None):
     """Validate and freeze a procedure for one run. Raises ValueError when it is invalid."""
     errs = validate_text(procedure_text, "<procedure>", strict)
     if errs:
