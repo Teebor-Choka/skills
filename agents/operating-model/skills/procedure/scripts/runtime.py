@@ -19,6 +19,7 @@ from validate_procedure import parse_procedure, validate_text
 __all__ = ("new_state", "step", "replay", "register", "HANDLERS", "Rejected")
 
 HANDLERS = {}
+CAPS = ("max-agents", "max-depth")
 SETTLED = ("done", "skipped")  # a skipped stage satisfies `needs`: it chose not to run
 
 
@@ -49,12 +50,16 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run"):
     if errs:
         raise ValueError("invalid procedure: " + "; ".join(errs))
     proc, _ = parse_procedure(procedure_text, "<procedure>")
+    policy = dict(policy or {})
+    for key in CAPS:
+        if key in policy and not (type(policy[key]) is int and policy[key] >= 0):
+            raise ValueError(f"policy '{key}' must be a non-negative integer, not {policy[key]!r}")
     return {
         "run_id": run_id,
         "version": 1,
         "status": "new",
         "proc": proc,
-        "policy": dict(policy or {}),
+        "policy": policy,
         "stages": {sid: {"status": "pending", "locators": {}} for sid in proc["stages"]},
         "log": [],
         "rejected": [],
@@ -374,6 +379,7 @@ def _advice_requested(state, event, ctx):
 def _advice_given(state, event, ctx):
     item = _item(state, event.get("item"))
     by, answer = event.get("by"), event.get("answer")
+    _entity(state, by)  # the owner is not an entity: its answer comes only through `owner-decided`
     if item["status"] != "open" or item["at"] != by:
         raise Rejected(f"item '{item['id']}' is with '{item['at']}', not '{by}'")
     if not isinstance(answer, str):
@@ -401,7 +407,7 @@ def _forward(item, to, frm, analysis):
 def _owner_decided(state, event, ctx):
     """Only a verified owner decision applies. With no verifier, none does."""
     item = _item(state, event.get("item"))
-    if ctx.verify_owner is None or not ctx.verify_owner(event):
+    if ctx.verify_owner is None or ctx.verify_owner(event) is not True:
         raise Rejected("owner decision has no valid signature")
     if item["status"] != "open" or item["at"] != "owner":
         raise Rejected(f"item '{item['id']}' is not waiting on the owner")
@@ -431,7 +437,10 @@ def _spawn_requested(state, event, ctx):
     if not isinstance(why, str) or not why.strip():
         raise Rejected("a spawn must say why")
     spawned = state.setdefault("spawned", [])
-    depth = 1 + (spawned[event["parent"] - 1]["depth"] if isinstance(event.get("parent"), int) and 0 < event["parent"] <= len(spawned) else 0)
+    parent = event.get("parent")
+    if parent is not None and not (type(parent) is int and 1 <= parent <= len(spawned)):
+        raise Rejected(f"parent {parent!r} is not an agent the runtime issued")
+    depth = 1 + (spawned[parent - 1]["depth"] if parent is not None else 0)
     for key, value in (("max-agents", len(spawned) + 1), ("max-depth", depth)):
         cap = state["policy"].get(key)
         if isinstance(cap, int) and value > cap:

@@ -3,7 +3,7 @@ import hmac
 import json
 
 import pytest
-from runtime_fixtures import SWE, dos, done, of, run, started
+from runtime_fixtures import SWE, dos, done, fresh, of, run, started
 
 
 def advice(frm="worker", question="which library?", **kw):

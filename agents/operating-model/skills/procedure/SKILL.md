@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # procedure: a named graph of stages
@@ -217,6 +217,48 @@ the translation.
 The checker proves coverage. It does not prove fidelity: a translator can trace a sentence to an
 element that exists but does not do what the sentence says. Fidelity rests on replaying acceptance
 scenarios derived from the prose, which needs the runtime, and on the owner's review of the change.
+
+## Running a procedure
+
+`scripts/runtime.py` is the run-time core: a pure reducer over an event log. It runs nothing and
+calls no agent. It returns intents, and an executor (a single actor, a team, any harness) does the
+work and reports back as events.
+
+```
+state = new_state(procedure_text, policy={"max-agents": 4})
+state, actions = step(state, {"type": "run-started", "changed": ["src/auth/login.py"]})
+state, actions = step(state, {"type": "stage-done", "stage": "align", "locators": {"brief": "doc://b"}})
+```
+
+`new_state` validates the procedure and raises `ValueError` when it is invalid. `step` never mutates
+its input and never raises on a bad event: it returns an `error` action, records the event under
+`rejected`, and leaves the state unchanged. `replay` folds a recorded log, and the same log gives
+the same state. The state is plain data and survives JSON.
+
+Events and what the reducer enforces:
+
+| Event              | Effect and gate                                                                                                                                                                                                |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run-started`      | Starts the entry stages. `changed` lists the paths the run touches.                                                                                                                                            |
+| `stage-done`       | Needs a non-empty text locator for every kind the stage produces, and no other kind. The next stage gets only the kinds it consumes.                                                                           |
+| `stage-failed`     | In a loop: another round with the carried kind, until `bound`, then escalate to `on-exhausted` and block. With `on-fail`: retry to a bound, from the named stage. Otherwise escalate up the entity ladder.     |
+| `advice-requested` | Goes to the entity above the asker, which keeps its stage.                                                                                                                                                     |
+| `advice-given`     | `sure` closes it. `unsure: <why>` moves the same item up one rung with the analysis. Only the holder answers. The owner is not an entity and cannot answer here.                                               |
+| `owner-decided`    | Applies only when the caller passes `verify_owner` and it returns exactly `True`. With none, or on any other result, it is refused and logged.                                                                 |
+| `spawn-requested`  | Allowed only for roles in the spawner's `may-spawn`, with a reason. `parent` must be an agent id the runtime issued. `max-agents` and `max-depth` in policy refuse a spawn and ask the owner to raise the cap. |
+
+A stage whose `when` fails is skipped, reported with `stage-skipped`, and counts as settled for the
+stages that need it. `when` and a loop's `exit` use the closed predicates: `paths` against the
+change list, `policy`, `kind`. A caller adds an event type with `register`, with no edit to the core.
+
+What this does not do:
+
+- It does not authenticate the agents. The entity named in an event is a claim. Only owner decisions
+  are verified, through the caller's `verify_owner`. The key behind it must never be readable by an
+  agent process.
+- It does not build the executor, record metrics, apply an amendment, or roll back. Those are the
+  next layers.
+- The `blocked` state stops stage events. Advice and spawning still work while blocked.
 
 ## Layering
 
