@@ -8,6 +8,7 @@ FIXTURES = HERE / "fixtures"
 sys.path.insert(0, str(HERE.parent / "scripts"))
 
 import validate_procedure as _vp  # noqa: E402
+from runtime import HANDLERS, new_state, register, replay, step  # noqa: E402,F401
 from check_translation import check_translation, main as check_translation_main  # noqa: E402,F401
 
 # Structure tests build minimal procedures with no metrics, so they run non-strict.
