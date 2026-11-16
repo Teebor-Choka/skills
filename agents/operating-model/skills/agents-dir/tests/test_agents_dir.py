@@ -261,3 +261,46 @@ def test_the_cli_exits_one_on_an_error_and_prints_it(tmp_path, capsys):
 def test_the_cli_exits_zero_on_a_valid_layout_and_takes_a_base(tmp_path):
     repo = make_repo(tmp_path)
     assert main([str(repo)]) == 0 and main([str(repo), "--base", "HEAD"]) == 0
+
+
+def test_the_new_record_must_cover_every_process_document_that_changed(tmp_path):
+    repo = make_repo(tmp_path)
+    base = base_of(repo)
+    write(repo, ".agents/policy.md", POLICY.replace("single", "team"))
+    write(repo, ".agents/procedures/campaign-ops.md", PROC.replace("2 rounds", "3 rounds"))
+    write(repo, ".agents/iterations/0002-policy-only.md", ITER.replace("procedures/campaign-ops.md", "policy.md"))
+    commit(repo)
+    errors = errs(repo, base=base)
+    assert has(errors, "procedures/campaign-ops.md") and has(errors, "not covered")
+    assert not has(errors, "policy.md changed")
+
+
+def test_a_record_that_covers_each_changed_document_is_accepted(tmp_path):
+    repo = make_repo(tmp_path)
+    base = base_of(repo)
+    write(repo, ".agents/policy.md", POLICY.replace("single", "team"))
+    write(repo, ".agents/procedures/campaign-ops.md", PROC.replace("2 rounds", "3 rounds"))
+    both = ITER.replace("[procedures/campaign-ops.md]", "[policy.md, procedures/campaign-ops.md]")
+    write(repo, ".agents/iterations/0002-both.md", both)
+    commit(repo)
+    assert errs(repo, base=base) == []
+
+
+def test_two_new_records_together_may_cover_the_change(tmp_path):
+    repo = make_repo(tmp_path)
+    base = base_of(repo)
+    write(repo, ".agents/policy.md", POLICY.replace("single", "team"))
+    write(repo, ".agents/procedures/campaign-ops.md", PROC.replace("2 rounds", "3 rounds"))
+    write(repo, ".agents/iterations/0002-policy.md", ITER.replace("procedures/campaign-ops.md", "policy.md"))
+    write(repo, ".agents/iterations/0003-proc.md", ITER)
+    commit(repo)
+    assert errs(repo, base=base) == []
+
+
+def test_updating_an_old_record_does_not_count_as_documenting_a_new_change(tmp_path):
+    repo = make_repo(tmp_path)
+    base = base_of(repo)
+    write(repo, ".agents/procedures/campaign-ops.md", PROC.replace("2 rounds", "3 rounds"))
+    write(repo, ".agents/iterations/0001-initial.md", ITER.replace("pending", "confirmed"))
+    commit(repo)
+    assert has(errs(repo, base=base), "iteration")
