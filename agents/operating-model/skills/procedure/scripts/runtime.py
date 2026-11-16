@@ -24,6 +24,7 @@ __all__ = (
 
 HANDLERS = {}
 CAPS = ("max-agents", "max-depth")
+DEFAULT_TOLERANCE = 0.1  # how far a metric may move the wrong way before it counts as a regression
 COLLECTORS = {}  # metric name -> fn(counters) -> number. Only code here may observe: agents cannot write one.
 COUNTERS = ("stages-done", "rework", "escalations", "refusals", "rounds")
 WINDOW = re.compile(r"^([1-9][0-9]{0,5}) stages$")
@@ -63,13 +64,28 @@ def observed_rates(state, version=None):
 
 
 def regressed(observed, baseline, direction, threshold):
-    """Whether a metric moved the wrong way past the tolerance. Stub."""
-    return None
+    """Whether a metric moved the wrong way, by more than the tolerance.
+
+    `down` means lower is better, `up` means higher is better. From a baseline of zero, any
+    increase is a regression for `down` and nothing is for `up`."""
+    if direction == "down":
+        return observed > baseline * (1 + threshold) if baseline > 0 else observed > 0
+    return observed < baseline * (1 - threshold)
 
 
 def iteration_report(state):
-    """One record per snapshot: its change, baseline, observed rates and outcome. Stub."""
-    return []
+    """One record per snapshot: its change, baseline, observed rates, finished stages and outcome."""
+    return [
+        {
+            "version": snap["version"],
+            "change": copy.deepcopy(snap["change"]),
+            "baseline": dict(snap["baseline"]),
+            "observed": observed_rates(state, snap["version"]),
+            "stages_done": state["metrics"][str(snap["version"])]["stages-done"],
+            "outcome": snap["outcome"],
+        }
+        for snap in state["snapshots"]
+    ]
 
 
 class Rejected(Exception):
@@ -103,6 +119,12 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run"):
     for key in CAPS:
         if key in policy and not (type(policy[key]) is int and policy[key] >= 0):
             raise ValueError(f"policy '{key}' must be a non-negative integer, not {policy[key]!r}")
+    tol = policy.get("regression-threshold", DEFAULT_TOLERANCE)
+    if type(tol) not in (int, float) or tol < 0:
+        raise ValueError(f"policy 'regression-threshold' must be a non-negative number, not {tol!r}")
+    safety = policy.get("safety-metrics", [])
+    if not isinstance(safety, list) or not all(isinstance(m, str) for m in safety):
+        raise ValueError(f"policy 'safety-metrics' must be a list of metric names, not {safety!r}")
     return {
         "run_id": run_id,
         "version": 1,
@@ -350,11 +372,12 @@ def _escalate_up(state, entity, asks, blocks=()):
 def _raise_to(state, to, asks, frm, blocks=(), loop=None, **extra):
     """Open an item for `to`. `extra` keys go on the item. `change` and `protected` are shown too."""
     item = f"esc-{len(state.setdefault('items', [])) + 1}"
-    _count(state, "escalations")
+    if extra.get("kind") not in ("amendment", "rollback"):  # a proposal is not a sign of trouble
+        _count(state, "escalations")
     state["items"].append(
         {"id": item, "from": frm, "at": to, "asks": asks, "status": "open", "blocks": list(blocks), "loop": loop, **extra}
     )
-    shown = {k: extra[k] for k in ("change", "protected", "kind") if k in extra}
+    shown = {k: extra[k] for k in ("change", "protected", "kind", "evidence") if k in extra}
     if to == "owner":
         return {"do": "notify-owner", "item": item, "asks": asks, "from": frm, "default-if-silent": "wait", **shown}
     return {"do": "escalate", "item": item, "to": to, "asks": asks, "from": frm, **shown}
@@ -439,13 +462,14 @@ def _stage_done(state, event, ctx):
     st["status"] = "done"
     st["locators"] = {k: locators[k] for k in spec.get("produces") or []}
     _count(state, "stages-done")
+    verdict = _evaluate(state)
     name, lp = _loop_of(state, sid)
     if name and sid == _rank(state, lp["stages"])[-1]:
         if not _holds(state, lp.get("exit")):
-            return _next_round(state, name, lp, f"loop '{name}' exit condition not met")
+            return verdict + _next_round(state, name, lp, f"loop '{name}' exit condition not met")
         state.get("carried", {}).pop(name, None)  # the loop is finished: nothing carries over
         state.get("rounds", {}).pop(name, None)
-    return _advance(state)
+    return verdict + _advance(state)
 
 
 def _next_round(state, name, lp, why, failed=None):
@@ -554,7 +578,11 @@ def _advice_given(state, event, ctx):
         raise Rejected("an answer is 'sure' or 'unsure: <why>'")
     if answer.split(":")[0].strip() == "sure":
         item["status"] = "advice-ruled"
-        return [{"do": "advice-resolved", "item": item["id"], "by": by, "answer": answer}] + _resume(state, item)
+        resolved = [{"do": "advice-resolved", "item": item["id"], "by": by, "answer": answer}]
+        if item.get("kind") == "rollback":
+            state["pending"] = {"kind": "rollback", "item": item["id"], "to": item["target"]}
+            return resolved + _apply_pending(state)
+        return resolved + _resume(state, item)
     kind, _, why = answer.partition(":")
     if kind.strip() != "unsure" or not why.strip():
         raise Rejected("an answer is 'sure' or 'unsure: <why>'")
@@ -583,7 +611,17 @@ def _owner_decided(state, event, ctx):
     item["status"] = "owner-ruled"
     item["decision"] = event.get("decision")
     actions = [{"do": "owner-ruled", "item": item["id"], "decision": item["decision"]}]
+    if item.get("kind") == "rollback":
+        if item["decision"] not in ("rollback", "keep"):
+            raise Rejected("a rollback is decided with 'rollback' or 'keep'")
+        if item["decision"] == "keep":
+            _mark(state, item["target"] + 1, "kept")
+            return actions
+        state["pending"] = {"kind": "rollback", "item": item["id"], "to": item["target"]}
+        return actions + _apply_pending(state) + (_advance(state) if state["status"] == "running" else [])
     if item.get("kind") == "amendment":
+        if item["decision"] not in ("approve", "reject"):
+            raise Rejected("a change is decided with 'approve' or 'reject'")
         if item["decision"] != "approve":
             return actions
         state["pending"] = {"kind": "amendment", "item": item["id"], "delta": item["delta"]}
@@ -635,6 +673,8 @@ def _apply_pending(state):
     if not pending or any(st["status"] == "running" for st in state["stages"].values()):
         return []
     state["pending"] = None
+    if pending["kind"] == "rollback":
+        return _roll_back(state, pending)
     merged, errs, _ = apply_delta(state["proc"], pending["delta"], "<amendment>", True, ratified=True)
     if errs:  # the procedure moved on since the proposal: it no longer applies
         return [{"do": "amendment-failed", "item": pending["item"], "errors": errs}]
@@ -642,12 +682,14 @@ def _apply_pending(state):
     return _install(state, merged, change)
 
 
-def _install(state, proc, change):
+def _install(state, proc, change, outcome="pending"):
     """Make `proc` the next snapshot. Stages already run keep their status."""
     baseline = observed_rates(state)
     version = state["version"] + 1
+    if state["snapshots"][-1]["outcome"] == "pending":
+        state["snapshots"][-1]["outcome"] = "superseded"  # replaced before its window ended
     state["snapshots"].append(
-        {"version": version, "proc": copy.deepcopy(proc), "change": copy.deepcopy(change), "baseline": baseline, "outcome": "pending"}
+        {"version": version, "proc": copy.deepcopy(proc), "change": copy.deepcopy(change), "baseline": baseline, "outcome": outcome}
     )
     state["stages"] = {sid: state["stages"].get(sid, {"status": "pending", "locators": {}}) for sid in proc["stages"]}
     state["proc"], state["version"] = copy.deepcopy(proc), version
@@ -677,3 +719,66 @@ def _amendment_proposed(state, event, ctx):
         raise Rejected(f"window '{change.get('window')}' must be a count of stages, such as '5 stages'")
     asks = f"approve change: {change.get('reason')}"
     return [_raise_to(state, "owner", asks, by, kind="amendment", delta=delta, change=change, protected=protected)]
+
+
+# ---------------------------------------------------------------- judging a change
+
+
+def _mark(state, version, outcome):
+    for snap in state["snapshots"]:
+        if snap["version"] == version:
+            snap["outcome"] = outcome
+
+
+def _project_manager(state):
+    for name, ent in (state["proc"].get("entities") or {}).items():
+        if ent.get("role") == "project-manager":
+            return name
+    return "owner"
+
+
+def _evaluate(state):
+    """Once a change's window is spent, compare it with its baseline and act on the result."""
+    snap = state["snapshots"][-1]
+    change = snap["change"]
+    if snap["outcome"] != "pending" or not change:
+        return []
+    window = int(WINDOW.match(change["window"]).group(1))
+    if state["metrics"][str(state["version"])]["stages-done"] < window:
+        return []
+    tol = state["policy"].get("regression-threshold", DEFAULT_TOLERANCE)
+    rates = observed_rates(state)
+
+    def evidence(names, direction):
+        return {m: {"baseline": snap["baseline"].get(m, 0.0), "observed": rates.get(m, 0.0), "direction": direction} for m in names}
+
+    named = evidence(change["metrics"], change["direction"])
+    safety = evidence([m for m in state["policy"].get("safety-metrics", []) if m in rates], "down")
+    bad_safety = sorted(m for m, e in safety.items() if regressed(e["observed"], e["baseline"], "down", tol))
+    bad_named = sorted(m for m, e in named.items() if regressed(e["observed"], e["baseline"], e["direction"], tol))
+    if bad_safety:
+        snap["outcome"] = "rolled-back"
+        state["pending"] = {"kind": "rollback", "item": None, "to": snap["version"] - 1, "auto": True}
+        shown = {**named, **{m: safety[m] for m in bad_safety}}
+        return [
+            {"do": "change-regressed", "version": snap["version"], "metrics": shown, "auto": True},
+            {"do": "inform-owner", "text": f"change {snap['version']} rolled back: safety metric {', '.join(bad_safety)} regressed"},
+        ] + _apply_pending(state)
+    if bad_named:
+        snap["outcome"] = "regressed"
+        shown = {m: named[m] for m in bad_named}
+        asks = f"change {snap['version']} regressed {', '.join(bad_named)}: roll it back?"
+        ask = _raise_to(state, _project_manager(state), asks, None, kind="rollback", target=snap["version"] - 1, evidence=shown)
+        return [{"do": "change-regressed", "version": snap["version"], "metrics": shown, "auto": False}, ask]
+    snap["outcome"] = "confirmed"
+    return [{"do": "change-confirmed", "version": snap["version"], "metrics": named}]
+
+
+def _roll_back(state, pending):
+    """Restore the procedure of an earlier snapshot as a new snapshot. History is never edited."""
+    target = next(s for s in state["snapshots"] if s["version"] == pending["to"])
+    for snap in state["snapshots"]:
+        if snap["version"] == state["version"] and snap["outcome"] in ("pending", "regressed"):
+            snap["outcome"] = "rolled-back"
+    change = {"rollback-of": state["version"], "auto": bool(pending.get("auto"))}
+    return _install(state, target["proc"], change, outcome="rollback")

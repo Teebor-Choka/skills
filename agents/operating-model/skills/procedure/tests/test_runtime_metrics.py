@@ -126,3 +126,10 @@ def test_a_hostile_event_cannot_make_a_counter_go_negative_or_non_integer():
     state, _ = started(MET)
     state, _ = run(state, {"type": "stage-done", "stage": "align", "locators": {"brief": "x"}, "count": -1})
     assert all(type(v) is int and v >= 0 for v in counters(state).values())
+
+
+def test_a_proposal_to_the_owner_is_not_counted_as_an_escalation():
+    state, acts = run_with(propose())
+    assert counters(state)["escalations"] == 0
+    state, _ = run_with({"type": "advice-requested", "from": "worker", "question": "q"}, state=state)
+    assert counters(state)["escalations"] == 1
