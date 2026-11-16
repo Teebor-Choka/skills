@@ -18,7 +18,7 @@ import math
 import posixpath
 import re
 
-from validate_procedure import apply_delta, parse_frontmatter, parse_procedure, validate_text
+from validate_procedure import apply_delta, check_bindings, parse_frontmatter, parse_procedure, validate_text, policy_get
 
 __all__ = (
     "new_state", "step", "replay", "register", "collector", "observed_rates", "regressed",
@@ -139,6 +139,11 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="
         raise ValueError("invalid procedure: " + "; ".join(errs))
     proc, _ = parse_procedure(procedure_text, "<procedure>")
     proc.pop("change", None)  # a hypothesis belongs to a delta, not to a frozen base
+    declared = sorted(proc.get("policy") or {})
+    given = dict(bindings or {})
+    missing = check_bindings(proc, _nest(given))
+    if missing:
+        raise ValueError("; ".join(missing))
     if trust not in TRUST:
         raise ValueError(f"trust must be one of {', '.join(TRUST)}, not {trust!r}")
     if trust == "signed" and not proc.get("entities"):
@@ -161,10 +166,15 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="
         "version": 1,
         "status": "new",
         "trust": trust,
+        "revision": copy.deepcopy(revision),  # which documents this run was frozen from
+        "bindings": {k: given[k] for k in declared},  # only the declared keys: nothing else reaches a run
         "proc": proc,
         "policy": policy,
         "stages": {sid: {"status": "pending", "locators": {}} for sid in proc["stages"]},
-        "snapshots": [{"version": 1, "proc": copy.deepcopy(proc), "change": None, "baseline": {}, "outcome": "initial"}],
+        "snapshots": [
+            {"version": 1, "proc": copy.deepcopy(proc), "change": None, "baseline": {}, "outcome": "initial",
+             "revision": copy.deepcopy(revision)}
+        ],
         "pending": [],
         "seen": [],  # digests of signed events already applied: a signed event is single-use
         "metrics": {"1": _fresh_counters()},
@@ -202,6 +212,18 @@ def _sane(value):
 def _label(event):
     t = event.get("type") if isinstance(event, dict) else None
     return t if isinstance(t, str) and len(t) <= 64 else None
+
+
+def _nest(flat):
+    """`{"work.tracker": "x"}` as the nested policy `{"work": {"tracker": "x"}}` that `check_bindings` reads."""
+    out = {}
+    for key, value in flat.items():
+        node = out
+        *head, last = key.split(".")
+        for part in head:
+            node = node.setdefault(part, {})
+        node[last] = value
+    return out
 
 
 def _error(reason, event=None):
@@ -362,6 +384,7 @@ def _start(state, sid):
         "stage": sid,
         "entity": spec.get("entity"),
         "inputs": inputs,
+        "uses": {k: state["bindings"][k] for k in spec.get("uses") or [] if k in state["bindings"]},
         "round": st.get("round", 1),
         "verify": True,
     }
@@ -863,6 +886,9 @@ def _amendment_proposed(state, event, ctx):
         raise Rejected("amendment is invalid: " + "; ".join(errs))
     if merged == state["proc"]:
         raise Rejected("amendment changes nothing")
+    unset = [k for k in (merged.get("policy") or {}) if k not in state["bindings"]]
+    if unset:
+        raise Rejected(f"policy key '{unset[0]}' is declared but nothing sets it: add it to the policy first")
     change = parse_frontmatter(delta, "<amendment>")[0].get("change") or {}
     for metric in change.get("metrics", []):
         if metric not in COLLECTORS:
