@@ -45,7 +45,7 @@ package, it never edits code. The actual refactor is a later `implement` run aga
    (typically a GitHub issue) — and because `:improve` is interactive, confirm that destination with
    the user before filing (`references/filing.md`). Carry the
    **deep-module invariant** into `invariants.md` — _components and libraries stay deep: a large
-   implementation behind a tiny, stable interface_ — so every brief inherits it and the fix doesn't
+   implementation behind a tiny, stable interface_ — so every filed work item inherits it and the fix doesn't
    regress on the next change.
 
 ## What it reuses

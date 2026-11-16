@@ -42,5 +42,5 @@ or runs the channel.
 Filing ends **Phase A**. Dispatching the filed items to implementers and integrating their changes
 is the executor's job — `implement` plus on-demand subagent dispatch per the graph — including the
 mandatory serial integration pass the executor must not skip. The architect does not run that loop.
-(Deploying the _designed system_ itself hands-off, when the package will be deployed, is the
-architect's separate **Phase B** — `references/execution.md` — not the work-item execution above.)
+(Deploying and observing the _designed system_ is the separate deploy stage, not the architect's
+job. `references/execution.md` lists only what the architect must specify for it.)

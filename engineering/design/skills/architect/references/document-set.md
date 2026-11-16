@@ -15,7 +15,7 @@ Naming: use a short slug for the effort (e.g. `db-replication`) as the prefix fo
 spec. Everything cross-links by relative path so the directory is navigable on its own.
 
 **Only the scope's tier is a deliverable.** The sections below are the `full` set. The `small` tier
-drops the graph, methodology docs, invariants, and per-node briefs; the `note` tier drops everything
+drops the graph, methodology docs, and invariants; the `note` tier drops everything
 and ships one document. Documents a tier doesn't call for are either not written or kept as disposable
 working notes, never maintained as artifacts. Don't fill a document the scope didn't ask for.
 
@@ -192,7 +192,7 @@ spec's block table.
 
 **Purpose.** How agents pick up and run the DAG.
 
-**Must carry:** one block ↔ one agent; an agent reads **only** its brief + the referenced spec block
+**Must carry:** one block ↔ one agent; an agent reads **only** its board item + the referenced spec block
 
 - `invariants.md`, never session history; same-wave agents start from the same `origin` baseline; an
   agent starts only when all its entry blocks are GREEN. Plus: parallelism/serialization + **merge
@@ -213,7 +213,7 @@ spec's block table.
 
 **`invariants.md` (the constitution).** A package-level file of rules (INV-1, INV-2, …) that MUST
 hold across every block: data-safety guarantees, ordering constraints, security boundaries. Every
-per-node brief carries these verbatim, not by reference, because information is lost across handoffs
+item `decompose` files carries these verbatim, not by reference, because information is lost across handoffs
 and constraints are stripped first. This is the single strongest defense against multi-hop context
 loss.
 
@@ -241,33 +241,7 @@ loss.
 
 ---
 
-## 9. `agent-plans/block-*.md`: one brief per DAG node
-
-**Purpose.** A self-contained execution brief so an agent needs only the brief + its spec block.
-
-**Skeleton (every brief identical):**
-
-```
-# Block <n>: <name> (agent brief)
-**Track:** … · **Wave:** … · **Spec:** `<slug>-spec.md` § Block <n>
-**Depends on (entry):** <blocks that must be GREEN>
-**Unblocks:** <downstream blocks>
-**Satisfies:** <REQ-n it delivers> · **Inherited invariants:** <copy the relevant INV-n from `invariants.md`>
-## Objective        → one paragraph
-## Build            → concrete steps
-## Interface (contract)  → Output that downstream blocks rely on; config surface
-## Failure & recovery    → this node's failure modes + fallback chain; all/partial/zero handling
-## Verification tests    → table
-## Adversarial tests     → table
-## Definition of done (GREEN)  → checklist; done only when fully checked
-```
-
-Add an `agent-plans/README.md`: the wave/order table + how to use a brief + "if brief and spec
-disagree, the spec wins, and fix the brief".
-
----
-
-## 10. Visual artifacts
+## 9. Visual artifacts
 
 See `deliverable-formats.md`: the mermaid DAG (mandatory, lives in `development-graph.md`) and the
 optional branded, self-contained HTML rendering of the proposal.
