@@ -12,6 +12,9 @@ well-formed, never that they are _current_. Presence is mechanical; currency is 
 belongs in a code-review pass, not the validator. Deferred until the authoring and enforcement
 halves are in real use and the staleness actually bites.
 
+Update: another PR adds staleness review as an angle in the review plugin's `by-angle` skill. That
+angle is not in this repository yet. The validator still checks presence and never currency.
+
 ## Cross-project docs dashboard
 
 `validate_docs.py --all` already produces the data: which projects are undocumented or non-conformant,
