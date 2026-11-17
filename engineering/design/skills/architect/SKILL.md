@@ -37,7 +37,7 @@ criteria, and what that means for the other parts and their interactions.
 - **Hands to `decompose`:** the spec blocks and the graph. `decompose` cuts them into
   non-overlapping units and files each as a board item. That item is the per-unit brief.
 - **Never does:** write per-unit briefs, or build, run or deploy anything. Running, deploying and
-  observing the system is the deploy stage's job (Teebor-Choka/skills issue #109).
+  observing the system is the `deploy` skill's job (`engineering/ci/deploy`).
 
 ## When this fits
 
@@ -176,19 +176,15 @@ runs steps 0–4 and 7, skipping the graph.
    blur the two. Then run `scripts/lint.py <dir> --tier <tier>` as the cross-artifact gate: it fails on unfilled
    placeholders, a spec block missing either test class, a decision with no status, a missing sources
    section, a cyclic graph, DAG edges that disagree with the spec, and dead cross-links. Fix every
-   error before agents fan out. Then, once lint is clean, **file the work to the tracker**
-   (`references/filing.md`): one work item per block (or the single plan), carrying its objective,
-   interface, both test tables, and an explicit `Blocked by / blocks` edge summary, filed in
-   dependency order to the tracker `work.tracker` resolves to (default `github` in a GitHub repo
-   with `gh`, else `none` — the package directory is then the deliverable). **Filing ends the design**;
-   dispatching the filed items to implementers and integrating their changes is the executor's job
-   (e.g. `implement`), not the architect's. (Deploying the designed system is the separate deploy
-   stage.) → _verify:_ the README
+   error before agents fan out. Then, once lint is clean, **hand the package to `decompose`**, which cuts it into units and files them
+   to the tracker. A plan that is a single unit goes straight to `implement`. **Handing off ends the design**;
+   dispatching and integrating the filed items is the executor's job, and deploying the designed system is
+   the separate deploy stage.
+   → _verify:_ the README
    names the hinge decision and lists open items with concrete close conditions, `lint.py` reports
-   zero errors, and each block is filed with its dependency edges (or `work.tracker: none` leaves the
-   package directory as the deliverable).
+   zero errors, and the package is handed to `decompose` (or `implement` for a single unit).
 8. **Point to the deploy stage.** Architect defines the criteria, the technology, and what to verify
-   and observe (`references/execution.md`). Running, deploying and observing is the deploy stage's job.
+   and observe (`references/execution.md`). Running, deploying and observing is the `deploy` skill's job (`engineering/ci/deploy`).
    → _verify:_ the spec names each criterion and signal, and no script, harness or dashboard exists
    in the package.
 

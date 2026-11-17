@@ -1,8 +1,8 @@
 # Filing the work to the tracker
 
-The package is designed and lint-clean; the architect's last act in Phase A is to **file the work**
-to where the policy says it lives, then stop. Dispatch, execution, and integration are other
-processes' jobs — the architect does not run them.
+The cut is checked by the graph engine; the last act of `decompose` is to **file the work** to where
+the policy says it lives, then hand off. Dispatch, execution and integration belong to `orchestrate`
+and `implement`, not to this skill.
 
 ## Destination (policy-driven)
 
@@ -19,8 +19,8 @@ skill. Unset: default to `github` when the repo has a GitHub remote and `gh` is 
 
 ## What gets filed
 
-One work item per **spec block** (`full` tier) or the single `<slug>-plan.md` (`note`/`small`) — the
-unit an executor (e.g. `implement`) picks up. Each item carries, verbatim from the package:
+One work item per unit (an architect spec block for the `full` tier, or the single `<slug>-plan.md`
+for `note`/`small`), the item an executor such as `implement` picks up. Each item carries, verbatim from the package:
 
 - the block's objective, interface contract, and both test tables (positive + adversarial);
 - its **dependency edges** as an explicit `Blocked by: <item>` / `Blocks: <item>` summary, taken from
@@ -31,16 +31,14 @@ File in dependency order, so a blocker's id exists before the item that cites it
 
 ## Isolation and the optional coordination channel
 
-The graph step already cut the blocks for **disjoint write-sets** (collision-free waves). Where two
-blocks are not cleanly disjoint — they touch a shared boundary the design could not fully separate —
-the architect **declares** it: a line in both items naming a shared coordination channel for
-execution (e.g. a linked discussion). It is a marker the executor honors; the architect never opens
+The graph step already cut the units for **disjoint write-sets** (collision-free waves). Where two
+units are not cleanly disjoint, because they touch a shared boundary the cut could not separate,
+`decompose` **declares** it: a line in both items naming a shared coordination channel for
+execution (e.g. a linked discussion). It is a marker the executor honors; `decompose` never opens
 or runs the channel.
 
 ## Terminal
 
-Filing ends **Phase A**. Dispatching the filed items to implementers and integrating their changes
-is the executor's job — `implement` plus on-demand subagent dispatch per the graph — including the
-mandatory serial integration pass the executor must not skip. The architect does not run that loop.
-(Deploying and observing the _designed system_ is the separate deploy stage, not the architect's
-job. `references/execution.md` lists only what the architect must specify for it.)
+Filing ends the decomposition. Dispatching the filed items to implementers and integrating their
+changes is the executor's job (`orchestrate:assign`, `orchestrate:pull`, `implement`), including the
+mandatory serial integration pass the executor must not skip.

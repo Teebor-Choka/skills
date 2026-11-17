@@ -59,7 +59,7 @@ and integration cost often beats the wall-clock gain. Cut only where the seam is
    cycle, a dangling dependency or a write-set collision inside a wave. Fix the cut, not the check.
    `graph.py` does not read `tier` or `acceptance`: they stay on the item.
 
-5. **File the units.** Use the board verbs (`references/board.md` of the `orchestrate` plugin; the tracker is the
+5. **File the units** (destination, contents and coordination channel: `references/filing.md`). Use the board verbs (`references/board.md` of the `orchestrate` plugin; the tracker is the
    charter's `board`, else the policy key `work.tracker`). File in dependency order so a blocker's
    id exists before the item that cites it. Each item is the unit's brief: it carries the objective, interface, acceptance tests, write-set, tier, a
    `blocks`/`blocked-by` summary taken from the graph, and a link back to the spec.
