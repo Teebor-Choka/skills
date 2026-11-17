@@ -299,14 +299,14 @@ def test_a_symlinked_document_is_refused(tmp_path, rel):
     assert has(got["errors"], "symlink")
 
 
-def test_a_user_symlinked_document_is_refused_too(tmp_path):
+def test_a_user_symlinked_document_is_followed(tmp_path):
     env = env_for(tmp_path)
     real = tmp_path / "real.md"
     real.write_text(PROC)
     folder = tmp_path / "cfg" / "agents" / "procedures"
     folder.mkdir(parents=True)
     (folder / "campaign-ops.md").symlink_to(real)
-    assert has(resolve(project(tmp_path), environ=env)["errors"], "symlink")
+    assert ok(resolve(project(tmp_path), environ=env))["procedure"] == "campaign-ops"
 
 
 def test_an_oversized_document_is_refused(tmp_path):
@@ -501,7 +501,7 @@ def test_a_failing_git_status_does_not_pass_as_a_clean_tree(tmp_path, monkeypatc
     import resolver
     repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC}))
     real = resolver._git
-    monkeypatch.setattr(resolver, "_git", lambda r, *a: None if a[0] == "status" else real(r, *a))
+    monkeypatch.setattr(resolver, "_git", lambda r, *a: None if a[0] == "ls-tree" else real(r, *a))
     got = resolve(repo, environ=env_for(tmp_path))
     assert any("git" in e for e in got["errors"]), got["errors"]
 
@@ -598,3 +598,109 @@ def test_the_cli_reads_inline_documents_from_a_json_file(tmp_path, capsys):
 def test_start_run_freezes_inline_documents(tmp_path):
     state = start_run(project(tmp_path), environ=env_for(tmp_path), inline=_inline(procedures={"campaign-ops": PROC}))
     assert state["resolution"]["sources"]["procedure"] == "inline"
+
+
+# ---- second review: more ways a higher layer got past a guard
+
+NAMED = lambda n, text=PROC: text.replace("name: campaign-ops", f"name: {n}")  # noqa: E731
+USER_OWNER = {"charter.md": OWNER_CHARTER}
+
+
+@pytest.mark.parametrize("where", ["project", "inline"])
+def test_an_empty_charter_cannot_drop_the_users_owner(tmp_path, where):
+    proj = {"procedures/campaign-ops.md": PROC}
+    kw = {}
+    if where == "project":
+        proj["charter.md"] = "---\n---\n"
+    else:
+        kw["inline"] = {"charter": "---\n---\n"}
+    got = _vs_user(tmp_path, proj, USER_OWNER, **kw)
+    assert any("owner" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_user_charter_whose_owner_is_not_a_map_is_an_error(tmp_path):
+    got = _vs_user(tmp_path, {"procedures/campaign-ops.md": PROC}, {"charter.md": "---\nowner: me\n---\n"})
+    assert any("owner" in e and "<user>" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_procedure_that_fails_validation_never_reaches_the_override_guard(tmp_path):
+    bad = FLOORED.replace("    needs: [create]", "    needs: true", 1)
+    got = _vs_user(tmp_path, {"procedures/campaign-ops.md": bad}, {"procedures/campaign-ops.md": FLOORED})
+    assert got["errors"]
+
+
+@pytest.mark.parametrize("text", ["\ud800", "ok\udfff"])
+def test_inline_text_that_is_not_valid_unicode_is_an_error_not_a_crash(tmp_path, text):
+    got = resolve(project(tmp_path), environ=env_for(tmp_path), inline={"policy": text})
+    assert got["errors"], got
+
+
+def test_with_several_user_procedures_and_none_named_a_new_project_procedure_is_refused(tmp_path):
+    user = {"procedures/ship.md": NAMED("ship", FLOORED), "procedures/hotfix.md": NAMED("hotfix", FLOORED)}
+    got = _vs_user(tmp_path, {"procedures/yolo.md": NAMED("yolo"), "policy.md": "---\nprocedure: yolo\n---\n"}, user)
+    assert got["errors"], got
+
+
+def test_a_project_cannot_swap_in_a_floorless_user_procedure_for_the_one_the_user_runs(tmp_path):
+    user = {"procedures/ship.md": NAMED("ship", FLOORED), "procedures/notes.md": NAMED("notes"),
+            "policy.md": "---\nprocedure: ship\n---\n"}
+    got = _vs_user(tmp_path, {"procedures/notes.md": NAMED("notes"), "policy.md": "---\nprocedure: notes\n---\n"}, user)
+    assert any("floor" in e for e in got["errors"]), got["errors"]
+
+
+def test_an_inline_procedure_with_a_new_name_still_meets_the_projects_floor(tmp_path):
+    proj = {"procedures/ship.md": NAMED("ship", FLOORED), "policy.md": "---\nprocedure: ship\n---\n"}
+    got = _vs_user(tmp_path, proj, {}, inline={"procedures": {"yolo": NAMED("yolo")}, "policy": "---\nprocedure: yolo\n---\n"})
+    assert any("floor" in e for e in got["errors"]), got["errors"]
+
+
+@pytest.mark.parametrize("policy", [
+    "---\nramble:\n  mode: team\n---\n",
+    "---\nfiles:\n  \"*\":\n    mode: team\n---\n",
+])
+def test_a_lock_also_holds_against_per_skill_and_per_file_overrides(tmp_path, policy):
+    got = _vs_user(tmp_path, {"policy.md": policy, "procedures/campaign-ops.md": PROC},
+                   {"policy.md": "---\nmode: single\nlocked: [mode]\n---\n"})
+    assert any("mode" in e for e in got["errors"]), got["errors"]
+
+
+def test_git_does_not_run_a_clean_filter_from_the_projects_own_config(tmp_path):
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC}))
+    marker = tmp_path / "ran"
+    hook = tmp_path / "filter.sh"
+    hook.write_text(f"#!/bin/sh\ntouch {marker}\ncat\n")
+    hook.chmod(0o755)
+    write(repo, ".gitattributes", "*.md filter=evil\n")
+    git(repo, "config", "filter.evil.clean", str(hook))
+    doc = repo / ".agents" / "procedures" / "campaign-ops.md"
+    doc.write_text(PROC)  # a fresh stat: git would re-hash it
+    resolve(repo, environ=env_for(tmp_path), allow_dirty=True)
+    assert not marker.exists()
+
+
+def test_process_documents_that_git_ignores_are_not_read_as_clean(tmp_path):
+    repo = project(tmp_path, agents({"policy.md": "---\nmode: single\n---\n"}))
+    write(repo, ".gitignore", ".agents/runs/\n.agents/procedures/\n")
+    git(repo, "add", ".gitignore")
+    git(repo, "commit", "-q", "-m", "ignore")
+    write(repo, ".agents/procedures/campaign-ops.md", PROC)
+    got = resolve(repo, environ=env_for(tmp_path))
+    assert has(got["errors"], "uncommitted"), got["errors"]
+
+
+def test_a_floor_stage_keeps_its_failure_route(tmp_path):
+    base = PROC.replace("  launch:\n", "  launch:\n    floor: true\n", 1)
+    other = base.replace("    on-fail:\n      to: create\n      bound: 2 rounds\n", "", 1)
+    assert other != base
+    got = _vs_user(tmp_path, {"procedures/campaign-ops.md": other}, {"procedures/campaign-ops.md": base})
+    assert any("on-fail" in e for e in got["errors"]), got["errors"]
+
+
+def test_inline_input_is_capped_in_count_and_in_file_size(tmp_path, capsys):
+    many = {f"p{i}": PROC for i in range(200)}
+    got = resolve(project(tmp_path), environ=env_for(tmp_path), inline={"procedures": many})
+    assert any("at most" in e and "procedures" in e for e in got["errors"]), got["errors"]
+    big = tmp_path / "big.json"
+    big.write_text('{"policy": "' + "x" * (4 * 1024 * 1024) + '"}')
+    assert resolve_main([str(project(tmp_path, name="p2")), "--inline", str(big)]) == 1
+    assert "too large" in capsys.readouterr().err
