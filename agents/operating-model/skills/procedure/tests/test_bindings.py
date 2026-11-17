@@ -2,7 +2,7 @@ import copy
 
 import pytest
 from procedure_testkit import has, validate_text
-from validate_procedure import apply_delta, check_bindings, override_violations, parse_procedure
+from validate_procedure import apply_delta, bindings_for, check_bindings, override_violations, parse_procedure
 from metrics_fixtures import MET
 
 KEYS = "policy:\n  work.tracker: where issues and work items live\n  vcs.remote: where to push\n  comms.channel: how nodes talk\n"
@@ -186,3 +186,13 @@ def test_a_replacement_may_lower_but_not_raise_a_loop_bound():
     lower["loops"]["fix"]["bound"] = "2"
     higher["loops"]["fix"]["bound"] = "9"
     assert override_violations(user, lower) == [] and has(override_violations(user, higher), "bound")
+
+
+def test_bindings_for_returns_only_the_declared_keys_the_policy_sets():
+    got = bindings_for(BASE, {**POLICY, "vcs": {"remote": ""}, "unrelated": "x"})
+    assert got == {"comms.channel": "slack", "work.tracker": "github"}
+
+
+def test_bindings_for_keeps_false_and_structured_values():
+    got = bindings_for(BASE, {"work": {"tracker": False}, "vcs": {"remote": ["a"]}, "comms": {"channel": {"url": "x"}}})
+    assert got == {"comms.channel": {"url": "x"}, "vcs.remote": ["a"], "work.tracker": False}

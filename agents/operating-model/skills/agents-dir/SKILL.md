@@ -11,7 +11,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # agents-dir: the process is a set of documents
@@ -64,13 +64,66 @@ snapshot. A snapshot is the revision `process_revision(repo)` returns: the commi
 process document. A run freezes that revision when it starts. A rollback is a revert commit, and
 history is never rewritten. When a change's window closes, its record is updated with the outcome.
 
+## Resolving a run: two locations, project over user
+
+A run reads its documents from two places. For each document the project's `.agents/` wins, then the
+user's `$XDG_CONFIG_HOME/agents/` (default `~/.config/agents/`; no dot under XDG). With neither, the
+tool does nothing: `resolve` returns `None`, `start_run` returns `None` and the command prints "nothing
+to do" and exits 0. A policy and a charter with no procedure also leave nothing to run.
+
+| Document               | Rule                                                           |
+| ---------------------- | -------------------------------------------------------------- |
+| `policy.md`            | layered per key, the project over the user                     |
+| `procedures/<name>.md` | the project's file if it has one of that name, else the user's |
+| `charter.md`           | the project's if it has one, else the user's                   |
+
+The split is deliberate: a global procedure says how, and each project's `policy.md` supplies the
+specifics the procedure declares (see the `procedure` skill, "Policy bindings"). The procedure that
+runs is the explicit name, else the policy's `procedure` key, else the charter's, else the only one
+available. Several and no choice is an error.
+
+A run is refused unless:
+
+- the procedure is valid in strict mode and named after its file;
+- every policy key the procedure declares is set (bindings are returned for exactly those keys);
+- the policy values the runtime checks are usable (`max-agents`, `max-depth`, `regression-threshold`,
+  `safety-metrics`), since a file holds text and the runtime needs numbers;
+- the project's process documents have no uncommitted changes, unless a dirty tree is allowed.
+
+The run pins `revision`: the project commit that last changed a process document, and a hash of the
+user documents it used. That is what a snapshot refers to.
+
+### A cloned repo must not override a trusted setup
+
+"Project wins" would let whoever wrote a repo replace your procedure, charter and policy. The override
+is guarded:
+
+- **Locked keys.** List keys in `locked: [mode, vcs.remote]` in the user's policy. A project policy
+  that sets one to a different value is an error. Only the user's list counts: a project cannot add,
+  replace or empty it.
+- **A weaker procedure.** If a project procedure replaces a user procedure of the same name, it may not
+  drop or rewire a floor stage or move the ladder, a loop or a KPI. Anything it leaves out counts as
+  removed.
+- **A different owner.** A project charter may not name a different `owner` than the user's.
+- **Hostile files.** A symlinked, oversized (over 256 KB) or unreadable document is an error. A
+  procedure name must be lowercase letters, digits and dashes, so it cannot name a path.
+
+```
+python3 scripts/resolver.py PROJECT [--procedure NAME] [--allow-dirty]
+```
+
+The command prints the procedure, revision, sources and bindings, never the policy or the procedure
+text, and exits 1 on any error. `start_run(project, trust="signed")` freezes the result into a run.
+
 ## What this does not do
 
 - It does not decide who may merge. Branch protection or `CODEOWNERS` on `.agents/` does. This checks
   that the documents are consistent and that a change is documented, not that the right person
   approved it.
-- It does not load a procedure into a run, or layer a global file under a local one. That is the
-  resolver, which is not built yet.
 - It does not check that an iteration record's metrics exist in the procedure it touches, or that its
   `outcome` is true. The runtime owns the outcome.
 - It does not protect a repo whose `.agents/` is edited without CI. Wire it into CI and pre-commit.
+- Locking covers policy keys, the owner and the floor. A project can still change policy values the
+  user did not lock, for example `mode`, so lock what matters.
+- It reads the policy loader's layering, which treats a missing user policy as no policy.
+- It does not run anything: the executor does that.
