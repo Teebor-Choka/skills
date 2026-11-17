@@ -151,7 +151,7 @@ write_managed_hook() {
   fi
 
   if [ ! -f "$dest" ]; then
-    printf '#!/usr/bin/env sh\nset -eu\n\n%s\n' "$block" >"$dest"
+    printf '#!/bin/sh\nset -eu\n\n%s\n' "$block" >"$dest"
   else
     tmp="$dest.project-docs.tmp"
     first=$(head -n 1 "$dest")
@@ -166,7 +166,7 @@ write_managed_hook() {
       ;;
     *)
       {
-        printf '#!/usr/bin/env sh\n'
+        printf '#!/bin/sh\n'
         printf '%s\n' "$block"
         cat "$dest"
       } >"$tmp"
