@@ -31,7 +31,7 @@ OWNER = "owner"  # the user: the reserved last rung of every ladder
 LIST_KEYS = ("needs", "consumes", "produces", "review", "metrics", "uses")
 BOOL_KEYS = ("disabled", "floor")
 # A delta may not change these on a floor stage; `review` may only grow.
-FLOOR_LOCKED = ("needs", "consumes", "produces", "skill", "entity", "uses")
+FLOOR_LOCKED = ("needs", "consumes", "produces", "skill", "entity", "uses", "on-fail")
 # Id maps a delta overlays per id, like `stages`, and what protects each. `protected`: keys a delta
 # cannot change on an existing id. `removable`: whether a delta may disable an id. `lower_only`:
 # numeric keys a delta may lower but not raise. A new map is one entry here.
@@ -39,7 +39,7 @@ ID_MAPS = {
     # Who holds authority is protected: a role (the project manager is found by it), who an entity
     # escalates to, and what it may spawn. Removing one is too. Adding an entity is not: that grows below.
     "entities": {"protected": ("escalates-to", "role", "may-spawn"), "removable": False},
-    "loops": {"protected": ("on-exhausted",), "removable": False, "lower_only": ("bound",)},
+    "loops": {"protected": ("on-exhausted", "stages", "exit"), "removable": False, "lower_only": ("bound",)},
     "kpis": {"protected": ("owner",), "removable": False},
 }
 # The closed vocabulary of `when` and loop `exit` conditions: key -> (value type, the context set
