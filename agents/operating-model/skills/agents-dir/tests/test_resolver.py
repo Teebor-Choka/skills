@@ -451,6 +451,8 @@ def test_a_project_procedure_cannot_drop_the_review_angles_of_a_floor_stage(tmp_
 
 def test_a_project_procedure_cannot_rewire_a_stage_around_a_floor_stage(tmp_path):
     rewired = FLOORED.replace("  launch:\n    needs: [create]", "  launch:\n    needs: [brief]", 1)
+    rewired = rewired.replace("    on-fail:\n      to: create\n      bound: 2 rounds\n", "", 1)  # keep it a valid procedure
+    rewired = rewired.replace("    consumes: [creative]\n    produces: [live-campaign]", "    consumes: [audience-brief]\n    produces: [live-campaign]", 1)
     got = _vs_user(tmp_path, {"procedures/campaign-ops.md": rewired}, {"procedures/campaign-ops.md": FLOORED})
     assert any("floor" in e for e in got["errors"]), got["errors"]
 

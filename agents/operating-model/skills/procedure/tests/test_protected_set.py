@@ -60,6 +60,11 @@ def test_a_delta_cannot_redirect_where_a_loop_escalates():
     assert has(layers(BASE, delta("loops:\n  fix:\n    on-exhausted: worker\n")), "protected")
 
 
+def test_a_delta_cannot_end_a_loop_early_or_change_what_it_covers():
+    assert has(layers(BASE, delta("loops:\n  fix:\n    exit:\n      kind: never\n")), "protected")
+    assert has(layers(BASE, delta("loops:\n  fix:\n    stages: [build]\n")), "protected")
+
+
 def test_a_delta_cannot_raise_a_loop_bound_but_can_lower_it():
     assert has(layers(BASE, delta("loops:\n  fix:\n    bound: 999\n")), "bound")
     assert layers(BASE, delta("loops:\n  fix:\n    bound: 2\n")) == []
