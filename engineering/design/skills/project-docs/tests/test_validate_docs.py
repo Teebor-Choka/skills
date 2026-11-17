@@ -255,12 +255,130 @@ def test_conformant_fixture_carries_a_process_doc(conformant_src):
     assert (conformant_src / ".agents" / "procedures" / "sw-development.md").is_file()
 
 
-def test_process_doc_is_optional(make_repo):
+def test_process_doc_is_optional_when_the_project_has_no_procedures(make_repo):
     repo = make_repo()
-    # Absent doc is fine even when .agents/procedures/ exists (the fixture has it).
     (repo / "docs" / "process.md").unlink()
-    assert (repo / ".agents" / "procedures").is_dir()
+    shutil.rmtree(repo / ".agents")
     assert validate_docs.validate_project(repo) == []
+
+
+def test_process_doc_is_required_when_the_project_has_a_procedure(make_repo):
+    repo = make_repo()
+    (repo / "docs" / "process.md").unlink()
+    assert (repo / ".agents" / "procedures" / "sw-development.md").is_file()
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == ["process-doc-missing"]
+    assert findings[0].file == "docs/process.md" and "sw-development" in findings[0].message
+
+
+@pytest.mark.parametrize("layout", ["empty-procedures-dir", "other-tools-files", "non-markdown-only", "policy-only"])
+def test_process_doc_is_not_required_without_a_procedure_file(make_repo, layout):
+    repo = make_repo()
+    (repo / "docs" / "process.md").unlink()
+    shutil.rmtree(repo / ".agents")
+    agents = repo / ".agents"
+    if layout == "empty-procedures-dir":
+        (agents / "procedures").mkdir(parents=True)
+    elif layout == "other-tools-files":
+        (agents / "skills" / "x").mkdir(parents=True)
+        (agents / "skills" / "x" / "SKILL.md").write_text("# x\n")
+    elif layout == "non-markdown-only":
+        (agents / "procedures").mkdir(parents=True)
+        (agents / "procedures" / "notes.txt").write_text("x")
+    else:
+        agents.mkdir()
+        (agents / "policy.md").write_text("# policy\n")
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_a_procedure_in_a_subdirectory_does_not_require_a_process_doc(make_repo):
+    repo = make_repo()
+    (repo / "docs" / "process.md").unlink()
+    shutil.rmtree(repo / ".agents")
+    (repo / ".agents" / "procedures" / "old").mkdir(parents=True)
+    (repo / ".agents" / "procedures" / "old" / "x.md").write_text("# x\n")
+    assert validate_docs.validate_project(repo) == []
+
+
+# ---- the procedure's content, checked by the procedure validator when one is installed
+
+def fake_validator(tmp_path, exit_code=0, message="", marker=None, sleep=0):
+    script = tmp_path / "validate_procedure.py"
+    lines = ["import sys, time"]
+    if marker:
+        lines.append(f"open({str(marker)!r}, 'a').write(sys.argv[1] + '\\n')")
+    if sleep:
+        lines.append(f"time.sleep({sleep})")
+    if message:
+        lines.append(f"print({message!r}, file=sys.stderr)")
+    lines.append(f"sys.exit({exit_code})")
+    script.write_text("\n".join(lines) + "\n")
+    return script
+
+
+def test_a_procedure_the_validator_accepts_passes(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(fake_validator(tmp_path)))
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_a_procedure_the_validator_rejects_is_a_finding_with_its_message(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(fake_validator(tmp_path, 1, "ERROR: stage 'a' needs metrics")))
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == ["process-procedure-invalid"]
+    assert findings[0].file == "docs/process.md" and "needs metrics" in findings[0].message
+    assert ".agents/procedures/sw-development.md" in findings[0].message
+
+
+def test_the_validator_is_given_the_procedure_file(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    marker = tmp_path / "args"
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(fake_validator(tmp_path, marker=marker)))
+    validate_docs.validate_project(repo)
+    assert marker.read_text().strip() == str(repo / ".agents" / "procedures" / "sw-development.md")
+
+
+def test_no_validator_installed_means_the_content_is_not_checked(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(tmp_path / "missing.py"))
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_an_empty_setting_turns_the_content_check_off(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    marker = tmp_path / "args"
+    fake_validator(tmp_path, 1, "ERROR", marker=marker)
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", "")
+    assert validate_docs.validate_project(repo) == [] and not marker.exists()
+
+
+def test_the_validator_is_not_run_when_the_procedure_file_is_missing(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    (repo / ".agents" / "procedures" / "sw-development.md").unlink()
+    (repo / ".agents" / "procedures" / "other.md").write_text("# other\n")
+    marker = tmp_path / "args"
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(fake_validator(tmp_path, 1, "ERROR", marker=marker)))
+    assert [f.rule for f in validate_docs.validate_project(repo)] == ["process-procedure-missing"] and not marker.exists()
+
+
+def test_a_validator_that_hangs_is_a_finding_not_a_hang(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(fake_validator(tmp_path, sleep=5)))
+    monkeypatch.setattr(validate_docs, "PROCEDURE_TIMEOUT", 1)
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == ["process-procedure-invalid"] and "timed out" in findings[0].message
+
+
+def test_the_validator_runs_without_the_environment_or_user_site(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    marker = tmp_path / "env"
+    script = tmp_path / "v.py"
+    script.write_text(f"import os, sys\nopen({str(marker)!r}, 'w').write(os.environ.get('SECRET_TOKEN', 'absent') + ' ' + str(sys.flags.ignore_environment))\n")
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(script))
+    monkeypatch.setenv("SECRET_TOKEN", "leak")
+    validate_docs.validate_project(repo)
+    assert marker.read_text() == "absent 1"
 
 
 def test_valid_process_doc_passes(make_repo):
