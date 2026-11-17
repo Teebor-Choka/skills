@@ -94,8 +94,15 @@ emit_hook_cmd() {
   root=\$(git rev-parse --show-toplevel) || exit \$?
   tmp=\$(mktemp -d) || exit \$?
   trap 'rm -rf "\$tmp"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   name=\$(basename "\$root")
-  git checkout-index -a -f --prefix="\$tmp/\$name/" || exit \$?
+  # export only what the validator reads, not the whole index
+  git ls-files -z -- "\${SUBDIR}docs" "\${SUBDIR}AGENTS.md" |
+    git checkout-index -z --stdin -f --prefix="\$tmp/\$name/" || exit \$?
+  [ -z "\$SUBDIR" ] && mkdir -p "\$tmp/\$name"
+  # a subproject with nothing in the index has nothing to validate
+  [ -d "\$tmp/\$name/\$SUBDIR" ] || exit 0
   python3 "\$VALIDATOR" "\$tmp/\$name/\$SUBDIR"
 ) || exit \$?
 EOF
@@ -109,11 +116,6 @@ write_managed_hook() {
   # $1 = destination hook file. Insert our marked block after the shebang (so an
   # existing hook that ends in `exit 0` cannot strand it), idempotently.
   dest=$1
-  if [ -f "$dest" ] && grep -qF "$MARKER" "$dest" 2>/dev/null; then
-    echo "hook already installed in $dest (marker present); nothing to do"
-    return 0
-  fi
-
   if [ -L "$dest" ]; then
     echo "$dest is a symlink; leaving it (and its target) untouched."
     echo "Add this block to the hook it points to, after the shebang:"
@@ -122,6 +124,31 @@ write_managed_hook() {
     return 0
   fi
   block=$BLOCK
+
+  if [ -f "$dest" ] && grep -qF "$MARKER" "$dest" 2>/dev/null; then
+    # Replace the managed block in place, so an older install gets upgraded.
+    if ! grep -qF "$END_MARKER" "$dest"; then
+      echo "error: $dest has the start marker but no end marker; fix it by hand" >&2
+      return 1
+    fi
+    tmp="$dest.project-docs.tmp"
+    blockfile="$dest.project-docs.block"
+    printf '%s\n' "$block" >"$blockfile"
+    awk -v m="$MARKER" -v e="$END_MARKER" -v bf="$blockfile" '
+      $0 == m { while ((getline l < bf) > 0) print l; skip = 1; next }
+      skip && $0 == e { skip = 0; next }
+      !skip { print }' "$dest" >"$tmp"
+    rm -f "$blockfile"
+    if cmp -s "$tmp" "$dest"; then
+      rm -f "$tmp"
+      echo "hook already up to date in $dest; nothing to do"
+      return 0
+    fi
+    chmod +x "$tmp"
+    mv "$tmp" "$dest"
+    echo "updated project-docs pre-commit hook: $dest"
+    return 0
+  fi
 
   if [ ! -f "$dest" ]; then
     printf '#!/usr/bin/env sh\nset -eu\n\n%s\n' "$block" >"$dest"

@@ -265,4 +265,8 @@ def test_hook_removes_its_temp_dir_on_sigterm(scripts, repo, tmp_path):
     assert tmp_root.exists()
     os.killpg(proc.pid, signal.SIGTERM)
     proc.wait(timeout=20)
+    for _ in range(50):  # the subshell may finish cleanup just after its parent dies
+        if not tmp_root.exists():
+            break
+        time.sleep(0.1)
     assert not tmp_root.exists()

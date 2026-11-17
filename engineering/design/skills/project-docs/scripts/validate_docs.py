@@ -36,15 +36,15 @@ from pathlib import Path
 ADR_STATUSES = frozenset({"proposed", "accepted"})
 UPDATED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
+FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 
 # Narrow, high-signal credential shapes. Matches are reported by kind only, never echoed.
 SECRET_PATTERNS = (
     ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
-    ("AWS access key id", re.compile(r"AKIA[0-9A-Z]{16}")),
+    ("AWS access key id", re.compile(r"(?<![A-Z0-9])AKIA(?![0-9A-Z]{9}EXAMPLE)[0-9A-Z]{16}(?![A-Z0-9])")),
     ("GitHub token", re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}")),
-    ("Slack token", re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}")),
+    ("Slack token", re.compile(r"xox[baprs]-(?:\d{6,}-){2,}[A-Za-z0-9]{10,}")),
 )
 SUPERSEDE_KEYS = ("supersedes", "superseded-by")
 
@@ -138,6 +138,17 @@ def _has_mermaid_block(text: str) -> bool:
     return opener is not None and opener[2] and body_has_text  # unclosed fence runs to EOF
 
 
+def _dir_unreadable(path: Path) -> bool:
+    """True when path exists but cannot be listed (e.g. a permission error)."""
+    try:
+        os.listdir(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    except OSError:
+        return True
+    return False
+
+
 def _read(path: Path, project: str, rel: str, findings: list[Finding]) -> str | None:
     """Read a doc as UTF-8; an unreadable file becomes a finding, not a crash."""
     try:
@@ -212,8 +223,12 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
     findings: list[Finding] = []
     docs = project_path / "docs"
 
+    if _dir_unreadable(docs):
+        return [Finding(project, "docs", "unreadable-file", "cannot list docs/")]
     if not docs.is_dir():
         return [Finding(project, None, "undocumented", "no docs/ directory", "warning")]
+    if _dir_unreadable(docs / "decisions"):
+        return [Finding(project, "docs/decisions", "unreadable-file", "cannot list docs/decisions/")]
 
     overview = docs / "overview.md"
     decisions = docs / "decisions"
