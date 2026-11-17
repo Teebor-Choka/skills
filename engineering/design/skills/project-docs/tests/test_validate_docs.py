@@ -9,6 +9,7 @@ Pure standard library, no third-party deps beyond pytest itself.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -434,7 +435,7 @@ SECRETS = {
     "aws": "AK" + "IA" + "ABCDEFGHIJKLMNOP",
     "gh": "gh" + "p_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8",
     "ghpat": "github" + "_pat_" + "a1B2c3D4e5F6g7H8i9J0k1",
-    "slack": "xo" + "xb-" + "1234567890-abcdefghij",
+    "slack": "xo" + "xb-" + "123456789012-1234567890123-" + "abcdefghijABCDEFGHIJabcd",
 }
 
 
@@ -461,3 +462,37 @@ def test_secret_pattern_ignores_prose_and_short_examples(make_repo):
         " xoxb-1, github_pat_x, a PRIVATE KEY lives in the secret store.\n"
     )
     assert rules(repo) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "AKIAIOSFODNN7EXAMPLE",  # AWS's documented example key
+        "xoxb-your-token-here",
+        "BAKIA" + "ABCDEFGHIJKLMNOP",  # embedded in a longer word
+        "AKIA" + "ABCDEFGHIJKLMNOP" + "Q",
+    ],
+)
+def test_secret_pattern_ignores_documented_examples_and_embedded_text(make_repo, text):
+    repo = make_repo()
+    p = repo / "docs" / "spec.md"
+    p.write_text(p.read_text() + f"\nexample: {text}\n")
+    assert rules(repo) == []
+
+
+def test_four_space_indented_fence_is_not_a_fence(make_repo):
+    repo = make_repo()
+    set_overview_diagram(repo, "    ```mermaid\n    flowchart TD\n      a --> b\n    ```\n")
+    assert rules(repo) == ["diagram"]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file modes")
+@pytest.mark.parametrize("sub", ["docs", "docs/decisions"])
+def test_unreadable_doc_dir_is_a_finding_not_an_abort(make_repo, sub):
+    repo = make_repo()
+    d = repo / sub
+    d.chmod(0)
+    try:
+        assert rules(repo) == ["unreadable-file"]
+    finally:
+        d.chmod(0o755)

@@ -8,7 +8,9 @@ does with it: block or allow. Standard library plus pytest.
 import os
 import shlex
 import shutil
+import signal
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -182,3 +184,85 @@ def test_hook_fails_clearly_when_the_validator_is_gone(scripts, repo):
     assert result.returncode != 0
     out = result.stdout + result.stderr
     assert "validate_docs.py" in out and "install_hook.sh" in out
+
+
+def make_subproject_repo(base: Path) -> Path:
+    r = base / "mono"
+    shutil.copytree(FIXTURE, r / "proj")
+    (r / "other.txt").write_text("o\n")
+    git(r, "init", "-q", "-b", "main")
+    git(r, "add", "-A")
+    git(r, "commit", "-q", "-m", "init")
+    return r
+
+
+def test_subdir_target_does_not_block_an_unrelated_commit(scripts, tmp_path):
+    mono = make_subproject_repo(tmp_path)
+    (mono / "fresh").mkdir()  # exists on disk, nothing under it in the index
+    assert install(scripts, mono / "fresh").returncode == 0
+    (mono / "unrelated.txt").write_text("x\n")
+    git(mono, "add", "unrelated.txt")
+    result = git(mono, "commit", "-q", "-m", "u", check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_subdir_target_still_blocks_a_broken_staged_doc(scripts, tmp_path):
+    mono = make_subproject_repo(tmp_path)
+    install(scripts, mono / "proj")
+    (mono / "proj" / "docs" / "overview.md").write_text("no frontmatter\n")
+    git(mono, "add", "proj/docs/overview.md")
+    assert git(mono, "commit", "-q", "-m", "b", check=False).returncode != 0
+
+
+OLD_BLOCK = """#!/usr/bin/env sh
+set -eu
+
+# >>> project-docs validate_docs hook >>>
+python3 "{v}" "{t}" || exit $?
+# <<< project-docs validate_docs hook <<<
+echo after-block
+"""
+
+
+def test_reinstall_upgrades_an_old_block_and_is_then_stable(scripts, repo):
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    hook.parent.mkdir(exist_ok=True)
+    hook.write_text(OLD_BLOCK.format(v=scripts / "validate_docs.py", t=repo))
+    hook.chmod(0o755)
+    assert install(scripts, repo).returncode == 0
+    upgraded = hook.read_text()
+    assert "checkout-index" in upgraded
+    assert upgraded.count(MARKER) == 1 and "echo after-block" in upgraded
+    assert install(scripts, repo).returncode == 0
+    assert hook.read_text() == upgraded
+
+
+def test_hook_exports_only_docs_and_agents_md(scripts, repo):
+    install(scripts, repo)
+    hook = (repo / ".git" / "hooks" / "pre-commit").read_text()
+    assert "checkout-index -a" not in hook
+
+
+def test_hook_removes_its_temp_dir_on_sigterm(scripts, repo, tmp_path):
+    install(scripts, repo)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    seen = tmp_path / "seen"
+    fake = bin_dir / "python3"
+    fake.write_text(f'#!/bin/sh\nprintf %s "$2" > "{seen}"\nsleep 30\n')
+    fake.chmod(0o755)
+    proc = subprocess.Popen(
+        [str(repo / ".git" / "hooks" / "pre-commit")], cwd=repo, start_new_session=True,
+        env={**ENV, "PATH": f"{bin_dir}{os.pathsep}{ENV['PATH']}"},
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    for _ in range(100):
+        if seen.exists() and seen.read_text():
+            break
+        time.sleep(0.1)
+    exported = Path(seen.read_text().rstrip("/"))
+    tmp_root = exported.parent
+    assert tmp_root.exists()
+    os.killpg(proc.pid, signal.SIGTERM)
+    proc.wait(timeout=20)
+    assert not tmp_root.exists()
