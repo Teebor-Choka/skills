@@ -1,3 +1,4 @@
+import pytest
 from procedure_testkit import FIXTURES, has, main, validate_layers, validate_text
 
 
@@ -200,7 +201,7 @@ def test_delta_cannot_rewire_around_a_floor_stage():
 
 
 def test_delta_cannot_change_a_floor_stage_wiring_or_skill():
-    for tail in ("needs: []", "skill: noop", "produces: [other]"):
+    for tail in ("needs: []", "skills: [noop]", "produces: [other]"):
         assert has(gated(f"  gate:\n    {tail}\n"), "floor"), tail
 
 
@@ -225,3 +226,37 @@ def test_delta_may_add_a_stage_after_a_floor_stage():
 def test_non_boolean_disabled_or_floor_fails():
     assert has(gated("  gate:\n    disabled: yes\n"), "disabled")
     assert has(errs("  a:\n    floor: yes\n    produces: [x]\n"), "floor")
+
+
+# ---- a stage names the skills that execute it, as a list
+
+def test_a_stage_may_list_the_skills_that_execute_it():
+    assert validate_text(proc("  a:\n    produces: [x]\n    metrics: [m]\n    skills: [git:workflow, review:by-angle]\n"), "<t>", ) is not None
+
+
+def test_skills_must_be_a_list():
+    errs = validate_text(proc("  a:\n    produces: [x]\n    skills: git:workflow\n"))
+    assert has(errs, "'skills' must be a list")
+
+
+@pytest.mark.parametrize("items", ["[3]", "['']", "[a, a]"])
+def test_each_skill_is_a_non_empty_unique_name(items):
+    assert has(validate_text(proc(f"  a:\n    produces: [x]\n    skills: {items}\n")), "skills")
+
+
+def test_the_single_skill_key_is_refused_and_points_to_skills():
+    errs = validate_text(proc("  a:\n    produces: [x]\n    skill: git:workflow\n"))
+    assert has(errs, "'skill'") and has(errs, "skills")
+
+
+def test_a_floor_stage_keeps_its_skills():
+    base = "---\nname: b\nstages:\n  gate:\n    floor: true\n    produces: [x]\n    skills: [review:by-angle]\n---\n"
+    for tail in ("skills: [other]", "skills: []"):
+        delta = f"---\nstages:\n  gate:\n    {tail}\n---\n"
+        assert has(validate_layers(base, delta), "floor"), tail
+
+
+def test_a_delta_may_change_the_skills_of_a_stage_that_is_not_floor():
+    base = "---\nname: b\nstages:\n  gate:\n    floor: true\n    produces: [x]\n  work:\n    needs: [gate]\n    consumes: [x]\n    produces: [y]\n    skills: [a]\n---\n"
+    delta = "---\nstages:\n  work:\n    skills: [a, b]\n---\n"
+    assert validate_layers(base, delta) == []
