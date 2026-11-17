@@ -120,6 +120,14 @@ def test_printed_stanza_quotes_the_validator_path(weird_scripts, weird_repo):
     assert argv == ["python3", str(scripts / "validate_docs.py")]
 
 
+def test_new_hook_uses_a_portable_shebang(scripts, repo):
+    # The Nix build sandbox has /bin/sh but no /usr/bin/env, so an env shebang
+    # makes git fail to exec the hook there.
+    install(scripts, repo)
+    hook = (repo / ".git" / "hooks" / "pre-commit").read_text()
+    assert hook.splitlines()[0] == "#!/bin/sh"
+
+
 def test_rerun_does_not_duplicate_the_block(scripts, repo):
     install(scripts, repo)
     again = install(scripts, repo)
