@@ -795,3 +795,73 @@ def test_a_project_procedure_with_an_upper_case_suffix_is_refused(tmp_path):
     repo = project(tmp_path, agents({"procedures/foo.MD": NAMED("foo")}))
     got = resolve(repo, environ=env_for(tmp_path, {"procedures/foo.md": NAMED("foo"), "policy.md": "---\nprocedure: foo\n---\n"}))
     assert any("lowercase" in e for e in got["errors"]), got["errors"]
+
+
+# ---- the delegate: every escalation ends in an assigned, verifiable entity
+
+ENT = PROC.replace("kpis:", "entities:\n  lead:\n    role: team-lead\n    escalates-to: liaison\n  liaison:\n    role: delegate\n    escalates-to: owner\nkpis:", 1)
+DELEGATE_CHARTER = "---\nowner:\n  channel: chat\n  answer-path: signed reply\ndelegate: liaison\n---\n"
+
+
+def _delegate(tmp_path, proc=ENT, charter=DELEGATE_CHARTER, **kw):
+    files = {"procedures/campaign-ops.md": proc}
+    if charter is not None:
+        files["charter.md"] = charter
+    return resolve(project(tmp_path, agents(files)), environ=env_for(tmp_path), **kw)
+
+
+def test_a_charter_that_names_the_delegate_lets_the_run_start(tmp_path):
+    assert _delegate(tmp_path)["errors"] == []
+
+
+def test_escalation_to_the_owner_needs_a_delegate_in_the_charter(tmp_path):
+    got = _delegate(tmp_path, charter=OWNER_CHARTER)
+    assert any("delegate" in e and "charter" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_run_with_no_charter_at_all_is_refused_when_something_escalates_to_the_owner(tmp_path):
+    got = _delegate(tmp_path, charter=None)
+    assert any("delegate" in e for e in got["errors"]), got["errors"]
+
+
+def test_the_delegate_must_be_an_entity_of_the_procedure(tmp_path):
+    got = _delegate(tmp_path, charter=DELEGATE_CHARTER.replace("liaison", "ghost"))
+    assert any("ghost" in e for e in got["errors"]), got["errors"]
+
+
+def test_the_delegate_must_have_the_delegate_role(tmp_path):
+    got = _delegate(tmp_path, charter=DELEGATE_CHARTER.replace("liaison", "lead"))
+    assert any("role" in e and "delegate" in e for e in got["errors"]), got["errors"]
+
+
+def test_only_the_delegate_may_escalate_to_the_owner(tmp_path):
+    proc = ENT.replace("  lead:\n    role: team-lead\n    escalates-to: liaison", "  lead:\n    role: team-lead\n    escalates-to: owner")
+    got = _delegate(tmp_path, proc=proc)
+    assert any("lead" in e and "owner" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_procedure_with_no_entity_escalating_to_the_owner_needs_no_delegate(tmp_path):
+    assert _delegate(tmp_path, proc=PROC, charter=OWNER_CHARTER)["errors"] == []
+
+
+def test_an_inline_charter_can_name_the_delegate(tmp_path):
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": ENT}))
+    got = resolve(repo, environ=env_for(tmp_path), inline={"charter": DELEGATE_CHARTER})
+    assert got["errors"] == [], got["errors"]
+
+
+def test_attested_decisions_reach_the_run_as_a_validated_list(tmp_path):
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC, "policy.md": "---\nattested-decisions: [ordinary, protected]\n---\n"}))
+    assert start_run(repo, environ=env_for(tmp_path))["policy"]["attested-decisions"] == ["ordinary", "protected"]
+
+
+def test_an_unknown_attested_class_is_refused(tmp_path):
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC, "policy.md": "---\nattested-decisions: [everything]\n---\n"}))
+    with pytest.raises(ResolutionError):
+        start_run(repo, environ=env_for(tmp_path))
+
+
+def test_a_project_cannot_loosen_attested_decisions_when_the_user_locked_the_key(tmp_path):
+    user = {"policy.md": "---\nattested-decisions: [ordinary]\nlocked: [attested-decisions]\n---\n"}
+    got = _vs_user(tmp_path, {"policy.md": "---\nattested-decisions: [ordinary, protected]\n---\n", "procedures/campaign-ops.md": PROC}, user)
+    assert any("attested-decisions" in e for e in got["errors"]), got["errors"]
