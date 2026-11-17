@@ -22,7 +22,7 @@ from policy_loader import PolicyError, _parse_frontmatter, _split_frontmatter  #
 from policy_loader import get as policy_get  # noqa: E402
 
 __all__ = (
-    "validate_text", "validate_layers", "apply_delta", "check_bindings", "override_violations",
+    "validate_text", "validate_layers", "apply_delta", "check_bindings", "bindings_for", "override_violations",
     "parse_frontmatter", "parse_procedure", "main",
 )
 
@@ -572,6 +572,16 @@ def _present(value):
     if isinstance(value, (dict, list)):
         return bool(value)
     return True
+
+
+def bindings_for(proc, policy):
+    """The value of each declared policy key that the policy sets. Keys it leaves unset are left out."""
+    found = {}
+    for key in sorted(proc.get("policy") or {}):
+        value = policy_get(policy, key, default=None)
+        if _present(value):
+            found[key] = value
+    return found
 
 
 def check_bindings(proc, policy, name=None):

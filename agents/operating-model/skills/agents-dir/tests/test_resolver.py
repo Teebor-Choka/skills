@@ -411,3 +411,17 @@ def test_the_command_takes_a_procedure_name_and_allows_a_dirty_tree_on_request(t
     write(repo, ".agents/procedures/campaign-ops.md", PROC + "\n")
     assert run_cli(tmp_path, repo, "--procedure", "campaign-ops", monkeypatch=monkeypatch) == 1
     assert run_cli(tmp_path, repo, "--procedure", "campaign-ops", "--allow-dirty", monkeypatch=monkeypatch) == 0
+
+
+def test_a_project_cannot_replace_the_users_lock_list_with_its_own(tmp_path):
+    repo = project(tmp_path, agents({"policy.md": "---\nmode: single\nlocked: [something-else]\n---\n"}))
+    env = lock(tmp_path, {"policy.md": "---\nmode: team\nlocked: [mode]\n---\n"})
+    assert has(resolve(repo, environ=env)["errors"], "mode")
+
+
+def test_the_policy_names_the_procedure_before_the_charter_does(tmp_path):
+    repo = two(tmp_path)
+    write(repo, ".agents/policy.md", "---\nprocedure: other\n---\n")
+    write(repo, ".agents/charter.md", OWNER_CHARTER.replace("---\nowner", "---\nprocedure: campaign-ops\nowner", 1))
+    commit(repo)
+    assert ok(resolve(repo, environ=env_for(tmp_path)))["procedure"] == "other"
