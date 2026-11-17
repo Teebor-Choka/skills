@@ -706,3 +706,45 @@ def test_inline_input_is_capped_in_count_and_in_file_size(tmp_path, capsys):
     big.write_text('{"policy": "' + "x" * (4 * 1024 * 1024) + '"}')
     assert resolve_main([str(project(tmp_path, name="p2")), "--inline", str(big)]) == 1
     assert "too large" in capsys.readouterr().err
+
+
+# ---- security review: a lower layer may pick another of the user's procedures
+
+PICKS = {"procedures/ship.md": NAMED("ship", FLOORED), "procedures/notes.md": NAMED("notes"),
+         "policy.md": "---\nprocedure: ship\n---\n"}
+
+
+def test_a_project_policy_cannot_pick_a_floorless_user_procedure(tmp_path):
+    got = _vs_user(tmp_path, {"policy.md": "---\nprocedure: notes\n---\n"}, PICKS)
+    assert any("floor" in e for e in got["errors"]), got
+
+
+def test_an_inline_policy_cannot_pick_a_floorless_user_procedure(tmp_path):
+    got = _vs_user(tmp_path, {}, PICKS, inline={"policy": "---\nprocedure: notes\n---\n"})
+    assert any("floor" in e for e in got["errors"]), got
+
+
+def test_a_project_charter_cannot_pick_a_floorless_user_procedure(tmp_path):
+    owner = "owner:\n  channel: chat\n  answer-path: signed reply\n"
+    user = {"procedures/ship.md": NAMED("ship", FLOORED), "procedures/notes.md": NAMED("notes"),
+            "charter.md": f"---\n{owner}procedure: ship\n---\n"}
+    got = _vs_user(tmp_path, {"charter.md": f"---\n{owner}procedure: notes\n---\n"}, user)
+    assert got["procedure"] == "notes" and any("floor" in e for e in got["errors"]), got
+
+
+def test_the_caller_may_still_name_any_procedure_it_wants(tmp_path):
+    got = _vs_user(tmp_path, {}, PICKS, name="notes")
+    assert got["errors"] == [] and got["procedure"] == "notes"
+
+
+def test_with_several_user_procedures_and_none_named_a_project_cannot_pick_one(tmp_path):
+    user = {"procedures/ship.md": NAMED("ship", FLOORED), "procedures/notes.md": NAMED("notes")}
+    got = _vs_user(tmp_path, {"policy.md": "---\nprocedure: notes\n---\n"}, user)
+    assert got["errors"], got
+
+
+def test_an_inline_policy_cannot_pick_a_floorless_project_procedure(tmp_path):
+    proj = {"procedures/ship.md": NAMED("ship", FLOORED), "procedures/other.md": NAMED("other"),
+            "policy.md": "---\nprocedure: ship\n---\n"}
+    got = _vs_user(tmp_path, proj, {}, inline={"policy": "---\nprocedure: other\n---\n"})
+    assert got["procedure"] == "other" and any("floor" in e for e in got["errors"]), got

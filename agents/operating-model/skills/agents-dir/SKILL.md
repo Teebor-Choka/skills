@@ -11,7 +11,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.3.0"
+  version: "1.3.1"
 ---
 
 # agents-dir: the process is a set of documents
@@ -113,7 +113,9 @@ is guarded:
   same name and with the one the user runs (a rename, or a swap for another of the user's, does not
   shed a floor); inline is also compared with the project's. When the user has several procedures and
   names none (`procedure` in the user's policy), a project or inline procedure with no same-name
-  counterpart is refused, since the floor to keep is unknown. A procedure that fails validation is
+  counterpart is refused, since the floor to keep is unknown. The check applies to a name that came from a policy or
+  charter even when it names one of the user's own procedures. A name the caller passes
+  (`--procedure`, `name=`) is the caller's own choice and is not checked against the user's baseline. A procedure that fails validation is
   refused before any comparison. It may not drop, rewire or strip a floor stage, remove its review angles, rewire a
   stage around it, a floor stage's `on-fail`, or move the ladder, a loop (its `stages`, `exit`, `on-exhausted`) or a KPI. A key it leaves out counts as changed. A
   user baseline that is itself invalid is an error.
