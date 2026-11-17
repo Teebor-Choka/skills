@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.6.0"
+  version: "1.7.0"
 ---
 
 # procedure: a named graph of stages
@@ -328,7 +328,32 @@ What this does not do:
 - `register` is a global registry. Code that can call it can replace the owner gate, so only trusted
   code may.
 - Paths match case-sensitively. A case-insensitive filesystem needs its changes lowercased first.
-- It does not build the executor.
+- It does not run agents. `scripts/executor.py` holds the keys and drives the loop; what an `Executor`
+  does with an action (a context, a board item, a subagent) is the harness's.
+
+### Driving a run: `scripts/executor.py`
+
+`KeyRing(run_id, entities)` is the executor's key custody. `issue(entity)` returns an `Identity` for
+one new instance with its own secret; the identity can only `seal` events (it stamps `sender` and
+`instance` and signs them with the run id). `revoke(instance)` ends it. The executor's own facts go
+through `executor_event`, signed with a key no entity has. `verify_sender` and `verify_executor` are
+the verifiers for `step`; both fail closed.
+
+```python
+ring = KeyRing(state["run_id"], state["proc"]["entities"])
+outcome = drive(state, executor, ring, verify_owner=verify_owner)   # state: a new, signed run
+```
+
+`executor` is any object with `run(action) -> list[event]`; it returns the events the action caused,
+each sealed with an identity from the ring, or `[]` for an action it only notes. `drive` sends
+`run-started`, hands each action to the executor, feeds every event back through `step`, and stops
+with `outcome.status`: `done`, `halted`, `waiting` (nothing left to do, a person or agent must act),
+`stalled` (events were refused, see `outcome.errors`), `exhausted` (`max_steps`) or `failed` (the
+executor raised). The owner's decisions arrive from outside: signed with the owner's key, verified by
+`verify_owner`, then fed in by a later call. `drive` takes a new run only.
+
+Keys live in the ring's process. For an executor that must resist a hostile agent, run the ring in a
+separate process and give the agent only an identity's `seal`.
 
 ## Metrics, changes and rollback
 
