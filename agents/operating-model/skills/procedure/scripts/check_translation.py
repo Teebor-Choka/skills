@@ -12,6 +12,7 @@ import argparse
 import sys
 from collections import Counter
 
+from policy_loader import _strip_inline_comment
 from validate_procedure import ID_MAPS, parse_frontmatter, parse_procedure, validate_text
 
 __all__ = ("check_translation", "main")
@@ -43,10 +44,12 @@ def _raw_errors(text, src):
     """Errors only the raw text shows. The parser keeps the last of a repeated key, cuts a value at
     an unquoted ` #`, files a dedented line under the root, and stops at any `---` line. Each would
     silently shorten what the translator wrote."""
-    lines = text.splitlines()
+    lines = [line.rstrip("\r") for line in text.split("\n")]
     if sum(1 for line in lines if line.strip() == "---") != 2:
         return [f"{src}: a '---' line other than the opening and closing fence would end the file early"]
-    body = lines[1 : lines.index("---", 1)] if lines[:1] == ["---"] else []
+    start = next(i for i, line in enumerate(lines) if line.strip())  # the parser skips blank lines and strips the fence
+    stop = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "---")
+    body = lines[start + 1 : stop]
     errs, sections, section, base, seen = [], set(), None, None, set()
     for line in body:
         stripped = line.strip()
@@ -70,8 +73,8 @@ def _raw_errors(text, src):
             errs.append(f"{src}: '{key}' appears twice under {section}: the parser keeps only the last")
         seen.add(key)
         value = value.strip()
-        if section == "sentences" and value[:1] not in ('"', "'") and " #" in f" {value}":
-            errs.append(f"sentence '{key}': ' #' starts a comment and would cut the text; quote the sentence")
+        if section == "sentences" and _strip_inline_comment(value).strip() != value:
+            errs.append(f"sentence '{key}': a '#' starts a comment and would cut the text; quote the sentence")
     return errs
 
 

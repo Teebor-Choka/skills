@@ -310,7 +310,6 @@ def test_any_comment_cut_by_the_parser_is_reported(value):
     assert has(errors, "comment") or has(errors, "#"), errors
 
 
-def test_a_padded_closing_fence_is_an_error_not_a_crash():
-    text = "---\nsentences:\n  s1: A\ntrace:\n  s1: [loops.fix]\n--- \n"
-    errors, _ = check_translation(text, PROC)
-    assert errors
+def test_a_padded_closing_fence_is_read_like_an_exact_one_and_never_crashes():
+    body = "sentences:\n  s1: A\ntrace:\n  s1: [loops.fix]\n"
+    assert check_translation(f"---\n{body}--- \n", PROC) == check_translation(f"---\n{body}---\n", PROC)
