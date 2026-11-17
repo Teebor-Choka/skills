@@ -405,8 +405,13 @@ def _inputs(state, sid):
 
 
 def _start(state, sid):
+    state["stages"][sid]["status"] = "running"
+    return _start_action(state, sid)
+
+
+def _start_action(state, sid):
+    """The `start-stage` action for a stage, built from the state without changing it."""
     st = state["stages"][sid]
-    st["status"] = "running"
     spec = state["proc"]["stages"][sid]
     inputs = _inputs(state, sid)
     name, lp = _loop_of(state, sid)
@@ -422,6 +427,23 @@ def _start(state, sid):
         "round": st.get("round", 1),
         "verify": True,
     }
+
+
+def pending_actions(state):
+    """The actions a resumed run must issue again, built from the state without changing it.
+
+    A stage that is running has lost its agent with the process that held it, and an item that is open
+    still waits for whoever holds it. Both are issued as they were the first time."""
+    out = [_start_action(state, sid) for sid, st in state["stages"].items() if st["status"] == "running"]
+    for item in state.get("items", []):
+        if item["status"] != "open":
+            continue
+        shown = {k: item[k] for k in ("change", "protected", "kind", "evidence", "delta") if k in item}
+        if item["at"] == "owner":
+            out.append({"do": "notify-owner", "item": item["id"], "asks": item["asks"], "from": item["from"], "default-if-silent": "wait", **shown})
+        else:
+            out.append({"do": "escalate", "item": item["id"], "to": item["at"], "asks": item["asks"], "from": item["from"], **shown})
+    return out
 
 
 def _advance(state):

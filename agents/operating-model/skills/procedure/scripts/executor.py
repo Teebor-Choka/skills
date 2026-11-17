@@ -25,10 +25,10 @@ import json
 import secrets
 from dataclasses import dataclass, field
 
-from ledger import header_of, identity_of
-from runtime import step
+from ledger import header_of, identity_of, recover
+from runtime import pending_actions, step
 
-__all__ = ("Identity", "KeyRing", "Outcome", "drive")
+__all__ = ("Identity", "KeyRing", "Outcome", "drive", "new_ring", "resume")
 
 EXECUTOR = "executor"
 
@@ -127,21 +127,9 @@ class Outcome:
     errors: list = field(default_factory=list)
 
 
-def drive(state, executor, ring, *, verify_owner=None, changed=(), max_steps=1000, ledger=None):
-    """Run a new signed run to a stop. Every event, including the executor's own, goes through `step`.
-
-    `max_steps` bounds the work: each action handed to the executor and each event fed back counts.
-    With a `ledger`, a header and every event that reached the reducer's log are recorded, each with the
-    identity the executor verified for it."""
-    if state["trust"] != "signed":
-        raise ValueError("drive needs a signed run: an unsigned one cannot tell who sent an event")
-    if state["status"] != "new":
-        raise ValueError(f"drive starts a new run, not one that is {state['status']}")
-    if not (isinstance(changed, (list, tuple)) and all(isinstance(p, str) for p in changed)):
-        raise ValueError("'changed' must be a list of paths")
+def _feeder(ring, verify_owner, ledger):
+    """`feed(state, event)`: step the event, and record it in the ledger when it reached the reducer's log."""
     kw = {"verify_owner": verify_owner, "verify_sender": ring.verify_sender, "verify_executor": ring.verify_executor}
-    if ledger is not None:
-        ledger.append("header", header_of(state))
 
     def feed(state, event):
         new, more = step(state, event, **kw)
@@ -149,8 +137,12 @@ def drive(state, executor, ring, *, verify_owner=None, changed=(), max_steps=100
             ledger.append("event", {"event": event, "by": identity_of(event, ring, state["run_id"])})
         return new, more
 
-    state, queue = feed(state, ring.executor_event({"type": "run-started", "changed": list(changed)}))
-    queue, actions, errors, work, stuck = list(queue), [], [], 1, False
+    return feed
+
+
+def _loop(state, queue, executor, feed, max_steps, work):
+    """Hand each queued action to the executor and feed its events back, until the run stops."""
+    queue, actions, errors, stuck = list(queue), [], [], False
     while queue:
         action = queue.pop(0)
         actions.append(action)
@@ -183,3 +175,52 @@ def drive(state, executor, ring, *, verify_owner=None, changed=(), max_steps=100
     if state["status"] in ("done", "halted"):
         return Outcome(state, state["status"], actions, errors)
     return Outcome(state, "stalled" if stuck and state["status"] == "running" else "waiting", actions, errors)
+
+
+def drive(state, executor, ring, *, verify_owner=None, changed=(), max_steps=1000, ledger=None):
+    """Run a new signed run to a stop. Every event, including the executor's own, goes through `step`.
+
+    `max_steps` bounds the work: each action handed to the executor and each event fed back counts.
+    With a `ledger`, a header and every event that reached the reducer's log are recorded, each with the
+    identity the executor verified for it."""
+    if state["trust"] != "signed":
+        raise ValueError("drive needs a signed run: an unsigned one cannot tell who sent an event")
+    if state["status"] != "new":
+        raise ValueError(f"drive starts a new run, not one that is {state['status']}")
+    if not (isinstance(changed, (list, tuple)) and all(isinstance(p, str) for p in changed)):
+        raise ValueError("'changed' must be a list of paths")
+    if ledger is not None:
+        ledger.append("header", header_of(state))
+    feed = _feeder(ring, verify_owner, ledger)
+    state, queue = feed(state, ring.executor_event({"type": "run-started", "changed": list(changed)}))
+    return _loop(state, queue, executor, feed, max_steps, 1)
+
+
+def new_ring(ledger):
+    """A key ring for a resumed run: the run's id and entities from its ledger, with new keys.
+
+    The identities of the run before the crash died with their agents and are not carried over."""
+    state = recover(ledger)
+    return KeyRing(state["run_id"], state["proc"]["entities"])
+
+
+def resume(ledger, executor, ring, *, verify_owner=None, events=(), max_steps=1000):
+    """Continue a run from its ledger. Returns an `Outcome`, as `drive` does.
+
+    The run is recovered by replay. Each stage that was running and each item that was open is issued
+    again, and `events` (decisions that arrived while the executor was down) are fed first. `ring` must
+    be new: `new_ring(ledger)`. The ledger keeps recording, with a `resume` entry first."""
+    state = recover(ledger)
+    if ring.run_id != state["run_id"]:
+        raise ValueError(f"the ring is for run '{ring.run_id}', but the ledger is for run '{state['run_id']}'")
+    if state["status"] == "new":
+        raise ValueError("the run was never started: there is nothing to resume, use drive")
+    if state["status"] in ("done", "halted"):
+        return Outcome(state, state["status"])
+    queue = pending_actions(state)
+    ledger.append("resume", {"actions": [a["do"] for a in queue]})
+    feed = _feeder(ring, verify_owner, ledger)
+    for event in events:
+        state, more = feed(state, event)
+        queue.extend(more)
+    return _loop(state, queue, executor, feed, max_steps, 0)

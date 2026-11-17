@@ -31,7 +31,7 @@ class Scripted:
         return [who.seal({"type": "stage-done", "stage": action["stage"], "round": action["round"], "locators": LOCATORS[action["stage"]]})]
 
 
-def crashed(tmp_path, max_steps=3, **kw):
+def crashed(tmp_path, max_steps=4, **kw):
     """A run that stopped after a few steps, as a crash would leave it."""
     state = sfresh()
     ring = KeyRing(state["run_id"], state["proc"]["entities"])
@@ -58,7 +58,7 @@ def test_pending_actions_lists_each_running_stage_and_changes_nothing():
 def crashed_state():
     state = sfresh()
     ring = KeyRing(state["run_id"], state["proc"]["entities"])
-    return drive(state, Scripted(ring), ring, verify_owner=ALLOW, max_steps=3), None, ring
+    return drive(state, Scripted(ring), ring, verify_owner=ALLOW, max_steps=4), None, ring
 
 
 def test_a_pending_start_carries_the_same_round_inputs_and_entity_as_the_original():
@@ -191,9 +191,37 @@ def test_resume_refuses_a_tampered_ledger(tmp_path):
 
 
 def test_a_run_can_be_resumed_twice(tmp_path):
-    out, ledger, _ = crashed(tmp_path, max_steps=3)
+    out, ledger, _ = crashed(tmp_path)
     ring = new_ring(reopened(ledger))
-    mid = resume(reopened(ledger), Scripted(ring), ring, verify_owner=ALLOW, max_steps=4)
+    mid = resume(reopened(ledger), Scripted(ring), ring, verify_owner=ALLOW, max_steps=2)
     assert mid.status == "exhausted"
     ring2 = new_ring(reopened(ledger))
     assert resume(reopened(ledger), Scripted(ring2), ring2, verify_owner=ALLOW).status == "done"
+
+
+def test_an_item_the_owner_already_ruled_is_not_issued_again():
+    state = sfresh()
+    ring = KeyRing(state["run_id"], state["proc"]["entities"])
+    ex = Scripted(ring, fail_once="align")
+    out = drive(state, ex, ring, verify_owner=ALLOW)
+    item = out.state["items"][0]["id"]
+    state, _ = step(out.state, {"type": "owner-decided", "item": item, "decision": "retry", "signature": "s"}, verify_owner=ALLOW, verify_sender=ring.verify_sender, verify_executor=ring.verify_executor)
+    assert state["items"][0]["status"] == "owner-ruled"
+    assert not [a for a in pending_actions(state) if a["do"] in ("notify-owner", "escalate")]
+
+
+def test_an_item_held_by_an_entity_is_escalated_again_to_that_entity_not_to_the_owner():
+    state = sfresh()
+    ring = KeyRing(state["run_id"], state["proc"]["entities"])
+    out = drive(state, Scripted(ring, fail_once="spec"), ring, verify_owner=ALLOW)
+    held = [i for i in out.state["items"] if i["status"] == "open" and i["at"] != "owner"]
+    assert held
+    acts = pending_actions(out.state)
+    assert [(a["do"], a["to"]) for a in acts if a["do"] == "escalate"] == [("escalate", held[0]["at"])]
+
+
+def test_a_finished_run_gets_no_resume_entry(tmp_path):
+    out, ledger, _ = crashed(tmp_path, max_steps=1000)
+    ring = new_ring(reopened(ledger))
+    resume(reopened(ledger), Scripted(ring), ring, verify_owner=ALLOW)
+    assert not any(e["kind"] == "resume" for e in reopened(ledger).read())

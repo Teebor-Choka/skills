@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.10.0"
+  version: "1.11.0"
 ---
 
 # procedure: a named graph of stages
@@ -373,9 +373,19 @@ run id, trust, policy, bindings, revision) and then every event that reached the
 applied or refused and counted, with the identity the executor verified for it.
 
 `recover(ledger)` replays the record through `step` and returns the state the run ended in. The chain
-vouches for the recorded identities, so recovery needs no key ring. It does not resume the run: a
-resume driver is the next step. Entries are flushed and `fsync`ed, but a ledger on a shared or
+vouches for the recorded identities, so recovery needs no key ring. Entries are flushed and `fsync`ed, but a ledger on a shared or
 remote disk is only as durable as that disk.
+
+### Resuming a run: `resume(ledger, executor, ring, ...)`
+
+`resume` continues a run from its ledger after a crash. It recovers the state by replay, issues again
+each stage that was running (its agent died with the process) at the same round and each item that was
+still open, then runs the same loop as `drive`. `events` are decisions that arrived while the executor
+was down and are fed first. The ring must be new: `new_ring(ledger)` builds it from the ledger's run id
+and entities, with new keys. Identities from before the crash are dead, so a late result from an old
+agent is refused and the stage is done again by a new one. The ledger records a `resume` entry first
+and keeps recording; a run can be resumed again. A finished run returns its outcome and asks the
+executor for nothing. `pending_actions(state)` is the pure part: it lists what must be issued again.
 
 ### Driving a run: `scripts/executor.py`
 
