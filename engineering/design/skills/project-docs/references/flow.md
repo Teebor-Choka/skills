@@ -52,8 +52,8 @@ content is yours to fit the project):
   adversarial), and a diagram. Only when the opt-in test in the contract says the project needs it.
 - `assets/adr.skeleton.md`: one decision, in architect's shape. One file per decision under
   `decisions/`, kebab-named for the decision.
-- `assets/process.skeleton.md`: write it when the project has an `.agents/` directory (skip it
-  otherwise). It names the procedure the project runs, where its documents live under `.agents/`, who
+- `assets/process.skeleton.md`: write it when the project has a procedure, a markdown file in
+  `.agents/procedures/` (required then; skip it otherwise). It names the procedure the project runs, where its documents live under `.agents/`, who
   decides what, and points to `.agents/iterations/` for the record of changes. Do not copy the
   procedure into it. Set `procedure` to the file name of `.agents/procedures/<name>.md`, without the
   extension.

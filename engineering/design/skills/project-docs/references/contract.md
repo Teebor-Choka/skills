@@ -28,8 +28,9 @@ AGENTS.md                  # required: points into docs/
 - `spec.md` is **opt-in by size**: required only when the project has real behavior to specify (a
   pipeline, a protocol, stateful subsystems). A trivial project (a static page, a docs-only or
   notes-only effort) omits it. See "Spec opt-in" below. When present, it must conform.
-- `process.md` is **optional**: a project with no process omits it, and a repo with no `.agents/`
-  needs none. See "Process doc" below. When present, it must conform.
+- `process.md` is **required when the project has a procedure** (a markdown file directly in
+  `.agents/procedures/`) and optional otherwise: a project with no procedure omits it, and a repo with
+  no `.agents/` needs none. See "Process doc" below. When present, it must conform.
 - A project may keep extra docs (`design/`, `providers/`, `architecture/`); the contract neither
   requires nor forbids them, and the validator ignores them.
 
@@ -108,14 +109,19 @@ A project can define its process as documents under `.agents/` (`policy.md`, `pr
 `charter.md`, `iterations/`). `docs/process.md` tells a reader of `docs/` which procedure the project
 runs, where its documents live, and who decides what.
 
-- `docs/process.md` is optional. If absent, the validator raises nothing, even when
-  `.agents/procedures/` exists.
+- `docs/process.md` is required when the project has a procedure: at least one `.md` file directly in
+  `.agents/procedures/`. If it is absent then, the validator raises `process-doc-missing`. A bare
+  `.agents/` (other tools' files, a `policy.md`, an empty or non-markdown `procedures/`) needs none.
 - When present: frontmatter valid, `kind: process`, `procedure` a non-empty kebab-case name.
 - If the project root has `.agents/procedures/`, the file `.agents/procedures/<procedure>.md` must
-  exist. The validator checks that the file exists, never its content. The `agents-dir` skill owns
-  content validation. If the project root has no `.agents/procedures/`, the file is not checked.
-- The authoring flow writes `docs/process.md` whenever the project has `.agents/`. The validator does
-  not force it.
+  exist. If the project root has no `.agents/procedures/`, the file is not checked.
+- The content of that file is checked by the `procedure` skill's validator when one is installed: the
+  validator runs `PROCEDURE_VALIDATOR`, else the skill at its standard install paths, as a subprocess
+  with no environment, and raises `process-procedure-invalid` with its first lines when it refuses the
+  file. With none installed the content is not checked, so the two skills stay independent. Setting
+  `PROCEDURE_VALIDATOR` to an empty value turns the check off.
+- The authoring flow writes `docs/process.md` whenever the project has a procedure, and the validator
+  now requires it.
 
 ## Spec opt-in
 
