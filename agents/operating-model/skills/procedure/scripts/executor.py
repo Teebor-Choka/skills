@@ -146,6 +146,10 @@ def drive(state, executor, ring, *, verify_owner=None, changed=(), max_steps=100
             errors.append(action)
             continue
         kind = action["do"]
+        if kind == "start-stage":  # step may have cancelled or restarted it since it was queued
+            st = state["stages"].get(action["stage"])
+            if not (st and st["status"] == "running" and st.get("round", 1) == action["round"]):
+                continue
         work += 1
         if work > max_steps:
             return Outcome(state, "exhausted", actions, errors)

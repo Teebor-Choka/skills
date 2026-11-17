@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.7.1"
+  version: "1.8.0"
 ---
 
 # procedure: a named graph of stages
@@ -294,14 +294,15 @@ event. A handler placed directly in `HANDLERS`, with no declared source, is refu
 
 What a signed run guarantees beyond identity:
 
-- **An unauthenticated event moves nothing.** If the sender cannot be verified, the event is refused
+- **An unauthenticated event moves nothing.** An owner decision for an item that does not exist is unauthenticated too: it has nothing to be signed for.
+  If the sender cannot be verified, the event is refused
   without being counted or logged, so anyone who can send bytes cannot push a metric (and so cannot
   trigger a safety rollback) or grow the state. A verified entity that breaks a rule is still counted.
   `rejected` keeps the newest 200 refusals, and the metric counts every one.
 - **A signed event is single-use.** Each agent or executor event the reducer authenticates records the
   digest of its signature, applied or refused, and the same bytes are refused as a replay without being
   counted, so captured bytes cannot push a metric or grow the log. An owner decision is recorded once
-  it applies. To retry after a refusal, sign the event again: a sealed event carries a nonce, so the
+  it applies. A verified owner decision that the handler then refuses (the item is already ruled, or the decision word does not fit) is spent too, so replaying its bytes is refused as a replay. To retry after a refusal, sign the event again: a sealed event carries a nonce, so the
   new signature is different.
 - **A stage result names its round** and must match the stage's current round, so a round-one result
   cannot be replayed into round two and a captured failure cannot re-block a run the owner retried.
@@ -333,6 +334,15 @@ What this does not do:
 - Paths match case-sensitively. A case-insensitive filesystem needs its changes lowercased first.
 - It does not run agents. `scripts/executor.py` holds the keys and drives the loop; what an `Executor`
   does with an action (a context, a board item, a subagent) is the harness's.
+
+### Rules the runtime now holds
+
+- **A redo restarts a cancelled stage in a new round**, so its late result names the old round and is refused; a round never moves backwards.
+- **A stage's inputs come only from stages upstream of it.** A second producer of a kind that is not an ancestor cannot feed it.
+- **A loop is judged when every member has settled**, not when one chosen member finishes, so a member that fails afterwards cannot restart the bound.
+- **An automatic rollback goes first in the queue.** A change queued behind it fails its `base_version` check and is reported, not reverted.
+- **A delta that routes a stage around a floor stage** is flagged `protected` to the owner even when ratification lets it through.
+- `drive` does not hand the executor a `start-stage` that `step` has since cancelled or restarted.
 
 ### Driving a run: `scripts/executor.py`
 

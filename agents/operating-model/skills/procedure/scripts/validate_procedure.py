@@ -554,8 +554,10 @@ def apply_delta(base, delta_text, src="<delta>", strict=True, ratified=False):
     if protected and not ratified:
         return None, protected, True
     errs = _validate(merged, strict)
-    if not errs and not ratified:
-        errs = _floor_errors(base["stages"], merged["stages"])
+    floor = [] if errs else _floor_errors(base["stages"], merged["stages"])
+    if floor and not ratified:
+        errs = floor
+    protected = list(protected) + floor  # ratification allows it, but the owner must see it touches the floor
     empty = merged == base  # a delta that changes nothing needs no hypothesis
     if not errs and strict and not empty:
         errs = _change_errors(delta.get("change"), merged)

@@ -233,3 +233,23 @@ def test_a_failing_member_cannot_restart_the_loop_bound_after_an_early_exit():
         state, acts = step(state, {"type": "stage-failed", "stage": "a-fix", "reason": "r", "locators": {}})
     assert state["status"] == "blocked"
     assert any(a["do"] == "notify-owner" for a in acts)
+
+
+def test_a_round_never_moves_backwards_on_a_loop_retry():
+    state = new_state(LOOP, strict=False)
+    state, _ = step(state, {"type": "run-started"})
+    state["stages"]["b-check"]["round"] = 5
+    state, _ = step(state, {"type": "stage-failed", "stage": "a-fix", "reason": "r", "locators": {}})
+    assert state["stages"]["b-check"]["round"] >= 5
+
+
+ON_FAIL = SIDE.replace("  c:\n    entity: w\n    needs: [a]\n    consumes: [x]\n    produces: [z]\n", "")
+
+
+def test_a_round_never_moves_backwards_on_an_on_fail_retry():
+    state = new_state(ON_FAIL, strict=False)
+    state, _ = step(state, {"type": "run-started"})
+    state, _ = step(state, {"type": "stage-done", "stage": "a", "locators": {"x": "u://x"}})
+    state["stages"]["a"]["round"] = 5
+    state, _ = step(state, {"type": "stage-failed", "stage": "b", "reason": "r", "locators": {}})
+    assert state["stages"]["a"]["round"] >= 5
