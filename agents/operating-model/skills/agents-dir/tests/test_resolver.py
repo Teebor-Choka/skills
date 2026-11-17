@@ -741,3 +741,10 @@ def test_with_several_user_procedures_and_none_named_a_project_cannot_pick_one(t
     user = {"procedures/ship.md": NAMED("ship", FLOORED), "procedures/notes.md": NAMED("notes")}
     got = _vs_user(tmp_path, {"policy.md": "---\nprocedure: notes\n---\n"}, user)
     assert got["errors"], got
+
+
+def test_an_inline_policy_cannot_pick_a_floorless_project_procedure(tmp_path):
+    proj = {"procedures/ship.md": NAMED("ship", FLOORED), "procedures/other.md": NAMED("other"),
+            "policy.md": "---\nprocedure: ship\n---\n"}
+    got = _vs_user(tmp_path, proj, {}, inline={"policy": "---\nprocedure: other\n---\n"})
+    assert got["procedure"] == "other" and any("floor" in e for e in got["errors"]), got
