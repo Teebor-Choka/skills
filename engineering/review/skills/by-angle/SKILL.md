@@ -13,7 +13,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # by-angle
@@ -54,7 +54,8 @@ follows a review.
 
 Run five reviewers in one parallel batch, each in a fresh read-only context:
 
-- Four **angle** reviewers: REUSE, SIMPLIFICATION, EFFICIENCY, ALTITUDE. Each prompt ends with
+- Four **angle** reviewers: REUSE, SIMPLIFICATION, EFFICIENCY, ALTITUDE. Add the STALENESS angle
+  when the project has a `docs/` directory. Each prompt ends with
   "this angle only; ignore everything outside it". Angle briefs are in
   [references/angles.md](references/angles.md).
 - One **comment-quality** reviewer, which reads the `code-quality` skill's
@@ -70,9 +71,11 @@ a reviewer's output includes a patch, treat it as a suggested fix inside a findi
 blind.
 
 Each reviewer returns findings in the schema in
-[references/findings-schema.md](references/findings-schema.md). Triage: merge duplicates across
-angles, drop findings with no `evidence` (file and line or command output), and verify each remaining
-`blocker` by reading the cited code before acting. No findings is a valid result; do not prompt a
+[references/findings-schema.md](references/findings-schema.md), which also holds the evidence rule
+for what counts as proof. Triage: merge duplicates across
+angles, and verify each `proven` `blocker` by reading the cited code before acting. A finding
+without proof is `unverified`: report it, but it cannot block a merge. The evidence rule is in the
+findings schema. No findings is a valid result; do not prompt a
 reviewer to find something.
 
 ## Several blocks
