@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 
 import pytest
 from resolver_kit import (BOUND, OWNER_CHARTER, SPECIFICS, ResolutionError, agents, commit, env_for, git, has, ok,
@@ -800,6 +801,7 @@ def test_a_project_procedure_with_an_upper_case_suffix_is_refused(tmp_path):
 # ---- the delegate: every escalation ends in an assigned, verifiable entity
 
 ENT = PROC.replace("kpis:", "entities:\n  lead:\n    role: team-lead\n    escalates-to: liaison\n  liaison:\n    role: delegate\n    escalates-to: owner\nkpis:", 1)
+ENT = re.sub(r"(\n  (?:brief|create|launch):\n)", r"\1    entity: lead\n", ENT)
 DELEGATE_CHARTER = "---\nowner:\n  channel: chat\n  answer-path: signed reply\ndelegate: liaison\n---\n"
 
 
@@ -816,7 +818,7 @@ def test_a_charter_that_names_the_delegate_lets_the_run_start(tmp_path):
 
 def test_escalation_to_the_owner_needs_a_delegate_in_the_charter(tmp_path):
     got = _delegate(tmp_path, charter=OWNER_CHARTER)
-    assert any("delegate" in e and "charter" in e for e in got["errors"]), got["errors"]
+    assert any("must name a 'delegate'" in e for e in got["errors"]), got["errors"]
 
 
 def test_a_run_with_no_charter_at_all_is_refused_when_something_escalates_to_the_owner(tmp_path):
@@ -865,3 +867,9 @@ def test_a_project_cannot_loosen_attested_decisions_when_the_user_locked_the_key
     user = {"policy.md": "---\nattested-decisions: [ordinary]\nlocked: [attested-decisions]\n---\n"}
     got = _vs_user(tmp_path, {"policy.md": "---\nattested-decisions: [ordinary, protected]\n---\n", "procedures/campaign-ops.md": PROC}, user)
     assert any("attested-decisions" in e for e in got["errors"]), got["errors"]
+
+
+def test_the_resolver_checks_the_attested_classes_itself():
+    from resolver import _runtime_policy
+    assert _runtime_policy({"attested-decisions": ["everything"]})[1]
+    assert _runtime_policy({"attested-decisions": ["ordinary"]}) == ({"attested-decisions": ["ordinary"]}, [])

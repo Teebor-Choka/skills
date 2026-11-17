@@ -22,7 +22,7 @@ import sys
 import tempfile
 
 from agents_dir import AGENTS, PROCESS_DOCS, _git, process_revision
-from runtime import CAPS, COLLECTORS, new_state
+from runtime import CAPS, CLASSES, COLLECTORS, new_state
 from validate_procedure import (POLICY_KEY, bindings_for, check_bindings, override_violations, parse_frontmatter,
                                 parse_procedure, validate_text)
 from policy_loader import PolicyError, _overlay, resolve as resolve_policy
@@ -350,8 +350,27 @@ def _procedure(out, name, mine, theirs, used_user, errs, base=None, inline=None,
         lower = None if bad else parse_procedure(lower_text, lower_label)[0]
         if lower:
             errs.extend(f"{label} weakens {lower_label}: {v}" for v in override_violations(lower, proc))
+    errs.extend(_delegate_errors(proc, out["charter"]))
     errs.extend(check_bindings(proc, out["policy"], name))
     out["bindings"] = bindings_for(proc, out["policy"])
+
+
+def _delegate_errors(proc, charter):
+    """Escalation must end in an assigned entity. When anything escalates to the owner, the charter names
+    the delegate: an entity of the procedure with the delegate role, and the only one that escalates to the owner."""
+    entities = proc.get("entities") or {}
+    last = sorted(n for n, e in entities.items() if isinstance(e, dict) and e.get("escalates-to") == "owner")
+    if not last:
+        return []
+    named = (charter or {}).get("delegate")
+    if not (isinstance(named, str) and named):
+        return [f"{', '.join(last)} escalate to the owner, so the charter must name a 'delegate': the entity that reaches the stakeholder"]
+    entity = entities.get(named)
+    if not isinstance(entity, dict):
+        return [f"the charter's delegate '{named}' is not an entity of the procedure"]
+    if entity.get("role") != "delegate":
+        return [f"the charter's delegate '{named}' must have role 'delegate', not {entity.get('role')!r}"]
+    return [f"entity '{n}' escalates to the owner, but only the delegate '{named}' may" for n in last if n != named]
 
 
 def _lowers(source, name, mine, theirs, base, errs, caller_named=False, inline_present=False):
@@ -404,6 +423,12 @@ def _runtime_policy(policy):
             errs.append(f"policy 'regression-threshold' must be a non-negative number, not {raw!r}")
         else:
             out["regression-threshold"] = value
+    if "attested-decisions" in policy:
+        raw = policy["attested-decisions"]
+        if isinstance(raw, list) and all(isinstance(c, str) and c in CLASSES for c in raw):
+            out["attested-decisions"] = list(raw)
+        else:
+            errs.append(f"policy 'attested-decisions' must be a list of {' and '.join(CLASSES)}, not {raw!r}")
     if "safety-metrics" in policy:
         raw = policy["safety-metrics"]
         unknown = [m for m in raw if m not in COLLECTORS] if isinstance(raw, list) else None

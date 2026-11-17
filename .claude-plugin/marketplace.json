@@ -24,7 +24,7 @@
       "source": "./agents/operating-model",
       "strict": true,
       "metadata": {
-        "version": "1.13.0"
+        "version": "1.14.0"
       }
     },
     {

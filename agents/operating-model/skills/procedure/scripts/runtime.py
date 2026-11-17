@@ -27,6 +27,8 @@ __all__ = (
 
 HANDLERS = {}
 CAPS = ("max-agents", "max-depth")
+ASSURANCE = ("signed", "attested")  # how a decision reached the runtime: the stakeholder signed it, or the delegate vouches for it
+CLASSES = ("ordinary", "protected")  # what an attested decision may close; `protected` items change the procedure, policy or charter
 DEFAULT_TOLERANCE = 0.1  # how far a metric may move the wrong way before it counts as a regression
 COLLECTORS = {}  # metric name -> fn(counters) -> number. Only code here may observe: agents cannot write one.
 COUNTERS = ("stages-done", "rework", "escalations", "refusals", "rounds")
@@ -156,6 +158,9 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="
     tol = policy.get("regression-threshold", DEFAULT_TOLERANCE)
     if type(tol) not in (int, float) or not math.isfinite(tol) or tol < 0:
         raise ValueError(f"policy 'regression-threshold' must be a non-negative number, not {tol!r}")
+    attest = policy.get("attested-decisions", ["ordinary"])
+    if not isinstance(attest, list) or not all(isinstance(c, str) and c in CLASSES for c in attest):
+        raise ValueError(f"policy 'attested-decisions' must be a list of {' and '.join(CLASSES)}, not {attest!r}")
     safety = policy.get("safety-metrics", [])
     if not isinstance(safety, list) or not all(isinstance(m, str) for m in safety):
         raise ValueError(f"policy 'safety-metrics' must be a list of metric names, not {safety!r}")
@@ -782,13 +787,20 @@ def _owner_decided(state, event, ctx):
         raise Rejected(f"the run is {state['status']}: nothing is left to decide")
     if item["status"] != "open" or item["at"] != "owner":
         raise Rejected(f"item '{item['id']}' is not waiting on the owner")
+    assurance = event.get("assurance", "signed")
+    if not (isinstance(assurance, str) and assurance in ASSURANCE):
+        raise Rejected(f"assurance must be one of {', '.join(ASSURANCE)}, not {assurance!r}")
+    if assurance == "attested":
+        needed = "protected" if item.get("protected") else "ordinary"
+        if needed not in state["policy"].get("attested-decisions", ["ordinary"]):
+            raise Rejected(f"a {needed} item needs the stakeholder's own signature: the policy does not let the delegate's attestation close it")
     kind, decision = item.get("kind"), event.get("decision")
     if kind == "rollback" and decision not in ("rollback", "keep"):
         raise Rejected("a rollback is decided with 'rollback' or 'keep'")
     if kind == "amendment" and decision not in ("approve", "reject"):
         raise Rejected("a change is decided with 'approve' or 'reject'")
-    item["status"], item["decision"] = "owner-ruled", decision
-    actions = [{"do": "owner-ruled", "item": item["id"], "decision": decision}]
+    item["status"], item["decision"], item["assurance"] = "owner-ruled", decision, assurance
+    actions = [{"do": "owner-ruled", "item": item["id"], "decision": decision, "assurance": assurance}]
     if kind == "rollback":
         if decision == "keep":
             _mark(state, item["target"] + 1, "kept")

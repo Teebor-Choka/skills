@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.9.0"
+  version: "1.10.0"
 ---
 
 # procedure: a named graph of stages
@@ -343,6 +343,25 @@ What this does not do:
 - **An automatic rollback goes first in the queue.** A change queued behind it fails its `base_version` check and is reported, not reverted.
 - **A delta that routes a stage around a floor stage** is flagged `protected` to the owner even when ratification lets it through.
 - `drive` does not hand the executor a `start-stage` that `step` has since cancelled or restarted.
+
+### Decision assurance and the delegate
+
+An `owner-decided` event carries an `assurance`: `signed` (the default; the stakeholder's own identity
+signed it) or `attested` (the stakeholder may not have signed, and the delegate vouches for what they
+said). Your `verify_owner` checks the key that goes with the assurance, and the event is part of what it
+signs. The ruling records the assurance on the item and in the `owner-ruled` action, and the ledger
+keeps it, so an audit can always tell which decisions rested on the delegate's word.
+
+Policy `attested-decisions` is a list from `ordinary` and `protected`; the default is `[ordinary]`. An
+attested decision closes an item only when its class is listed. A `protected` item (one that changes the
+procedure, policy or charter) therefore needs the stakeholder's signature unless the policy lists
+`protected`. Listing it lets the delegate approve its own change on a claim, so lock the key in the user's
+policy (`locked: [attested-decisions]`); a cloned repo could otherwise loosen it before a run starts.
+
+Escalation must end in an assigned entity. The `agents-dir` resolver refuses a run where an entity
+escalates to the owner unless the charter names the `delegate`: an entity of the procedure with
+`role: delegate`, and the only one that escalates to the owner. The delegate decides what the stakeholder
+sees and in what form, and never approves a protected change alone. It may be an agent in the run.
 
 ### The ledger: `scripts/ledger.py`
 
