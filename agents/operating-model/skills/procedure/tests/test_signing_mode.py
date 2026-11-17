@@ -139,3 +139,10 @@ def test_resume_ignores_a_ring_for_another_run_when_the_run_has_no_signing(tmp_p
     out, ledger = claims_run(tmp_path, max_steps=4)
     done = resume(Ledger(ledger.path, KEY), Claims(), KeyRing("another-run", ["pm"]), verify_owner=ALLOW)
     assert done.status == "done"
+
+
+def test_the_ledger_header_records_the_declared_communication_and_guarantees(tmp_path):
+    from ledger import header_of
+    state = new_state(SWE, policy={"communication": "socket:/x", "communication-guarantees": ["ordered"]})
+    header = header_of(state)
+    assert header["policy"]["communication"] == "socket:/x" and header["policy"]["communication-guarantees"] == ["ordered"]
