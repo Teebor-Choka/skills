@@ -527,3 +527,74 @@ def test_an_invalid_user_procedure_is_reported_when_a_project_one_overrides_it(t
     got = _vs_user(tmp_path, {"procedures/campaign-ops.md": PROC},
                    {"procedures/campaign-ops.md": PROC.replace("needs: [create]", "needs: [ghost]")})
     assert any("<user>" in e for e in got["errors"]), got["errors"]
+
+
+# ---- inline documents: a parent hands the worker its process documents directly
+
+def _inline(**docs):
+    return docs
+
+
+def test_inline_documents_alone_define_a_run(tmp_path):
+    repo = project(tmp_path)
+    got = resolve(repo, environ=env_for(tmp_path), inline=_inline(procedures={"campaign-ops": PROC}, policy="---\nmode: single\n---\n"))
+    assert got["errors"] == [] and got["procedure"] == "campaign-ops" and got["sources"]["procedure"] == "inline"
+    assert got["policy"]["mode"] == "single"
+
+
+def test_inline_policy_wins_over_the_project_and_the_user(tmp_path):
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC, "policy.md": "---\nmode: team\n---\n"}))
+    env = env_for(tmp_path, {"policy.md": "---\nmode: single\nmax-agents: 9\n---\n"})
+    got = resolve(repo, environ=env, inline=_inline(policy="---\nmode: single\n---\n"))
+    assert got["policy"]["mode"] == "single" and got["policy"]["max-agents"] == "9"
+    assert got["sources"]["policy"] == ["user", "project", "inline"]
+
+
+def test_inline_procedure_wins_but_cannot_weaken_the_users_floor(tmp_path):
+    repo = project(tmp_path)
+    env = env_for(tmp_path, {"procedures/campaign-ops.md": FLOORED})
+    stripped = FLOORED.replace("    floor: true\n", "", 1)
+    got = resolve(repo, environ=env, inline=_inline(procedures={"campaign-ops": stripped}))
+    assert any("floor" in e for e in got["errors"]), got["errors"]
+
+
+def test_inline_cannot_override_a_locked_policy_key(tmp_path):
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC}))
+    env = env_for(tmp_path, {"policy.md": "---\nmode: team\nlocked: [mode]\n---\n"})
+    got = resolve(repo, environ=env, inline=_inline(policy="---\nmode: single\n---\n"))
+    assert any("mode" in e for e in got["errors"]), got["errors"]
+
+
+def test_inline_charter_cannot_redirect_the_owner(tmp_path):
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC}))
+    env = env_for(tmp_path, {"charter.md": OWNER_CHARTER})
+    other = "---\nowner:\n  channel: elsewhere\n  answer-path: x\n---\n"
+    got = resolve(repo, environ=env, inline=_inline(charter=other))
+    assert any("owner" in e for e in got["errors"]), got["errors"]
+
+
+def test_inline_documents_are_pinned_by_hash_and_never_dirty(tmp_path):
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC}))
+    one = resolve(repo, environ=env_for(tmp_path), inline=_inline(policy="---\nmode: single\n---\n"))
+    two = resolve(repo, environ=env_for(tmp_path), inline=_inline(policy="---\nmode: team\n---\n"))
+    assert one["revision"]["inline"] and one["revision"]["inline"] != two["revision"]["inline"]
+    assert resolve(repo, environ=env_for(tmp_path))["revision"].get("inline") is None
+
+
+@pytest.mark.parametrize("bad", [{"policy": 3}, {"procedures": []}, {"procedures": {"Bad Name": "x"}}, {"nope": "x"}, {"policy": "x" * 300000}])
+def test_malformed_inline_input_is_an_error_not_a_crash(tmp_path, bad):
+    got = resolve(project(tmp_path), environ=env_for(tmp_path), inline=bad)
+    assert got["errors"], got
+
+
+def test_the_cli_reads_inline_documents_from_a_json_file(tmp_path, capsys):
+    repo = project(tmp_path)
+    path = tmp_path / "inline.json"
+    path.write_text(json.dumps({"procedures": {"campaign-ops": PROC}, "policy": "---\nmode: single\n---\n"}))
+    assert resolve_main([str(repo), "--inline", str(path)]) == 0
+    assert "campaign-ops" in capsys.readouterr().out
+
+
+def test_start_run_freezes_inline_documents(tmp_path):
+    state = start_run(project(tmp_path), environ=env_for(tmp_path), inline=_inline(procedures={"campaign-ops": PROC}))
+    assert state["resolution"]["sources"]["procedure"] == "inline"
