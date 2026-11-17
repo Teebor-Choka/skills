@@ -425,3 +425,105 @@ def test_the_policy_names_the_procedure_before_the_charter_does(tmp_path):
     write(repo, ".agents/charter.md", OWNER_CHARTER.replace("---\nowner", "---\nprocedure: campaign-ops\nowner", 1))
     commit(repo)
     assert ok(resolve(repo, environ=env_for(tmp_path)))["procedure"] == "other"
+
+
+# ---- review findings: the guards hold against omission, renaming, and odd input
+
+FLOORED = PROC.replace("  create:\n", "  create:\n    floor: true\n", 1)
+
+
+def _vs_user(tmp_path, project_files, user_files, **kw):
+    repo = project(tmp_path, agents(project_files))
+    return resolve(repo, environ=env_for(tmp_path, user_files), **kw)
+
+
+def test_a_project_procedure_cannot_strip_a_floor_stage_by_leaving_its_keys_out(tmp_path):
+    stripped = FLOORED.replace("    floor: true\n", "", 1)
+    got = _vs_user(tmp_path, {"procedures/campaign-ops.md": stripped}, {"procedures/campaign-ops.md": FLOORED})
+    assert any("floor" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_project_procedure_cannot_drop_the_review_angles_of_a_floor_stage(tmp_path):
+    bare = FLOORED.replace("    review: [brand]\n", "", 1)
+    got = _vs_user(tmp_path, {"procedures/campaign-ops.md": bare}, {"procedures/campaign-ops.md": FLOORED})
+    assert any("review" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_project_procedure_cannot_rewire_a_stage_around_a_floor_stage(tmp_path):
+    rewired = FLOORED.replace("  launch:\n    needs: [create]", "  launch:\n    needs: [brief]", 1)
+    got = _vs_user(tmp_path, {"procedures/campaign-ops.md": rewired}, {"procedures/campaign-ops.md": FLOORED})
+    assert any("floor" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_project_cannot_dodge_the_user_floor_by_naming_another_procedure(tmp_path):
+    evil = PROC.replace("name: campaign-ops", "name: evil")
+    got = _vs_user(tmp_path, {"procedures/evil.md": evil, "policy.md": "---\nprocedure: evil\n---\n"},
+                   {"procedures/campaign-ops.md": FLOORED, "policy.md": "---\nprocedure: campaign-ops\n---\n"})
+    assert any("floor" in e for e in got["errors"]), got["errors"]
+
+
+@pytest.mark.parametrize("locked", ["mode", "true", "[mode, 3]"])
+def test_a_malformed_lock_is_an_error_not_a_crash_or_a_silent_pass(tmp_path, locked):
+    got = _vs_user(tmp_path, {"policy.md": "---\nmode: single\n---\n"},
+                   {"procedures/campaign-ops.md": PROC, "policy.md": f"---\nmode: team\nlocked: {locked}\n---\n"})
+    assert any("locked" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_project_cannot_set_a_locked_key_the_user_left_unset(tmp_path):
+    got = _vs_user(tmp_path, {"policy.md": "---\nmode: team\n---\n"},
+                   {"procedures/campaign-ops.md": PROC, "policy.md": "---\nlocked: [mode]\n---\n"})
+    assert any("mode" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_scalar_over_a_map_with_a_locked_path_is_an_error(tmp_path):
+    got = _vs_user(tmp_path, {"policy.md": "---\nvcs: anything\n---\n"},
+                   {"procedures/campaign-ops.md": PROC, "policy.md": "---\nvcs:\n  remote: x\nlocked: [vcs.remote]\n---\n"})
+    assert any("vcs.remote" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_sibling_overlay_cannot_erase_a_deep_locked_key(tmp_path):
+    got = _vs_user(tmp_path, {"policy.md": "---\na:\n  b:\n    d: y\n---\n"},
+                   {"procedures/campaign-ops.md": PROC, "policy.md": "---\na:\n  b:\n    c: x\nlocked: [a.b.c]\n---\n"})
+    assert any("a.b.c" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_symlinked_procedures_directory_is_refused(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "campaign-ops.md").write_text(PROC)
+    repo = project(tmp_path, agents({"policy.md": "---\nmode: single\n---\n"}))
+    (repo / ".agents" / "procedures").symlink_to(outside)
+    got = resolve(repo, environ=env_for(tmp_path), allow_dirty=True)
+    assert got["procedure"] is None and any("symlink" in e for e in got["errors"]), got
+
+
+def test_a_failing_git_status_does_not_pass_as_a_clean_tree(tmp_path, monkeypatch):
+    import resolver
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC}))
+    real = resolver._git
+    monkeypatch.setattr(resolver, "_git", lambda r, *a: None if a[0] == "status" else real(r, *a))
+    got = resolve(repo, environ=env_for(tmp_path))
+    assert any("git" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_huge_number_in_policy_is_an_error_not_a_crash(tmp_path):
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC, "policy.md": f"---\nmax-agents: {'9' * 5000}\n---\n"}))
+    with pytest.raises(ResolutionError):
+        start_run(repo, environ=env_for(tmp_path))
+
+
+def test_git_runs_without_the_repos_own_hooks_or_fsmonitor(tmp_path):
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC}))
+    marker = tmp_path / "ran"
+    hook = tmp_path / "hook.sh"
+    hook.write_text(f"#!/bin/sh\ntouch {marker}\n")
+    hook.chmod(0o755)
+    git(repo, "config", "core.fsmonitor", str(hook))
+    resolve(repo, environ=env_for(tmp_path))
+    assert not marker.exists()
+
+
+def test_an_invalid_user_procedure_is_reported_when_a_project_one_overrides_it(tmp_path):
+    got = _vs_user(tmp_path, {"procedures/campaign-ops.md": PROC},
+                   {"procedures/campaign-ops.md": PROC.replace("needs: [create]", "needs: [ghost]")})
+    assert any("<user>" in e for e in got["errors"]), got["errors"]
