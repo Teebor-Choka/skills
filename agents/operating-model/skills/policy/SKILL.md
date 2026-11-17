@@ -3,7 +3,7 @@ name: policy
 description: The shared .agents/policy format and loader. A skill reads its configuration from here instead of hardcoding a process constant; the policy is optional, layered (global + per-repo override), open (any key), and resolves to a reasonable basic default when absent. Reference for skill authors.
 disable-model-invocation: true
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 Skills read process configuration — how to interact, how to ground, what practices apply — from a
@@ -28,6 +28,10 @@ Layered, per key: **baseline < global < local**, local wins.
 
 - baseline — the built-in basic default (below).
 - global — `~/.config/agents/policy.md` (`$XDG_CONFIG_HOME/agents/policy.md`; or `$AGENTS_POLICY_GLOBAL`).
+  A key listed in the global policy's `locked` keeps the global value on every read, including a project's per-skill or
+  per-file override of it; `resolve(..., enforce_locks=False)` skips that so a caller can report the override instead.
+  A policy file that holds a line separator git does not see (`\x0b`, `\x0c`, `\x1c`-`\x1e`, `\x85`, U+2028, U+2029) or a control
+  character is refused, since it could hide a key or the closing fence from a reviewer.
 - local — `<repo>/.agents/policy.md`.
 
 A skill reading key `K` (optionally for a target file) resolves, **most specific first**: a per-file

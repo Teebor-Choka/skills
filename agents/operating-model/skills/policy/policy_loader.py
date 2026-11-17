@@ -26,6 +26,7 @@ import copy
 import fnmatch
 import json
 import os
+import re
 import sys
 
 # The reasonable, almost-basic default when no policy is present. Single actor, no fleet
@@ -48,8 +49,15 @@ class PolicyError(ValueError):
 
 # ---------------------------------------------------------------- parsing
 
+# A separator git and a reviewer do not see as a line break would hide a key or the closing fence.
+_ODD_SEPARATOR = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x85\u2028\u2029]")
+
+
 def _split_frontmatter(text, src):
-    lines = text.splitlines()
+    odd = _ODD_SEPARATOR.search(text)
+    if odd:
+        raise PolicyError(f"{src}: contains {odd.group()!r}, a line separator or control character git does not treat as a line break")
+    lines = [line.rstrip("\r") for line in text.split("\n")]
     i = 0
     while i < len(lines) and lines[i].strip() == "":
         i += 1
@@ -112,7 +120,7 @@ def _parse_frontmatter(block, src):
     Nesting carries the per-skill sections and the `files:` glob-override map (glob -> overrides)."""
     root = {}
     stack = [(-1, root)]  # (indent of the key that opened this container, container dict)
-    for lineno, line in enumerate(block.splitlines(), 1):
+    for lineno, line in enumerate(block.split("\n"), 1):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         if ":" not in line:
@@ -158,8 +166,57 @@ def _overlay(base, overlay, provenance, label):
             provenance[key] = label
 
 
-def resolve(repo_path, global_path=None):
-    """Resolve a policy object for repo_path: baseline < global < local, per key."""
+_MISSING = object()
+
+
+def _dig(node, parts):
+    for part in parts:
+        if not isinstance(node, dict) or part not in node:
+            return _MISSING
+        node = node[part]
+    return node
+
+
+def _restore(resolved, alone, parts):
+    """Put `alone`'s value (or its absence) back at a dotted path in `resolved`."""
+    want = _dig(alone, parts)
+    node = resolved
+    for part in parts[:-1]:
+        if not isinstance(node.get(part), dict):
+            if want is _MISSING:
+                return
+            node[part] = {}
+        node = node[part]
+    if want is _MISSING:
+        node.pop(parts[-1], None)
+    else:
+        node[parts[-1]] = copy.deepcopy(want)
+
+
+def _enforce_locks(resolved, alone, keys, provenance):
+    """A key the user's policy locked keeps the user's value, whatever a project layer sets, for the
+    key itself and for any per-skill or per-file shadow of it."""
+    for key in keys:
+        parts = key.split(".")
+        head = parts[0]
+        _restore(resolved, alone, parts)
+        provenance[key] = "locked"
+        for name, section in list(resolved.items()):
+            if name.startswith("_") or name == head or not isinstance(section, dict):
+                continue
+            if name == "files":
+                for glob, over in section.items():
+                    if isinstance(over, dict) and head in over and _dig(alone, ["files", glob, head]) is _MISSING:
+                        del over[head]
+            elif head in section and _dig(alone, [name, head]) is _MISSING:
+                del section[head]
+
+
+def resolve(repo_path, global_path=None, enforce_locks=True):
+    """Resolve a policy object for repo_path: baseline < global < local, per key.
+
+    A key the user's (global) policy lists in `locked` keeps the user's value. The agents-dir resolver
+    passes `enforce_locks=False` to see the override and report it as an error instead."""
     if not os.path.isdir(repo_path):
         raise PolicyError(f"repo path is not a directory: {repo_path}")
     resolved = copy.deepcopy(BASELINE)
@@ -173,9 +230,13 @@ def resolve(repo_path, global_path=None):
     g = _load_file(global_path)
     if g is not None:
         _overlay(resolved, g, provenance, "global")
+    alone = copy.deepcopy(resolved)
     local = _load_file(os.path.join(repo_path, ".agents", "policy.md"))
     if local is not None:
         _overlay(resolved, local, provenance, "local")
+    locked = (g or {}).get("locked")
+    if enforce_locks and isinstance(locked, list) and all(isinstance(k, str) for k in locked):
+        _enforce_locks(resolved, alone, locked, provenance)
     resolved["_provenance"] = provenance
     return resolved
 

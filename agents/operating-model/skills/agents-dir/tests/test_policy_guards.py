@@ -46,3 +46,9 @@ def test_a_separator_git_does_not_see_is_an_error_not_a_hidden_key(sep):
 
 def test_ordinary_crlf_and_tabs_still_parse():
     assert _split_frontmatter("---\r\nnote:\tvalue\r\n---\r\n", "p.md") is not None
+
+
+def test_a_lock_also_holds_against_a_per_file_override_in_the_loader(tmp_path):
+    repo, user = _repo(tmp_path, '---\nfiles:\n  "*":\n    work:\n      tracker: jira\n---\n')
+    got = resolve(repo, global_path=user)
+    assert "work" not in got.get("files", {}).get("*", {})

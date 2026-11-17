@@ -82,6 +82,11 @@ def _inline_front(text, label, errs):
     return fm
 
 
+def _user_policy_path(environ, theirs):
+    """Where the user's policy lives: `$AGENTS_POLICY_GLOBAL` (as the policy loader reads it), else the user dir."""
+    return environ.get("AGENTS_POLICY_GLOBAL") or os.path.join(theirs, "policy.md")
+
+
 def _user_dir(environ):
     xdg = environ.get("XDG_CONFIG_HOME") or os.path.join(environ.get("HOME") or os.path.expanduser("~"), ".config")
     return os.path.join(xdg, "agents")
@@ -171,7 +176,7 @@ def _locked(user_policy, user_path, resolved, project, errs):
         errs.append(f"user policy 'locked' must be a list of dotted policy keys, not {keys!r}")
         return
     with tempfile.TemporaryDirectory() as empty:
-        alone = resolve_policy(empty, global_path=user_path)
+        alone = resolve_policy(empty, global_path=user_path, enforce_locks=False)
     for key in keys:
         want, got = _dig(alone, key), _dig(resolved, key)
         if got != want:
@@ -235,7 +240,8 @@ def resolve(project, *, environ=None, name=None, allow_dirty=False, inline=None)
     guarded exactly like the project's."""
     environ = os.environ if environ is None else environ
     mine, theirs = os.path.join(project, AGENTS), _user_dir(environ)
-    if not (_has_documents(mine) or _has_documents(theirs) or inline):
+    upp = _user_policy_path(environ, theirs)
+    if not (_has_documents(mine) or _has_documents(theirs) or inline or os.path.isfile(upp)):
         return None
     errs, used_user = [], {}
     linked = [rel for rel in (AGENTS, f"{AGENTS}/procedures") if os.path.islink(os.path.join(project, rel))]
@@ -245,23 +251,28 @@ def resolve(project, *, environ=None, name=None, allow_dirty=False, inline=None)
     if linked:
         errs.extend(f"{rel} is a symlink; process documents must live in the project" for rel in linked)
         return out
+    try:
+        odd = [f for f in os.listdir(os.path.join(mine, "procedures")) if f.lower().endswith(".md") and not f.endswith(".md")]
+    except OSError:
+        odd = []
+    errs.extend(f"{AGENTS}/procedures/{f}: the suffix must be lowercase .md; a case-insensitive filesystem would load it as a procedure" for f in odd)
     inl = _inline_docs(inline, errs) if inline else {"policy": None, "charter": None, "procedures": {}}
     if errs:
         return out
 
     # policy: layered per key, the project over the user
-    user_policy = _front(os.path.join(theirs, "policy.md"), "<user>/policy.md", errs, follow=True)
+    user_policy = _front(upp, "<user>/policy.md", errs, follow=True)
     proj_policy = _front(os.path.join(mine, "policy.md"), f"{AGENTS}/policy.md", errs)
     inl_policy = _inline_front(inl["policy"], "<inline>/policy", errs)
     out["sources"]["policy"] = [s for s, d in (("user", user_policy), ("project", proj_policy), ("inline", inl_policy)) if d is not None]
     if user_policy is not None:
-        used_user["policy.md"] = _read(os.path.join(theirs, "policy.md"), "<user>/policy.md", [], follow=True)
+        used_user["policy.md"] = _read(upp, "<user>/policy.md", [], follow=True)
     if not errs:
         try:
-            out["policy"] = resolve_policy(project, global_path=os.path.join(theirs, "policy.md"))
+            out["policy"] = resolve_policy(project, global_path=upp, enforce_locks=False)
             if inl_policy:
                 _overlay(out["policy"], inl_policy, out["policy"].setdefault("_provenance", {}), "inline")
-            _locked(user_policy, os.path.join(theirs, "policy.md"), out["policy"], project, errs)
+            _locked(user_policy, upp, out["policy"], project, errs)
         except PolicyError as exc:
             errs.append(str(exc))
     policy = out["policy"]
@@ -368,7 +379,7 @@ def _lowers(source, name, mine, theirs, base, errs, caller_named=False, inline_p
             found.append((label, text))
     names = base.get("user_names") or []
     counterpart = source != "user" and any(l.startswith("<user>") and l.endswith(f"/{name}.md") for l, _ in found)
-    if not caller_named and len(names) > 1 and base.get("user") is None and not counterpart:
+    if (not caller_named or source != "user") and len(names) > 1 and base.get("user") is None and not counterpart:
         errs.append("the user has several procedures and none is named in the user's policy: set 'procedure' there, so the floor to keep is known")
     return found
 
@@ -403,6 +414,32 @@ def _runtime_policy(policy):
     return out, errs
 
 
+TRUE, FALSE = ("true", "yes", "on"), ("false", "no", "off", "")
+
+
+def _gate_policy(procedure_text, resolved, out):
+    """Copy each policy key a `when` or loop `exit` reads into the run's policy, as a boolean.
+
+    The runtime reads these keys from its own policy map, so a key left out is always false."""
+    proc = parse_procedure(procedure_text, "<procedure>")[0] or {}
+    gates = [st.get("when") for st in (proc.get("stages") or {}).values()] + [lp.get("exit") for lp in (proc.get("loops") or {}).values()]
+    errs = []
+    for gate in gates:
+        key = gate.get("policy") if isinstance(gate, dict) else None
+        if not isinstance(key, str):
+            continue
+        value = _dig(resolved, key)
+        if value is MISSING:
+            out[key] = False
+        elif isinstance(value, bool):
+            out[key] = value
+        elif isinstance(value, str) and value.lower() in TRUE + FALSE:
+            out[key] = value.lower() in TRUE
+        else:
+            errs.append(f"policy '{key}' is read by a when or exit gate and must be true or false, not {value!r}")
+    return errs
+
+
 def start_run(project, *, environ=None, name=None, allow_dirty=False, inline=None, trust="claims", run_id=None):
     """Freeze the resolved documents into a run. Returns None when there is nothing to run.
 
@@ -413,6 +450,7 @@ def start_run(project, *, environ=None, name=None, allow_dirty=False, inline=Non
     if got["errors"]:
         raise ResolutionError(got["errors"])
     policy, errs = _runtime_policy(got["policy"])
+    errs += _gate_policy(got["procedure_text"], got["policy"], policy)
     if errs:
         raise ResolutionError(errs)
     try:
