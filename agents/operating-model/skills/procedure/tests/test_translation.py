@@ -287,3 +287,30 @@ def test_the_cli_warns_when_no_source_is_given(tmp_path, capsys):
     p.write_text(PROC)
     check_translation_main([str(t), str(p)])
     assert "no --source" in capsys.readouterr().err
+
+
+# ---- audit: the raw guard must see what the parser sees
+
+def test_a_leading_blank_line_does_not_hide_a_repeated_key():
+    text = "\n" + raw("sentences:\n  s1: first sentence\n  s1: second sentence\ntrace:\n  s1: [loops.fix]\n")
+    errors, _ = check_translation(text, PROC)
+    assert has(errors, "twice"), errors
+
+
+def test_a_padded_opening_fence_does_not_hide_a_repeated_key():
+    text = "--- \nsentences:\n  s1: first sentence\n  s1: second sentence\ntrace:\n  s1: [loops.fix]\n---\n"
+    errors, _ = check_translation(text, PROC)
+    assert has(errors, "twice"), errors
+
+
+@pytest.mark.parametrize("value", ["A sentence\t# cut", '"quoted" tail # cut'])
+def test_any_comment_cut_by_the_parser_is_reported(value):
+    text = raw(f"sentences:\n  s1: {value}\ntrace:\n  s1: [loops.fix]\n")
+    errors, _ = check_translation(text, PROC)
+    assert has(errors, "comment") or has(errors, "#"), errors
+
+
+def test_a_padded_closing_fence_is_an_error_not_a_crash():
+    text = "---\nsentences:\n  s1: A\ntrace:\n  s1: [loops.fix]\n--- \n"
+    errors, _ = check_translation(text, PROC)
+    assert errors
