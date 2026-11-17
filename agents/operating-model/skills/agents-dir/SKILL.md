@@ -11,7 +11,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # agents-dir: the process is a set of documents
@@ -64,7 +64,7 @@ snapshot. A snapshot is the revision `process_revision(repo)` returns: the commi
 process document. A run freezes that revision when it starts. A rollback is a revert commit, and
 history is never rewritten. When a change's window closes, its record is updated with the outcome.
 
-## Resolving a run: two locations, project over user
+## Resolving a run: project over user, and what a parent passes
 
 A run reads its documents from two places. For each document the project's `.agents/` wins, then the
 user's `$XDG_CONFIG_HOME/agents/` (default `~/.config/agents/`; no dot under XDG). With neither, the
@@ -77,6 +77,11 @@ to do" and exits 0. A policy and a charter with no procedure also leave nothing 
 | `procedures/<name>.md` | the project's file if it has one of that name, else the user's |
 | `charter.md`           | the project's if it has one, else the user's                   |
 
+A parent that starts a worker can also pass the documents directly, as `inline` (`policy`, `charter`,
+`procedures`; the command takes `--inline FILE.json`). Inline is the top layer: it wins over the
+project and the user, is held to every guard below, and is pinned in the revision by hash. Nothing in
+it is read from disk, so a worker needs no `.agents/` of its own.
+
 The split is deliberate: a global procedure says how, and each project's `policy.md` supplies the
 specifics the procedure declares (see the `procedure` skill, "Policy bindings"). The procedure that
 runs is the explicit name, else the policy's `procedure` key, else the charter's, else the only one
@@ -88,28 +93,34 @@ A run is refused unless:
 - every policy key the procedure declares is set (bindings are returned for exactly those keys);
 - the policy values the runtime checks are usable (`max-agents`, `max-depth`, `regression-threshold`,
   `safety-metrics`), since a file holds text and the runtime needs numbers;
-- the project's process documents have no uncommitted changes, unless a dirty tree is allowed.
+- the project's process documents have no uncommitted changes, unless a dirty tree is allowed, and git
+  can report their state (a failing `git status` is an error, not a clean tree).
 
 The run pins `revision`: the project commit that last changed a process document, and a hash of the
-user documents it used. That is what a snapshot refers to.
+user documents it used, plus a hash of any inline documents. That is what a snapshot refers to.
 
 ### A cloned repo must not override a trusted setup
 
 "Project wins" would let whoever wrote a repo replace your procedure, charter and policy. The override
 is guarded:
 
-- **Locked keys.** List keys in `locked: [mode, vcs.remote]` in the user's policy. A project policy
-  that sets one to a different value is an error. Only the user's list counts: a project cannot add,
-  replace or empty it.
-- **A weaker procedure.** If a project procedure replaces a user procedure of the same name, it may not
-  drop or rewire a floor stage or move the ladder, a loop or a KPI. Anything it leaves out counts as
-  removed.
-- **A different owner.** A project charter may not name a different `owner` than the user's.
-- **Hostile files.** A symlinked, oversized (over 256 KB) or unreadable document is an error. A
-  procedure name must be lowercase letters, digits and dashes, so it cannot name a path.
+- **Locked keys.** List keys in `locked: [mode, vcs.remote]` in the user's policy. The resolved policy
+  must hold, for each, what the user's layer alone gives, so a changed value, a key the user left
+  unset, a scalar over a map and a sibling overlay that replaces a nested map are all errors. Only the
+  user's list counts, and a `locked` that is not a list of dotted keys is an error.
+- **A weaker procedure.** A project or inline procedure is compared with the user's procedure of the
+  same name, else the one the user runs (a rename does not shed a floor); inline is also compared with
+  the project's. It may not drop, rewire or strip a floor stage, remove its review angles, rewire a
+  stage around it, or move the ladder, a loop or a KPI. A key it leaves out counts as changed. A
+  user baseline that is itself invalid is an error.
+- **A different owner.** A project or inline charter may not name a different `owner` than a lower one.
+- **Hostile files.** A symlinked document, `.agents/` or `.agents/procedures/`, an oversized (over
+  256 KB) or unreadable document is an error. A procedure name must be lowercase letters, digits and
+  dashes, so it cannot name a path. Git runs without the repo's fsmonitor, inherited `GIT_*`
+  variables or system config.
 
 ```
-python3 scripts/resolver.py PROJECT [--procedure NAME] [--allow-dirty]
+python3 scripts/resolver.py PROJECT [--procedure NAME] [--allow-dirty] [--inline FILE.json]
 ```
 
 The command prints the procedure, revision, sources and bindings, never the policy or the procedure
@@ -123,6 +134,9 @@ text, and exits 1 on any error. `start_run(project, trust="signed")` freezes the
 - It does not check that an iteration record's metrics exist in the procedure it touches, or that its
   `outcome` is true. The runtime owns the outcome.
 - It does not protect a repo whose `.agents/` is edited without CI. Wire it into CI and pre-commit.
+- Inline documents are trusted as the parent's
+  authority only as far as the user's locks and floor allow; the resolver cannot tell a parent from an
+  attacker who controls the call, so the caller must be trusted.
 - Locking covers policy keys, the owner and the floor. A project can still change policy values the
   user did not lock, for example `mode`, so lock what matters.
 - It reads the policy loader's layering, which treats a missing user policy as no policy.

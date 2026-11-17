@@ -35,8 +35,12 @@ SECRET_KEYS = ("key", "secret", "token", "password")
 
 def _git(repo, *args):
     """Run git in `repo`. Returns stdout, or None when git fails or is missing."""
+    # A repo's own config must not run code here: no fsmonitor, no inherited GIT_DIR or system config.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
     try:
-        run = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+        run = subprocess.run(["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", str(repo), *args],
+                             capture_output=True, text=True, env=env)
     except OSError:
         return None
     return run.stdout if run.returncode == 0 else None
