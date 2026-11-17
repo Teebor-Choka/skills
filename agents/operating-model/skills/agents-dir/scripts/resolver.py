@@ -299,7 +299,7 @@ def resolve(project, *, environ=None, name=None, allow_dirty=False, inline=None)
     elif wanted is not None and not (isinstance(wanted, str) and NAME.match(wanted)):
         errs.append(f"procedure name {wanted!r} is not a safe name: lowercase letters, digits and dashes")
     elif wanted is not None:
-        _procedure(out, wanted, mine, theirs, used_user, errs, base, inl["procedures"])
+        _procedure(out, wanted, mine, theirs, used_user, errs, base, inl["procedures"], caller_named=name is not None, inline_given=bool(inline))
 
     out["revision"] = _revision(project, _has_documents(mine), used_user, allow_dirty, errs)
     if inline:
@@ -307,7 +307,8 @@ def resolve(project, *, environ=None, name=None, allow_dirty=False, inline=None)
     return out
 
 
-def _procedure(out, name, mine, theirs, used_user, errs, base=None, inline=None):
+def _procedure(out, name, mine, theirs, used_user, errs, base=None, inline=None, caller_named=False,
+               inline_given=False):
     inline = inline or {}
     paths = {s: os.path.join(d, "procedures", f"{name}.md") for s, d in (("project", mine), ("user", theirs))}
     labels = {"inline": f"<inline>/procedures/{name}.md", "project": f"{AGENTS}/procedures/{name}.md",
@@ -332,7 +333,7 @@ def _procedure(out, name, mine, theirs, used_user, errs, base=None, inline=None)
     fm, _ = parse_frontmatter(text, label)
     if fm.get("name") != name:
         errs.append(f"{label}: 'name' is '{fm.get('name')}' but the file is {name}.md")
-    for lower_label, lower_text in _lowers(source, name, mine, theirs, base or {}, errs):
+    for lower_label, lower_text in _lowers(source, name, mine, theirs, base or {}, errs, caller_named, inline_given):
         bad = validate_text(lower_text, lower_label, strict=True)
         errs.extend(f"{lower_label}: {e}" for e in bad)
         lower = None if bad else parse_procedure(lower_text, lower_label)[0]
@@ -342,15 +343,17 @@ def _procedure(out, name, mine, theirs, used_user, errs, base=None, inline=None)
     out["bindings"] = bindings_for(proc, out["policy"])
 
 
-def _lowers(source, name, mine, theirs, base, errs):
+def _lowers(source, name, mine, theirs, base, errs, caller_named=False, inline_present=False):
     """The (label, text) of each lower layer's procedure the chosen one must not weaken.
 
     Per layer, the one of this name and the one that layer runs: a rename, or a swap for another
-    procedure of the user's, must not shed a floor. Inline answers to the project too."""
+    procedure of the user's, must not shed a floor. Inline answers to the project too. A name the
+    caller gave (`--procedure`) is the caller's own choice and is not checked against the user's baseline;
+    a name that came from a policy or charter is, even when it is a procedure the user owns."""
     wanted = []
-    if source == "inline":
+    if source == "inline" or (inline_present and not caller_named):
         wanted += [("project", name), ("project", base.get("project"))]
-    if source != "user":
+    if source != "user" or not caller_named:
         wanted += [("user", name), ("user", base.get("user"))]
     found, seen = [], set()
     for layer, n in wanted:
@@ -364,7 +367,8 @@ def _lowers(source, name, mine, theirs, base, errs):
         if text:
             found.append((label, text))
     names = base.get("user_names") or []
-    if source != "user" and len(names) > 1 and base.get("user") is None and not any(l.startswith("<user>") and l.endswith(f"/{name}.md") for l, _ in found):
+    counterpart = source != "user" and any(l.startswith("<user>") and l.endswith(f"/{name}.md") for l, _ in found)
+    if not caller_named and len(names) > 1 and base.get("user") is None and not counterpart:
         errs.append("the user has several procedures and none is named in the user's policy: set 'procedure' there, so the floor to keep is known")
     return found
 
