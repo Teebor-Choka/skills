@@ -185,3 +185,101 @@ def test_drive_refuses_a_claims_run():
 def test_drive_stops_at_the_step_bound_even_when_work_remains():
     out, _, _ = driven(max_steps=2)
     assert out.status == "exhausted" and out.state["status"] != "done"
+
+
+# ---- review findings
+
+def _cells(fn):
+    return [c.cell_contents for c in (fn.__closure__ or ())]
+
+
+def test_an_identitys_seal_reaches_neither_the_ring_nor_another_key():
+    ring = ring_for(sfresh())
+    mine, other = ring.issue("worker"), ring.issue("pm")
+    cells = _cells(mine._seal)
+    assert not any(isinstance(c, KeyRing) for c in cells)
+    foreign = {ring._executor_key, ring._keys[other.instance][1]}
+    assert not any(c in foreign for c in cells if isinstance(c, bytes))
+
+
+@pytest.mark.parametrize("bad", [None, 7, {"type": "x"}, "events"])
+def test_an_executor_that_returns_a_non_list_fails_the_drive(bad):
+    class Bad:
+        def run(self, action):
+            return bad
+
+    state = sfresh()
+    ring = ring_for(state)
+    assert drive(state, Bad(), ring, verify_owner=OWNER_OK).status == "failed"
+
+
+def test_an_executor_that_raises_while_its_events_are_iterated_fails_the_drive():
+    class Lazy:
+        def run(self, action):
+            def gen():
+                raise RuntimeError("late")
+                yield
+            return gen()
+
+    state = sfresh()
+    ring = ring_for(state)
+    out = drive(state, Lazy(), ring, verify_owner=OWNER_OK)
+    assert out.status == "failed" and "late" in out.errors[-1]["reason"]
+
+
+def test_an_executor_that_edits_its_action_cannot_break_the_drive():
+    class Meddles(Scripted):
+        def run(self, action):
+            events = super().run(action)
+            action.clear()
+            return events
+
+    state = sfresh()
+    ring = ring_for(state)
+    assert drive(state, Meddles(ring), ring, verify_owner=OWNER_OK).status == "done"
+
+
+def test_the_step_bound_counts_events_not_only_actions():
+    class Flood(Scripted):
+        def run(self, action):
+            return [self.ring.executor_event({"type": "run-started"}) for _ in range(500)]
+
+    state = sfresh()
+    ring = ring_for(state)
+    out = drive(state, Flood(ring), ring, verify_owner=OWNER_OK, max_steps=50)
+    assert out.status == "exhausted" and len(out.errors) <= 60
+
+
+def test_an_early_refusal_does_not_turn_a_later_wait_into_a_stall():
+    class Async(Scripted):
+        def run(self, action):
+            events = super().run(action)
+            if action["do"] == "start-stage" and action["stage"] == "align":
+                return events + events  # a duplicate: refused as a replay
+            if action["do"] == "start-stage" and action["stage"] == "build":
+                return []  # the agent answers later
+            return events
+
+    state = sfresh()
+    ring = ring_for(state)
+    out = drive(state, Async(ring), ring, verify_owner=OWNER_OK)
+    assert out.errors and out.status == "waiting"
+
+
+def test_identical_events_from_one_instance_get_different_signatures():
+    who = ring_for(sfresh()).issue("pm")
+    assert who.seal({"type": "t"})["signature"] != who.seal({"type": "t"})["signature"]
+
+
+@pytest.mark.parametrize("changed", ["src/a.py", b"x", 5, None])
+def test_changed_must_be_a_list_of_paths(changed):
+    state = sfresh()
+    ring = ring_for(state)
+    with pytest.raises(ValueError, match="changed"):
+        drive(state, Scripted(ring), ring, verify_owner=OWNER_OK, changed=changed)
+
+
+def test_a_caller_supplied_run_id_never_survives_sealing():
+    ring = ring_for(sfresh())
+    assert "run_id" not in ring.issue("pm").seal({"type": "t", "run_id": "other"})
+    assert "run_id" not in ring.executor_event({"type": "t", "run_id": "other"})
