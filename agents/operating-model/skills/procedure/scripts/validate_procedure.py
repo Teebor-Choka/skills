@@ -604,14 +604,23 @@ def override_violations(base, other):
     A project's procedure may replace the user's, but it must not weaken it: dropping or rewiring a
     floor stage, moving the ladder, loops or KPIs. Anything `other` leaves out is treated as removed."""
     gone = {"disabled": True}
-    delta = {"stages": {**{k: dict(gone) for k in base["stages"] if k not in other["stages"]}, **other["stages"]}}
+
+    def whole(base_map, other_map, keys_of):
+        """Every id of both maps; a key `other` leaves out counts as removed, not as unchanged."""
+        out = {k: dict(gone) for k in base_map if k not in other_map}
+        for k, over in other_map.items():
+            have = base_map.get(k, {})
+            out[k] = {**{key: None for key in keys_of(have) if key in have}, **over}
+        return out
+
+    delta = {"stages": whole(base["stages"], other["stages"], lambda st: (*FLOOR_LOCKED, "floor", "when", "review"))}
     for name in ID_MAPS:
-        merged = {k: dict(gone) for k in base.get(name, {}) if k not in other.get(name, {})}
-        merged.update(other.get(name, {}))
+        merged = whole(base.get(name, {}), other.get(name, {}), lambda _: ID_MAPS[name]["protected"])
         if merged:
             delta[name] = merged
     _, _, protected = _merge(base, delta)
-    return protected
+    dangling = any(n not in other["stages"] for st in other["stages"].values() for n in st.get("needs") or [])
+    return protected if dangling else protected + _floor_errors(base["stages"], other["stages"])
 
 
 def main(argv=None):
