@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.11.0"
+  version: "1.11.1"
 ---
 
 # procedure: a named graph of stages
@@ -332,8 +332,11 @@ What this does not do:
 - `register` is a global registry. Code that can call it can replace the owner gate, so only trusted
   code may.
 - Paths match case-sensitively. A case-insensitive filesystem needs its changes lowercased first.
-- It does not run agents. `scripts/executor.py` holds the keys and drives the loop; what an `Executor`
-  does with an action (a context, a board item, a subagent) is the harness's.
+- It does not run agents or isolate them. This plugin describes how a task is automated; running it is the
+  executor's job, and sandbox orchestration (process isolation, key custody, identity, transport) is a
+  separate project. `scripts/executor.py` is a **reference executor**: it shows what a conforming one does
+  and runs the contract in tests, with in-process HMAC identities that guard against mistakes, not against
+  a hostile agent. What an `Executor` does with an action (a context, a board item, a subagent) is the harness's.
 
 ### Rules the runtime now holds
 
@@ -365,6 +368,9 @@ sees and in what form, and never approves a protected change alone. It may be an
 
 ### The ledger: `scripts/ledger.py`
 
+The ledger is part of the contract. A conforming executor keeps a record with these properties, and `ledger.py`
+is the reference implementation and the tests of them.
+
 `Ledger(path, key)` is the executor's record of a run: one JSON entry per line, each holding the MAC of
 the entry before it and its own, under a key only the executor has. An edit, a reorder or a deletion
 in the middle raises `LedgerError`. A partial last line left by a crash is dropped and reported
@@ -377,6 +383,9 @@ vouches for the recorded identities, so recovery needs no key ring. Entries are 
 remote disk is only as durable as that disk.
 
 ### Resuming a run: `resume(ledger, executor, ring, ...)`
+
+(Reference executor. The contract it shows: a run recovers by replaying its ledger, a stage that was running is
+issued again at the same round, and identities from before the crash are not carried over.)
 
 `resume` continues a run from its ledger after a crash. It recovers the state by replay, issues again
 each stage that was running (its agent died with the process) at the same round and each item that was
