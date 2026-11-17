@@ -14,12 +14,14 @@ Usage:
     validate_docs.py --all <root-path>        validate every project found under root
     validate_docs.py [project-path] --json    machine-readable findings
 
-Exit code 0 only when every checked project passes; nonzero if any finding is raised.
+Exit code 0 only when every checked project passes; 1 if any finding is raised (a finding
+labelled "warning" counts too); 2 for a usage error or an unexpected failure.
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -34,8 +36,17 @@ from pathlib import Path
 ADR_STATUSES = frozenset({"proposed", "accepted"})
 UPDATED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-MERMAID_RE = re.compile(r"(?m)^[ \t]*`{3,}[ \t]*mermaid\b")
+FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+
+# Narrow, high-signal credential shapes. Matches are reported by kind only, never echoed.
+SECRET_PATTERNS = (
+    ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    ("AWS access key id", re.compile(r"(?<![A-Z0-9])AKIA(?![0-9A-Z]{9}EXAMPLE)[0-9A-Z]{16}(?![A-Z0-9])")),
+    ("GitHub token", re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}")),
+    ("Slack token", re.compile(r"xox[baprs]-(?:\d{6,}-){2,}[A-Za-z0-9]{10,}")),
+)
+SUPERSEDE_KEYS = ("supersedes", "superseded-by")
 
 # ADR body must contain these three labels, in this order.
 ADR_REQUIRED_LABELS = ("Context", "Decision", "Consequences")
@@ -104,6 +115,50 @@ def _key_satisfied(fm: dict[str, object], key: object) -> bool:
     return any(_present(fm.get(k)) for k in aliases)
 
 
+def _has_mermaid_block(text: str) -> bool:
+    """True when text holds a top-level mermaid fence with a non-blank body. Handles
+    ``` and ~~~ fences of any length >= 3; a fence inside another (longer) code
+    fence is body text of that fence, not a diagram."""
+    opener: tuple[str, int, bool] | None = None  # (char, length, is_mermaid)
+    body_has_text = False
+    for line in text.splitlines():
+        m = FENCE_RE.match(line)
+        if opener is None:
+            if m:
+                marker, info = m.group(1), m.group(2).strip()
+                is_mermaid = re.match(r"mermaid\b", info) is not None
+                opener, body_has_text = (marker[0], len(marker), is_mermaid), False
+        elif m and m.group(1)[0] == opener[0] and len(m.group(1)) >= opener[1] \
+                and not m.group(2).strip():
+            if opener[2] and body_has_text:
+                return True
+            opener = None
+        elif line.strip():
+            body_has_text = True
+    return opener is not None and opener[2] and body_has_text  # unclosed fence runs to EOF
+
+
+def _dir_unreadable(path: Path) -> bool:
+    """True when path exists but cannot be listed (e.g. a permission error)."""
+    try:
+        os.listdir(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    except OSError:
+        return True
+    return False
+
+
+def _read(path: Path, project: str, rel: str, findings: list[Finding]) -> str | None:
+    """Read a doc as UTF-8; an unreadable file becomes a finding, not a crash."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        findings.append(Finding(project, rel, "unreadable-file",
+                                f"unreadable file ({type(exc).__name__})"))
+        return None
+
+
 # --- frontmatter parsing -----------------------------------------------------
 
 
@@ -168,8 +223,12 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
     findings: list[Finding] = []
     docs = project_path / "docs"
 
+    if _dir_unreadable(docs):
+        return [Finding(project, "docs", "unreadable-file", "cannot list docs/")]
     if not docs.is_dir():
         return [Finding(project, None, "undocumented", "no docs/ directory", "warning")]
+    if _dir_unreadable(docs / "decisions"):
+        return [Finding(project, "docs/decisions", "unreadable-file", "cannot list docs/decisions/")]
 
     overview = docs / "overview.md"
     decisions = docs / "decisions"
@@ -203,7 +262,9 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
     name_values: dict[str, str] = {}  # relpath -> project value, for divergence
     for path, kind, required in checked:
         rel = path.relative_to(project_path).as_posix()
-        text = path.read_text(encoding="utf-8")
+        text = _read(path, project, rel, findings)
+        if text is None:
+            continue
         texts[path] = text
         fm, body = split_frontmatter(text)
         bodies[path] = body
@@ -231,13 +292,16 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
                                         f"status {status!r} not one of {sorted(ADR_STATUSES)}"))
 
         updated = fm.get("updated")
-        if _nonempty_str(updated) and not UPDATED_RE.match(updated):  # type: ignore[arg-type]
+        if _nonempty_str(updated) and not _is_iso_date(updated):  # type: ignore[arg-type]
             findings.append(Finding(project, rel, "frontmatter-updated",
                                     f"updated {updated!r} is not an ISO date YYYY-MM-DD"))
 
         name_val = _name_value(fm)
         if name_val is not None:
             name_values[rel] = name_val
+
+        if kind is None:
+            findings.extend(_check_supersede(project, rel, fm, adr_files))
 
     # --- project value must be identical across all docs -------------------
     findings.extend(_check_name_divergence(project, name_values))
@@ -249,10 +313,11 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
             findings.append(Finding(project, rel, "adr-filename",
                                     f"ADR filename {adr.stem!r} is not kebab-case "
                                     r"(^[a-z0-9]+(-[a-z0-9]+)*$)"))
-        findings.extend(_check_adr_sections(project, rel, bodies[adr]))
+        if adr in bodies:
+            findings.extend(_check_adr_sections(project, rel, bodies[adr]))
 
     # --- decisions index, both directions ----------------------------------
-    if index.is_file():
+    if index in texts:
         findings.extend(_check_index(project, project_path, texts[index], decisions, adr_files))
 
     # --- AGENTS.md pointer -------------------------------------------------
@@ -260,11 +325,46 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
 
     # --- diagrams (per the doc-kind table) ---------------------------------
     for spec in present_specs:
-        if spec.requires_mermaid and not MERMAID_RE.search(texts[docs / spec.relpath]):
+        text = texts.get(docs / spec.relpath)
+        if spec.requires_mermaid and text is not None and not _has_mermaid_block(text):
             findings.append(Finding(project, f"docs/{spec.relpath}", "diagram",
-                                    f"{spec.relpath} has no ```mermaid block"))
+                                    f"{spec.relpath} has no ```mermaid block with a body"))
+
+    # --- secrets (checked docs only; kind reported, value never echoed) ----
+    for path, text in texts.items():
+        rel = path.relative_to(project_path).as_posix()
+        for kind_name, pattern in SECRET_PATTERNS:
+            if pattern.search(text):
+                findings.append(Finding(project, rel, "secret-pattern",
+                                        f"possible {kind_name} found; value not shown"))
 
     return findings
+
+
+def _is_iso_date(value: str) -> bool:
+    if not UPDATED_RE.match(value):
+        return False
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _check_supersede(project: str, rel: str, fm: dict[str, object],
+                     adr_files: list[Path]) -> list[Finding]:
+    slugs = {p.stem for p in adr_files}
+    out = []
+    for key in SUPERSEDE_KEYS:
+        raw = fm.get(key)
+        targets = raw if isinstance(raw, list) else [raw]
+        out.extend(
+            Finding(project, rel, "adr-supersede",
+                    f"{key} names {t!r} but no such ADR exists in docs/decisions")
+            for t in targets
+            if _nonempty_str(t) and t.strip() not in slugs  # type: ignore[union-attr]
+        )
+    return out
 
 
 def _check_name_divergence(project: str, name_values: dict[str, str]) -> list[Finding]:
@@ -362,7 +462,10 @@ def _check_agents(project: str, project_path: Path) -> list[Finding]:
     if not agents.is_file():
         return [Finding(project, "AGENTS.md", "agents-md",
                         "root AGENTS.md is required but missing")]
-    text = agents.read_text(encoding="utf-8")
+    findings: list[Finding] = []
+    text = _read(agents, project, "AGENTS.md", findings)
+    if text is None:
+        return findings
     return [
         Finding(project, "AGENTS.md", "agents-md", f"AGENTS.md does not mention {needle!r}")
         for needle in ("docs/overview.md", "docs/decisions")
@@ -407,6 +510,14 @@ def _format_line(f: Finding) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _run(argv)
+    except Exception as exc:  # exit 1 must always mean findings
+        print(f"error: unexpected failure: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+
+
+def _run(argv: list[str] | None) -> int:
     parser = argparse.ArgumentParser(description="Validate project docs against the contract.")
     parser.add_argument("path", nargs="?", default=".",
                         help="project path (default: current directory), or root path with --all")
@@ -421,6 +532,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     projects = find_projects(root) if args.all else [root]
+    if not projects:
+        print(f"error: no projects found under {root}", file=sys.stderr)
+        return 2
 
     all_findings: list[Finding] = []
     per_project: list[tuple[str, int]] = []
