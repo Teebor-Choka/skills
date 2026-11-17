@@ -878,7 +878,8 @@ def test_the_resolver_checks_the_attested_classes_itself():
 # ---- the signing setting and the communication requirement
 
 def _mode(tmp_path, policy, **kw):
-    repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC, "policy.md": f"---\n{policy}---\n"}))
+    """A run of a procedure that has entities and a delegate, so a signed run can start."""
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": ENT, "charter.md": DELEGATE_CHARTER, "policy.md": f"---\n{policy}---\n"}))
     return start_run(repo, environ=env_for(tmp_path), **kw)
 
 

@@ -17,7 +17,7 @@ import os
 
 from runtime import SOURCE_OF, new_state, step
 
-__all__ = ("GENESIS", "Ledger", "LedgerError", "recover")
+__all__ = ("GENESIS", "Ledger", "LedgerError", "assurance_of", "recover")
 
 GENESIS = "0" * 64
 
@@ -109,8 +109,20 @@ def recover(ledger):
     return state
 
 
+def assurance_of(entries):
+    """What a ledger can prove about who sent what: `signed` only when the run was signed and every event
+    entry says so, else `none`. A run with no signing is a trusted environment, and an audit must not
+    mistake it for a verified one."""
+    if not entries or entries[0].get("kind") != "header" or entries[0]["body"].get("trust") != "signed":
+        return "none"
+    events = [e for e in entries[1:] if e.get("kind") == "event"]
+    return "signed" if all(e["body"].get("signing") == "signed" for e in events) else "none"
+
+
 def identity_of(event, ring, run_id):
-    """Who the executor verifies this event as: an entity, `executor` or `owner`."""
+    """Who the executor verifies this event as: an entity, `executor` or `owner`. With no ring, nobody."""
+    if ring is None:
+        return "unverified"
     source = SOURCE_OF.get(event.get("type"))
     if source == "agent":
         return ring.verify_sender({**event, "run_id": run_id})

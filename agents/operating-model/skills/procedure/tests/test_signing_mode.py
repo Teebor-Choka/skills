@@ -118,3 +118,24 @@ def test_a_ring_given_to_a_no_signing_run_is_ignored_not_trusted(tmp_path):
     ledger = Ledger(tmp_path / "l", KEY)
     out = drive(state, Claims(), ring, verify_owner=ALLOW, ledger=ledger)
     assert out.status == "done" and assurance_of(ledger.read()) == "none"
+
+
+def test_a_header_that_says_no_signing_makes_the_ledger_none_whatever_the_entries_say(tmp_path):
+    _, s = signed_run(tmp_path)
+    entries = s.read()
+    entries[0] = {**entries[0], "body": {**entries[0]["body"], "trust": "claims"}}
+    assert assurance_of(entries) == "none"
+
+
+def test_a_ring_given_to_a_no_signing_run_names_no_identity(tmp_path):
+    state = new_state(SWE)
+    ring = KeyRing(state["run_id"], ["pm"])
+    ledger = Ledger(tmp_path / "l", KEY)
+    drive(state, Claims(), ring, verify_owner=ALLOW, ledger=ledger)
+    assert {e["body"]["by"] for e in ledger.read() if e["kind"] == "event"} == {"unverified"}
+
+
+def test_resume_ignores_a_ring_for_another_run_when_the_run_has_no_signing(tmp_path):
+    out, ledger = claims_run(tmp_path, max_steps=4)
+    done = resume(Ledger(ledger.path, KEY), Claims(), KeyRing("another-run", ["pm"]), verify_owner=ALLOW)
+    assert done.status == "done"

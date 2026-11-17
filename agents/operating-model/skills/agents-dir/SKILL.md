@@ -11,7 +11,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.5.0"
+  version: "1.6.0"
 ---
 
 # agents-dir: the process is a set of documents
@@ -122,7 +122,7 @@ is guarded:
 - **A different owner.** A project or inline charter may not name a different `owner` than a lower one,
   and an empty charter does not drop it. A user charter whose `owner` is not a map is an error.
 - **Hostile files.** `agents_dir.py` applies the same rule as the resolver: in the project, a symlinked document, `.agents/` or `.agents/procedures/`, an
-  oversized (over 256 KB) or unreadable document is an error. A charter names its `delegate` (an entity with `role: delegate`) whenever an entity escalates to the owner; the resolver refuses a run without one. Policy `attested-decisions` (a list from `ordinary`, `protected`) reaches the run as a validated list. A procedure file whose suffix is not exactly lowercase `.md` is an error (a case-insensitive filesystem would load it). Only a top-level `iterations/NNNN-<slug>.md` file can cover a change, and a symlink or a larger file covers nothing. The user's own layer may be symlinked
+  oversized (over 256 KB) or unreadable document is an error. A charter names its `delegate` (an entity with `role: delegate`) whenever an entity escalates to the owner; the resolver refuses a run without one. Policy `signing` (`signed` or `none`; team mode defaults to `signed`) sets the trust a run needs, and `start_run` refuses a weaker one. Policy `communication` (text) is carried into the run. Policy `attested-decisions` (a list from `ordinary`, `protected`) reaches the run as a validated list. A procedure file whose suffix is not exactly lowercase `.md` is an error (a case-insensitive filesystem would load it). Only a top-level `iterations/NNNN-<slug>.md` file can cover a change, and a symlink or a larger file covers nothing. The user's own layer may be symlinked
   (home-manager, stow). Inline input is capped at 64 procedures, 256 KB a document and 2 MB a file. A procedure name must be lowercase letters, digits and
   dashes, so it cannot name a path. Git runs without the repo's fsmonitor, inherited `GIT_*`
   variables or system config. The dirty check hashes each process document and compares it with

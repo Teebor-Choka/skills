@@ -128,13 +128,19 @@ class Outcome:
 
 
 def _feeder(ring, verify_owner, ledger):
-    """`feed(state, event)`: step the event, and record it in the ledger when it reached the reducer's log."""
-    kw = {"verify_owner": verify_owner, "verify_sender": ring.verify_sender, "verify_executor": ring.verify_executor}
+    """`feed(state, event)`: step the event, and record it in the ledger when it reached the reducer's log.
+
+    A run with no signing has no ring: nothing is verified, and each entry says so."""
+    kw = {"verify_owner": verify_owner}
+    if ring is not None:
+        kw.update(verify_sender=ring.verify_sender, verify_executor=ring.verify_executor)
 
     def feed(state, event):
         new, more = step(state, event, **kw)
         if ledger is not None and len(new["log"]) > len(state["log"]):  # applied, or refused and counted
-            ledger.append("event", {"event": event, "by": identity_of(event, ring, state["run_id"])})
+            signed = state["trust"] == "signed"
+            ledger.append("event", {"event": event, "signing": "signed" if signed else "none",
+                                    "by": identity_of(event, ring, state["run_id"])})
         return new, more
 
     return feed
@@ -178,21 +184,25 @@ def _loop(state, queue, executor, feed, max_steps, work):
 
 
 def drive(state, executor, ring, *, verify_owner=None, changed=(), max_steps=1000, ledger=None):
-    """Run a new signed run to a stop. Every event, including the executor's own, goes through `step`.
+    """Run a new run to a stop. Every event, including the executor's own, goes through `step`.
+
+    A signed run needs a `ring`. A run with no signing (`trust` is `claims`) takes none, and the ledger
+    labels every entry as unverified.
 
     `max_steps` bounds the work: each action handed to the executor and each event fed back counts.
     With a `ledger`, a header and every event that reached the reducer's log are recorded, each with the
     identity the executor verified for it."""
-    if state["trust"] != "signed":
-        raise ValueError("drive needs a signed run: an unsigned one cannot tell who sent an event")
+    if state["trust"] == "signed" and ring is None:
+        raise ValueError("a signed run needs a key ring")
     if state["status"] != "new":
         raise ValueError(f"drive starts a new run, not one that is {state['status']}")
     if not (isinstance(changed, (list, tuple)) and all(isinstance(p, str) for p in changed)):
         raise ValueError("'changed' must be a list of paths")
     if ledger is not None:
         ledger.append("header", header_of(state))
-    feed = _feeder(ring, verify_owner, ledger)
-    state, queue = feed(state, ring.executor_event({"type": "run-started", "changed": list(changed)}))
+    feed = _feeder(ring if state["trust"] == "signed" else None, verify_owner, ledger)
+    start = {"type": "run-started", "changed": list(changed)}
+    state, queue = feed(state, ring.executor_event(start) if state["trust"] == "signed" else start)
     return _loop(state, queue, executor, feed, max_steps, 1)
 
 
@@ -201,6 +211,8 @@ def new_ring(ledger):
 
     The identities of the run before the crash died with their agents and are not carried over."""
     state = recover(ledger)
+    if state["trust"] != "signed":
+        return None  # a run with no signing has no identities to issue
     return KeyRing(state["run_id"], state["proc"]["entities"])
 
 
@@ -211,7 +223,11 @@ def resume(ledger, executor, ring, *, verify_owner=None, events=(), max_steps=10
     again, and `events` (decisions that arrived while the executor was down) are fed first. `ring` must
     be new: `new_ring(ledger)`. The ledger keeps recording, with a `resume` entry first."""
     state = recover(ledger)
-    if ring.run_id != state["run_id"]:
+    if state["trust"] == "signed" and ring is None:
+        raise ValueError("a signed run needs a key ring: build one with new_ring(ledger)")
+    if state["trust"] != "signed":
+        ring = None
+    if ring is not None and ring.run_id != state["run_id"]:
         raise ValueError(f"the ring is for run '{ring.run_id}', but the ledger is for run '{state['run_id']}'")
     if state["status"] == "new":
         raise ValueError("the run was never started: there is nothing to resume, use drive")

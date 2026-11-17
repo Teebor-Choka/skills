@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.11.1"
+  version: "1.12.0"
 ---
 
 # procedure: a named graph of stages
@@ -346,6 +346,26 @@ What this does not do:
 - **An automatic rollback goes first in the queue.** A change queued behind it fails its `base_version` check and is reported, not reverted.
 - **A delta that routes a stage around a floor stage** is flagged `protected` to the owner even when ratification lets it through.
 - `drive` does not hand the executor a `start-stage` that `step` has since cancelled or restarted.
+
+### What the plugin mandates: signing, and how entities communicate
+
+The plugin mandates two things about a run and leaves the rest to whoever supplies the executor.
+
+**Signing or no signing.** Policy `signing` is `signed` or `none`. Team mode (`mode: team`) defaults to
+`signed`; otherwise the default is `none`. A caller may ask for more signing than the policy requires,
+never less, and `start_run` refuses a run with no signing when the policy says `signed`. A project or
+inline layer cannot downgrade it once the user locked it (`locked: [signing]`); changing it is a protected
+change, so it ends at the stakeholder. A run with no signing is a trusted environment: `drive` takes no key
+ring, nothing is verified, and every ledger entry says `signing: none` and `by: unverified`.
+`assurance_of(entries)` returns `signed` only when the header is signed and every event entry is, else
+`none`, so an audit never mistakes a trusted-environment run for a verified one. How identities are issued,
+what is signed and how it is verified are the deployment's, not the plugin's.
+
+**How entities communicate.** Policy `communication` names the mechanism, as text (for example
+`xmpp:ops@example.org` or a socket path); the plugin carries it into the run and the ledger header and
+does not interpret it. `start_run(..., require_communication=True)` refuses a signed run that does not
+declare one. Whatever the mechanism, it must deliver in order per sender, durably, and replayably, because
+the improvement list and the votes depend on that. Setting up the mechanism is the executor's job.
 
 ### Decision assurance and the delegate
 
