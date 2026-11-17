@@ -17,6 +17,12 @@ Prefer a code-graph tool over a blind file sweep (it is faster and finds the rea
 large or multi-part project, fan the exploration out to subagents and work from their findings. The
 goal is enough grounding that every line you write traces to something in the project.
 
+## Never write into docs
+
+No secrets or credentials, no internal host names or addresses, no personal data copied from `.env`,
+config, or logs. Describe where a secret comes from (the vault, the env var name), never its value.
+The validator's `secret-pattern` check is a backstop only.
+
 ## Describe, don't propose
 
 `overview.md` and `spec.md` document a system that already exists. Write in the present tense about

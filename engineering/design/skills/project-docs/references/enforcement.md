@@ -13,7 +13,8 @@ python3 scripts/validate_docs.py <project> --json   # machine-readable findings
 ```
 
 Pure Python 3 standard library, no dependencies to install. Exit code is 0 only when everything
-checked passes, nonzero otherwise, so it drops straight into a hook or a CI step.
+checked passes. Any finding, including one labelled `warning` (such as `undocumented`), makes it
+exit 1; a usage error or an unexpected failure exits 2. It drops straight into a hook or a CI step.
 
 ## Wiring it into a target repo
 
@@ -29,6 +30,13 @@ hook.
   (`git rev-parse --git-path hooks`, which already resolves `core.hooksPath` and a linked worktree's
   shared common dir), inserting the check after the shebang so an existing hook that ends in
   `exit 0` cannot strand it.
+
+The hook resolves the repo at commit time (`git rev-parse --show-toplevel`) and validates the
+**staged** content, exported from the index to a temp dir, so linked worktrees and unstaged edits
+behave. If the validator file is gone (for example a garbage-collected Nix store path), the hook
+fails and says to re-run `install_hook.sh`. It never overwrites a symlinked hook, and never writes
+into a `core.hooksPath` outside the target repo (it may be shared); in both cases it prints the
+block to add by hand.
 
 It is idempotent: re-running does not duplicate the hook.
 
