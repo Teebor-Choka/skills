@@ -11,7 +11,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # agents-dir: the process is a set of documents
@@ -107,17 +107,25 @@ is guarded:
 - **Locked keys.** List keys in `locked: [mode, vcs.remote]` in the user's policy. The resolved policy
   must hold, for each, what the user's layer alone gives, so a changed value, a key the user left
   unset, a scalar over a map and a sibling overlay that replaces a nested map are all errors. Only the
-  user's list counts, and a `locked` that is not a list of dotted keys is an error.
+  user's list counts, and a `locked` that is not a list of dotted keys is an error. A lock also covers
+  the key set for one skill (`<skill>: {key: ..}`) or one file (`files:`).
 - **A weaker procedure.** A project or inline procedure is compared with the user's procedure of the
-  same name, else the one the user runs (a rename does not shed a floor); inline is also compared with
-  the project's. It may not drop, rewire or strip a floor stage, remove its review angles, rewire a
-  stage around it, or move the ladder, a loop or a KPI. A key it leaves out counts as changed. A
+  same name and with the one the user runs (a rename, or a swap for another of the user's, does not
+  shed a floor); inline is also compared with the project's. When the user has several procedures and
+  names none (`procedure` in the user's policy), a project or inline procedure with no same-name
+  counterpart is refused, since the floor to keep is unknown. A procedure that fails validation is
+  refused before any comparison. It may not drop, rewire or strip a floor stage, remove its review angles, rewire a
+  stage around it, a floor stage's `on-fail`, or move the ladder, a loop (its `stages`, `exit`, `on-exhausted`) or a KPI. A key it leaves out counts as changed. A
   user baseline that is itself invalid is an error.
-- **A different owner.** A project or inline charter may not name a different `owner` than a lower one.
-- **Hostile files.** A symlinked document, `.agents/` or `.agents/procedures/`, an oversized (over
-  256 KB) or unreadable document is an error. A procedure name must be lowercase letters, digits and
+- **A different owner.** A project or inline charter may not name a different `owner` than a lower one,
+  and an empty charter does not drop it. A user charter whose `owner` is not a map is an error.
+- **Hostile files.** In the project, a symlinked document, `.agents/` or `.agents/procedures/`, an
+  oversized (over 256 KB) or unreadable document is an error. The user's own layer may be symlinked
+  (home-manager, stow). Inline input is capped at 64 procedures, 256 KB a document and 2 MB a file. A procedure name must be lowercase letters, digits and
   dashes, so it cannot name a path. Git runs without the repo's fsmonitor, inherited `GIT_*`
-  variables or system config.
+  variables or system config. The dirty check hashes each process document and compares it with
+  `HEAD` (no `git status`, so no repo filter runs); an untracked or git-ignored document counts as
+  changed.
 
 ```
 python3 scripts/resolver.py PROJECT [--procedure NAME] [--allow-dirty] [--inline FILE.json]
@@ -137,6 +145,12 @@ text, and exits 1 on any error. `start_run(project, trust="signed")` freezes the
 - Inline documents are trusted as the parent's
   authority only as far as the user's locks and floor allow; the resolver cannot tell a parent from an
   attacker who controls the call, so the caller must be trusted.
+- With no git repo (a tarball), or no `git` on the path, a project's documents are used unpinned with
+  no dirty check; `revision.project` is `None`. Run from a repo when the pin matters.
+- The user policy is read more than once (parse, hash, load), so a file changed during resolution can
+  differ from the hash in `revision.user`.
+- A user who does not lock `regression-threshold` or `safety-metrics` lets a project weaken the
+  rollback checks (a huge threshold, an empty list). Lock them.
 - Locking covers policy keys, the owner and the floor. A project can still change policy values the
   user did not lock, for example `mode`, so lock what matters.
 - It reads the policy loader's layering, which treats a missing user policy as no policy.
