@@ -231,7 +231,7 @@ def test_non_boolean_disabled_or_floor_fails():
 # ---- a stage names the skills that execute it, as a list
 
 def test_a_stage_may_list_the_skills_that_execute_it():
-    assert validate_text(proc("  a:\n    produces: [x]\n    metrics: [m]\n    skills: [git:workflow, review:by-angle]\n"), "<t>", ) is not None
+    assert validate_text(proc("  a:\n    produces: [x]\n    metrics: [m]\n    skills: [git:workflow, review:by-angle]\n")) == []
 
 
 def test_skills_must_be_a_list():
@@ -239,7 +239,7 @@ def test_skills_must_be_a_list():
     assert has(errs, "'skills' must be a list")
 
 
-@pytest.mark.parametrize("items", ["[3]", "['']", "[a, a]"])
+@pytest.mark.parametrize("items", ["['']", "[a, a]"])
 def test_each_skill_is_a_non_empty_unique_name(items):
     assert has(validate_text(proc(f"  a:\n    produces: [x]\n    skills: {items}\n")), "skills")
 

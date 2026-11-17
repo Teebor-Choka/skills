@@ -28,10 +28,10 @@ __all__ = (
 
 POLICY_KEY = re.compile(r"^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*\Z")  # dotted lowercase names
 OWNER = "owner"  # the user: the reserved last rung of every ladder
-LIST_KEYS = ("needs", "consumes", "produces", "review", "metrics", "uses")
+LIST_KEYS = ("needs", "consumes", "produces", "review", "metrics", "uses", "skills")
 BOOL_KEYS = ("disabled", "floor")
 # A delta may not change these on a floor stage; `review` may only grow.
-FLOOR_LOCKED = ("needs", "consumes", "produces", "skill", "entity", "uses", "on-fail")
+FLOOR_LOCKED = ("needs", "consumes", "produces", "skills", "entity", "uses", "on-fail")
 # Id maps a delta overlays per id, like `stages`, and what protects each. `protected`: keys a delta
 # cannot change on an existing id. `removable`: whether a delta may disable an id. `lower_only`:
 # numeric keys a delta may lower but not raise. A new map is one entry here.
@@ -99,6 +99,11 @@ def _shape_errors(stages):
         for key in LIST_KEYS:
             if key in st and not isinstance(st[key], list):
                 errs.append(f"stage '{sid}': '{key}' must be a list like [a, b]")
+        if "skill" in st:
+            errs.append(f"stage '{sid}': 'skill' is not a stage key; name the skills in a list: skills: [{st['skill']}]")
+        skills = st.get("skills")
+        if isinstance(skills, list) and (not all(isinstance(k, str) and k.strip() for k in skills) or len(set(skills)) != len(skills)):
+            errs.append(f"stage '{sid}': 'skills' must hold unique, non-empty skill names")
         for key in BOOL_KEYS:
             if key in st and not isinstance(st[key], bool):
                 errs.append(f"stage '{sid}': '{key}' must be true or false")
