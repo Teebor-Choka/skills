@@ -382,6 +382,7 @@ def test_a_signed_run_can_be_asked_for_and_needs_entities(tmp_path):
 
 
 def run_cli(tmp_path, repo, *extra, monkeypatch=None, env=None):
+    monkeypatch.delenv("AGENTS_POLICY_GLOBAL", raising=False)  # the shell running the tests may set it
     for k, v in (env or env_for(tmp_path)).items():
         monkeypatch.setenv(k, v)
     return resolve_main([str(repo), *extra])
@@ -748,3 +749,49 @@ def test_an_inline_policy_cannot_pick_a_floorless_project_procedure(tmp_path):
             "policy.md": "---\nprocedure: ship\n---\n"}
     got = _vs_user(tmp_path, proj, {}, inline={"policy": "---\nprocedure: other\n---\n"})
     assert got["procedure"] == "other" and any("floor" in e for e in got["errors"]), got
+
+
+# ---- audit: second round on the resolver
+
+def test_a_user_policy_at_agents_policy_global_is_honoured_for_locks(tmp_path):
+    glob = tmp_path / "g.md"
+    glob.write_text("---\nlocked: [mode]\nmode: single\n---\n")
+    env = {**env_for(tmp_path), "AGENTS_POLICY_GLOBAL": str(glob)}
+    repo = project(tmp_path, agents({"policy.md": "---\nmode: team\n---\n", "procedures/campaign-ops.md": PROC}))
+    got = resolve(repo, environ=env)
+    assert any("mode" in e and "locked" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_policy_key_a_when_gate_reads_reaches_the_run(tmp_path):
+    gated = PROC.replace("  launch:\n", "  launch:\n    when:\n      policy: security\n", 1)
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": gated, "policy.md": "---\nsecurity: true\n---\n"}))
+    state = start_run(repo, environ=env_for(tmp_path))
+    assert state["policy"]["security"] is True
+
+
+@pytest.mark.parametrize("value,expect", [("false", False), ("no", False), ("yes", True)])
+def test_a_gate_policy_value_is_read_as_a_boolean(tmp_path, value, expect):
+    gated = PROC.replace("  launch:\n", "  launch:\n    when:\n      policy: security\n", 1)
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": gated, "policy.md": f"---\nsecurity: {value}\n---\n"}))
+    assert start_run(repo, environ=env_for(tmp_path))["policy"]["security"] is expect
+
+
+def test_a_gate_policy_value_that_is_not_a_boolean_is_refused(tmp_path):
+    gated = PROC.replace("  launch:\n", "  launch:\n    when:\n      policy: security\n", 1)
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": gated, "policy.md": "---\nsecurity: maybe\n---\n"}))
+    with pytest.raises(ResolutionError):
+        start_run(repo, environ=env_for(tmp_path))
+
+
+def test_a_caller_named_project_procedure_is_refused_when_the_users_floor_is_unknown(tmp_path):
+    user = {"procedures/ship.md": NAMED("ship", FLOORED), "procedures/hotfix.md": NAMED("hotfix", FLOORED)}
+    got = _vs_user(tmp_path / "a", {"procedures/yolo.md": NAMED("yolo")}, user, name="yolo")
+    assert got["errors"], got
+    inl = _vs_user(tmp_path / "b", {"procedures/other.md": NAMED("other")}, user, name="yolo", inline={"procedures": {"yolo": NAMED("yolo")}})
+    assert inl["errors"], inl
+
+
+def test_a_project_procedure_with_an_upper_case_suffix_is_refused(tmp_path):
+    repo = project(tmp_path, agents({"procedures/foo.MD": NAMED("foo")}))
+    got = resolve(repo, environ=env_for(tmp_path, {"procedures/foo.md": NAMED("foo"), "policy.md": "---\nprocedure: foo\n---\n"}))
+    assert any("lowercase" in e for e in got["errors"]), got["errors"]

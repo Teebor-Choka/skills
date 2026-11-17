@@ -304,3 +304,67 @@ def test_updating_an_old_record_does_not_count_as_documenting_a_new_change(tmp_p
     write(repo, ".agents/iterations/0001-initial.md", ITER.replace("pending", "confirmed"))
     commit(repo)
     assert has(errs(repo, base=base), "iteration")
+
+
+# ---- audit: the change rule and the validator read what the resolver reads
+
+def _change(tmp_path, extra, **kw):
+    repo = make_repo(tmp_path)
+    base = git(repo, "rev-parse", "HEAD")
+    write(repo, ".agents/policy.md", POLICY + "\n")
+    for rel, text in extra.items():
+        write(repo, rel, text)
+    commit(repo, "change")
+    return check_agents_dir(repo, base=base, **kw)
+
+
+@pytest.mark.parametrize("rel", [".agents/iterations/notes.txt", ".agents/iterations/sub/0009-a.md"])
+def test_only_a_top_level_numbered_record_can_cover_a_process_change(tmp_path, rel):
+    errs = _change(tmp_path, {rel: "---\ntouches: [policy.md]\n---\n"})
+    assert has(errs, "not a valid iteration record"), errs
+
+
+def test_a_procedure_file_with_an_upper_case_suffix_is_an_error(tmp_path):
+    repo = make_repo(tmp_path, files={".agents/procedures/foo.MD": PROC.replace("name: campaign-ops", "name: foo")})
+    assert has(check_agents_dir(repo), "lowercase"), check_agents_dir(repo)
+
+
+def test_a_symlinked_document_is_refused_and_its_content_is_not_echoed(tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_text("---\nSECRET_LINE_WITHOUT_COLON\n---\n")
+    repo = make_repo(tmp_path)
+    (repo / ".agents" / "iterations" / "0002-x.md").symlink_to(secret)
+    errs = check_agents_dir(repo)
+    assert has(errs, "symlink") and not has(errs, "SECRET_LINE"), errs
+
+
+def test_an_oversized_document_is_refused(tmp_path):
+    repo = make_repo(tmp_path)
+    write(repo, ".agents/procedures/big.md", "---\nname: big\n---\n" + "x" * (300 * 1024))
+    assert has(check_agents_dir(repo), "too large")
+
+
+def test_a_symlinked_policy_is_refused(tmp_path):
+    other = tmp_path / "other.md"
+    other.write_text(POLICY)
+    repo = make_repo(tmp_path)
+    (repo / ".agents" / "policy.md").unlink()
+    (repo / ".agents" / "policy.md").symlink_to(other)
+    assert has(check_agents_dir(repo), "symlink")
+
+
+def test_a_change_to_an_upper_case_procedure_file_still_needs_a_record(tmp_path):
+    errs = _change(tmp_path, {".agents/procedures/foo.MD": PROC.replace("name: campaign-ops", "name: foo")})
+    assert any("foo.MD" in e and "iteration record" in e for e in errs), errs
+
+
+def test_a_symlinked_iteration_record_covers_nothing(tmp_path):
+    repo = make_repo(tmp_path)
+    base = git(repo, "rev-parse", "HEAD")
+    real = tmp_path / "real.md"
+    real.write_text(ITER.replace("procedures/campaign-ops.md", "policy.md"))
+    write(repo, ".agents/policy.md", POLICY + "\n")
+    (repo / ".agents" / "iterations" / "0002-x.md").symlink_to(real)
+    commit(repo, "change")
+    errs = check_agents_dir(repo, base=base)
+    assert has(errs, "not covered by the 'touches'"), errs
