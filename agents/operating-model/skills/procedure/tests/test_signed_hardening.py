@@ -302,12 +302,11 @@ def test_a_refused_signed_event_replayed_is_not_counted_again():
 def test_an_applied_owner_decision_replayed_is_not_counted():
     from signed_fixtures import decide
     state, _ = go()
-    state, acts = srun(state, sdone("align"), sfailed("spec", locators={}, by="lead"))
-    items = [i for i in state.get("items", []) if i.get("status") == "open"] or []
-    if not items:
-        pytest.skip("scenario raised no open item")
-    ev = decide(state, items[0]["id"], "abort")
-    state, _ = srun(state, ev)
-    before = counters(state)["refusals"]
+    state, acts = srun(state, sfailed("align"))
+    ev = decide(state, acts[0][0]["item"], "retry")
     state, acts = srun(state, ev)
-    assert counters(state)["refusals"] == before
+    assert dos(acts[0])[0] == "owner-ruled"
+    before = (counters(state)["refusals"], len(state["log"]))
+    state, acts = srun(state, ev)
+    assert refused(acts[0], "replay")
+    assert (counters(state)["refusals"], len(state["log"])) == before

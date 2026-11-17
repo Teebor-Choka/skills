@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.7.0"
+  version: "1.7.1"
 ---
 
 # procedure: a named graph of stages
@@ -298,9 +298,11 @@ What a signed run guarantees beyond identity:
   without being counted or logged, so anyone who can send bytes cannot push a metric (and so cannot
   trigger a safety rollback) or grow the state. A verified entity that breaks a rule is still counted.
   `rejected` keeps the newest 200 refusals, and the metric counts every one.
-- **A signed event is single-use.** Each applied agent or executor event records the digest of its
-  signature, and the same bytes are refused as a replay without being counted. A refused event can be
-  sent again once the cause is fixed.
+- **A signed event is single-use.** Each agent or executor event the reducer authenticates records the
+  digest of its signature, applied or refused, and the same bytes are refused as a replay without being
+  counted, so captured bytes cannot push a metric or grow the log. An owner decision is recorded once
+  it applies. To retry after a refusal, sign the event again: a sealed event carries a nonce, so the
+  new signature is different.
 - **A stage result names its round** and must match the stage's current round, so a round-one result
   cannot be replayed into round two and a captured failure cannot re-block a run the owner retried.
 - **An owner decision is bound to the run and to what it decides.** The verifier gets `run_id` and an
@@ -318,12 +320,13 @@ What this does not do:
 
 - It does not protect the keys. An agent that can read the executor's or an entity's secret can sign as
   it. Keep them out of every agent process.
-- A stage result is checked against the entity that runs the stage, not the instance. Two worker
-  instances that both hold the `worker` key can close each other's work.
+- A stage result is checked against the entity that runs the stage, not the instance. Two instances of
+  the same entity can close each other's work.
 - In single mode one actor plays every role, so a signed run only guards against mistakes there.
 - A verifier that raises `KeyboardInterrupt` or `SystemExit` ends `step`. Interrupts are not swallowed.
 - Replay needs the same verifiers: an event accepted once is refused by a verifier that cannot check
-  it. The log and the list of seen signatures grow with every accepted event, so the executor should
+  it. A driven run therefore replays only with the same `KeyRing`, kept while the log matters, and a
+  revoked instance no longer verifies. The log and the list of seen signatures grow with every accepted event, so the executor should
   rate-limit and checkpoint.
 - `register` is a global registry. Code that can call it can replace the owner gate, so only trusted
   code may.
@@ -334,8 +337,11 @@ What this does not do:
 ### Driving a run: `scripts/executor.py`
 
 `KeyRing(run_id, entities)` is the executor's key custody. `issue(entity)` returns an `Identity` for
-one new instance with its own secret; the identity can only `seal` events (it stamps `sender` and
-`instance` and signs them with the run id). `revoke(instance)` ends it. The executor's own facts go
+one new instance with its own secret. Its `seal` stamps `sender`, `instance` and a nonce, drops any
+`run_id` or `signature` the caller set, and signs with the run id; it reaches that instance's key and
+nothing else in the ring. `revoke(instance)` ends the instance: call it when an agent ends, since
+`drive` does not know which identities an executor issued. The entity set is fixed when the ring is
+built, so an amendment that adds an entity needs a new ring. The executor's own facts go
 through `executor_event`, signed with a key no entity has. `verify_sender` and `verify_executor` are
 the verifiers for `step`; both fail closed.
 
@@ -348,12 +354,15 @@ outcome = drive(state, executor, ring, verify_owner=verify_owner)   # state: a n
 each sealed with an identity from the ring, or `[]` for an action it only notes. `drive` sends
 `run-started`, hands each action to the executor, feeds every event back through `step`, and stops
 with `outcome.status`: `done`, `halted`, `waiting` (nothing left to do, a person or agent must act),
-`stalled` (events were refused, see `outcome.errors`), `exhausted` (`max_steps`) or `failed` (the
-executor raised). The owner's decisions arrive from outside: signed with the owner's key, verified by
+`stalled` (the last events fed back were all refused, see `outcome.errors`, which holds every refusal),
+`exhausted` (`max_steps`, counting each action and each event) or `failed` (the executor raised or
+returned something that is not a list of events). `changed` must be a list of paths. The owner's decisions arrive from outside: signed with the owner's key, verified by
 `verify_owner`, then fed in by a later call. `drive` takes a new run only.
 
-Keys live in the ring's process. For an executor that must resist a hostile agent, run the ring in a
-separate process and give the agent only an identity's `seal`.
+Custody is by reference, not isolation. An identity cannot reach another instance's key or the
+executor key, but code in the same process as the ring can read them, because Python hides nothing.
+For an executor that must resist a hostile agent, run the ring in a separate process and give the
+agent a channel that signs, not the key. This module has no such channel yet.
 
 ## Metrics, changes and rollback
 

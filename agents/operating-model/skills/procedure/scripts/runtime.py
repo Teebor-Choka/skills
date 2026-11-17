@@ -230,13 +230,15 @@ def _error(reason, event=None):
     return {"do": "error", "reason": reason, "event": _label(event)}
 
 
-def _reject(state, event, reason, counted=True):
+def _reject(state, event, reason, counted=True, seen=None):
     """Refuse an event. `counted` is false for one that was never authenticated in a signed run: it
     changes nothing, so it cannot move a metric or grow the log."""
     out = copy.deepcopy(state)
     if not counted:
         return out, [_error(reason, event)]
     _count(out, "refusals")
+    if seen:  # a refused signed event is spent too: replaying captured bytes cannot push the metric again
+        out["seen"].append(seen)
     # A refused event is logged too: it moved a metric, so a replay needs it. One that cannot be
     # stored is logged as a placeholder of an unknown type, which a replay refuses the same way.
     out["log"].append(copy.deepcopy(event) if isinstance(event, dict) and _sane(event) else {"type": "unreadable-event"})
@@ -267,6 +269,8 @@ def _authenticate(state, event, source, verify_sender, verify_executor):
     if source is None:  # a handler placed in HANDLERS without `register` has no declared sender
         raise Unauthenticated(f"event type '{event['type']}' has no declared source")
     if source == "owner":
+        if _signature_digest(event) in state["seen"]:  # an applied decision, replayed
+            raise Unauthenticated("event is a replay of one already applied")
         return None  # the handler verifies the owner's decision itself
     signed = {**copy.deepcopy(event), "run_id": state["run_id"]}
     try:
@@ -284,6 +288,13 @@ def _authenticate(state, event, source, verify_sender, verify_executor):
     if digest is None or digest in state["seen"]:
         raise Unauthenticated("event is a replay of one already applied" if digest else "event has no signature")
     return sender
+
+
+def _spent(state, event, verified):
+    """The digest of an authenticated agent or executor event that a handler refused, else None."""
+    if state["trust"] == "signed" and verified and SOURCE_OF.get(event["type"]) in ("agent", "executor"):
+        return _signature_digest(event)
+    return None
 
 
 def _in_round(state, st, event):
@@ -320,11 +331,14 @@ def step(state, event, *, verify_owner=None, verify_sender=None, verify_executor
     except Unauthenticated as exc:
         return _reject(state, event, str(exc), counted=state["trust"] != "signed")
     except Rejected as exc:
-        return _reject(state, event, str(exc), counted=verified)
+        return _reject(state, event, str(exc), counted=verified, seen=_spent(state, event, verified))
     except Exception as exc:  # a handler bug must be visible and must change nothing
-        return _reject(state, event, f"internal error in '{event['type']}': {type(exc).__name__}: {exc}", counted=verified)
-    if work["trust"] == "signed" and SOURCE_OF.get(event["type"]) in ("agent", "executor"):
-        work["seen"].append(_signature_digest(event))
+        return _reject(state, event, f"internal error in '{event['type']}': {type(exc).__name__}: {exc}", counted=verified,
+                       seen=_spent(state, event, verified))
+    if work["trust"] == "signed" and SOURCE_OF.get(event["type"]) in ("agent", "executor", "owner"):
+        digest = _signature_digest(event)
+        if digest is not None:
+            work["seen"].append(digest)
     work["log"].append(copy.deepcopy(event))
     return work, actions
 

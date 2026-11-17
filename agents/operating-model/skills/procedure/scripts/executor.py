@@ -10,10 +10,15 @@ turns each action into work. This module is that caller's half:
   events back, until the run settles, waits, stalls or runs out of steps.
 
 An `Executor` is any object with `run(action) -> list[event]`: one context for single mode, board
-items and agents for team mode. It seals every event with an `Identity` from the ring. In-process
-custody guards against mistakes and cross-agent forgery inside one run; an executor that must resist
-a hostile agent keeps the ring in its own process and hands agents only an `Identity`'s `seal`.
+items and agents for team mode. It seals every event with an `Identity` from the ring.
+
+Custody is by reference, not by isolation. An `Identity` reaches only its own key, never the ring, the
+executor key or another instance's key, so one agent cannot sign as another through it. Python cannot
+hide a key from code in the same process, though: an agent that shares the process with the ring can
+read it. An executor that must resist a hostile agent runs the ring in its own process and gives the
+agent a channel that signs, not the key.
 """
+import copy
 import hashlib
 import hmac
 import json
@@ -27,13 +32,27 @@ __all__ = ("Identity", "KeyRing", "Outcome", "drive")
 EXECUTOR = "executor"
 
 
+STAMPED = ("sender", "instance", "nonce", "signature", "run_id")  # set by the ring, never by a caller
+
+
 def _mac(key, event):
     body = json.dumps({k: v for k, v in event.items() if k != "signature"}, sort_keys=True, separators=(",", ":"))
     return hmac.new(key, body.encode(), hashlib.sha256).hexdigest()
 
 
+def _sealer(entity, instance, key, run_id):
+    """A function that signs for one instance. It closes over that instance's key only."""
+
+    def seal(event):
+        stamped = {**{k: v for k, v in event.items() if k not in STAMPED}, "sender": entity, "instance": instance,
+                   "nonce": secrets.token_hex(8)}
+        return {**stamped, "signature": _mac(key, {**stamped, "run_id": run_id})}
+
+    return seal
+
+
 class Identity:
-    """One entity instance's right to sign. It holds no readable key: only `seal` can use it."""
+    """One entity instance's right to sign. It reaches its own key and nothing else in the ring."""
 
     __slots__ = ("entity", "instance", "_seal")
 
@@ -64,11 +83,7 @@ class KeyRing:
         instance, key = secrets.token_hex(8), secrets.token_bytes(32)
         self._keys[instance] = (entity, key)
 
-        def seal(event):
-            stamped = {**event, "sender": entity, "instance": instance}
-            return {**stamped, "signature": _mac(key, {**stamped, "run_id": self.run_id})}
-
-        return Identity(entity, instance, seal)
+        return Identity(entity, instance, _sealer(entity, instance, key, self.run_id))
 
     def revoke(self, instance):
         """Stop accepting events from an instance, for example when its agent ends."""
@@ -76,13 +91,15 @@ class KeyRing:
 
     def executor_event(self, event):
         """A fact the executor states, signed with the executor's key."""
-        stamped = {**event, "sender": EXECUTOR, "instance": EXECUTOR}
+        stamped = {**{k: v for k, v in event.items() if k not in STAMPED}, "sender": EXECUTOR, "instance": EXECUTOR,
+                   "nonce": secrets.token_hex(8)}
         return {**stamped, "signature": _mac(self._executor_key, {**stamped, "run_id": self.run_id})}
 
     def verify_sender(self, event):
         """The verified entity behind an agent event, or None. Fails closed.
 
-        The signature covers the sender, the instance and the run id, so a retargeted or replayed event fails it."""
+        The signature covers the sender, the instance, a nonce and the run id, so a retargeted event or one
+        from another run fails it. Single use is the reducer's job: it records each signature it sees."""
         try:
             entity, key = self._keys.get(event.get("instance"), (None, None))
             ok = key is not None and hmac.compare_digest(str(event.get("signature", "")), _mac(key, event))
@@ -110,31 +127,43 @@ class Outcome:
 
 
 def drive(state, executor, ring, *, verify_owner=None, changed=(), max_steps=1000):
-    """Run a new signed run to a stop. Every event, including the executor's own, goes through `step`."""
+    """Run a new signed run to a stop. Every event, including the executor's own, goes through `step`.
+
+    `max_steps` bounds the work: each action handed to the executor and each event fed back counts."""
     if state["trust"] != "signed":
         raise ValueError("drive needs a signed run: an unsigned one cannot tell who sent an event")
     if state["status"] != "new":
         raise ValueError(f"drive starts a new run, not one that is {state['status']}")
+    if not (isinstance(changed, (list, tuple)) and all(isinstance(p, str) for p in changed)):
+        raise ValueError("'changed' must be a list of paths")
     kw = {"verify_owner": verify_owner, "verify_sender": ring.verify_sender, "verify_executor": ring.verify_executor}
     state, queue = step(state, ring.executor_event({"type": "run-started", "changed": list(changed)}), **kw)
-    queue, actions, errors, work = list(queue), [], [], 0
+    queue, actions, errors, work, stuck = list(queue), [], [], 1, False
     while queue:
         action = queue.pop(0)
         actions.append(action)
         if action["do"] == "error":
             errors.append(action)
             continue
+        kind = action["do"]
         work += 1
         if work > max_steps:
             return Outcome(state, "exhausted", actions, errors)
         try:
-            events = executor.run(action)
+            events = executor.run(copy.deepcopy(action))
+            if isinstance(events, (str, bytes, dict)):
+                raise TypeError(f"run() must return a list of events, not {type(events).__name__}")
+            events = list(events)  # a lazy sequence runs here, inside the guard
         except Exception as exc:  # an executor bug ends the drive visibly; it never reaches the reducer
-            errors.append({"do": "error", "reason": f"executor failed on '{action['do']}': {exc}", "event": None})
+            errors.append({"do": "error", "reason": f"executor failed on '{kind}': {exc}", "event": None})
             return Outcome(state, "failed", actions, errors)
         for event in events:
+            work += 1
+            if work > max_steps:
+                return Outcome(state, "exhausted", actions, errors)
             state, more = step(state, event, **kw)
+            stuck = bool(more) and all(a["do"] == "error" for a in more)
             queue.extend(more)
     if state["status"] in ("done", "halted"):
         return Outcome(state, state["status"], actions, errors)
-    return Outcome(state, "stalled" if errors else "waiting", actions, errors)
+    return Outcome(state, "stalled" if stuck and state["status"] == "running" else "waiting", actions, errors)

@@ -236,7 +236,8 @@ def test_an_executor_that_edits_its_action_cannot_break_the_drive():
 
     state = sfresh()
     ring = ring_for(state)
-    assert drive(state, Meddles(ring), ring, verify_owner=OWNER_OK).status == "done"
+    out = drive(state, Meddles(ring), ring, verify_owner=OWNER_OK)
+    assert out.status == "done" and all("do" in a for a in out.actions)
 
 
 def test_the_step_bound_counts_events_not_only_actions():
