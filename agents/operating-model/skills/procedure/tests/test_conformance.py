@@ -74,7 +74,7 @@ def test_a_ledger_that_does_not_replay_to_the_final_state_is_a_violation(tmp_pat
 def test_a_missing_header_is_a_violation(tmp_path):
     state, ledger = signed(tmp_path)
     ledger = rewrite(ledger, lambda e: e.pop(0))
-    assert any("header" in v for v in check_ledger(ledger, state))
+    assert "the ledger has no header" in check_ledger(ledger, state)
 
 
 def test_an_event_entry_with_no_signing_label_is_a_violation(tmp_path):
@@ -105,12 +105,12 @@ def test_a_broken_chain_is_reported_not_raised(tmp_path):
     state, ledger = signed(tmp_path)
     lines = Path(ledger.path).read_text().splitlines()
     Path(ledger.path).write_text("\n".join([lines[0], lines[2], lines[1]] + lines[3:]) + "\n")
-    assert any("chain" in v for v in check_ledger(Ledger(ledger.path, KEY), state))
+    assert any("chain" in v for v in check_ledger(ledger.path, state, KEY))
 
 
 def test_a_ledger_whose_header_trust_disagrees_with_the_state_is_a_violation(tmp_path):
     state, ledger = signed(tmp_path)
-    assert any("trust" in v for v in check_ledger(ledger, {**state, "trust": "claims"}))
+    assert any("the header's trust is" in v for v in check_ledger(ledger, {**state, "trust": "claims"}))
 
 
 def test_the_check_runs_from_the_command_line(tmp_path, capsys):
@@ -122,3 +122,9 @@ def test_the_check_runs_from_the_command_line(tmp_path, capsys):
     (tmp_path / "state.json").write_text(json.dumps(state))
     assert main([str(ledger.path), "--key", KEY.decode(), "--state", str(tmp_path / "state.json")]) == 1
     assert "replay" in capsys.readouterr().err
+
+
+def test_a_ledger_that_verifies_but_cannot_be_replayed_is_a_violation(tmp_path):
+    state, ledger = signed(tmp_path)
+    ledger = rewrite(ledger, lambda e: e[0]["body"].update(procedure_text="not a procedure"))
+    assert any(v.startswith("replay failed") for v in check_ledger(ledger, state))

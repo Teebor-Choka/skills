@@ -945,7 +945,7 @@ def test_the_communication_mechanism_must_be_text(tmp_path, bad):
 
 
 def test_a_signed_run_must_declare_how_entities_communicate(tmp_path):
-    with pytest.raises(ResolutionError, match="communication"):
+    with pytest.raises(ResolutionError, match="how entities communicate"):
         _mode(tmp_path, "signing: signed\n", declare=False)
 
 

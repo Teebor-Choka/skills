@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.12.0"
+  version: "1.13.0"
 ---
 
 # procedure: a named graph of stages
@@ -363,9 +363,22 @@ what is signed and how it is verified are the deployment's, not the plugin's.
 
 **How entities communicate.** Policy `communication` names the mechanism, as text (for example
 `xmpp:ops@example.org` or a socket path); the plugin carries it into the run and the ledger header and
-does not interpret it. `start_run(..., require_communication=True)` refuses a signed run that does not
-declare one. Whatever the mechanism, it must deliver in order per sender, durably, and replayably, because
-the improvement list and the votes depend on that. Setting up the mechanism is the executor's job.
+does not interpret it. `start_run` refuses a signed run that does not declare one
+(`require_communication=False` opts out, for a test run). Policy `communication-guarantees` declares what the
+mechanism delivers, from `ordered` (in order per sender), `durable` and `replayable`; the improvement list and
+the votes rely on all three. A signed run must declare `ordered`, because replay protection depends on it. The
+declaration is recorded in the ledger header with the rest of the policy. It is a promise by whoever supplies
+the mechanism, not proof: the plugin cannot check delivery it does not carry. Setting up the mechanism is the
+executor's job.
+
+### Conformance: `scripts/conformance.py`
+
+An executor conforms when its ledger meets the contract, whatever it is built from. `check_ledger(ledger,
+state)` (or `conformance.py LEDGER --key KEY --state STATE.json`) returns the violations, empty when it
+conforms: the chain verifies and starts with a header; the header's trust matches the run's; every event
+entry says whether it was signed and who sent it; a signed run has no unsigned or unverified entry; a run
+with no signing names no identity; and replaying the ledger reproduces the final state. It checks the ledger
+and the final state, not the executor, so the sandbox project can run it against its own implementation.
 
 ### Decision assurance and the delegate
 
