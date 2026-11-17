@@ -164,6 +164,7 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="
         raise ValueError(f"policy 'safety-metrics' names {', '.join(unknown)}, which nothing observes")
     return {
         "run_id": run_id,
+        "procedure_text": procedure_text,  # recovery rebuilds a run from its ledger header
         "version": 1,
         "status": "new",
         "trust": trust,

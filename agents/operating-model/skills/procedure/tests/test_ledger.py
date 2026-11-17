@@ -1,4 +1,4 @@
-import json
+from pathlib import Path
 
 import pytest
 from runtime_fixtures import LOCATORS, SWE
@@ -55,7 +55,7 @@ def test_read_returns_the_entries_in_order(tmp_path):
 
 
 @pytest.mark.parametrize("edit", [
-    lambda lines: [lines[0].replace('"n": 0', '"n": 9')] + lines[1:],
+    lambda lines: [lines[0].replace('"n":0', '"n":9')] + lines[1:],
     lambda lines: [lines[1], lines[0], lines[2]],
     lambda lines: [lines[0], lines[2]],
     lambda lines: lines[1:],
@@ -156,9 +156,11 @@ def test_recover_does_not_need_the_key_ring(tmp_path):
 
 def test_a_tampered_ledger_is_not_recovered(tmp_path):
     out, ledger = driven(tmp_path)
-    lines = ledger.path.read_text().splitlines()
-    lines[2] = lines[2].replace('"stage": "align"', '"stage": "build"')
-    ledger.path.write_text("\n".join(lines) + "\n")
+    path = Path(ledger.path)
+    lines = path.read_text().splitlines()
+    assert '"stage":"align"' in lines[2]
+    lines[2] = lines[2].replace('"stage":"align"', '"stage":"build"')
+    path.write_text("\n".join(lines) + "\n")
     with pytest.raises(LedgerError):
         recover(Ledger(ledger.path, KEY))
 
@@ -168,3 +170,36 @@ def test_recover_refuses_a_ledger_with_no_header(tmp_path):
     ledger.append("event", {"event": {"type": "run-started"}, "by": "executor"})
     with pytest.raises(LedgerError, match="header"):
         recover(ledger)
+
+
+def test_the_ledger_is_still_valid_after_a_write_that_followed_a_torn_tail(tmp_path):
+    path = tmp_path / "l"
+    Ledger(path, KEY).append("note", {"n": 1})
+    with open(path, "a") as f:
+        f.write('{"seq": 2, "pr')
+    reopened = Ledger(path, KEY)
+    reopened.append("note", {"n": 2})
+    assert [e["body"]["n"] for e in Ledger(path, KEY).read()] == [1, 2]
+
+
+def test_recover_replays_an_owner_decision_the_executor_verified(tmp_path):
+    class Escalates(Scripted):
+        def __init__(self, ring):
+            super().__init__(ring)
+            self.failed = False
+
+        def run(self, action):
+            if action["do"] == "start-stage" and action["stage"] == "align" and not self.failed:
+                self.failed = True
+                return [self.ring.issue("pm").seal({"type": "stage-failed", "stage": "align", "round": action["round"], "reason": "r", "locators": {}})]
+            if action["do"] == "notify-owner":
+                return [{"type": "owner-decided", "item": action["item"], "decision": "retry", "signature": "owner-signature"}]
+            return super().run(action)
+
+    state = sfresh()
+    ring = KeyRing(state["run_id"], state["proc"]["entities"])
+    ledger = Ledger(tmp_path / "l", KEY)
+    out = drive(state, Escalates(ring), ring, verify_owner=lambda e: True, ledger=ledger)
+    assert any(i["status"] == "owner-ruled" for i in out.state["items"])
+    recovered = recover(ledger)
+    assert recovered["items"] == out.state["items"] and recovered["status"] == out.state["status"]

@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.8.0"
+  version: "1.9.0"
 ---
 
 # procedure: a named graph of stages
@@ -343,6 +343,20 @@ What this does not do:
 - **An automatic rollback goes first in the queue.** A change queued behind it fails its `base_version` check and is reported, not reverted.
 - **A delta that routes a stage around a floor stage** is flagged `protected` to the owner even when ratification lets it through.
 - `drive` does not hand the executor a `start-stage` that `step` has since cancelled or restarted.
+
+### The ledger: `scripts/ledger.py`
+
+`Ledger(path, key)` is the executor's record of a run: one JSON entry per line, each holding the MAC of
+the entry before it and its own, under a key only the executor has. An edit, a reorder or a deletion
+in the middle raises `LedgerError`. A partial last line left by a crash is dropped and reported
+(`ledger.torn`); the next append cuts it. `drive(..., ledger=ledger)` writes a header (procedure text,
+run id, trust, policy, bindings, revision) and then every event that reached the reducer's log,
+applied or refused and counted, with the identity the executor verified for it.
+
+`recover(ledger)` replays the record through `step` and returns the state the run ended in. The chain
+vouches for the recorded identities, so recovery needs no key ring. It does not resume the run: a
+resume driver is the next step. Entries are flushed and `fsync`ed, but a ledger on a shared or
+remote disk is only as durable as that disk.
 
 ### Driving a run: `scripts/executor.py`
 

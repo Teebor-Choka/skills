@@ -25,6 +25,7 @@ import json
 import secrets
 from dataclasses import dataclass, field
 
+from ledger import header_of, identity_of
 from runtime import step
 
 __all__ = ("Identity", "KeyRing", "Outcome", "drive")
@@ -126,10 +127,12 @@ class Outcome:
     errors: list = field(default_factory=list)
 
 
-def drive(state, executor, ring, *, verify_owner=None, changed=(), max_steps=1000):
+def drive(state, executor, ring, *, verify_owner=None, changed=(), max_steps=1000, ledger=None):
     """Run a new signed run to a stop. Every event, including the executor's own, goes through `step`.
 
-    `max_steps` bounds the work: each action handed to the executor and each event fed back counts."""
+    `max_steps` bounds the work: each action handed to the executor and each event fed back counts.
+    With a `ledger`, a header and every event that reached the reducer's log are recorded, each with the
+    identity the executor verified for it."""
     if state["trust"] != "signed":
         raise ValueError("drive needs a signed run: an unsigned one cannot tell who sent an event")
     if state["status"] != "new":
@@ -137,7 +140,16 @@ def drive(state, executor, ring, *, verify_owner=None, changed=(), max_steps=100
     if not (isinstance(changed, (list, tuple)) and all(isinstance(p, str) for p in changed)):
         raise ValueError("'changed' must be a list of paths")
     kw = {"verify_owner": verify_owner, "verify_sender": ring.verify_sender, "verify_executor": ring.verify_executor}
-    state, queue = step(state, ring.executor_event({"type": "run-started", "changed": list(changed)}), **kw)
+    if ledger is not None:
+        ledger.append("header", header_of(state))
+
+    def feed(state, event):
+        new, more = step(state, event, **kw)
+        if ledger is not None and len(new["log"]) > len(state["log"]):  # applied, or refused and counted
+            ledger.append("event", {"event": event, "by": identity_of(event, ring, state["run_id"])})
+        return new, more
+
+    state, queue = feed(state, ring.executor_event({"type": "run-started", "changed": list(changed)}))
     queue, actions, errors, work, stuck = list(queue), [], [], 1, False
     while queue:
         action = queue.pop(0)
@@ -165,7 +177,7 @@ def drive(state, executor, ring, *, verify_owner=None, changed=(), max_steps=100
             work += 1
             if work > max_steps:
                 return Outcome(state, "exhausted", actions, errors)
-            state, more = step(state, event, **kw)
+            state, more = feed(state, event)
             stuck = bool(more) and all(a["do"] == "error" for a in more)
             queue.extend(more)
     if state["status"] in ("done", "halted"):
