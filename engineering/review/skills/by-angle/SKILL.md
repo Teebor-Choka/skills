@@ -72,6 +72,11 @@ without proof is `unverified`: report it, but it cannot block a merge. The evide
 findings schema. No findings is a valid result; do not prompt a
 reviewer to find something.
 
+**Tier and depth.** Run a reviewer on the top tier only when the diff touches security, unsafe,
+auth or secrets, or exceeds about 400 changed lines. Otherwise use the Execution tier. A re-review
+after rework covers only the delta. The coordinator hands a reviewer the PR number or diff range
+and does not read a large diff itself.
+
 ## Several blocks
 
 Hand the dependency and write-set analysis to the `graph-engine` skill. It returns waves of blocks

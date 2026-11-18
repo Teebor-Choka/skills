@@ -87,7 +87,9 @@ read the repo's config before pushing.
 
 One row per PR: repo, number, class, action taken (fix pushed / reran / none), result (green / still
 red / pending), and for anything unfixed the exact reason and the log excerpt. End with the PRs that
-are green and ready for a human to merge.
+are green and ready for a human to merge. Open the report with "found N, handled N, left M with
+reason". Before you say done, re-run the step 1 enumeration once; count or list as left any PR that
+appeared during the run.
 
 ## Babysit recipe
 
