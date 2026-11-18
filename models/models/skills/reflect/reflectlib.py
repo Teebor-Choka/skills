@@ -239,6 +239,19 @@ def message_of(entry):
     return msg if isinstance(msg, dict) else {}
 
 
+COST_STATE_KEYS = ("totalCostUsd", "totalCostUSD")  # the spelling differs between versions
+
+
+def cost_state(entry):
+    """(running session cost, harness flagged an unpriced model) for an entry that carries the
+    harness's own cost, else None. Claude Code logs it on `cost-state` entries. A transcript
+    without them never yields one, so cost.py falls back to per-message usage."""
+    if entry.get("type") != "cost-state":
+        return None
+    value = next((entry[k] for k in COST_STATE_KEYS if isinstance(entry.get(k), (int, float))), None)
+    return None if value is None else (value, bool(entry.get("hasUnknownModelCost")))
+
+
 def collect_files(paths):
     """Every .jsonl under the given files and folders, sorted and unique."""
     import glob
@@ -249,3 +262,41 @@ def collect_files(paths):
         elif p.endswith(".jsonl"):
             files.append(p)
     return sorted(set(files))
+
+
+# Names below are how Claude Code spells things the metrics need; another adapter
+# redefines them. The core scripts only call these.
+TIMER_TOOLS = ("ScheduleWakeup", "Monitor", "ListAgents")  # a call whose result wakes the agent
+SKILL_TOOL = "Skill"
+INTERRUPT_PREFIX = "[Request interrupted by user"
+DENIAL_MARKERS = ("The user doesn't want to proceed with this tool use", "Permission to use")
+HOOK_TEXT_FIELDS = ("stderr", "content", "stdout", "output", "text")
+
+
+def hook_text(att):
+    """The message a hook event carried (first non-empty field), else an empty string."""
+    for field in HOOK_TEXT_FIELDS:
+        v = att.get(field) if isinstance(att, dict) else None
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+
+def pr_ref(entry):
+    """`owner/repo#number` of a pr-link entry, else None. Repeats are the caller's to dedupe."""
+    if entry.get("type") != "pr-link":
+        return None
+    repo, num = entry.get("prRepository"), entry.get("prNumber")
+    if isinstance(repo, str) and repo and isinstance(num, int):
+        return f"{repo}#{num}"
+    return None
+
+
+def session_id_of(entry):
+    sid = entry.get("sessionId")
+    return sid if isinstance(sid, str) and sid else None
+
+
+def cwd_of(entry):
+    cwd = entry.get("cwd")
+    return cwd if isinstance(cwd, str) and cwd else None

@@ -1,0 +1,51 @@
+# Targets and alert thresholds for report.py. The one place the numbers live;
+# references/metrics.md defines what each number measures.
+# Override any key with `report.py --thresholds FILE` (same layout; missing keys keep these values).
+# Starting values come from one user's setup and are placeholders for yours: re-derive them from
+# your own first report before trusting an alert.
+
+[target]
+cost_per_prompt = 1.00        # m1, at most
+tool_errors_per_100 = 2.0     # m2, below
+hook_blocks_per_100 = 0.8     # m3, below
+hook_repeat_ratio = 0.20      # m3, below
+gate_events = 0               # m4
+correction_rate = 3.0         # m5, below
+fixed_tokens = 8000           # m7, at most
+skill_hit_rate = 0.50         # m8, at least
+long_session_share = 0.40     # m9, below
+compactions_per_session = 1.0 # m10, at most
+timer_share = 0.05            # m11, below
+unpriced_sessions = 0         # m12
+cost_per_merged_pr = 10.0     # north star, at most
+merged_share = 0.70           # north star, at least
+
+[alert]
+cost_per_prompt = 3.0             # m1, week value above
+cost_per_prompt_session = 10.0    # m1, any priced session above
+tool_errors_per_100 = 3.5         # m2, a project above
+tool_errors_min_calls = 500       # m2, only projects with at least this many calls
+hook_blocks_per_100 = 2.5         # m3, above
+hook_repeat_ratio = 0.5           # m3, above (needs the minimum below)
+hook_repeat_min_blocks = 3
+gate_events = 0                   # m4, above
+correction_rate = 6.0             # m5, above
+idle_seconds = 86400              # m6, any human wait above
+fixed_tokens = 15000              # m7, mean above
+skill_hit_min_opportunities = 20  # m8, a skill with at least this many
+skill_hit_rate = 0.10             # m8, and a rate below
+long_session_share = 0.60         # m9, above
+compactions_per_session = 3       # m10, any session at or above
+compactions_per_week = 150        # m10, a week total above
+timer_share = 0.15                # m11, above
+timer_big_context = 1             # m11, timer turns in a 300K+ context at or above
+unpriced_sessions = 0             # m12, above
+cost_per_merged_pr = 25.0         # north star, a project-week above
+project_min_prs = 5               # north star, only project-weeks with at least this many PRs
+merged_share = 0.40               # north star, below
+
+[window]
+long_session_seconds = 86400      # m9: a session longer than this is long
+merge_days = 14                   # north star: merged within this many days of the last touch
+stale_change_days = 14            # changes.jsonl: no movement after this long is a no-op candidate
+no_op_tolerance = 0.05            # changes.jsonl: |delta| at most this share of the baseline is no movement

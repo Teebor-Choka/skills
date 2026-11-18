@@ -94,3 +94,21 @@ def test_output_of_a_secret_printing_command_is_redacted():
     assert lib.scrub_result("cat ~/.config/app/token", "plainsecretvalue") != "plainsecretvalue"
     assert lib.scrub_result("security find-generic-password -w -s x", "x9") != "x9"
     assert lib.scrub_result("ls -la", "total 4") == "total 4"
+
+
+# --- cost state belongs to the harness adapter, not to cost.py ---------------
+
+@pytest.mark.parametrize("entry,want", [
+    ({"type": "cost-state", "totalCostUsd": 2.5}, (2.5, False)),
+    ({"type": "cost-state", "totalCostUSD": 1, "hasUnknownModelCost": True}, (1, True)),
+    ({"type": "cost-state", "totalCostUsd": "x"}, None),
+    ({"type": "assistant", "totalCostUsd": 9.0}, None),
+    ({"type": "cost-state"}, None),
+])
+def test_cost_state_reads_the_adapter_field(entry, want):
+    assert lib.cost_state(entry) == want
+
+
+def test_cost_py_names_no_harness_field():
+    src = (lib.__file__ and open(lib.__file__.replace("reflectlib.py", "cost.py")).read())
+    assert "cost-state" not in src and "totalCostU" not in src

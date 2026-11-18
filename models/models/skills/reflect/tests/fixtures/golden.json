@@ -1,0 +1,102 @@
+{
+  "compaction": {
+    "record": {
+      "session_id": "sess-compact",
+      "ts_last": "2026-03-02T12:30:10Z",
+      "project": "proj-a",
+      "turns": 4,
+      "human_prompts": 4,
+      "compactions": 1,
+      "cost_usd": 2.5,
+      "context_tokens_peak": 5100,
+      "tool_errors": 1,
+      "timer_turns": 0,
+      "outcome": null
+    },
+    "full": {
+      "tool_calls": 2,
+      "cost_source": "cost-state",
+      "unpriced": false,
+      "interrupts": 1,
+      "denials": 0,
+      "nudges": 1,
+      "waits": [8870],
+      "wait_seconds": 8870,
+      "wall_seconds": 9010,
+      "fixed_tokens": 5,
+      "hook_blocks": 0,
+      "gate_events": 0,
+      "prs": [],
+      "models": ["claude-sonnet-4-5"]
+    }
+  },
+  "swarm": {
+    "record": {
+      "session_id": "sess-swarm",
+      "ts_last": "2026-03-04T10:00:00Z",
+      "project": "proj-b",
+      "turns": 5,
+      "human_prompts": 2,
+      "compactions": 0,
+      "cost_usd": 0.0015,
+      "context_tokens_peak": 710,
+      "tool_errors": 1,
+      "timer_turns": 2,
+      "outcome": null
+    },
+    "full": {
+      "tool_calls": 3,
+      "cost_source": "usage",
+      "unpriced": false,
+      "hook_blocks": 4,
+      "hook_block_repeats": 2,
+      "hook_blocks_by_hook": { "pre-bash": 4 },
+      "gate_events": 1,
+      "waits": [88120],
+      "wall_seconds": 90000,
+      "skills_invoked": ["alpha"],
+      "prs": []
+    }
+  },
+  "unknown-model": {
+    "record": {
+      "session_id": "sess-unknown",
+      "ts_last": "2026-03-05T08:00:11Z",
+      "project": "proj-c",
+      "turns": 2,
+      "human_prompts": 1,
+      "compactions": 0,
+      "cost_usd": null,
+      "context_tokens_peak": 1000,
+      "tool_errors": 0,
+      "timer_turns": 0,
+      "outcome": null
+    },
+    "full": {
+      "unpriced": true,
+      "cost_floor_usd": 3.0,
+      "cost_source": "cost-state",
+      "tool_calls": 0
+    }
+  },
+  "pr-repeats": {
+    "record": {
+      "session_id": "sess-pr",
+      "ts_last": "2026-03-06T07:00:20Z",
+      "project": "proj-d",
+      "turns": 2,
+      "human_prompts": 1,
+      "compactions": 0,
+      "cost_usd": 18.0,
+      "context_tokens_peak": 1000000,
+      "tool_errors": 0,
+      "timer_turns": 0,
+      "outcome": "pr-link"
+    },
+    "full": {
+      "prs": ["o/r#7", "o/r#8", "o/r2#7"],
+      "cost_source": "usage",
+      "unpriced": false
+    }
+  }
+}

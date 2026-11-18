@@ -75,3 +75,8 @@ def test_cli_prints_both_figures_as_json(tmp_path, capsys):
     assert cost.main([str(tmp_path)]) == 0
     out = json.loads(capsys.readouterr().out)
     assert {"usage_usd", "cost_state_usd", "warnings", "by_model"} <= set(out)
+
+
+def test_cost_state_key_spelled_totalCostUSD_is_read(tmp_path):
+    rows = [{"type": "cost-state", "totalCostUSD": v} for v in (1.0, 2.5)]
+    assert cost.cost_of([write(tmp_path, rows)], prices=PRICES)["cost_state_usd"] == pytest.approx(2.5)
