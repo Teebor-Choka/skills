@@ -196,6 +196,7 @@
                   (pkgs.python3.withPackages (ps: [
                     ps.pytest
                     ps.pytest-cov
+                    ps.pyyaml # scripts/tests run validate-skills.py, which imports yaml
                     codeQualityTools.crap4py
                     codeQualityTools.complexipy
                     codeQualityTools.pyscn
