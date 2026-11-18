@@ -9,6 +9,9 @@ Rules (from quick_validate.py reference implementation):
 - name: required, string, ^[a-z0-9][a-z0-9-]*$, no trailing hyphen, no --, max 64 chars.
 - description: required, string, no angle brackets, max 1024 chars.
 - compatibility (optional): string, max 500 chars.
+- SKILL.md size: warn above 8 KB, fail above 16 KB unless listed in scripts/skill-size-allow.txt
+  (`<skill path> | <reason> | <split by>`). Only SKILL.md counts; references/ is free.
+Usage: validate-skills.py [root] [--size-allow FILE]
 """
 
 import os
@@ -23,6 +26,43 @@ MAX_NAME_LEN = 64
 MAX_DESC_LEN = 1024
 MAX_COMPAT_LEN = 500
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+# SKILL.md body size (bytes of that file only; references/ is free).
+SIZE_WARN_BYTES = 8 * 1024
+SIZE_FAIL_BYTES = 16 * 1024
+DEFAULT_SIZE_ALLOW = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skill-size-allow.txt")
+
+
+def load_size_allow(path):
+    """Parse `<skill path> | <reason> | <split by>` lines. Return (allowed paths, errors)."""
+    allowed, errors = set(), []
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError as exc:
+        return allowed, [f"Cannot read size allowlist {path}: {exc}"]
+    for n, line in enumerate(lines, 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) != 3 or not all(parts):
+            errors.append(f"{path}:{n}: expected '<skill path> | <reason> | <split by>'")
+            continue
+        allowed.add(parts[0])
+    return allowed, errors
+
+
+def size_findings(skill_dir, rel, allowed):
+    """Return (warnings, errors) for the SKILL.md size of one skill."""
+    size = os.path.getsize(os.path.join(skill_dir, "SKILL.md"))
+    if size > SIZE_FAIL_BYTES:
+        if rel in allowed:
+            return [f"SKILL.md is {size} bytes (> {SIZE_FAIL_BYTES}), allowlisted; split it"], []
+        return [], [f"SKILL.md is {size} bytes (> {SIZE_FAIL_BYTES}): move detail to references/ "
+                    f"or add a reasoned entry to scripts/skill-size-allow.txt"]
+    if size > SIZE_WARN_BYTES:
+        return [f"SKILL.md is {size} bytes (> {SIZE_WARN_BYTES}): move detail to references/"], []
+    return [], []
 
 
 def find_skills(root):
@@ -109,18 +149,29 @@ def validate_skill(skill_dir):
 
 
 def main():
-    root = sys.argv[1] if len(sys.argv) > 1 else "."
-    root = os.path.abspath(root)
+    args = sys.argv[1:]
+    allow_path = DEFAULT_SIZE_ALLOW
+    if "--size-allow" in args:
+        i = args.index("--size-allow")
+        allow_path = args[i + 1]
+        del args[i:i + 2]
+    root = os.path.abspath(args[0] if args else ".")
     skills = sorted(find_skills(root))
 
     if not skills:
         print("ERROR: no skills found (no directories containing SKILL.md)", file=sys.stderr)
         sys.exit(1)
 
+    allowed, allow_errors = load_size_allow(allow_path)
+    for err in allow_errors:
+        print(f"ERROR {err}", file=sys.stderr)
+
     failures = 0
     for skill_dir in skills:
         errors = validate_skill(skill_dir)
         rel = os.path.relpath(skill_dir, root)
+        warnings, size_errors = size_findings(skill_dir, rel, allowed)
+        errors += size_errors
         if errors:
             failures += 1
             print(f"FAIL {rel}")
@@ -128,6 +179,11 @@ def main():
                 print(f"     {err}")
         else:
             print(f"OK   {rel}")
+        for warn in warnings:
+            print(f"WARN {rel}: {warn}")
+
+    if allow_errors:
+        failures += len(allow_errors)
 
     print(f"\n{len(skills)} skill(s) checked, {failures} failure(s).")
     sys.exit(0 if failures == 0 else 1)

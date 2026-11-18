@@ -81,7 +81,7 @@
               enable = true;
               name = "skills-validate";
               entry = "${py}/bin/python3 scripts/validate-skills.py .";
-              files = "(^|/)SKILL\\.md$|^scripts/validate-skills\\.py$";
+              files = "(^|/)SKILL\\.md$|^scripts/validate-skills\\.py$|^scripts/skill-size-allow\\.txt$";
               pass_filenames = false;
             };
             shellcheck = {
