@@ -1,13 +1,4 @@
-import sys
-from pathlib import Path
-
-HERE = Path(__file__).resolve().parent
-FIXTURES = HERE / "fixtures"
-# Self-contained: CI runs every suite in one pytest session, where a shared `conftest`
-# module name resolves to another suite's file.
-sys.path.insert(0, str(HERE.parent / "scripts"))
-
-from validate_procedure import main, validate_layers, validate_text  # noqa: E402
+from procedure_testkit import FIXTURES, has, main, validate_layers, validate_text
 
 
 def proc(stages):
@@ -42,10 +33,6 @@ def layered(stages):
 
 def errs(stages):
     return validate_text(proc(stages))
-
-
-def has(errors, word):
-    return any(word in e for e in errors)
 
 
 def test_valid_chain_passes():
@@ -84,13 +71,13 @@ def test_entry_stage_may_consume_external_input():
 
 
 def test_sole_conditional_producer_fails():
-    s = ("  a:\n    when: has-ui\n    produces: [x]\n"
+    s = ("  a:\n    when:\n      policy: has-ui\n    produces: [x]\n"
          "  b:\n    needs: [a]\n    consumes: [x]\n    produces: [y]\n")
     assert has(errs(s), "conditional")
 
 
 def test_conditional_producer_with_unconditional_peer_passes():
-    s = ("  a:\n    when: has-ui\n    produces: [x]\n"
+    s = ("  a:\n    when:\n      policy: has-ui\n    produces: [x]\n"
          "  a2:\n    produces: [x]\n"
          "  b:\n    needs: [a, a2]\n    consumes: [x]\n    produces: [y]\n")
     assert errs(s) == []
@@ -120,8 +107,14 @@ def test_delta_cannot_disable_floor_stage():
     assert has(layered(delta), "floor")
 
 
-def test_delta_can_disable_non_floor_stage():
-    assert layered("  build:\n    disabled: true\n") == []
+def test_delta_can_disable_a_stage_that_does_not_wait_on_a_floor_stage():
+    base = BASE[:-4] + "  notes:\n    produces: [n]\n---\n"
+    assert validate_layers(base, "---\nstages:\n  notes:\n    disabled: true\n---\n") == []
+
+
+def test_delta_cannot_disable_a_stage_that_waits_on_a_floor_stage():
+    delta = "---\nstages:\n  build:\n    disabled: true\n---\n"
+    assert has(validate_layers(BASE, delta), "floor")
 
 
 def test_delta_adds_stage_with_needs():
@@ -159,7 +152,7 @@ def test_delta_cannot_change_floor_flag():
 
 
 def test_floor_stage_cannot_be_made_conditional():
-    delta = "  spec:\n    when: never\n"
+    delta = "  spec:\n    when:\n      policy: never\n"
     assert has(layered(delta), "floor")
 
 
@@ -220,7 +213,7 @@ def test_delta_may_add_a_review_angle_to_a_floor_stage():
 
 
 def test_floor_stage_cannot_sit_downstream_of_a_conditional_stage():
-    s = "  hold:\n    when: never\n    produces: [x]\n  gate:\n    needs: [build, hold]\n"
+    s = "  hold:\n    when:\n      policy: never\n    produces: [x]\n  gate:\n    needs: [build, hold]\n"
     assert has(gated(s), "floor")
 
 
