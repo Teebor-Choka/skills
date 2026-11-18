@@ -70,10 +70,10 @@ Accessed: 2026-11-19
 
 Symptom: a task hangs forever with no panic and no busy CPU. A future queued for a fair lock was
 handed the lock, but its task now polls a different future and never runs it again.
-Fix: do not `select!` on `&mut future` and then await another future that needs the same lock, in
-a handler or after the `select!`. Spawn the future as its own task and select on its `JoinHandle`.
-For streams use `JoinSet`. For a full bounded channel use `try_send` and propagate failure; a
-`send_timeout` does not help because it still needs polling. `join_all` is not affected.
+Fix: do not `select!` on `&mut future` and, in the same `select!`, await another future that needs
+the same lock. Spawn the future as its own task and select on its `JoinHandle`.
+For streams use `JoinSet`. For a full bounded channel the RFD suggests a larger capacity with
+`try_send`, propagating failure; a `send_timeout` does not help because it still needs polling. `join_all` is not affected.
 Test: a `select!` plus fair-mutex repro, run under a timeout; it fails on the old shape.
 Source: https://rfd.shared.oxide.computer/rfd/0609 (Oxide RFD 609; page shows no publication date;
 tokio 1.48.0 docs linked)
@@ -85,7 +85,7 @@ Accessed: 2026-11-19
 
 Symptom: data is lost or restarted when another branch wins; a lock or permit loses its queue place.
 Fix: check each branch against the `select!` docs. Cancel safe: `mpsc::Receiver::recv`,
-`watch::changed`, `TcpListener::accept`, `JoinSet::join_next`. Unsafe: `read_exact` and `write_all`
+`watch::changed`, `TcpListener::accept`. Unsafe: `read_exact` and `write_all`
 (can lose data). `Mutex::lock`, `RwLock` locks, `Semaphore::acquire` and `Notify::notified` lose
 their queue position when dropped. A lost `Sender::send` drops the message, so `reserve().await`
 first and send with the `Permit`. Build a long operation once outside the loop, `tokio::pin!` it and
