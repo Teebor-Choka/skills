@@ -43,7 +43,7 @@ field:
 - **Status:** one of Proposed, Accepted, Deprecated, Superseded. A superseded decision points to
   the one that replaced it and keeps its reasoning on the record.
 - **Confirmation:** how the decision is verified in the harness (which test or fitness function
-  would fail if the decision were violated). This wires each decision to `execution.md`.
+  would fail if the decision were violated). This wires each decision to the criteria in `execution.md`.
 - Nygard's rule: the Consequences must state the bad as well as the good. An ADR with no negative
   consequence is incomplete.
 
@@ -54,7 +54,7 @@ field:
 
 Use arc42's section set as a gap-check on the whole package, not as a rival template. The one
 section teams most often miss and arc42 forces is **§11 Risks & Technical Debt**; the proposal
-carries it. A glossary (arc42 §12) stops term drift across per-node briefs.
+carries it. A glossary (arc42 §12) stops term drift across work items.
 
 - arc42: https://arc42.org/overview
 

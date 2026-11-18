@@ -13,8 +13,8 @@ Usage:
 directory, no cross-document links to maintain. It is the floor, for a reversible, well-understood
 change one agent or person will just execute. `--tier small` emits README, proposal, decision-log,
 and spec (a reversible / low-blast-radius change that will still be handed off or re-examined).
-`--tier full` adds research-notes, development-graph, the two methodology docs, an invariants file,
-and an agent-plans/ directory. Idempotent: existing files are left alone unless `--force`. Standard
+`--tier full` adds research-notes, development-graph, the two methodology docs, and an invariants file. Per-unit briefs are not scaffolded: `decompose` files them as board items.
+Idempotent: existing files are left alone unless `--force`. Standard
 library only (string.Template, argparse, os).
 """
 import argparse
@@ -313,7 +313,7 @@ FILL-IN: the longest dependency chain (irreducible time; extra agents past this 
 
 AGENT_METH = Template("""# Agent methodology: $title
 
-- One block ↔ one agent. An agent reads ONLY its brief + the referenced spec block +
+- One block ↔ one agent. An agent reads ONLY its board item + the referenced spec block +
   `invariants.md`, never session history.
 - Same-wave agents start from the same origin baseline. An agent starts only when every entry
   block is GREEN.
@@ -363,65 +363,12 @@ A changed node re-runs it; a regression blocks the change.
 
 INVARIANTS = Template("""# Invariants: $title
 
-The package-level constitution. Every per-node brief inherits these verbatim. Info is lost
+The package-level constitution. Every filed work item inherits these verbatim. Info is lost
 across handoffs, and constraints go first, so they live here explicitly, not in chat.
 
 - INV-1: FILL-IN (a rule that MUST hold across every block, e.g. a data-safety or ordering guarantee)
 - INV-2: FILL-IN
 """)
-
-PLANS_README = Template("""# Agent plans: $title
-
-One brief per DAG node. Wave/order table below. An agent needs only its brief + the referenced
-spec block + `../invariants.md`. If a brief and the spec disagree, the spec wins, and fix the brief.
-
-| Wave | Node | Brief |
-|------|------|-------|
-| 1 | 0 | `block-0.md` |
-""")
-
-BLOCK_BRIEF = Template("""# Block 0: Preconditions (agent brief)
-
-**Wave:** 1 · **Spec:** `../$slug-spec.md` § Block 0
-**Depends on (entry):** none · **Unblocks:** FILL-IN
-**Inherited invariants:** see `../invariants.md` (copied here): FILL-IN
-
-## Objective
-
-FILL-IN (one paragraph).
-
-## Build
-
-FILL-IN (concrete steps).
-
-## Interface (contract)
-
-FILL-IN: the Output downstream blocks rely on; the config surface.
-
-## Failure & recovery
-
-FILL-IN: this node's failure modes, and its fallback chain (primary -> narrowed -> degraded/rule-based
--> human). If it consumes other nodes' outputs, how it handles all / partial / zero results.
-
-## Verification tests
-
-| Test | Setup / Inject | Expected result |
-|------|----------------|-----------------|
-| FILL-IN | FILL-IN | FILL-IN |
-
-## Adversarial tests
-
-| Test | Setup / Inject | Expected result |
-|------|----------------|-----------------|
-| FILL-IN | FILL-IN | FILL-IN |
-
-## Definition of done (GREEN)
-
-- [ ] Both test classes pass
-- [ ] Interface contract stable
-- [ ] Failure modes + fallback chain declared
-""")
-
 
 def write(path, content, force):
     if os.path.exists(path) and not force:
@@ -471,8 +418,6 @@ def main():
         write(os.path.join(root, "agent-methodology.md"), AGENT_METH.substitute(sub), args.force)
         write(os.path.join(root, "test-methodology.md"), TEST_METH.substitute(sub), args.force)
         write(os.path.join(root, "invariants.md"), INVARIANTS.substitute(sub), args.force)
-        write(os.path.join(root, "agent-plans", "README.md"), PLANS_README.substitute(sub), args.force)
-        write(os.path.join(root, "agent-plans", "block-0.md"), BLOCK_BRIEF.substitute(sub), args.force)
 
     print(f"\nScaffolded '{args.title}' ({args.tier} tier) at {root}/")
     print("Fill in every FILL-IN, then run: lint.py " + root)

@@ -145,6 +145,8 @@ def _charter(agents, procedures, errs):
         errs.append(f"{rel}: 'owner' must be a map with 'channel' and 'answer-path'")
     else:
         errs += [f"{rel}: owner needs a non-empty '{k}'" for k in ("channel", "answer-path") if not _text(owner.get(k))]
+    if "delegate" in fm and not _text(fm["delegate"]):
+        errs.append(f"{rel}: 'delegate' must be the name of an entity")
     if "procedure" in fm and fm["procedure"] not in procedures:
         errs.append(f"{rel}: procedure '{fm['procedure']}' is not in {AGENTS}/procedures/")
     triggers = fm.get("triggers")
