@@ -38,7 +38,7 @@
       "turns": 5,
       "human_prompts": 2,
       "compactions": 0,
-      "cost_usd": 0.001525,
+      "cost_usd": 0.0015,
       "context_tokens_peak": 710,
       "tool_errors": 1,
       "timer_turns": 2,

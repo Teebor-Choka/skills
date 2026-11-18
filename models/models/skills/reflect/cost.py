@@ -30,7 +30,7 @@ PRICES = {
 }
 FIELDS = (("input_tokens", "in"), ("output_tokens", "out"),
           ("cache_creation_input_tokens", "cache_write"), ("cache_read_input_tokens", "cache_read"))
-COST_STATE_KEY = "totalCostUsd"
+COST_STATE_KEYS = ("totalCostUsd", "totalCostUSD")  # the spelling differs between versions
 
 
 def price_for(model, prices):
@@ -38,71 +38,91 @@ def price_for(model, prices):
     return prices[max(keys, key=len)] if keys else None
 
 
-def cost_of(paths, prices=None, since=None, until=None):
-    prices = prices or PRICES
-    lo = lib.parse_ts(since) if isinstance(since, str) else since
-    hi = lib.parse_ts(until) if isinstance(until, str) else until
-    if isinstance(until, str) and len(until) == 10 and hi is not None:
-        hi += 86399  # a date-only upper bound spans the whole day
-    messages = {}  # message id -> {"model", token fields}: per-field max over repeats
-    state_total, saw_state = 0.0, False
-    for path in lib.collect_files(paths):
-        prev = seg_last = None
-        for ln, o in lib.iter_entries(path):
-            if o.get("type") == "cost-state":
-                v = o.get(COST_STATE_KEY)
-                if isinstance(v, (int, float)):
-                    saw_state = True
-                    if prev is not None and v < prev:
-                        state_total += seg_last
-                    prev = seg_last = v
-                continue
-            if o.get("type") != "assistant":
-                continue
-            if not lib.in_window(lib.entry_time(o), lo, hi):
-                continue
-            msg = lib.message_of(o)
-            usage = msg.get("usage")
-            if not isinstance(usage, dict):
-                continue
-            key = msg.get("id") if isinstance(msg.get("id"), str) and msg.get("id") \
-                else f"{path}:{ln}"
-            rec = messages.setdefault(key, {"model": msg.get("model")})
-            if msg.get("model"):
-                rec["model"] = msg["model"]
-            for field, _ in FIELDS:
-                v = usage.get(field)
-                if isinstance(v, (int, float)):
-                    rec[field] = max(rec.get(field, 0), v)
-        if seg_last is not None:
-            state_total += seg_last
+class CostMeter:
+    """Both cost figures, fed one transcript entry at a time (so a caller that already walks
+    the file does not read it twice). Call end_file() after each file, then result()."""
 
-    by_model, warnings, total = {}, [], 0.0
-    for rec in messages.values():
-        model = rec["model"]
-        entry = by_model.setdefault(str(model), {"messages": 0, "usd": 0.0, "tokens": 0})
-        entry["messages"] += 1
-        entry["tokens"] += sum(rec.get(f, 0) for f, _ in FIELDS)
-        rate = price_for(model, prices)
-        if rate is None:
-            warning = f"unknown model id {model!r}: priced at 0"
-            if warning not in warnings:
-                warnings.append(warning)
-            continue
-        usd = sum(rec.get(f, 0) * rate[k] for f, k in FIELDS) / 1_000_000
-        entry["usd"] += usd
-        total += usd
-    for entry in by_model.values():
-        entry["usd"] = round(entry["usd"], 4)
-    return {
-        "usage_usd": round(total, 4),
-        "cost_state_usd": round(state_total, 4) if saw_state else None,
-        "messages": len(messages),
-        "by_model": by_model,
-        "warnings": warnings,
-        "windowed": lo is not None or hi is not None,
-        "note": "cost_state_usd is cumulative and ignores the window",
-    }
+    def __init__(self, prices=None, since=None, until=None):
+        self.prices = prices or PRICES
+        self.lo = lib.parse_ts(since) if isinstance(since, str) else since
+        self.hi = lib.parse_ts(until) if isinstance(until, str) else until
+        if isinstance(until, str) and len(until) == 10 and self.hi is not None:
+            self.hi += 86399  # a date-only upper bound spans the whole day
+        self.messages = {}  # message id -> {"model", token fields}: per-field max over repeats
+        self.state_total, self.saw_state = 0.0, False
+        self.unknown_flag = False  # hasUnknownModelCost of the last cost-state entry
+        self.prev = self.seg_last = None
+
+    def feed(self, path, ln, o):
+        if o.get("type") == "cost-state":
+            v = next((o[k] for k in COST_STATE_KEYS if isinstance(o.get(k), (int, float))), None)
+            if isinstance(v, (int, float)):
+                self.saw_state = True
+                if self.prev is not None and v < self.prev:
+                    self.state_total += self.seg_last
+                self.prev = self.seg_last = v
+                self.unknown_flag = bool(o.get("hasUnknownModelCost"))
+            return
+        if o.get("type") != "assistant":
+            return
+        if not lib.in_window(lib.entry_time(o), self.lo, self.hi):
+            return
+        msg = lib.message_of(o)
+        usage = msg.get("usage")
+        if not isinstance(usage, dict):
+            return
+        key = msg.get("id") if isinstance(msg.get("id"), str) and msg.get("id") \
+            else f"{path}:{ln}"
+        rec = self.messages.setdefault(key, {"model": msg.get("model")})
+        if msg.get("model"):
+            rec["model"] = msg["model"]
+        for field, _ in FIELDS:
+            v = usage.get(field)
+            if isinstance(v, (int, float)):
+                rec[field] = max(rec.get(field, 0), v)
+
+    def end_file(self):
+        if self.seg_last is not None:
+            self.state_total += self.seg_last
+        self.prev = self.seg_last = None
+
+    def result(self):
+        by_model, warnings, total = {}, [], 0.0
+        for rec in self.messages.values():
+            model = rec["model"]
+            entry = by_model.setdefault(str(model), {"messages": 0, "usd": 0.0, "tokens": 0})
+            entry["messages"] += 1
+            entry["tokens"] += sum(rec.get(f, 0) for f, _ in FIELDS)
+            rate = price_for(model, self.prices)
+            if rate is None:
+                warning = f"unknown model id {model!r}: priced at 0"
+                if warning not in warnings:
+                    warnings.append(warning)
+                continue
+            usd = sum(rec.get(f, 0) * rate[k] for f, k in FIELDS) / 1_000_000
+            entry["usd"] += usd
+            total += usd
+        for entry in by_model.values():
+            entry["usd"] = round(entry["usd"], 4)
+        return {
+            "usage_usd": round(total, 4),
+            "cost_state_usd": round(self.state_total, 4) if self.saw_state else None,
+            "unknown_model_cost": self.unknown_flag,
+            "messages": len(self.messages),
+            "by_model": by_model,
+            "warnings": warnings,
+            "windowed": self.lo is not None or self.hi is not None,
+            "note": "cost_state_usd is cumulative and ignores the window",
+        }
+
+
+def cost_of(paths, prices=None, since=None, until=None):
+    meter = CostMeter(prices, since, until)
+    for path in lib.collect_files(paths):
+        for ln, o in lib.iter_entries(path):
+            meter.feed(path, ln, o)
+        meter.end_file()
+    return meter.result()
 
 
 def main(argv=None):

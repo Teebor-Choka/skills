@@ -249,3 +249,41 @@ def collect_files(paths):
         elif p.endswith(".jsonl"):
             files.append(p)
     return sorted(set(files))
+
+
+# Names below are how Claude Code spells things the metrics need; another adapter
+# redefines them. The core scripts only call these.
+TIMER_TOOLS = ("ScheduleWakeup", "Monitor", "ListAgents")  # a call whose result wakes the agent
+SKILL_TOOL = "Skill"
+INTERRUPT_PREFIX = "[Request interrupted by user"
+DENIAL_MARKERS = ("The user doesn't want to proceed with this tool use", "Permission to use")
+HOOK_TEXT_FIELDS = ("stderr", "content", "stdout", "output", "text")
+
+
+def hook_text(att):
+    """The message a hook event carried (first non-empty field), else an empty string."""
+    for field in HOOK_TEXT_FIELDS:
+        v = att.get(field) if isinstance(att, dict) else None
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+
+def pr_ref(entry):
+    """`owner/repo#number` of a pr-link entry, else None. Repeats are the caller's to dedupe."""
+    if entry.get("type") != "pr-link":
+        return None
+    repo, num = entry.get("prRepository"), entry.get("prNumber")
+    if isinstance(repo, str) and repo and isinstance(num, int):
+        return f"{repo}#{num}"
+    return None
+
+
+def session_id_of(entry):
+    sid = entry.get("sessionId")
+    return sid if isinstance(sid, str) and sid else None
+
+
+def cwd_of(entry):
+    cwd = entry.get("cwd")
+    return cwd if isinstance(cwd, str) and cwd else None
