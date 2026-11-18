@@ -260,7 +260,7 @@ def notification(text):
     }
 
 
-def score_session(path, moments_override=None, seen_uuids=None):
+def score_session(path, moments_override=None, seen_uuids=None, since=None, until=None):
     """Signals and moments of one transcript. seen_uuids: entries and tool calls an earlier
     member of the run already counted (a continuation repeats its parent's turns); updated in
     place."""
@@ -621,6 +621,14 @@ def score_run(key, files, coordination=(), kinds=COORDINATION_KINDS, moments_ove
         "coordination_by_agent": by_agent,
         "members": members,
     }
+
+
+def outcome_summary(runs):
+    return {}
+
+
+def long_session_share(runs, long_turns=200):
+    return {}
 
 
 def group_runs(files, one_run=False):
