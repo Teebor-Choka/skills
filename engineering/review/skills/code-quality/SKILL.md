@@ -1,9 +1,9 @@
 ---
 name: code-quality
 description: >
-  Audit existing code for risk with real tools: complexity, coverage, duplication. Use for
-  "is this PR safe to merge", "is this too complicated", "how solid are the tests", AI-code
-  health checks. Reports only, never edits. Not for security.
+  Audit code quality and risk with real tools: complexity, coverage, duplication. Use for
+  "code quality", "is this PR safe to merge", "is this too complicated", "how solid are the
+  tests", AI-code health. Reports only, never edits. Not for security.
 ---
 
 # code-quality

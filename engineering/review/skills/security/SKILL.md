@@ -1,9 +1,9 @@
 ---
 name: security
 description: >
-  Run security scanners (gitleaks, trufflehog, osv-scanner, semgrep, zizmor) and triage
-  into one findings list. Use for "security scan/audit", leaked secrets, vulnerable deps,
-  or before shipping or installing code. Not for threat models.
+  Run the scanners the repo calls for (secrets, dependencies, SAST, skills and MCP) and
+  triage into one findings list. Use for "security scan/audit", leaked secrets, vulnerable
+  deps, or before shipping or installing code. Not for threat models or workflows.
 ---
 
 # Security scan
