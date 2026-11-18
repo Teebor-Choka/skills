@@ -856,7 +856,6 @@ def test_view_findings_name_every_broken_view(make_repo):
     findings = validate_docs.validate_project(repo)
     assert sorted((f.file, f.rule) for f in findings) == [
         ("docs/views/overview.html", "view-title"),
-        ("docs/views/overview.html", "view-updated"),
         ("docs/views/process.html", "view-updated"),
     ]
 

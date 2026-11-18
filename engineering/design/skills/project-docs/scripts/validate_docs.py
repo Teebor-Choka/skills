@@ -29,6 +29,7 @@ import subprocess
 import sys
 from collections import Counter
 from dataclasses import asdict, dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 
 # --- contract constants (references/contract.md) -----------------------------
@@ -66,6 +67,13 @@ FOOTNOTE_REF_RE = re.compile(r"\[\^([^\]]+)\](?!:)")
 
 # The project-name key is `project`; `repo` is a deprecated alias still accepted.
 NAME_KEYS = ("project", "repo")
+
+# Optional views (docs/views/<name>.html): one self-contained file per source doc, so the only
+# thing a view may fetch is nothing. A data: URI and a #fragment are inline, never a fetch.
+VIEW_SRC_ATTRS = frozenset({"src", "srcset", "poster"})
+VIEW_DARK_RE = re.compile(r"prefers-color-scheme\s*:\s*dark")
+VIEW_CSS_IMPORT_RE = re.compile(r"@import\b", re.IGNORECASE)
+VIEW_CSS_URL_RE = re.compile(r"url\(\s*['\"]?([^'\")\s]*)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -329,6 +337,18 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
     else:
         findings.extend(_check_process_required(project, project_path))
 
+    # --- optional views: docs/views/*.html ---------------------------------
+    views = docs / "views"
+    if _dir_unreadable(views):
+        findings.append(Finding(project, "docs/views", "unreadable-file", "cannot list docs/views/"))
+    elif views.is_dir():
+        for view in sorted(views.glob("*.html")):
+            rel = view.relative_to(project_path).as_posix()
+            text = _read(view, project, rel, findings)
+            if text is not None:
+                texts[view] = text  # the secret scan below covers views too
+                findings.extend(_check_view(project, project_path, view, rel, text))
+
     # --- AGENTS.md pointer -------------------------------------------------
     findings.extend(_check_agents(project, project_path))
 
@@ -550,6 +570,98 @@ def _check_process(project: str, project_path: Path, text: str) -> list[Finding]
     if procedures.is_dir():
         return _check_procedure_content(project, project_path, name)
     return []
+
+
+class _ViewScan(HTMLParser):
+    """What a view's markup declares: its title, its meta tags, whether it needs anything from
+    outside its own file, and its CSS (for the theme and the url()/@import checks)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.title = ""
+        self.meta: dict[str, str] = {}
+        self.external: list[str] = []  # what the view would load, for the finding message
+        self.css: list[str] = []
+        self._in_title = False
+        self._in_style = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = {k: (v or "") for k, v in attrs}
+        if tag == "title":
+            self._in_title = True
+        elif tag == "style":
+            self._in_style = True
+        elif tag == "meta" and a.get("name"):
+            self.meta[a["name"]] = a.get("content", "")
+        elif tag == "script":
+            self.external.append("<script>")
+        elif tag == "link" and a.get("href"):
+            self.external.append(f"<link href={a['href']!r}>")
+        for attr in VIEW_SRC_ATTRS & a.keys():
+            if not a[attr].lstrip().startswith("data:"):
+                self.external.append(f"<{tag} {attr}={a[attr]!r}>")
+        if "style" in a:
+            self.css.append(a["style"])
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "title":
+            self._in_title = False
+        elif tag == "style":
+            self._in_style = False
+
+    def handle_data(self, data: str) -> None:
+        if self._in_title:
+            self.title += data
+        elif self._in_style:
+            self.css.append(data)
+
+
+def _check_view(project: str, project_path: Path, view: Path, rel: str, text: str) -> list[Finding]:
+    """docs/views/<name>.html is a rendering of docs/<name>.md in one self-contained file
+    (contract.md, "Views"). Checked: a title, a viewport, a dark theme, nothing loaded from
+    outside the file, and a source and updated date that tie it to its markdown doc, so a view
+    that fell behind its source is flagged."""
+    scan = _ViewScan()
+    scan.feed(text)
+    scan.close()
+    out: list[Finding] = []
+
+    def add(rule: str, message: str) -> None:
+        out.append(Finding(project, rel, rule, message))
+
+    if not scan.title.strip():
+        add("view-title", "view has no non-empty <title>")
+    if "viewport" not in scan.meta:
+        add("view-viewport", 'view has no <meta name="viewport"> (it must fit a phone)')
+
+    expected = f"docs/{view.stem}.md"
+    source = scan.meta.get("source", "").strip()
+    source_path = project_path / expected
+    if source != expected:
+        add("view-source", f'<meta name="source"> is {source!r}, expected {expected!r}')
+    elif not source_path.is_file():
+        add("view-source", f"source {expected} does not exist")
+
+    updated = scan.meta.get("updated", "").strip()
+    if not _is_iso_date(updated):
+        add("view-updated", f'<meta name="updated"> is {updated!r}, expected an ISO date YYYY-MM-DD')
+    elif source_path.is_file():
+        fm, _ = split_frontmatter(source_path.read_text(encoding="utf-8", errors="replace"))
+        source_updated = fm.get("updated") if fm else None
+        if _nonempty_str(source_updated) and source_updated != updated:
+            add("view-updated", f"view is {updated}, {expected} is {source_updated}: re-render the view")
+
+    css = "\n".join(scan.css)
+    external = list(scan.external)
+    if VIEW_CSS_IMPORT_RE.search(css):
+        external.append("@import")
+    external += [f"url({u})" for u in VIEW_CSS_URL_RE.findall(css) if u and not u.startswith(("data:", "#"))]
+    if external:
+        add("view-external", "view loads from outside its own file: " + ", ".join(external[:3]))
+
+    if not VIEW_DARK_RE.search(css):
+        add("view-theme", "view has no `@media (prefers-color-scheme: dark)` rule")
+    return out
 
 
 def _check_agents(project: str, project_path: Path) -> list[Finding]:
