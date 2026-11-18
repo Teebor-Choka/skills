@@ -1,12 +1,9 @@
 ---
 name: performance
 description: >
-  Find and fix performance problems with measurement: profile slow code paths, memory growth
-  and allocation churn, cut latency (P95/P99) or CPU, raise throughput, tune database queries,
-  and benchmark competing implementations or catch a regression. Use when the user mentions
-  performance, profiling, a flame graph, optimization, latency, throughput, or "why is this
-  slow". Read references/benchmarking.md before any benchmark. Not for guessing at
-  bottlenecks or for optimizing code with no measured problem.
+  Fix a measured performance problem: profile, flame graph, latency P95/P99, throughput,
+  allocations, slow queries, benchmarks. Not for guessing at bottlenecks or tuning config
+  with no measurement.
 ---
 
 # Performance

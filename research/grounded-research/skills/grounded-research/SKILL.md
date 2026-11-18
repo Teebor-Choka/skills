@@ -1,15 +1,9 @@
 ---
 name: grounded-research
 description: >
-  Research a question with web search under a fixed evidence contract: primary and official
-  sources first, every claim cited with URL and access date, verified fact kept apart from
-  hearsay, disagreements between sources reported, and anything unverifiable flagged instead of
-  asserted. Use for "research X", "verify against official docs", "check the paper", "what does
-  the spec actually say", "is this claim true", for version, license, or pricing checks, and
-  whenever another skill or task needs grounded facts before a decision. Works in any domain
-  (science, law, markets, software). Not for opinion or brainstorming without a need for sources,
-  and not for a long multi-angle report that needs subagent fan-out (use deep-research for that and
-  apply this contract inside it).
+  Research with web search and cite every claim (URL, access date): official sources first,
+  fact kept apart from hearsay, unverifiable flagged. Use for "research X", "verify against
+  official docs", "is this true", version or license checks.
 license: MIT
 compatibility: Needs a web search or fetch tool; without one, say so and mark every claim unverified.
 metadata:

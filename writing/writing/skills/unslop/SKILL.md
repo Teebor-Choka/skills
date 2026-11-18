@@ -1,18 +1,9 @@
 ---
 name: unslop
 description: >
-  Remove AI tells (the machine patterns that make text read as LLM-generated) and restore
-  a plain, human voice, preserving meaning, facts, code, and register. Runs two ways: on
-  demand to rewrite a specific target text, or always-on as a persistent house voice
-  applied by DEFAULT to all natural-language output — every reply longer than a short
-  two-sentence answer, and every doc, README, code comment, commit message, and PR
-  description before it is written or committed. Levels off/light/default/strict, toggled
-  per session with /unslop-mode. Technical text (procedures, troubleshooting, error
-  explanations, technical descriptions) also follows ASD-STE100 Simplified Technical
-  English. Also triggers on "unslop", "de-slop", "humanize", "make
-  this sound less like AI", "remove AI-isms", or when text is called robotic, sycophantic,
-  generic, or over-structured. Do not apply to a short two-sentence reply. Edits prose
-  only: it is not a grammar checker, never changes code logic, and never invents facts.
+  Strip AI tells from prose and restore a plain human voice; always on for replies over two
+  sentences, docs, commit and PR text. Use for "/unslop", "de-slop", "humanize", "sounds like
+  AI", "robotic". Technical text follows ASD-STE100.
 ---
 
 # Unslop

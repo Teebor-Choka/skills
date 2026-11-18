@@ -1,15 +1,9 @@
 ---
 name: typescript
 description: >
-  Enforce TypeScript and JavaScript code quality and house guidelines on every TS/JS
-  change. Use whenever writing, modifying, or reviewing a .ts, .tsx, .js, .jsx, or
-  .mjs file; configuring tsconfig.json, ESLint, or a bundler; fixing tsc or ESLint
-  errors; or adding TypeScript types, modules, or packages. Trigger even when TS/JS is
-  only part of a larger multi-language change — the TS/JS portions must still conform.
-  Also apply when the user just names TypeScript, JavaScript, tsc, ESLint, Prettier, a
-  .ts/.tsx filename, or any TS/JS-specific concept. Do not use for pure after-the-fact
-  risk or coverage audits that only report findings (use the code-quality skill), or for
-  code in other languages (Rust uses the swe:rust skill).
+  Apply TypeScript/JavaScript house rules when editing .ts, .tsx, .js, .jsx, .mjs,
+  tsconfig.json or ESLint config, or fixing tsc and eslint errors. Not for Rust or
+  audit-only reviews.
 license: MIT
 compatibility: any
 metadata:

@@ -1,17 +1,9 @@
 ---
 name: nix
 description: >
-  Operate correctly inside Nix + direnv development repos. Use whenever working in a repo
-  that has a .envrc or a Nix flake (flake.nix): entering the dev shell, running builds,
-  formatting, or editing pre-commit setup, on macOS or Linux, including a `cd` into another
-  repo whose `.envrc` is blocked and new files a flake cannot see. Covers direnv allow per
-  worktree, why to format with nix fmt rather than cargo fmt alone, GNU vs BSD sed on macOS,
-  the result symlink rotation trap across successive nix build runs, CARGO_BUILD_RUSTFLAGS
-  silently replacing .cargo/config.toml rustflags in crane builds, silencing direnv log
-  noise, and a lightweight nixpkgs pre-commit override. Trigger even when Nix is incidental
-  to a Rust or other change in such a repo. Do not use for homelab secret injection into
-  hosts or microVMs, or for authoring application Nix
-  modules unrelated to the dev workflow.
+  Load before the first nix build, nix fmt, nix develop or direnv command in a repo with
+  flake.nix or .envrc, or when direnv says .envrc is blocked. Covers direnv allow per
+  worktree, the result symlink trap, BSD sed. Not for NixOS or microVM config.
 license: MIT
 compatibility: any
 ---
