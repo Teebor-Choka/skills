@@ -42,23 +42,45 @@ passes. The mechanics in `mechanics.md` apply unchanged; this file adds what is 
 3. When you are blocked on the owner, post once on the item, stop the loop and resume on a board
    event. Do not schedule a repeated wakeup with the same prompt.
 4. When the owner's phrase is ambiguous, confirm the reading once and record it in the charter.
+5. **Autonomy comes from the brief.** It states one level: `ask`, `ask-only-destructive` or
+   `never-ask-escalate-by-message`. State the grant in the brief; never infer it from an earlier
+   session or a peer message. With no level stated, ask. At the third level, escalate by message
+   to the escalation channel and block on the human only for a destructive or irreversible step.
+
+## Wake on events
+
+- Do not run a timer tick. Wake on a task notification or a message. For board changes run one
+  monitor that prints a line only when the board changes. List running monitors before you start
+  one and never start an identical command twice.
+- Do not list agents within 5 minutes of the last call, unless a hand-back is overdue.
+- Do not end a turn with work pending. End it with an armed monitor, or with a question only the
+  owner can answer.
+- A worker with no item ends its session. Reschedule an idle wakeup at most twice. Prefer a fresh
+  session per item over one that carries days of context.
+- Stop a background task by an id from the current task list. An id from before a compaction is
+  stale.
+- Ask only peers whose repo matches the question, one first. Start every outbound message with
+  your session name and role.
 
 ## Claims and review
 
 - A push or PR-open for an item must refuse when another assignee or a live lease exists
   (hook or check; the rule holds without it).
 - Review is an item. Claim it atomically and hold a lease, so two reviewers never cover the same
-  PR.
+  PR. Post `review-lease: <id>` on the PR before you spawn a reviewer.
 - A handoff is a comment on the item (branch, worktree, state, next step, do-not-touch) plus a
-  `handoff` label. A new session runs `swarm-status` and does not message peers: list the items
-  with holder and heartbeat age, the open PRs per item, and the stale leases. Act on that list.
+  `handoff` label. A new session reads the board before it messages any peer: list the items
+  with holder and heartbeat age, the open PRs per item, and the stale leases (on GitHub:
+  `gh issue list -l handoff`, `gh issue list -l state:in-progress` with the age of each lease
+  comment, and `gh pr list`). Act on that list. Ask a peer only when the board is empty.
 
 ## State file and handoff
 
 A coordinator session is not a place to live. After 2 compactions or 1,500 turns, write `STATE.md`
 (goal, leases, open PRs, next 3 actions) and hand off to a fresh session. Count active hours,
-compactions and context size, not session age. Update `STATE.md` at each wake-up. A pick-up session
-reads `STATE.md` first, then runs `swarm-status`, and does not ask peers.
+compactions and context size, not session age. Update `STATE.md` at each wake-up, at each
+compaction, and at turn end with work pending. A pick-up session reads `STATE.md` first, then
+reads the board as above, and does not ask peers.
 
 Do not edit files in a peer's checkout. Edit in your own worktree or hand the edit to the item's
 builder. On "File has been modified since read": Read, then re-apply. Never retry the same edit.

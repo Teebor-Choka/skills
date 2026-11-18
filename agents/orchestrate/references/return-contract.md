@@ -21,6 +21,8 @@ Rules:
    them, so the receiver can dedupe, tally and triage mechanically.
 4. **Zero findings is valid.** Do not prompt a reviewer to find something. Name what was checked.
 5. **A reject states why.** "Wrong because X", not only "skipped".
+6. **One hand-back per agent, at most 1.5K characters.** The full report goes on the board item.
+   A follow-up is a new agent.
 
 Specialisations kept in their own skills: review:by-angle's `findings-schema.md` (adds angle,
 severity, file, line), and forge-idea's verdict schema.
