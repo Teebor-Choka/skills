@@ -268,7 +268,8 @@ def test_unstated_output_location_fails():
 
 def test_scaffolded_full_spec_declares_depth_write_set_and_channel(tmp_path):
     subprocess.run([sys.executable, str(SKILL / "scripts" / "scaffold.py"), "--slug", "t",
-                    "--title", "T", "--dir", str(tmp_path / "p"), "--tier", "small"], check=True,
+                    "--title", "T", "--dir", str(tmp_path / "p"), "--tier", "small",
+                    "--depth", "modules", "--scope", "svc"], check=True,
                    capture_output=True)
     text = (tmp_path / "p" / "t-spec.md").read_text()
     for needle in ("Decomposition depth", "Acceptance by rung", "Write-set", "Coordination channel"):
@@ -277,7 +278,8 @@ def test_scaffolded_full_spec_declares_depth_write_set_and_channel(tmp_path):
 
 def test_scaffold_emits_an_improve_report_that_lints_clean_once_filled(tmp_path):
     subprocess.run([sys.executable, str(SKILL / "scripts" / "scaffold.py"), "--slug", "t",
-                    "--title", "T", "--dir", str(tmp_path / "i"), "--improve"], check=True,
+                    "--title", "T", "--dir", str(tmp_path / "i"), "--improve",
+                    "--target", "src/billing"], check=True,
                    capture_output=True)
     path = tmp_path / "i" / "improve-report.md"
     out = subprocess.run([sys.executable, str(SKILL / "scripts" / "lint.py"), str(path), "--improve"],
@@ -302,3 +304,128 @@ def test_decompose_filing_guard_for_packages():
     guide = (SKILL.parent / "decompose" / "references" / "filing.md").read_text()
     for needle in ("Blocked by", "Blocks", "never opens", "work.tracker"):
         assert needle in guide, needle
+
+
+# --- non-interactive input resolution -------------------------------------------------------
+
+import json
+import os
+
+SCAFFOLD = SKILL / "scripts" / "scaffold.py"
+
+
+def stub_loader(tmp_path, policy):
+    """A policy loader stand-in: `--get KEY` prints policy[KEY], else the real loader's 'None'."""
+    path = tmp_path / "loader.py"
+    path.write_text("import json, os, sys\nk = sys.argv[sys.argv.index('--get') + 1]\n"
+                    f"print(json.loads({json.dumps(json.dumps(policy))}).get(k, 'None'))\n")
+    return str(path)
+
+
+def scaffold(tmp_path, *args, policy=None):
+    cmd = [sys.executable, str(SCAFFOLD), "--slug", "t", "--title", "T", "--dir", str(tmp_path / "out"),
+           "--policy-loader", stub_loader(tmp_path, policy or {}), *args]
+    out = subprocess.run(cmd, capture_output=True, text=True)
+    return out, (tmp_path / "out")
+
+
+def result(out):
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def test_missing_depth_halts_with_needs_input_and_writes_nothing(tmp_path):
+    out, root = scaffold(tmp_path, "--tier", "small", "--scope", "svc")
+    assert out.returncode == 3
+    res = result(out)
+    assert res["status"] == "needs-input"
+    miss = {m["field"]: m for m in res["missing"]}
+    assert set(miss) == {"depth"}
+    assert miss["depth"]["arg"] == "--depth" and miss["depth"]["policy_key"] == "architect.depth"
+    assert not root.exists()
+
+
+def test_missing_depth_and_scope_are_both_named(tmp_path):
+    out, root = scaffold(tmp_path, "--tier", "full")
+    assert {m["field"] for m in result(out)["missing"]} == {"depth", "scope"}
+    assert not root.exists()
+
+
+def test_depth_from_an_arg_proceeds(tmp_path):
+    out, root = scaffold(tmp_path, "--tier", "small", "--depth", "modules", "--scope", "svc")
+    assert out.returncode == 0
+    spec = (root / "t-spec.md").read_text()
+    assert "**Dialed rung:** modules" in spec and "`--depth`" in spec
+    errs = []
+    lint.check_depth(spec.replace("FILL-IN", "x"), errs)
+    assert errs == []
+
+
+def test_depth_from_policy_proceeds(tmp_path):
+    out, root = scaffold(tmp_path, "--tier", "small", policy={"architect.depth": "components",
+                                                                  "architect.scope": "svc"})
+    assert out.returncode == 0
+    assert "architect.depth" in (root / "t-spec.md").read_text()
+
+
+def test_an_arg_beats_policy(tmp_path):
+    out, root = scaffold(tmp_path, "--tier", "small", "--depth", "interfaces",
+                         policy={"architect.depth": "functions", "architect.scope": "s"})
+    assert "**Dialed rung:** interfaces" in (root / "t-spec.md").read_text()
+
+
+def test_an_unknown_rung_halts(tmp_path):
+    out, root = scaffold(tmp_path, "--tier", "small", "--depth", "layers", "--scope", "svc")
+    assert out.returncode == 3 and not root.exists()
+    assert result(out)["missing"][0]["field"] == "depth"
+
+
+def test_interactive_channel_asks_instead_of_halting(tmp_path):
+    out, root = scaffold(tmp_path, "--tier", "small", "--interactive")
+    assert out.returncode == 4 and result(out)["status"] == "ask" and not root.exists()
+
+
+def test_the_note_tier_needs_no_depth(tmp_path):
+    out, _ = scaffold(tmp_path, "--tier", "note")
+    assert out.returncode == 0
+
+
+def test_improve_missing_target_halts_naming_only_the_target(tmp_path):
+    out, root = scaffold(tmp_path, "--improve")
+    assert out.returncode == 3
+    miss = result(out)["missing"]
+    assert [m["field"] for m in miss] == ["target"]
+    assert miss[0]["arg"] == "--target" and miss[0]["policy_key"] == "architect.improve-target"
+    assert not root.exists()
+
+
+def test_improve_defaults_are_stated_and_written_into_the_report(tmp_path):
+    out, root = scaffold(tmp_path, "--improve", "--target", "src/billing")
+    assert out.returncode == 0
+    text = (root / "improve-report.md").read_text()
+    assert "**Box cap:** 5" in text and "default" in text
+    assert "github issues" in text.lower() and "work.tracker" in text
+    assert "src/billing" in text
+
+
+def test_improve_output_and_cap_come_from_policy(tmp_path):
+    out, root = scaffold(tmp_path, "--improve", policy={"architect.improve-target": "lib", "work.tracker": "beads",
+                                                       "architect.box-cap": "3"})
+    text = (root / "improve-report.md").read_text()
+    assert "**Box cap:** 3" in text and "beads" in text and "lib" in text
+
+
+def test_improve_non_numeric_cap_halts(tmp_path):
+    out, root = scaffold(tmp_path, "--improve", "--target", "x", "--cap", "many")
+    assert out.returncode == 3 and result(out)["missing"][0]["field"] == "cap" and not root.exists()
+
+
+def test_e9_message_points_to_the_arg_and_policy_key_not_a_question():
+    msgs = " ".join(depth_errs("## Block index\n"))
+    assert "--depth" in msgs and "architect.depth" in msgs and "ask the user" not in msgs.lower()
+
+
+@pytest.mark.parametrize("name", ["SKILL.md", "references/depth-dial.md", "references/improve.md"])
+def test_docs_state_the_two_path_rule(name):
+    text = (SKILL / name).read_text()
+    assert "needs-input" in text, name
+    assert "ask the user" not in text.lower() and "**ask**" not in text, name
