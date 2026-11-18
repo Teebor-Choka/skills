@@ -19,7 +19,7 @@ from graphlib import CycleError, TopologicalSorter
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "policy"))
 from policy_loader import PolicyError, _parse_frontmatter, _split_frontmatter  # noqa: E402
 
-__all__ = ("validate_text", "validate_layers", "parse_frontmatter", "parse_procedure", "main")
+__all__ = ("validate_text", "validate_layers", "apply_delta", "parse_frontmatter", "parse_procedure", "main")
 
 OWNER = "owner"  # the user: the reserved last rung of every ladder
 LIST_KEYS = ("needs", "consumes", "produces", "review", "metrics")
@@ -503,22 +503,33 @@ def validate_layers(base_text, delta_text, src="<delta>", strict=True, ratified=
     `ratified` is true. Only a caller holding the owner's approval may pass it: the CLI has no
     such flag. Ratification never excuses a structural error or a missing change hypothesis."""
     base, errs = _checked_base(base_text, strict)
-    delta, errs2 = _load(delta_text, src, required=False)
-    if errs or errs2:
-        return errs + errs2
+    if errs:
+        return errs + _load(delta_text, src, required=False)[1]
+    return apply_delta(base, delta_text, src, strict, ratified)[1]
+
+
+
+
+def apply_delta(base, delta_text, src="<delta>", strict=True, ratified=False):
+    """Overlay a delta on a parsed procedure. Returns (merged, errors, protected).
+
+    `protected` is true when the delta changes the protected set and so needs the owner. Errors
+    exclude protected errors only when `ratified`. `base` is not changed."""
+    delta, errs = _load(delta_text, src, required=False)
+    if errs:
+        return None, errs, False
     merged, errs, protected = _merge(base, delta)
     if errs:
-        return errs
+        return None, errs, bool(protected)
     if protected and not ratified:
-        return protected
+        return None, protected, True
     errs = _validate(merged, strict)
     if not errs and not ratified:
         errs = _floor_errors(base["stages"], merged["stages"])
-    empty = not delta["stages"] and not any(delta.get(name) for name in ID_MAPS)
-    if errs or not strict or empty:
-        return errs
-    return _change_errors(delta.get("change"), merged)
-
+    empty = merged == base  # a delta that changes nothing needs no hypothesis
+    if not errs and strict and not empty:
+        errs = _change_errors(delta.get("change"), merged)
+    return (None if errs else merged), errs, bool(protected)
 
 
 def main(argv=None):

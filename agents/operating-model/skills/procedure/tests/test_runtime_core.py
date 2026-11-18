@@ -19,7 +19,8 @@ def test_a_new_run_has_not_started_and_every_stage_is_pending():
 def test_run_started_starts_only_the_entry_stage():
     state, actions = started()
     assert state["status"] == "running"
-    assert [(a["do"], a["stage"], a["entity"]) for a in actions] == [("start-stage", "align", "pm")]
+    starts = [(a["do"], a["stage"], a["entity"]) for a in actions if a["do"] == "start-stage"]
+    assert starts == [("start-stage", "align", "pm")]
 
 
 def test_a_finished_stage_starts_the_next_with_only_the_kinds_it_consumes():
@@ -106,7 +107,7 @@ def test_an_unknown_event_type_is_an_error_and_is_logged_as_rejected():
     after, acts = step(state, {"type": "teleport"})
     assert dos(acts) == ["error"] and "teleport" in acts[0]["reason"]
     assert after["rejected"][-1]["event"]["type"] == "teleport"
-    assert len(after["log"]) == len(state["log"])
+    assert after["log"][-1]["type"] == "teleport"  # a refused event is logged, so a replay can reproduce it
 
 
 def test_step_never_mutates_the_state_it_is_given():

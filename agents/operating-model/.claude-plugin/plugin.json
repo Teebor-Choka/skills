@@ -1,5 +1,5 @@
 {
   "name": "operating-model",
-  "version": "1.4.0",
+  "version": "1.5.1",
   "description": "Run work, independent of the domain: policy (the layered .agents/policy settings a skill reads instead of hardcoding a constant) and procedure (a named graph of stages with a structure validator)."
 }
