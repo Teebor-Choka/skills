@@ -28,15 +28,6 @@
       }
     },
     {
-      "name": "operating-model",
-      "description": "Run work, independent of the domain: policy (the layered .agents/policy settings a skill reads instead of hardcoding a constant), procedure (a named graph of stages with a validator and a reducer that runs it) and agents-dir (the .agents/ layout contract: the documents that define the process and how they evolve).",
-      "source": "./agents/operating-model",
-      "strict": true,
-      "metadata": {
-        "version": "1.14.0"
-      }
-    },
-    {
       "name": "find-ai-moat",
       "description": "Interview one question at a time to find where your work complements AI versus where a model already does it, then give three concrete 30-day moves to widen the gap in your favor.",
       "source": "./education/find-ai-moat",
