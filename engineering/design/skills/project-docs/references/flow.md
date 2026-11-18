@@ -78,7 +78,8 @@ Frontmatter for each is specified in the contract; copy the keys exactly, they a
 Write a view when a doc is mostly a flow, a state model or a set of rules that a reader wants to scan:
 `process.md` is the usual case. Skip it for prose.
 
-1. Copy `assets/view.template.html` to `docs/views/<name>.html` and fill the four head tokens.
+1. Copy `assets/view.template.html` to `docs/views/<name>.html` and replace its four tokens: `TITLE`,
+   `PROJECT`, `SOURCE-NAME` and `YYYY-MM-DD`.
 2. Take every label, name and figure from the source doc or the project. The template's text is
    placeholder, not content.
 3. Keep the stack: one file, inline CSS, system fonts, no script, no network. Mermaid stays in the

@@ -141,10 +141,14 @@ When `docs/views/` exists, each `*.html` in it must have:
 - `<meta name="source" content="docs/<name>.md">`, where `<name>` is the view's own file name and the
   file exists (`view-source`);
 - `<meta name="updated" content="YYYY-MM-DD">`, equal to the `updated` in the source's frontmatter,
-  so a view that fell behind its source fails (`view-updated`);
-- nothing loaded from outside the file (`view-external`): no `<script>`, no `<link href>`, no `src`,
-  `srcset` or `poster` except a `data:` URI, no `@import`, no `url()` except `data:` or `#fragment`.
-  An `<a href>` is navigation and passes;
+  so a view that fell behind its source fails (`view-updated`). A source with no `updated` has
+  nothing to compare, so the date is only checked as a date;
+- no script and nothing loaded from outside the file (`view-external`): no `<script>`, no `on*`
+  handler, no `srcdoc`, no `javascript:` link. Any attribute that names a resource (`src`, `poster`,
+  `data`, `action`, `formaction`, `href` and `xlink:href` on any tag but `<a>`, and every `srcset`
+  candidate) must be a `data:` URI or a `#fragment`. In CSS, no `@import` or `image-set()`, and
+  `url()` only with `data:` or `#fragment`; CSS comments are ignored. A plain `<a href>` is
+  navigation and passes. Meta names are case-insensitive;
 - a `@media (prefers-color-scheme: dark)` rule (`view-theme`).
 
 The validator also scans views for credential-shaped strings. It does not check that the view says
