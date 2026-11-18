@@ -1,0 +1,3 @@
+{"date":"2026-02-01","rule":"R-sleep-hook","metric":"m3","baseline":80.0}
+{"date":"2026-02-10","rule":"R-noop","metric":"m4","baseline":1}
+{"date":"2026-03-01","rule":"R-gate","metric":"m4","baseline":1}
