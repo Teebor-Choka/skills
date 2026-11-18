@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.5.1"
+  version: "1.6.2"
 ---
 
 # procedure: a named graph of stages
@@ -57,7 +57,7 @@ ignored by the validator.
 5. A kind whose upstream producers all carry `when` is rejected: when the condition is false, the
    consumer has no input.
 6. A delta cannot disable a `floor` stage, change its `floor` flag, or add `when` to it.
-7. A delta cannot change a floor stage's `needs`, `consumes`, `produces` or `skill`, or remove one
+7. A delta cannot change a floor stage's `needs`, `consumes`, `produces`, `skill` or `on-fail`, or remove one
    of its `review` angles. It can add angles.
 8. Every stage that ran after a floor stage in the baseline still runs after it. A floor stage and
    every stage upstream of it always run: none carries `when`. This holds for a standalone
@@ -78,7 +78,7 @@ ignored by the validator.
 16. A non-empty delta carries a `change` map: a `reason`, `metrics` that exist, a `direction` of
     `up` or `down`, and an observation `window` such as `5 runs`. An empty delta needs none.
 17. A delta cannot change the protected set: an existing entity's `escalates-to`, an existing
-    loop's `on-exhausted`, the `owner` of a KPI, or remove a loop or a KPI. It cannot raise a loop's
+    loop's `on-exhausted`, `stages` or `exit`, the `owner` of a KPI, or remove a loop or a KPI. It cannot raise a loop's
     `bound`; it can lower it. A delta can add entities, loops and KPIs.
 18. A delta cannot remove a stage that waits on a floor stage, since a replacement could route
     around the floor. It can add stages anywhere.
@@ -376,6 +376,47 @@ Limits:
 - The window counts stages only, not runs. A change judged across runs needs a store this does not
   have.
 - A rate over a window of a few stages is noisy. Pick a window and a tolerance that fit.
+
+## Policy bindings: the procedure says how, the policy says where
+
+A procedure does not hard-code the specifics of a place: where issues live, where to push, how nodes
+talk, where reports go. Those belong to the policy, so one procedure serves many projects and each
+project's policy supplies its own. The procedure declares the policy keys it needs at its top level,
+and a stage names the ones it uses:
+
+```
+policy:
+  work.tracker: where issues and work items live
+  vcs.remote: where to push
+  comms.channel: how nodes talk to each other
+  report.sink: where reports go
+stages:
+  build:
+    uses: [work.tracker, vcs.remote]
+```
+
+The policy sets each one under nested maps, because a dotted key reads through them:
+
+```
+work:
+  tracker: github
+vcs:
+  remote: origin
+```
+
+Rules:
+
+- A key is dotted lowercase names (`work.tracker`). Each maps to a non-empty purpose.
+- A stage may use only declared keys. A declared key that no stage uses is allowed.
+- `check_bindings(proc, policy)` names each declared key the policy leaves unset. An empty value is not
+  set, `false` is. A flat `work.tracker:` key is not set either, and the error says to nest it.
+- `new_state(..., bindings={"work.tracker": "github"})` refuses a run that lacks a declared key, keeps
+  only the declared keys, and tells a stage only the keys it `uses`, in its `start-stage` action. A
+  change that declares a key nothing sets is refused.
+- Where a floor stage reports or pushes (`uses`) is locked, like its wiring.
+- A whole procedure that replaces another, such as a project's over a user's, must not weaken it:
+  `override_violations(base, other)` lists any floor stage dropped or rewired and any move of the
+  ladder, loops or KPIs. What `other` leaves out counts as removed.
 
 ## Layering
 

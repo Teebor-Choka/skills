@@ -31,19 +31,31 @@ OUTCOMES = ("initial", "pending", "confirmed", "regressed", "rolled-back", "kept
 WINDOW = re.compile(r"^[1-9][0-9]{0,5} (?:stages|runs)\Z")
 REVISION = re.compile(r"^[0-9a-f]{7,40}\Z")
 SECRET_KEYS = ("key", "secret", "token", "password")
+MAX_DOC = 256 * 1024  # as the resolver: a larger process document is refused, never read
 
 
 def _git(repo, *args):
     """Run git in `repo`. Returns stdout, or None when git fails or is missing."""
+    # A repo's own config must not run code here: no fsmonitor, no inherited GIT_DIR or system config.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
     try:
-        run = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+        run = subprocess.run(["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", str(repo), *args],
+                             capture_output=True, text=True, env=env)
     except OSError:
         return None
     return run.stdout if run.returncode == 0 else None
 
 
 def _read(path, rel, errs):
+    """Read one process document. A symlink or an oversized file is an error and its content is never read."""
+    if os.path.islink(path):
+        errs.append(f"{rel}: is a symlink; a process document must be a regular file")
+        return None
     try:
+        if os.path.getsize(path) > MAX_DOC:
+            errs.append(f"{rel}: is too large (over {MAX_DOC // 1024} KB)")
+            return None
         with open(path, encoding="utf-8") as f:
             return f.read()
     except (OSError, UnicodeDecodeError) as exc:
@@ -55,12 +67,25 @@ def _text(value):
     return isinstance(value, str) and bool(value.strip())
 
 
-def _markdown(directory):
+def _markdown(directory, rel=None, errs=None):
+    """The lowercase `.md` documents of a directory. With `errs`, also report what must not be there: a
+    symlink, a suffix that only a case-insensitive filesystem reads as `.md`, and a subdirectory."""
     try:
         names = os.listdir(directory)
     except OSError:
         return []
-    return sorted(n for n in names if n.endswith(".md") and os.path.isfile(os.path.join(directory, n)))
+    keep = []
+    for n in sorted(names):
+        path = os.path.join(directory, n)
+        if errs is not None and os.path.islink(path):
+            errs.append(f"{rel}/{n}: is a symlink; a process document must be a regular file")
+        elif errs is not None and n.lower().endswith(".md") and not n.endswith(".md"):
+            errs.append(f"{rel}/{n}: the suffix must be lowercase .md; a case-insensitive filesystem would load it as a document")
+        elif errs is not None and os.path.isdir(path):
+            errs.append(f"{rel}/{n}: a directory is not allowed here")
+        elif n.endswith(".md") and os.path.isfile(path) and not os.path.islink(path):
+            keep.append(n)
+    return keep
 
 
 def _walk_keys(value):
@@ -74,7 +99,7 @@ def _procedures(agents, errs):
     """Validate each procedure file. Returns the names of the ones present."""
     names = []
     folder = os.path.join(agents, "procedures")
-    for fname in _markdown(folder):
+    for fname in _markdown(folder, f"{AGENTS}/procedures", errs):
         rel = f"{AGENTS}/procedures/{fname}"
         text = _read(os.path.join(folder, fname), rel, errs)
         if text is None:
@@ -92,7 +117,7 @@ def _front(agents, fname, errs):
     """Read a top-level document. Returns (relative name, frontmatter) or None."""
     rel = f"{AGENTS}/{fname}"
     path = os.path.join(agents, fname)
-    if not os.path.isfile(path):
+    if not os.path.lexists(path):
         return None
     text = _read(path, rel, errs)
     if text is None:
@@ -163,7 +188,7 @@ def _iteration_errors(rel, fm):
 def _iterations(agents, errs):
     folder = os.path.join(agents, "iterations")
     numbers = {}
-    for fname in _markdown(folder):
+    for fname in _markdown(folder, f"{AGENTS}/iterations", errs):
         rel = f"{AGENTS}/iterations/{fname}"
         match = ITERATION.match(fname)
         if not match:
@@ -191,11 +216,10 @@ def _covered(repo, added):
     """The process documents that the iteration records added in this change say they touch."""
     covered = set()
     for rel in added:
-        try:
-            with open(os.path.join(repo, rel), encoding="utf-8") as f:
-                fm, ferrs = parse_frontmatter(f.read(), rel)
-        except (OSError, UnicodeDecodeError):
+        text = _read(os.path.join(repo, rel), rel, [])  # a symlink or a huge file covers nothing
+        if text is None:
             continue
+        fm, ferrs = parse_frontmatter(text, rel)
         touches = fm.get("touches") if not ferrs else None
         if isinstance(touches, list):
             covered.update(f"{AGENTS}/{t}" for t in touches if isinstance(t, str))
@@ -215,14 +239,17 @@ def _changed_since(repo, base, errs):
     for line in diff.splitlines():
         status, *paths = line.split("\t")
         for path in paths:
-            if path in PROCESS_DOCS or (path.startswith(f"{AGENTS}/procedures/") and path.endswith(".md")):
+            if path in PROCESS_DOCS or (path.startswith(f"{AGENTS}/procedures/") and path.lower().endswith(".md")):
                 process.add(path)
         old = paths[0]
         match = ITERATION.match(os.path.basename(old)) if old.startswith(f"{AGENTS}/iterations/") else None
         if match and status[0] in "DR":
             errs.append(f"iteration record {match.group(1)} may not be deleted or renamed")
         if status[0] == "A" and old.startswith(f"{AGENTS}/iterations/"):
-            added.append(old)
+            if os.path.dirname(old) == f"{AGENTS}/iterations" and ITERATION.match(os.path.basename(old)):
+                added.append(old)
+            else:
+                errs.append(f"{old}: not a valid iteration record; name it {AGENTS}/iterations/NNNN-<slug>.md")
     if process and not added:
         errs.append(f"{', '.join(sorted(process))} changed with no new iteration record in {AGENTS}/iterations/")
     elif process:
