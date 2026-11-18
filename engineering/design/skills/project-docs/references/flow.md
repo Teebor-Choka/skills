@@ -63,12 +63,31 @@ content is yours to fit the project):
   decides what, and points to `.agents/iterations/` for the record of changes. Do not copy the
   procedure into it. Set `procedure` to the file name of `.agents/procedures/<name>.md`, without the
   extension.
+- `assets/view.template.html`: an optional rendering of one doc as a single HTML file. Copy it to
+  `docs/views/<name>.html` and replace the `TITLE`, `PROJECT`, `SOURCE-NAME` and `YYYY-MM-DD` tokens,
+  then keep the sections the source supports. See "Views" below.
 - `assets/decisions-README.skeleton.md`: the index: a table linking every ADR. Keep it in sync
   with the directory; the validator checks both directions.
 - `assets/AGENTS.pointer.md`: the root pointer. Create it, or splice its pointers into an existing
   `AGENTS.md`. It points into `docs/`; it does not restate the overview.
 
 Frontmatter for each is specified in the contract; copy the keys exactly, they are checked.
+
+## Views
+
+Write a view when a doc is mostly a flow, a state model or a set of rules that a reader wants to scan:
+`process.md` is the usual case. Skip it for prose.
+
+1. Copy `assets/view.template.html` to `docs/views/<name>.html` and fill the four head tokens.
+2. Take every label, name and figure from the source doc or the project. The template's text is
+   placeholder, not content.
+3. Keep the stack: one file, inline CSS, system fonts, no script, no network. Mermaid stays in the
+   markdown; in the view draw the flow with the template's `.flow` boxes or an inline SVG.
+4. Keep the template's tokens (`:root` colors, the dark `@media` block, the 640px breakpoint). A
+   project may change the values to match its own look, not the structure.
+5. When the source doc changes, re-render the view and set `updated` to the source's date. The
+   validator fails a view that lags its source.
+6. Open it in a browser and check it at phone width and in dark mode. The validator cannot see layout.
 
 ## Finish
 

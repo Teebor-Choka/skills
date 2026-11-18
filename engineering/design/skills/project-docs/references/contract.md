@@ -18,6 +18,8 @@ docs/
   overview.md              # required
   spec.md                  # optional, opt-in by size (see below)
   process.md               # optional, for a project with an .agents/ process (see below)
+  views/
+    <name>.html            # optional, a rendered view of docs/<name>.md (see "Views")
   decisions/
     README.md              # required: the index
     <slug>.md              # one ADR per decision, >=1
@@ -123,6 +125,31 @@ runs, where its documents live, and who decides what.
 - The authoring flow writes `docs/process.md` whenever the project has a procedure, and the validator
   now requires it.
 
+## Views
+
+A view is a rendering of one markdown doc for a reader who wants to see it, not read it: a flow, a
+table, a card grid. `docs/views/<name>.html` renders `docs/<name>.md`. The markdown stays the source
+of truth; the view is optional and never required.
+
+The stack is one HTML file with inline CSS: no script, no network, no build step, so it renders the
+same in any browser, offline, in print, and in a harness with no hosted tooling. A hosted page
+(an artifact, a doc) may be made from the same file, but nothing here depends on one.
+
+When `docs/views/` exists, each `*.html` in it must have:
+
+- a non-empty `<title>` and a `<meta name="viewport">`;
+- `<meta name="source" content="docs/<name>.md">`, where `<name>` is the view's own file name and the
+  file exists (`view-source`);
+- `<meta name="updated" content="YYYY-MM-DD">`, equal to the `updated` in the source's frontmatter,
+  so a view that fell behind its source fails (`view-updated`);
+- nothing loaded from outside the file (`view-external`): no `<script>`, no `<link href>`, no `src`,
+  `srcset` or `poster` except a `data:` URI, no `@import`, no `url()` except `data:` or `#fragment`.
+  An `<a href>` is navigation and passes;
+- a `@media (prefers-color-scheme: dark)` rule (`view-theme`).
+
+The validator also scans views for credential-shaped strings. It does not check that the view says
+what its source says; the authoring flow and review do.
+
 ## Spec opt-in
 
 A project needs `spec.md` when getting it wrong would cost something: it has a runtime pipeline, a
@@ -140,6 +167,7 @@ match) and `supersedes` / `superseded-by` keys that name no ADR in `docs/decisio
 
 ## What the validator does not do
 
-It checks structure, not content quality or currency. It cannot tell whether a diagram is accurate,
+It checks structure, not content quality or currency. A view's `updated` date can only prove the view
+was re-dated, not that it was re-rendered. It cannot tell whether a diagram is accurate,
 whether prose is terse, or whether an ADR is still true. Those are the authoring flow's job (write it
 right) and the optional staleness review knob's job (catch it going stale).
