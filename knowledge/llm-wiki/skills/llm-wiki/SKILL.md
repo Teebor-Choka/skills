@@ -1,16 +1,9 @@
 ---
 name: llm-wiki
 description: >
-  Build, grow, and query a personal knowledge wiki that an LLM can navigate: a linked graph of
-  Markdown pages where every claim cites its source, so answers come from reading and following
-  links, not from guessing. Use whenever the user wants to turn a folder of notes into a wiki;
-  ingest a source (article, book notes, video transcript, PDF, raw dump) into an existing one;
-  answer a question by querying the wiki; or lint it for broken links, orphan pages, stale
-  claims, or missing cross-references. Trigger on "knowledge base", "second brain", "notes
-  graph", "Obsidian vault", "Zettelkasten", "personal wiki", "digest my notes", "what do my
-  notes say about X", or "keep my wiki healthy" — not only the exact phrase "LLM wiki". Do not
-  use for codebase or repo knowledge graphs (use a code-aware tool), for hosted API/library
-  documentation, or for a one-off answer the user does not want persisted.
+  Build, ingest into, query, or lint a personal Markdown wiki or notes graph (second brain,
+  Obsidian vault, Zettelkasten, "what do my notes say about X"). Not for code knowledge
+  graphs.
 ---
 
 # LLM Wiki

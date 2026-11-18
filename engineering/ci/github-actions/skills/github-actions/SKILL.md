@@ -1,15 +1,9 @@
 ---
 name: github-actions
 description: >
-  Harden GitHub Actions workflows and configure Renovate correctly. Use whenever a repository
-  has a .github/workflows directory, or you are creating, editing, or reviewing a workflow
-  YAML, a reusable/called workflow, or Renovate config (renovate.json or .github/renovate.json).
-  Covers template-injection prevention (no expression interpolation inside run blocks), pinning
-  actions to a commit SHA, avoiding secrets inherit, job-scoped permissions, reusable-workflow
-  naming, shellcheck/actionlint/zizmor pre-commit hooks, and Renovate root-config precedence, security-update
-  matching, and ignorePaths for vendored manifests. Trigger even when the workflow edit is a
-  small part of a larger change. Do not use for non-GitHub CI systems, or for general CI
-  concepts unrelated to GitHub Actions and Renovate.
+  Harden GitHub Actions and Renovate. Load before editing any .github/workflows/*.yml, a
+  reusable workflow, renovate.json or dependabot config: SHA pins, no template injection,
+  least permissions, zizmor. Not for other CI systems.
 license: MIT
 compatibility: any
 ---

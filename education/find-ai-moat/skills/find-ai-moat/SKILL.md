@@ -1,15 +1,8 @@
 ---
 name: find-ai-moat
 description: >
-  Interview the user one question at a time to find where their work complements AI and
-  where a model already does it, then hand them concrete near-term moves to widen the gap
-  in their favor. Use when the user wants to figure out where they stand next to AI, whether
-  their work is AI-proof, what their edge or moat is, how to stay valuable as models improve,
-  or where they add value a model can't. Trigger on "where do I stand next to AI", "will AI
-  replace my job", "what's my moat", "AI-proof my work", "where do I add value over a model",
-  "future-proof my career". Not for building a product's AI features, general career or
-  learning-path advice, or job-interview prep — this is a structured self-assessment of where
-  you stand relative to AI that ends in specific 30-day moves.
+  Interview me about where my work stands next to AI and give 30-day moves. Use only on
+  "what's my moat", "will AI replace my job", "AI-proof my work".
 license: MIT
 compatibility: any
 ---

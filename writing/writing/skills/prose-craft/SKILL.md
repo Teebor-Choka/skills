@@ -1,18 +1,9 @@
 ---
 name: prose-craft
 description: >
-  Make prose a pleasure to read: compose or revise clear, well-architected writing grounded
-  in Strunk & White's concision and Pinker's classic style. Use whenever the user wants a
-  passage of connected prose (an essay, README, doc, PR description, blog post, email, or any
-  run of sentences) to read better, get tighter, or be composed well, in whatever words they
-  ask. Covers the shapes: clean up the prose; make this abstract or paragraph tighter; tighten
-  this design-doc paragraph that reads too wordy; make it concise and well-structured; get to
-  the point; improve the flow; why does this read badly; help me write X; write the opening for
-  a blog post. Also voice matching on request ("match my voice", "write in my style") when the
-  user supplies a sample of their own writing. Runs a top-down pass: structure first, then
-  sentence architecture, then word-level concision. Do not use to strip AI tells or humanize
-  machine text (that is the unslop skill), to fix grammar or spelling, or to refactor code or
-  design slides.
+  Tighten or restructure connected prose: essay, README, design doc, PR description, email.
+  Use for "make this read better", "too wordy", "help me write X", voice matching. Not for
+  removing AI tells (unslop) or grammar.
 license: MIT
 compatibility: any
 metadata:

@@ -1,6 +1,6 @@
 ---
 name: reflect
-description: Retrospective over agent sessions. Finds what to improve in friction, cost, skill dispatch, hooks, the user's own prompts, orchestration and metrics. Proposes fixes to the setup, never the work. Use for a retrospective or /reflect.
+description: Retrospective over agent sessions. Finds what to improve in friction, cost, skill dispatch, hooks, the user's own prompts, orchestration and metrics. Proposes fixes to the setup, never the work. Use for "/reflect" or a session retrospective.
 ---
 
 The user asked for a **retrospective**. Find nearly everything that can be better about the session or sessions in scope, not only where the agent struggled, and propose changes to the **setup**: the environment, instructions, skills, hooks, workflow, and the way the user prompts. You do not change the work itself. Take the mistake that shipped, the fact that took twenty tool calls to find, the prompt that left a gap, and ask what let it happen. You propose. Nothing changes until the user picks a candidate.

@@ -1,15 +1,9 @@
 ---
 name: by-angle
 description: >
-  Review a block of work from four independent angles, with a red-first build loop around it: a
-  test-author writes failing tests from the block spec, an implementer makes them pass, then
-  parallel reviewers each judge the diff from one angle only (REUSE, SIMPLIFICATION,
-  EFFICIENCY, ALTITUDE) plus a comment-quality pass, and report findings in a fixed schema
-  without editing anything. Use when a spec is split into blocks that agents implement one by
-  one, when asked to "implement Block N", "review this block from four angles", "run the
-  review angles", or to gate a finished block before merge. Not for a one-off diff review (use
-  code-review or simplify), for numeric health metrics (use review:code-quality), or for dividing the
-  blocks across agents (use graph-engine).
+  Gate a finished spec block with four parallel reviewers (REUSE, SIMPLIFICATION,
+  EFFICIENCY, ALTITUDE) after a red-first build: "implement Block N", "run the review
+  angles". Not for one-off diffs (use code-review).
 license: MIT
 compatibility: any
 metadata:

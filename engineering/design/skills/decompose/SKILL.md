@@ -1,14 +1,9 @@
 ---
 name: decompose
 description: >-
-  Cut a goal into units that agents can work on in parallel, then file them as items on the work
-  board: find the seams, give each unit one write-set, its dependencies, acceptance tests that can
-  fail, and a model tier, check the cut with the graph-engine (waves, critical path, write-set
-  collisions), and file the items in dependency order. Use before an orchestrate run, when asked to
-  split, divide, partition or parallelise work, or when a design is ready to be turned into work
-  items, for code or non-code work. Not for a single unit or holistic work with no disjoint
-  write-sets (just do it), not for designing the system (use architect), and not for running the
-  units (use orchestrate:assign or orchestrate:pull).
+  Split a goal into parallel work units and file them as board items, each with one write-set,
+  dependencies, tests and model tier. Use for "split/divide/parallelise this" or before an
+  orchestrate run. Not for a single unit.
 license: MIT
 compatibility: any
 metadata:
