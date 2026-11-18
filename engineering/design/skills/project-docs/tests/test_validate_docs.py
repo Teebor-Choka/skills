@@ -9,6 +9,7 @@ Pure standard library, no third-party deps beyond pytest itself.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -311,3 +312,187 @@ def test_cli_json_empty_on_pass(conformant_src):
     result = run_cli(str(conformant_src), "--json")
     assert result.returncode == 0
     assert json.loads(result.stdout) == []
+
+
+# --- hardening: exit codes, dates, diagrams, supersede, secrets ----------------
+
+import re  # noqa: E402
+
+DIAGRAM_BLOCK_RE = re.compile(r"```mermaid\n.*?```\n", re.DOTALL)
+
+
+def set_overview_diagram(repo: Path, block: str) -> None:
+    overview = repo / "docs" / "overview.md"
+    text = overview.read_text()
+    assert DIAGRAM_BLOCK_RE.search(text)
+    overview.write_text(DIAGRAM_BLOCK_RE.sub(lambda _: block, text, count=1))
+
+
+def test_cli_all_with_no_projects_exits_two(tmp_path):
+    result = run_cli("--all", str(tmp_path))
+    assert result.returncode == 2
+    assert "no projects found under" in result.stderr
+    assert "ok: all checks passed" not in result.stderr
+
+
+def test_non_utf8_doc_is_a_finding_not_a_crash(make_repo):
+    repo = make_repo()
+    (repo / "docs" / "overview.md").write_bytes(b"\xff\xfe\x00 not utf-8 \x80")
+    assert rules(repo) == ["unreadable-file"]
+
+
+def test_cli_all_continues_after_an_unreadable_doc(make_repo, tmp_path):
+    bad = make_repo("bad")
+    (bad / "docs" / "overview.md").write_bytes(b"\xff\xfe\x00 \x80")
+    make_repo("good")
+    result = run_cli("--all", str(tmp_path))
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "unreadable" in result.stdout
+    assert "PASS" in result.stderr and "FAIL" in result.stderr
+
+
+def test_unexpected_exception_exits_two(make_repo, monkeypatch, capsys):
+    def boom(*_a, **_k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(validate_docs, "validate_project", boom)
+    assert validate_docs.main([str(make_repo())]) == 2
+    assert "boom" in capsys.readouterr().err
+
+
+def test_updated_must_be_a_real_calendar_date(make_repo):
+    repo = make_repo()
+    p = repo / "docs" / "overview.md"
+    p.write_text(re.sub(r"(?m)^updated: .*$", "updated: 2026-13-45", p.read_text(), count=1))
+    assert rules(repo) == ["frontmatter-updated"]
+
+
+@pytest.mark.parametrize("block", ["```mermaid\n```\n", "```mermaid\n   \n\n```\n", "~~~mermaid\n~~~\n"])
+def test_empty_mermaid_fence_does_not_satisfy_diagram(make_repo, block):
+    repo = make_repo()
+    set_overview_diagram(repo, block)
+    assert rules(repo) == ["diagram"]
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        "~~~mermaid\nflowchart TD\n  a --> b\n~~~\n",
+        "````mermaid\nflowchart TD\n  a --> b\n````\n",
+    ],
+)
+def test_real_mermaid_fences_of_other_styles_pass(make_repo, block):
+    repo = make_repo()
+    set_overview_diagram(repo, block)
+    assert rules(repo) == []
+
+
+def test_mermaid_nested_in_a_longer_fence_does_not_count(make_repo):
+    repo = make_repo()
+    set_overview_diagram(
+        repo, "````markdown\n```mermaid\nflowchart TD\n  a --> b\n```\n````\n"
+    )
+    assert rules(repo) == ["diagram"]
+
+
+def add_adr(repo: Path, slug: str, extra_fm: str = "") -> None:
+    src = (repo / "docs" / "decisions" / "use-sqlite.md").read_text()
+    src = src.replace("status: accepted\n", "status: accepted\n" + extra_fm, 1)
+    (repo / "docs" / "decisions" / f"{slug}.md").write_text(src)
+    idx = repo / "docs" / "decisions" / "README.md"
+    idx.write_text(idx.read_text() + f"2. [{slug}]({slug}.md)\n")
+
+
+def set_fm(repo: Path, slug: str, line: str) -> None:
+    p = repo / "docs" / "decisions" / f"{slug}.md"
+    p.write_text(p.read_text().replace("status: accepted\n", f"status: accepted\n{line}\n", 1))
+
+
+def test_supersede_links_to_existing_adrs_pass(make_repo):
+    repo = make_repo()
+    add_adr(repo, "use-postgres", "supersedes: use-sqlite\n")
+    set_fm(repo, "use-sqlite", "superseded-by: use-postgres")
+    assert rules(repo) == []
+
+
+def test_supersedes_missing_target_is_flagged(make_repo):
+    repo = make_repo()
+    set_fm(repo, "use-sqlite", "supersedes: no-such-adr")
+    assert rules(repo) == ["adr-supersede"]
+
+
+def test_superseded_by_list_flags_only_the_missing_target(make_repo):
+    repo = make_repo()
+    add_adr(repo, "use-postgres")
+    set_fm(repo, "use-sqlite", "superseded-by: [use-postgres, ghost]")
+    found = [f for f in validate_docs.validate_project(repo) if f.rule == "adr-supersede"]
+    assert len(found) == 1 and "ghost" in found[0].message
+
+
+# Secrets are assembled at runtime so this file holds no literal token.
+SECRETS = {
+    "pem": "-----BEGIN " + "RSA PRIVATE KEY-----",
+    "aws": "AK" + "IA" + "ABCDEFGHIJKLMNOP",
+    "gh": "gh" + "p_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8",
+    "ghpat": "github" + "_pat_" + "a1B2c3D4e5F6g7H8i9J0k1",
+    "slack": "xo" + "xb-" + "123456789012-1234567890123-" + "abcdefghijABCDEFGHIJabcd",
+}
+
+
+@pytest.mark.parametrize("secret", SECRETS.values(), ids=SECRETS.keys())
+def test_secret_pattern_flags_without_echoing(make_repo, secret):
+    repo = make_repo()
+    p = repo / "docs" / "spec.md"
+    p.write_text(p.read_text() + f"\nconfig: {secret}\n")
+    assert rules(repo) == ["secret-pattern"]
+    plain = run_cli(str(repo))
+    as_json = run_cli(str(repo), "--json")
+    assert plain.returncode != 0 and as_json.returncode != 0
+    for out in (plain, as_json):
+        assert secret not in out.stdout + out.stderr
+    assert "secret-pattern" in [f["rule"] for f in json.loads(as_json.stdout)]
+
+
+def test_secret_pattern_ignores_prose_and_short_examples(make_repo):
+    repo = make_repo()
+    p = repo / "docs" / "spec.md"
+    p.write_text(
+        p.read_text()
+        + "\nThe password is read from the vault. Example: AKIA1234, ghp_short,"
+        " xoxb-1, github_pat_x, a PRIVATE KEY lives in the secret store.\n"
+    )
+    assert rules(repo) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "AKIAIOSFODNN7EXAMPLE",  # AWS's documented example key
+        "xoxb-your-token-here",
+        "BAKIA" + "ABCDEFGHIJKLMNOP",  # embedded in a longer word
+        "AKIA" + "ABCDEFGHIJKLMNOP" + "Q",
+    ],
+)
+def test_secret_pattern_ignores_documented_examples_and_embedded_text(make_repo, text):
+    repo = make_repo()
+    p = repo / "docs" / "spec.md"
+    p.write_text(p.read_text() + f"\nexample: {text}\n")
+    assert rules(repo) == []
+
+
+def test_four_space_indented_fence_is_not_a_fence(make_repo):
+    repo = make_repo()
+    set_overview_diagram(repo, "    ```mermaid\n    flowchart TD\n      a --> b\n    ```\n")
+    assert rules(repo) == ["diagram"]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file modes")
+@pytest.mark.parametrize("sub", ["docs", "docs/decisions"])
+def test_unreadable_doc_dir_is_a_finding_not_an_abort(make_repo, sub):
+    repo = make_repo()
+    d = repo / sub
+    d.chmod(0)
+    try:
+        assert rules(repo) == ["unreadable-file"]
+    finally:
+        d.chmod(0o755)

@@ -90,7 +90,7 @@ present:
 | `spec.md`     | at least one mermaid block (a subsystem view)              |
 | ADRs          | none (add one only where the decision is structural)       |
 
-The validator checks presence, never correctness. "A diagram per subsystem" in `spec.md` and the
+The validator checks presence of a non-empty mermaid block, never correctness. "A diagram per subsystem" in `spec.md` and the
 choice of form (flowchart, sequence, state, DAG) are standards in `diagrams.md`, enforced by review,
 not the script. Code-level graphs (API surface, call/data-flow) are a separate generated track and
 are **not** authored into `docs/`; link to them instead.
@@ -102,6 +102,13 @@ protocol or wire format, stateful subsystems, or non-obvious failure/recovery be
 need one when the project is a static artifact, a thin wrapper, or pure documents. The author
 decides at authoring time and records the call in `overview.md` (a one-line "no deep spec: REASON"
 when omitted). The validator does not force `spec.md`; it only conforms one that exists.
+
+## Severity and exit code
+
+Every finding makes the exit code nonzero, including one labelled `warning` (for example
+`undocumented`): the label is informational, not a pass. The validator also flags credential-shaped
+strings in the checked docs (`secret-pattern`, a backstop only; it reports the file, never the
+match) and `supersedes` / `superseded-by` keys that name no ADR in `docs/decisions`.
 
 ## What the validator does not do
 

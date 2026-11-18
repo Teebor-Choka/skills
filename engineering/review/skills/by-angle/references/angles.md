@@ -7,8 +7,9 @@ same line: **This angle only; do not report anything outside it. Report only; do
 
 > You are reviewing one block of a larger change. Inputs: the block spec (path), the diff
 > (`git diff <base>...HEAD -- <write-set>`), and read access to the repo. Judge the diff against the
-> spec. Return findings in the schema from `findings-schema.md`. Every finding needs evidence: a
-> file and line, or the output of a command that only reads. No findings is a valid answer.
+> spec. Return findings in the schema from `findings-schema.md`. Every finding needs evidence: the
+> proof required by the evidence rule in `findings-schema.md`; a finding without proof is
+> `unverified`. No findings is a valid answer.
 
 ## REUSE
 
@@ -39,6 +40,25 @@ symptom, lives in the module that owns the concern, matches the abstraction leve
 and does not leak a lower-level detail upward or push a policy decision down into a utility. Check
 that the interface the block exposes matches what the spec promises and no more. Not in scope:
 line-level style, cost, or duplication.
+
+## STALENESS
+
+Did a subsystem's code change without a matching change to its documentation? Read the diff and the
+project's `docs/` (ADRs in `docs/decisions/*.md`, `docs/spec.md`, diagrams), and
+`.agents/iterations/` if it exists. For each changed subsystem, find its ADR, its `docs/spec.md`
+section, and its diagram. Flag each one that the diff leaves unchanged while the code now disagrees
+with it.
+
+A finding is: changed behaviour, changed structure (modules, boundaries, data flow), or a changed or
+reversed recorded decision, with no matching change to the ADR, spec section, or diagram that
+describes it. Name the doc, the section, and the code change it no longer matches.
+
+Not a finding: a refactor with no behaviour change, a test-only change, a formatting or rename-only
+change, or code that has no doc describing it. A missing doc for new code is not staleness.
+
+Every finding needs the evidence rule in `findings-schema.md`: cite the doc `file:line` and the code
+`file:line` that contradict each other, with the reasoning chain. Otherwise set `status:
+"unverified"`. Use `angle: "staleness"`. Not in scope: doc wording or style, or code quality.
 
 ## Comment quality (separate reviewer)
 
