@@ -50,7 +50,8 @@ smallest tier that fits.
 **Improving an existing codebase.** architect also runs the other direction: `:improve` scans code you
 already have for deepening opportunities — shallow modules, leaky interfaces, pass-through layers —
 ranks them by leverage, and feeds the chosen one into the flow below carrying a deep-module invariant.
-See `references/improve.md`.
+It is scope-only (never edits code), takes a user-given target, and writes `improve-report.md`
+(`scaffold.py --improve`, `lint.py --improve`). See `references/improve.md`.
 
 ## The deliverable: only what the scope needs
 
@@ -147,7 +148,8 @@ runs steps 0–4 and 7, skipping the graph.
 4. **Spec it into test-gated blocks, cut to the dialed depth.** Decompose top-down and stop at the
    **decomposition depth** set for the run — interfaces → modules → components → functions
    (`references/depth-dial.md`); if the depth (or its scope) wasn't given, **ask** — never pick a rung
-   silently. The dialed rung is the leaf grain of the blocks. Each block: one deliverable, one
+   silently. Record it in the spec's "Decomposition depth" and "Acceptance by rung" sections (lint E9).
+   The dialed rung is the leaf grain of the blocks. Each block: one deliverable, one
    write-set, one checkable done, small enough to become a ticket; purpose, architecture, interfaces
    (input/output/config surface), **verification (positive) tests AND adversarial (negative) tests**.
    ATDD runs as a **cycle across every rung traversed** — acceptance at each depth (interface, then
@@ -161,7 +163,10 @@ runs steps 0–4 and 7, skipping the graph.
    how they run it. Your only judgment calls are naming the nodes (one deliverable each), their true
    dependencies, their write-sets, any loops, and picking collaboration shapes from the **graph-engine**
    skill's `graph-patterns.md` (fan-out, pipeline, evaluator-optimizer, blackboard, contract-net,
-   and the rest, tagged for whether agents self-coordinate or need a controller). Everything
+   and the rest, tagged for whether agents self-coordinate or need a controller). Cut for the most
+   isolated packages: disjoint write-sets, listed in the Block index. Where two blocks cannot be
+   disjoint, order them with an edge or declare the same `Coordination channel:` in both (lint E10;
+   a marker only, the executor runs it). Everything
    graph-theoretic is computed, not judged: write the nodes as a JSON spec and run the **graph-engine**
    skill's `graph.py spec.json`, which removes redundant edges (transitive reduction), assigns the
    parallel waves, finds the critical path and barriers, catches write-set collisions, and emits

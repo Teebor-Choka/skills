@@ -36,6 +36,11 @@ run dialed to `components` carries acceptance at interfaces, then modules, then 
 rung's contract tested at its own grain (interface-contract tests, then module, then component).
 Deeper rungs refine, they do not replace, the acceptance of the rungs above them.
 
+The spec records this in two scaffolded sections, "Decomposition depth" (the dialed rung, the scope,
+and who gave them) and "Acceptance by rung" (one row per rung from `interfaces` to the dialed one).
+`lint.py` rule E9 fails a spec that lacks either, names an unknown rung, says the depth was a default,
+or skips a traversed rung.
+
 ## Relation to `:improve`
 
 Both reason about module depth, and roughly share the depth concept, but normal depth-dialed scoping

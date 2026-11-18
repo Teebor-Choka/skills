@@ -187,10 +187,29 @@ Design amendments (grounded deviations from the proposal) go here and supersede 
 
 ## Block index
 
-| # | Block | Runs on | Depends on | Satisfies |
-|---|-------|---------|-----------|-----------|
-| 0 | Preconditions | FILL-IN | - | REQ-1 |
-| 1 | FILL-IN | FILL-IN | 0 | REQ-1 |
+| # | Block | Runs on | Depends on | Write-set | Satisfies |
+|---|-------|---------|-----------|-----------|-----------|
+| 0 | Preconditions | FILL-IN | - | FILL-IN | REQ-1 |
+| 1 | FILL-IN | FILL-IN | 0 | FILL-IN | REQ-1 |
+
+Write-sets must be disjoint across blocks that can run together. Where two blocks cannot be made
+disjoint, order them with a `Depends on` edge, or declare the same `Coordination channel:` line in
+both blocks (a marker only; the executor runs the channel).
+
+## Decomposition depth
+
+Ask the user for the depth and scope; never pick a rung silently (`references/depth-dial.md`).
+
+**Dialed rung:** FILL-IN (interfaces | modules | components | functions) · **Scope:** FILL-IN
+· **Given by:** FILL-IN (the user, this invocation)
+
+## Acceptance by rung
+
+One row per rung traversed, from `interfaces` down to and including the dialed rung.
+
+| Rung | Acceptance criteria (ATDD) |
+|------|----------------------------|
+| interfaces | FILL-IN |
 
 ## Block 0: Preconditions
 
@@ -242,6 +261,39 @@ Never hand-build a pipeline. Off-the-shelf options, each matched to a different 
 
 FILL-IN: the end-to-end gate, including the hinge measurement and the numbers reserved for the
 pilot to produce.
+""")
+
+IMPROVE = Template("""# $title: improve report
+
+Scope-only output of `:improve` (`references/improve.md`). No code was edited.
+
+**Target:** FILL-IN (given by the user: whole repo, a subtree, or a named module)
+**Grounding:** FILL-IN (code graph: <tool>, or direct read with a WARNING that no index was available)
+**Output location:** FILL-IN (asked of the user; typical: one GitHub issue per box)
+**Box cap:** FILL-IN (a number)
+
+## Result
+
+FILL-IN: a summary, or "Nothing worth deepening in this target." with no boxes and no findings.
+
+## Boxes
+
+### Box 1: FILL-IN
+
+**Acceptance:** FILL-IN (ATDD acceptance plus end-to-end test)
+**Invariant:** Keep components and libraries deep with tiny interfaces.
+
+## All findings
+
+Ranked by importance, scope, impact. The emitted rows are the top of the list.
+
+| # | Finding | Kind | Importance | Scope | Impact | Emitted |
+|---|---------|------|------------|-------|--------|---------|
+| 1 | FILL-IN | FILL-IN | FILL-IN | FILL-IN | FILL-IN | yes |
+
+## Not emitted
+
+Findings below the cap, listed here only. Leave empty when every finding became a box.
 """)
 
 PLAN = Template("""# $title ($slug): plan
@@ -388,6 +440,8 @@ def main():
     ap.add_argument("--dir", default=None, help="output dir (default: ./<slug>)")
     ap.add_argument("--tier", choices=["note", "small", "full"], default="full")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--improve", action="store_true",
+                    help="emit one improve-report.md for `:improve` (no package)")
     args = ap.parse_args()
 
     if not re.match(r"^[a-z0-9][a-z0-9-]*$", args.slug):
@@ -395,6 +449,12 @@ def main():
         return 2
 
     sub = {"slug": args.slug, "title": args.title}
+
+    if args.improve:
+        root = args.dir or args.slug
+        write(os.path.join(root, "improve-report.md"), IMPROVE.substitute(sub), args.force)
+        print(f"\nFill in every FILL-IN, then run: lint.py {root}/improve-report.md --improve")
+        return 0
 
     # note tier: one self-contained document, no package directory.
     if args.tier == "note":

@@ -35,7 +35,8 @@ The graph step already cut the units for **disjoint write-sets** (collision-free
 units are not cleanly disjoint, because they touch a shared boundary the cut could not separate,
 `decompose` **declares** it: a line in both items naming a shared coordination channel for
 execution (e.g. a linked discussion). It is a marker the executor honors; `decompose` never opens
-or runs the channel.
+or runs the channel. The architect's spec lint (E10) already rejects a shared write-set that has
+neither a dependency edge nor the same `Coordination channel:` line in both blocks.
 
 ## Terminal
 
