@@ -239,6 +239,19 @@ def message_of(entry):
     return msg if isinstance(msg, dict) else {}
 
 
+COST_STATE_KEYS = ("totalCostUsd", "totalCostUSD")  # the spelling differs between versions
+
+
+def cost_state(entry):
+    """(running session cost, harness flagged an unpriced model) for an entry that carries the
+    harness's own cost, else None. Claude Code logs it on `cost-state` entries. A transcript
+    without them never yields one, so cost.py falls back to per-message usage."""
+    if entry.get("type") != "cost-state":
+        return None
+    value = next((entry[k] for k in COST_STATE_KEYS if isinstance(entry.get(k), (int, float))), None)
+    return None if value is None else (value, bool(entry.get("hasUnknownModelCost")))
+
+
 def collect_files(paths):
     """Every .jsonl under the given files and folders, sorted and unique."""
     import glob

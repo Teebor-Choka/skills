@@ -30,7 +30,6 @@ PRICES = {
 }
 FIELDS = (("input_tokens", "in"), ("output_tokens", "out"),
           ("cache_creation_input_tokens", "cache_write"), ("cache_read_input_tokens", "cache_read"))
-COST_STATE_KEYS = ("totalCostUsd", "totalCostUSD")  # the spelling differs between versions
 
 
 def price_for(model, prices):
@@ -50,18 +49,17 @@ class CostMeter:
             self.hi += 86399  # a date-only upper bound spans the whole day
         self.messages = {}  # message id -> {"model", token fields}: per-field max over repeats
         self.state_total, self.saw_state = 0.0, False
-        self.unknown_flag = False  # hasUnknownModelCost of the last cost-state entry
+        self.unknown_flag = False  # the harness flagged an unpriced model in its last cost entry
         self.prev = self.seg_last = None
 
     def feed(self, path, ln, o):
-        if o.get("type") == "cost-state":
-            v = next((o[k] for k in COST_STATE_KEYS if isinstance(o.get(k), (int, float))), None)
-            if isinstance(v, (int, float)):
-                self.saw_state = True
-                if self.prev is not None and v < self.prev:
-                    self.state_total += self.seg_last
-                self.prev = self.seg_last = v
-                self.unknown_flag = bool(o.get("hasUnknownModelCost"))
+        state = lib.cost_state(o)  # the harness's own running cost, if this entry carries it
+        if state is not None:
+            v, self.unknown_flag = state
+            self.saw_state = True
+            if self.prev is not None and v < self.prev:
+                self.state_total += self.seg_last
+            self.prev = self.seg_last = v
             return
         if o.get("type") != "assistant":
             return

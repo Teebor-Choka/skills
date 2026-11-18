@@ -99,14 +99,14 @@ def test_output_of_a_secret_printing_command_is_redacted():
 # --- cost state belongs to the harness adapter, not to cost.py ---------------
 
 @pytest.mark.parametrize("entry,want", [
-    ({"type": "cost-state", "totalCostUsd": 2.5}, 2.5),
-    ({"type": "cost-state", "totalCostUSD": 1}, 1),
+    ({"type": "cost-state", "totalCostUsd": 2.5}, (2.5, False)),
+    ({"type": "cost-state", "totalCostUSD": 1, "hasUnknownModelCost": True}, (1, True)),
     ({"type": "cost-state", "totalCostUsd": "x"}, None),
     ({"type": "assistant", "totalCostUsd": 9.0}, None),
     ({"type": "cost-state"}, None),
 ])
-def test_cost_state_value_reads_the_adapter_field(entry, want):
-    assert lib.cost_state_value(entry) == want
+def test_cost_state_reads_the_adapter_field(entry, want):
+    assert lib.cost_state(entry) == want
 
 
 def test_cost_py_names_no_harness_field():
