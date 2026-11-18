@@ -1,11 +1,11 @@
 {
   "name": "kauki-skills",
   "owner": {
-    "name": "Tibor Csóka",
+    "name": "Tibor Cs\u00f3ka",
     "email": "tibor.csoka@kauki.xyz"
   },
   "metadata": {
-    "description": "Public AI agent skills — practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
+    "description": "Public AI agent skills \u2014 practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
     "version": "2.2.0"
   },
   "plugins": [
@@ -16,15 +16,6 @@
       "strict": true,
       "metadata": {
         "version": "2.1.1"
-      }
-    },
-    {
-      "name": "operating-model",
-      "description": "Run work, independent of the domain: policy (the layered .agents/policy settings a skill reads instead of hardcoding a constant), procedure (a named graph of stages with a validator and a reducer that runs it) and agents-dir (the .agents/ layout contract: the documents that define the process and how they evolve).",
-      "source": "./agents/operating-model",
-      "strict": true,
-      "metadata": {
-        "version": "1.11.0"
       }
     },
     {
@@ -56,7 +47,7 @@
     },
     {
       "name": "github-actions",
-      "description": "Harden GitHub Actions workflows and configure Renovate — template-injection prevention, SHA-pinned actions, scoped permissions, zizmor, and dependency-bot rules.",
+      "description": "Harden GitHub Actions workflows and configure Renovate \u2014 template-injection prevention, SHA-pinned actions, scoped permissions, zizmor, and dependency-bot rules.",
       "source": "./engineering/ci/github-actions",
       "strict": true,
       "metadata": {
@@ -69,7 +60,7 @@
       "source": "./engineering/design",
       "strict": true,
       "metadata": {
-        "version": "3.0.0"
+        "version": "3.1.0"
       }
     },
     {
@@ -137,7 +128,7 @@
     },
     {
       "name": "nix",
-      "description": "Operate correctly inside Nix + direnv development repos — dev-shell entry, nix fmt over cargo fmt, the result-symlink and crane-rustflags build traps, and a lightweight pre-commit override.",
+      "description": "Operate correctly inside Nix + direnv development repos \u2014 dev-shell entry, nix fmt over cargo fmt, the result-symlink and crane-rustflags build traps, and a lightweight pre-commit override.",
       "source": "./technology/nix",
       "strict": true,
       "metadata": {
