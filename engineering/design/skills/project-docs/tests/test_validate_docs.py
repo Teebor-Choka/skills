@@ -742,3 +742,136 @@ def test_unreadable_doc_dir_is_a_finding_not_an_abort(make_repo, sub):
         assert rules(repo) == ["unreadable-file"]
     finally:
         d.chmod(0o755)
+
+
+# --- optional views: docs/views/<name>.html ------------------------------------
+
+TEMPLATE = Path(validate_docs.__file__).parent.parent / "assets" / "view.template.html"
+
+
+def fill_template(name: str = "process", updated: str = "2026-10-13") -> str:
+    """The shipped template with its head placeholders filled, nothing else touched."""
+    text = TEMPLATE.read_text(encoding="utf-8")
+    for token, value in (("SOURCE-NAME", name), ("YYYY-MM-DD", updated), ("TITLE", "widgetd process"),
+                         ("PROJECT", "widgetd")):
+        text = text.replace(token, value)
+    return text
+
+
+def add_view(repo: Path, text: str | None = None, name: str = "process") -> Path:
+    """Write docs/views/<name>.html; the fixture's docs/process.md has updated 2026-10-13."""
+    views = repo / "docs" / "views"
+    views.mkdir(parents=True, exist_ok=True)
+    view = views / f"{name}.html"
+    view.write_text(fill_template(name) if text is None else text, encoding="utf-8")
+    return view
+
+
+def test_shipped_template_passes_once_its_head_is_filled(make_repo):
+    # The asset and the validator cannot drift: a filled template is a conformant view.
+    repo = make_repo()
+    add_view(repo)
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_views_are_optional(make_repo):
+    repo = make_repo()
+    assert not (repo / "docs" / "views").exists()
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_non_html_files_in_views_are_ignored(make_repo):
+    repo = make_repo()
+    add_view(repo)
+    (repo / "docs" / "views" / "notes.txt").write_text("<script src='https://x.example/a.js'>")
+    assert validate_docs.validate_project(repo) == []
+
+
+@pytest.mark.parametrize(
+    "old, new, rule",
+    [
+        pytest.param("<title>widgetd process</title>", "<title> </title>", "view-title",
+                     id="empty-title"),
+        pytest.param("<title>widgetd process</title>", "", "view-title", id="missing-title"),
+        pytest.param('<meta name="viewport"', '<meta name="viewpor"', "view-viewport",
+                     id="missing-viewport"),
+        pytest.param('<meta name="source" content="docs/process.md" />', "", "view-source",
+                     id="missing-source"),
+        pytest.param("docs/process.md", "docs/gone.md", "view-source", id="source-not-on-disk"),
+        pytest.param("docs/process.md", "docs/overview.md", "view-source",
+                     id="source-is-not-the-file-stem"),
+        pytest.param("docs/process.md", "../process.md", "view-source", id="source-not-under-docs"),
+        pytest.param('<meta name="updated" content="2026-10-13" />', "", "view-updated",
+                     id="missing-updated"),
+        pytest.param("2026-10-13", "13 Oct 2026", "view-updated", id="updated-not-iso"),
+        pytest.param("2026-10-13", "2026-09-01", "view-updated", id="updated-differs-from-source"),
+        pytest.param("prefers-color-scheme: dark", "prefers-contrast: more", "view-theme",
+                     id="no-dark-theme"),
+    ],
+)
+def test_view_single_edit_raises_one_rule(make_repo, old, new, rule):
+    repo = make_repo()
+    text = fill_template()
+    assert old in text, f"template drift: {old!r}"
+    add_view(repo, text.replace(old, new, 1))
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == [rule]
+    assert findings[0].file == "docs/views/process.html"
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        pytest.param('<script>alert(1)</script>', id="inline-script"),
+        pytest.param('<script src="app.js"></script>', id="local-script"),
+        pytest.param('<link rel="stylesheet" href="https://cdn.example/a.css">', id="remote-css"),
+        pytest.param('<link rel="stylesheet" href="//cdn.example/a.css">', id="protocol-relative-css"),
+        pytest.param('<link rel="stylesheet" href="local.css">', id="linked-local-css"),
+        pytest.param('<img src="https://x.example/a.png">', id="remote-image"),
+        pytest.param('<iframe src="https://x.example/"></iframe>', id="remote-frame"),
+        pytest.param('<style>@import "https://x.example/a.css";</style>', id="css-import"),
+        pytest.param('<style>body{background:url(https://x.example/a.png)}</style>', id="css-remote-url"),
+    ],
+)
+def test_view_that_loads_anything_is_flagged(make_repo, snippet):
+    repo = make_repo()
+    text = fill_template().replace("</head>", snippet + "\n</head>", 1)
+    add_view(repo, text)
+    assert rules(repo) == ["view-external"]
+
+
+def test_view_may_link_out_with_an_anchor_and_embed_data_uris(make_repo):
+    # An <a href> navigates, it does not load. A data: URI is self-contained.
+    repo = make_repo()
+    body = ('<a href="https://example.com/spec">spec</a>'
+            '<img alt="" src="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27/%3E">')
+    add_view(repo, fill_template().replace("</body>", body + "\n</body>", 1))
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_view_findings_name_every_broken_view(make_repo):
+    repo = make_repo()
+    add_view(repo, fill_template().replace("2026-10-13", "2026-01-01"))
+    add_view(repo, fill_template("overview").replace("<title>widgetd process</title>", ""), name="overview")
+    findings = validate_docs.validate_project(repo)
+    assert sorted((f.file, f.rule) for f in findings) == [
+        ("docs/views/overview.html", "view-title"),
+        ("docs/views/overview.html", "view-updated"),
+        ("docs/views/process.html", "view-updated"),
+    ]
+
+
+def test_secret_in_a_view_is_flagged_without_echoing(make_repo):
+    repo = make_repo()
+    secret = "ghp_" + "a" * 36
+    add_view(repo, fill_template().replace("</body>", f"<p>{secret}</p></body>", 1))
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == ["secret-pattern"]
+    assert secret not in findings[0].message
+
+
+def test_non_utf8_view_is_a_finding_not_a_crash(make_repo):
+    repo = make_repo()
+    view = add_view(repo)
+    view.write_bytes(b"\xff\xfe\x00bad")
+    assert rules(repo) == ["unreadable-file"]
