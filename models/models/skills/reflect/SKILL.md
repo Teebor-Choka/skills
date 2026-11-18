@@ -1,61 +1,62 @@
 ---
 name: reflect
-description: >
-  Run a retrospective over agent sessions ("/reflect", "session retrospective", "what went
-  wrong in these sessions"): find where agents struggled, propose fixes to skills, hooks,
-  AGENTS.md. Proposes only; edits nothing.
+description: Retrospective over agent sessions. Finds what to improve in friction, cost, skill dispatch, hooks, the user's own prompts, orchestration and metrics. Proposes fixes to the setup, never the work. Use for "/reflect" or a session retrospective.
 ---
 
-The user asked for a **retrospective**. You suggest improvements to the agent's **setup**: its environment, and the skills, processes, and workflows it used, so future runs go better. You change the setup, not the work itself: take the mistake that shipped, the fact that took twenty tool calls to find, the convention a review missed, the skill step that read ambiguously, and ask what in the project, the steering, or the workflow let it happen. The session may be any kind of work (code, research, writing, ops); the engine is the same. You propose. Nothing changes until the user picks a candidate.
+The user asked for a **retrospective**. Find nearly everything that can be better about the session or sessions in scope, not only where the agent struggled, and propose changes to the **setup**: the environment, instructions, skills, hooks, workflow, and the way the user prompts. You do not change the work itself. Take the mistake that shipped, the fact that took twenty tool calls to find, the prompt that left a gap, and ask what let it happen. You propose. Nothing changes until the user picks a candidate.
 
-Two modes run on one engine: a **single** run (default), or **cross-session** over a scope the user names. A **run** is one session together with every subagent it started, scored as a whole, so a swarm of agents counts as one piece of work and not as a hundred unrelated sessions. Deterministic scoring ranks the friction; you read only the flagged moments; every candidate traces to a logged line or it is dropped.
+A **run** is one session plus every subagent it started, scored as a whole. Scripts count and anchor; you read only the flagged moments; every candidate traces to a logged line or is dropped. Script output is JSON on stdout, read-only on transcripts, secrets scrubbed. Run them with `python3 -I`. Transcript layout is an input adapter: [`references/adapter-claude-code.md`](references/adapter-claude-code.md). Another harness needs its own adapter; the lenses and rules below do not change.
 
 ## Steps
 
-1. **Proposals are pointers.** Any file you later propose (an `AGENTS.md` line, a skill edit, a check) should state what it is and when it fires, stay short, and push detail behind the pointer; prefer a check that can fail over a sentence. For a new skill or steering file, the in-repo `models:extension-author` skill (`models/models/skills/extension-author/references/authoring.md`) is the fuller guide.
+1. **Scope.** A single session (default) or a cross-session scope the user names. With no window for a cross-session scope, ask for one. A continued session is one run: pass all its transcripts with `--run`. An orchestrator's shared log goes in with `--coordination`. Add transcripts of other sessions to judge them too.
+2. **Check what exists first.** Before proposing any control, read the current config, hook, skill or instruction file it would touch. An existing control that is unwired or too broad is the finding, not a new control. For a finding that names a file, run `fixed.py` (git log on the file): a finding last seen before the fix commit is FIXED. Do this before routing any model-tier, hook or skill fix.
+3. **Measure, by lens.** Run the scripts named in the lenses below. Window by event time, never file mtime, and report each session's in-window share. State the basis of every share (per session or per turn). Re-check any dollar figure quoted from an earlier round.
+4. **Read flagged moments only.** Read every human `steer` and `correction` in the main transcript. For a multi-agent run or many sessions, give each group (by agent type, plus the main transcript, plus run-level moments) to one cheap subagent that returns findings in the schema from [`references/friction-signals.md`](references/friction-signals.md). Quote only text a script wrote to a file, and check each quote against its source by exact match or sha256. If a compression proxy sits between you and the tools, turn it off for the run or say in the report that it was on. Ask for numbers as compact JSON, not prose tables.
+5. **Synthesize.** Run `synthesize.py` over the findings from all readers and rounds: it groups by mechanism and flags opposite verdicts. A root-cause or REFUTED claim needs a full count, not a top-N sample, before it enters the ranking.
+6. **Classify and route** each finding (below). A **mechanical** violation gets a check that can fail; prose is for judgement calls.
+7. **Order by severity and present.** Recurrence is severity. Show positive outcomes and the good-versus-bad comparison beside the friction. Propose only.
 
-2. **Fix mode and scope.**
-   - Single (default): the current session, or a transcript the user names. Session logs live in `~/.claude/projects/<cwd-slug>/<uuid>.jsonl` (the slug is the working directory with `/` rewritten to `-`), and the subagents it started in `<uuid>/subagents/`. Pass the project folder or both paths: the scan joins them into one run.
-   - A session continued under a new id (after a restart) is the same work: pass all its transcripts with `--run`.
-   - If the session orchestrated agents through a shared log (a work board, an event log, a queue), pass that JSONL with `--coordination`. Stalls, rejected or duplicate work, unresolved items and revision rounds live there, not in the transcripts.
-   - Messages from other sessions show up as `peer` moments. To judge the other session too, add its transcripts to the scope.
-   - Cross-session: the user names a project directory, an explicit list, or a time window. If the scope is cross-session but **no window is given, ask the user for one** before scanning. Do not guess the window.
+## Lenses: a run covers each one
 
-3. **Score friction deterministically.** Run `scan-sessions.py` over the scoped `.jsonl` files (see [`references/friction-signals.md`](references/friction-signals.md) for what it measures and how to read its output). It ranks runs by a friction score; within each, it ranks the transcripts (the main one and each subagent, with its type, description and token cost) and emits the exact jsonl line of every friction moment, spread across the whole transcript, so the next step reads flagged ranges, not whole transcripts.
-
-4. **Extract candidates from the flagged moments only.**
-   - Single session, or a handful: read the flagged lines yourself (`Read` with the line offset, or `sed -n`).
-   - Read every `steer` and `correction` moment in the main transcript. They are the user's own turns, few even in a long run, and the strongest evidence.
-   - A multi-agent run, or cross-session over many sessions: dispatch one **cheap subagent** (any model) per group to extract candidate findings in the schema from `friction-signals.md`, so their reading stays out of your context. Group a run by agent type (all devs, all reviewers), plus one for the main transcript's moments and one for the run-level moments (coordination events, unfinished agents, outlier cost). Then cluster the returned findings by category and by recurrence.
-
-5. **Classify and route each candidate** against the table below. Classify the violation before you choose a home: a **mechanical** one (a fixed pattern a check can match: a banned API, a file-location rule, a schema or format requirement) gets a check that can fail, never a sentence. Reserve prose for genuine **judgement calls**.
-
-6. **Order by severity and present.** **Recurrence is severity**: a struggle across five sessions, or across five subagents of one role in a run, outranks a loud one-off. One role failing the same way repeatedly points at that role's brief. Propose only. Change nothing until the user picks.
+| Lens                           | What to look for                                                                                                                                                                               | Numbers from                                                               |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| User prompts and inputs        | Vague or late specs, corrections that restate the task, short "continue" loops (human as the loop), queued messages. Judge only `human` turns, never skill bodies, summaries or notifications. | `scan-sessions.py` (steers, corrections, `outcome.human_loop`), `drill.py` |
+| Always-on instructions         | Size, dead lines, rules that load every session but fire rarely.                                                                                                                               | `context-audit.py --always-on`                                             |
+| Skill dispatch                 | Offered versus used, per-skill rate, listing size and per-source share. Exclude hook-forced loads before blaming wording.                                                                      | `context-audit.py` (`skill_rates`, listing by source)                      |
+| Hook outcomes                  | Deny versus non-blocking error versus context injection. A hook said to block that never denies.                                                                                               | `scan-sessions.py --summary --blocking-claims`                             |
+| Tool misuse                    | Repeated reads and commands, errors, tools offered but never called (only if offered), a tool whose cost exceeds its return.                                                                   | `scan-sessions.py` (`tools`, errors), `context-audit.py`                   |
+| Orchestration and coordination | Rework, failed or unfinished agents, outlier agent cost, peer messages, coordination events. Check the lead's sizing and briefs.                                                               | `scan-sessions.py` (members, `--coordination`), `drill.py --agent`         |
+| Cost and context               | Dollars two ways (cost state, per-message usage), per model, compaction, context pressure.                                                                                                     | `cost.py`                                                                  |
+| Session operations and metrics | Window share, turns, long-session share on both bases, weekly trend, first and last seen.                                                                                                      | `scan-sessions.py --summary`, per-run `weekly`                             |
+| Positive outcomes              | What worked, so a fix does not break it: artifact produced, ended with evidence, abandoned. Compare friction of good and bad runs before routing.                                              | `scan-sessions.py --summary` (`outcomes`)                                  |
 
 ## Routing: where each fix lands
 
-| What the log shows                                | Home for the fix                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Long hunt for a file or fact                      | A **navigation pointer** from a file already loaded (an `AGENTS.md` line, or a skill)                                                                                                                                                                                                                                                           |
-| A mistake a check could have caught               | A **deterministic check** the domain supports: a linter, type, or test for code; a schema or data validator; a format, link, or doc check; a pre-commit hook or CI job. Read the project's own check command first, so an existing-but-unwired check is the finding, not a reinvention. A project with no guardrail at all is itself a finding. |
-| A judgement-call rule a review missed             | The **relevant skill** first; then the nearest `AGENTS.md`; a review step's own standards last (for code, the `code-review` standards axis). Never a bare line in `AGENTS.md`/`CLAUDE.md`, which loads every session whether it fires or not.                                                                                                   |
-| A skill or workflow step that misled the agent    | Fix that **skill's step** (the ambiguous instruction, the missing branch), or the **process** it followed (a wrong step order, a missing gate, work run sequentially that should fan out).                                                                                                                                                      |
-| `AGENTS.md`/`CLAUDE.md` bloat, or steering no-ops | Move the steering into a skill or a check; delete lines that change nothing versus the agent's default.                                                                                                                                                                                                                                         |
-| An expensive tool call for what it returned       | Streamline the tool or MCP, or replace it.                                                                                                                                                                                                                                                                                                      |
-| A coordination failure between agents             | The **orchestrating skill**: the step or role brief that let it happen (a stalled agent nobody noticed, duplicate or rejected work, a rework loop, a lost message), or its tooling (board, queue, lock, dashboard). A check there beats a sentence in a brief.                                                                                  |
-| Agents that cost more than their work returned    | The orchestrating skill's sizing or delegation step (how many agents, which model, when to spawn at all), or the brief that sent an agent searching.                                                                                                                                                                                            |
-| Information the agent could not reach             | Widen access: tee a running process's log to a file, give read-only access to a service or data source.                                                                                                                                                                                                                                         |
+- **Long hunt for a file or fact:** a navigation pointer from a file already loaded.
+- **A mistake a check could catch:** a deterministic check (linter, test, schema, hook, CI). Read the project's own check command first.
+- **A judgement-call rule a review missed:** the relevant skill, then the nearest `AGENTS.md`, then a review step's standards. Never a bare line in always-loaded steering.
+- **A skill or workflow step that misled:** fix the step, or the process (order, missing gate, sequential work that should fan out).
+- **Steering bloat or no-ops:** move it into a skill or a check; delete lines that change nothing.
+- **Expensive tool call for its return:** streamline or replace the tool.
+- **Coordination failure, or agents costing more than they return:** the orchestrating skill's step, sizing or brief; a check there beats a sentence.
+- **Information the agent could not reach:** widen access (tee a log, read-only access).
+- **A weak or ambiguous user prompt:** a prompt template, an intake question in the skill that starts the work, or a one-line pointer for the user. Not a rule for the agent.
 
-The leading idea: a new rule goes where it is read when it is needed, not into always-loaded steering that every session pays for. The working agent carries the most context pressure (it explores, acts, recovers); a separate review or check step has room to apply a rule, so put it there. For code that review step is the reviewer reading a diff.
+A new rule goes where it is read when needed, not into always-loaded steering.
 
 ## Guardrails
 
-- **Anchor or drop.** Every candidate names a specific session and jsonl line. One you cannot trace to a logged moment is generic advice; discard it. This is the failure mode of the genre: once the work is done the agent forgets the middle of the session and invents advice to fill the categories. The scan exists to stop that.
-- **The check beats the sentence.** Default to building the deterministic check over writing a rule. A check fails; a sentence in a standards file cannot.
-- **These are the only homes:** a skill or workflow step, an `AGENTS.md` pointer, a deterministic check, a tool or MCP change, a widening of access. Memory is out of scope. Write a memory file only if the user asks for one this run.
-- **Propose only.** No edits, no hooks installed, no commits. The user picks what becomes permanent.
-- **Know who spoke.** In a subagent's transcript the "user" is the agent that started it; its follow-ups, and other agents' revision requests, are `rework`, never the user's corrections. Messages from other sessions or agents are `peer`. Attribute a finding to the user only from a `steer` or `correction` in a main transcript. Entries of type `api-request-blob` or `api-request-shape` are copies of a request the harness logs, not new calls: a tool call that appears there again was sent once.
+- **Anchor or drop.** Every candidate names a session and a transcript line. One you cannot trace is generic advice; discard it.
+- **The check beats the sentence.**
+- **Homes are:** a skill or workflow step, an `AGENTS.md` pointer, a deterministic check, a tool or MCP change, a widening of access. Memory only if the user asks.
+- **Propose only.** No edits, hooks, commits.
+- **Know who spoke.** In a subagent transcript the "user" is the agent that started it: its follow-ups are `rework`. Messages from other sessions are `peer`. Attribute a finding to the user only from a human `steer` or `correction` in a main transcript. Queued messages and waits on a human are not human friction until `classify_user_turn` says `human`.
+- **Fix scope before strictness.** If a hook fires on too much, narrow its matcher first; only then make it block (exit 2). An exit 1 does not block.
+- **A refuted claim stays out of the ranking.** Never quote a spend figure without its source (cost state or usage) and window.
+- **Never print a secret.** Scripts scrub excerpts; scrub anything you copy by hand.
+- **Say what you did not measure.** List the lenses with no data, and why.
 
-## The three roles
+## Roles
 
-Scoring is deterministic (`scan-sessions.py`, stdlib Python, no model): the friction signals are simple to detect, so the script does the bulk of the work cheaply. A cheap subagent (any model, not a specific one) per session is the **secondary line of defence**: it reads the flagged moments the script could not classify, and every false positive or miss it surfaces is a cue to sharpen the script's signals, so the deterministic layer keeps getting stronger. Synthesis, routing, and severity are yours. Keep the division: the script ranks and anchors, the model pass extracts and feeds back into the script, you decide.
+The scripts rank and anchor. A cheap subagent per group extracts findings from flagged moments; each false positive or miss it surfaces is a cue to sharpen a script. Synthesis, routing and severity are yours.

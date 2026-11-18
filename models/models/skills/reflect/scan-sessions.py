@@ -31,6 +31,9 @@ import re
 import statistics
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # works under python -I
+import reflectlib as lib  # noqa: E402
+
 WEIGHTS = {
     "error": 3.0,       # error lexicon in a tool result
     "correction": 4.0,  # correction lexicon in a human turn
@@ -104,14 +107,8 @@ CORRECTION_RE = re.compile(
     r"you misunderstood|try again|not quite|incorrect)\b",
     re.I,
 )
-# Markers of harness-injected user entries (system reminders, slash-command
-# wrappers). Their text carries the correction lexicon without a human saying
-# it, which would bias the ranking, so they are skipped on the correction path.
-INJECTED_RE = re.compile(
-    r"<(system-reminder|command-name|command-message|command-args|"
-    r"local-command-stdout|task-notification|agent-message|"
-    r"cross-session-message|teammate-message)(\s[^>]*)?>"
-)
+# Harness-injected user entries are told apart from human turns by
+# reflectlib.classify_user_turn, so their text never reaches the correction path.
 PEER_RE = re.compile(r"<(cross-session-message|teammate-message)\b")
 # A message from another agent of the same session (a subagent's own reviewer, a lead).
 AGENT_MSG_RE = re.compile(r"<agent-message\b")
@@ -135,30 +132,8 @@ COORDINATION_KINDS = (
 PRIORITY_TIERS = (("correction", "steer"), ("rework", "agent_failure"), ("peer",))
 
 
-def text_of(content):
-    """Flatten a message.content (str or list of blocks) to searchable text."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        out = []
-        for b in content:
-            if not isinstance(b, dict):
-                continue
-            if isinstance(b.get("text"), str):
-                out.append(b["text"])
-            c = b.get("content")
-            if isinstance(c, str):
-                out.append(c)
-            elif isinstance(c, list):
-                out.append(text_of(c))
-        return " ".join(out)
-    return ""
-
-
-def is_tool_result(content):
-    return isinstance(content, list) and any(
-        isinstance(b, dict) and b.get("type") == "tool_result" for b in content
-    )
+text_of = lib.text_of
+is_tool_result = lib.is_tool_result
 
 
 def last_program(command):
@@ -203,11 +178,6 @@ def message_body(origin, text):
     return (m.group(2) if m.re is MESSAGE_TAG_RE else m.group(1)).strip() if m else text
 
 
-def is_injected(entry, raw_line):
-    """True for a harness-injected user entry, not a genuine human turn."""
-    return bool(entry.get("isMeta")) or INJECTED_RE.search(raw_line) is not None
-
-
 def revisit_target(name, inp):
     """The thing a navigation tool reached for, if this tool is one (else None)."""
     key = REVISIT_KEYS.get(name)
@@ -217,7 +187,8 @@ def revisit_target(name, inp):
 
 def excerpt(s, n=160):
     # Bound before normalizing so a multi-MB line costs a constant, not its size.
-    return re.sub(r"\s+", " ", s[: n + 240]).strip()[:n]
+    # Scrub the bounded slice, so no excerpt carries a secret.
+    return re.sub(r"\s+", " ", lib.scrub(s[: n + 240])).strip()[:n]
 
 
 def moment_cap(lines, override=None):
@@ -260,10 +231,15 @@ def notification(text):
     }
 
 
-def score_session(path, moments_override=None, seen_uuids=None):
+SHORT_HUMAN_WORDS = 5   # a human turn this short ("continue", "yes go ahead") is the human acting as the loop
+EVIDENCE_RE = re.compile(
+    r"https?://\S+|\b(verified|verification|tests? pass(ed)?|\d+ passed|all checks pass)\b", re.I)
+
+
+def score_session(path, moments_override=None, seen_uuids=None, since=None, until=None):
     """Signals and moments of one transcript. seen_uuids: entries and tool calls an earlier
     member of the run already counted (a continuation repeats its parent's turns); updated in
-    place."""
+    place. since/until (epoch seconds) window by each entry's own timestamp, not file mtime."""
     seen = seen_uuids if seen_uuids is not None else set()
     reads = {}       # revisit target (file / search / page) -> [count, first_line]
     cmds = {}        # command -> [count, first_line]
@@ -279,6 +255,17 @@ def score_session(path, moments_override=None, seen_uuids=None):
     sidechain = "/subagents/" in path.replace(os.sep, "/")
     seen_assistant = False  # a correction is a human turn that follows agent action
     lines = 0
+    line_ts = {}     # line -> event time of that entry (epoch), for in-window entries
+    entries_total = entries_inside = 0
+    last_et = None   # an entry without its own timestamp takes the previous entry's
+    turn_ids = set()  # unique message.id: one request, however many lines it spans
+    turns_anon = 0
+    tool_names = {}  # tool name -> calls, per transcript
+    hooks = {}       # hook name -> {deny, nonblocking, context}
+    pr_links = 0
+    last_actor = None
+    last_assistant_text = ""
+    human_loop = 0
 
     def bump(d, key, ln):
         e = d.get(key)
@@ -332,9 +319,39 @@ def score_session(path, moments_override=None, seen_uuids=None):
             msg = o.get("message")
             content = msg.get("content") if isinstance(msg, dict) else None
 
+            et = lib.entry_time(o)
+            if et is None:
+                et = last_et
+            else:
+                last_et = et
+            entries_total += 1
+            if not lib.in_window(et, since, until):
+                # Outside the window nothing is counted, but the agent acted and its tool
+                # calls still name the results that follow.
+                if typ == "assistant":
+                    seen_assistant = True
+                    for b in content if isinstance(content, list) else []:
+                        if isinstance(b, dict) and b.get("type") == "tool_use":
+                            tools[b.get("id")] = (b.get("name"),
+                                                  (b.get("input") or {}).get("command"))
+                continue
+            entries_inside += 1
+            if et is not None:
+                line_ts[ln] = et
+
+            if typ == "pr-link":
+                pr_links += 1
+                continue
+
             if typ == "attachment":
-                # A message queued while the agent worked arrives as an attachment.
                 att = o.get("attachment")
+                outcome_kind = lib.classify_hook_event(att) if isinstance(att, dict) else None
+                if outcome_kind:
+                    h = hooks.setdefault(str(att.get("hookName") or att.get("hookEvent") or "?"),
+                                         {"deny": 0, "nonblocking": 0, "context": 0})
+                    h[outcome_kind] += 1
+                    continue
+                # A message queued while the agent worked arrives as an attachment.
                 if isinstance(att, dict) and isinstance(att.get("prompt"), str):
                     t = att["prompt"]
                     if PEER_RE.search(t) or AGENT_MSG_RE.search(t):
@@ -343,6 +360,16 @@ def score_session(path, moments_override=None, seen_uuids=None):
 
             if typ == "assistant":
                 seen_assistant = True
+                last_actor = "assistant"
+                mid = msg.get("id") if isinstance(msg, dict) else None
+                if isinstance(mid, str) and mid:
+                    turn_ids.add(mid)
+                else:
+                    turns_anon += 1
+                said = text_of([b for b in content if isinstance(b, dict)
+                                and b.get("type") == "text"]) if isinstance(content, list) else ""
+                if said.strip():
+                    last_assistant_text = said
                 if isinstance(content, list):
                     for b in content:
                         if not isinstance(b, dict) or b.get("type") != "tool_use":
@@ -354,6 +381,7 @@ def score_session(path, moments_override=None, seen_uuids=None):
                             seen.add("tool:" + b["id"])
                         tool_total += 1
                         name = b.get("name")
+                        tool_names[name] = tool_names.get(name, 0) + 1
                         inp = b.get("input", {}) or {}
                         tools[b.get("id")] = (name, inp.get("command"))
                         target = revisit_target(name, inp)
@@ -370,8 +398,8 @@ def score_session(path, moments_override=None, seen_uuids=None):
                     name, command = tools.get(use_id, (None, None))
                     if is_error_result(t, name, command):
                         test_run = name == "Bash" and bool(TEST_CMD_RE.search(command or ""))
-                        err_hits.append((ln, excerpt(t), test_run))
-                elif is_injected(o, raw):
+                        err_hits.append((ln, excerpt(lib.scrub_result(command, t)), test_run))
+                elif lib.classify_user_turn(o) != "human":
                     t = text_of(content)
                     origin = o.get("origin") if isinstance(o.get("origin"), dict) else {}
                     notified = NOTIFICATION_RE.findall(t)
@@ -389,14 +417,20 @@ def score_session(path, moments_override=None, seen_uuids=None):
                     elif sidechain and origin.get("kind") and REWORK_RE.search(body):
                         # e.g. a lead agent's "REVISE R4-2"; a new assignment is not rework
                         rework_hits.append((ln, excerpt(body)))
-                elif seen_assistant:
+                else:
                     t = text_of(content)
                     if not t:
+                        continue
+                    last_actor = "human"
+                    if not seen_assistant:
                         continue
                     if sidechain:
                         # In a subagent's transcript the "user" is the agent that started it.
                         rework_hits.append((ln, excerpt(t)))
-                    elif CORRECTION_RE.search(t):
+                        continue
+                    if len(t.split()) <= SHORT_HUMAN_WORDS:
+                        human_loop += 1
+                    if CORRECTION_RE.search(t):
                         corr_hits.append((ln, excerpt(t)))
                     else:
                         steer_hits.append((ln, excerpt(t)))
@@ -414,6 +448,7 @@ def score_session(path, moments_override=None, seen_uuids=None):
         "read_repeats": read_repeat,
         "cmd_repeats": cmd_repeat,
         "tool_calls": tool_total,
+        "turns": len(turn_ids) + turns_anon,
         "lines": lines,
     }
     score = (
@@ -466,6 +501,17 @@ def score_session(path, moments_override=None, seen_uuids=None):
     errors.sort(key=lambda m: m["line"])
     chosen += spread(errors, room - len(chosen))
     moments = sorted(chosen + anchors, key=lambda m: m["line"])
+    for m in moments:
+        t = line_ts.get(m["line"])
+        m["ts"] = lib.iso(t) if t is not None else None
+    weekly = {}
+    for kind, hits in (("errors", err_hits), ("corrections", corr_hits), ("steers", steer_hits),
+                       ("reworks", rework_hits)):
+        for hit in hits:
+            t = line_ts.get(hit[0])
+            if t is not None:
+                week = weekly.setdefault(lib.iso_week(t), {})
+                week[kind] = week.get(kind, 0) + 1
     return {
         "session": path,
         "score": round(score, 2),
@@ -473,6 +519,16 @@ def score_session(path, moments_override=None, seen_uuids=None):
         "moments": moments,
         "usage": usage,
         "sidechain": sidechain,
+        "tools": tool_names,
+        "hooks": hooks,
+        "weekly": dict(sorted(weekly.items())),
+        "first_seen": lib.iso(min(line_ts.values())) if line_ts else None,
+        "last_seen": lib.iso(max(line_ts.values())) if line_ts else None,
+        "in_window": {"inside": entries_inside, "total": entries_total,
+                      "share": round(entries_inside / entries_total, 3) if entries_total else 0.0},
+        "outcome_raw": {"pr_links": pr_links, "last_actor": last_actor,
+                        "evidence": bool(EVIDENCE_RE.search(last_assistant_text)),
+                        "human_loop": human_loop},
     }
 
 
@@ -545,7 +601,47 @@ def read_coordination(paths, kinds):
     return counts, by_agent, moments
 
 
-def score_run(key, files, coordination=(), kinds=COORDINATION_KINDS, moments_override=None):
+def outcome_of(mains):
+    """artifact, evidence, abandoned or none for a run, from its main transcripts."""
+    raw = [m["outcome_raw"] for m in mains]
+    last = raw[-1] if raw else {}
+    links = sum(r["pr_links"] for r in raw)
+    if links:
+        label = "artifact"
+    elif last.get("evidence"):
+        label = "evidence"
+    elif last.get("last_actor") == "human":
+        label = "abandoned"
+    else:
+        label = "none"
+    return {"label": label, "artifact_links": links,
+            "ended_on_human": last.get("last_actor") == "human",
+            "human_loop": sum(r["human_loop"] for r in raw)}
+
+
+def outcome_summary(runs):
+    """Runs and mean friction score per outcome label: compare good and bad sessions."""
+    groups = {}
+    for r in runs:
+        groups.setdefault(r["outcome"]["label"], []).append(r["score"])
+    return {label: {"runs": len(s), "mean_score": round(sum(s) / len(s), 2)}
+            for label, s in groups.items()}
+
+
+LONG_TURNS = 200  # a run with at least this many unique turns is a long session
+
+
+def long_session_share(runs, long_turns=LONG_TURNS):
+    """Share of long sessions on two bases: of sessions, and of all turns. Name the basis."""
+    turns = [r["signals"]["turns"] for r in runs]
+    long = [t for t in turns if t >= long_turns]
+    return {"by_sessions": round(len(long) / len(turns), 2) if turns else 0.0,
+            "by_turns": round(sum(long) / sum(turns), 2) if sum(turns) else 0.0,
+            "long_turns": long_turns}
+
+
+def score_run(key, files, coordination=(), kinds=COORDINATION_KINDS, moments_override=None,
+              since=None, until=None):
     members = []
     seen_uuids = set()  # a continuation repeats its parent's entries: count each once
     def mtime(f):
@@ -556,10 +652,12 @@ def score_run(key, files, coordination=(), kinds=COORDINATION_KINDS, moments_ove
 
     for f in sorted(files, key=lambda f: (mtime(f), f)):
         try:
-            member = score_session(f, moments_override, seen_uuids)
+            member = score_session(f, moments_override, seen_uuids, since, until)
         except OSError as e:
             print(f"skipped {f}: {e}", file=sys.stderr)
             continue
+        if (since is not None or until is not None) and member["in_window"]["inside"] == 0:
+            continue  # no event of this transcript falls in the window
         member["agent"] = agent_meta(f)
         members.append(member)
 
@@ -601,7 +699,7 @@ def score_run(key, files, coordination=(), kinds=COORDINATION_KINDS, moments_ove
     # Zero-filled so the table still prints when every transcript was skipped.
     signals = dict.fromkeys(("errors", "corrections", "steers", "reworks", "peer_messages",
                              "agent_failures", "read_repeats", "cmd_repeats", "tool_calls",
-                             "lines"), 0)
+                             "turns", "lines"), 0)
     for member in members:
         for name, value in member["signals"].items():
             signals[name] = signals.get(name, 0) + value
@@ -609,13 +707,40 @@ def score_run(key, files, coordination=(), kinds=COORDINATION_KINDS, moments_ove
     signals["coordination"] = len(events)
     signals["tokens"] = sum(n.get("tokens") or 0 for n in usage.values())
     score = sum(m["score"] for m in members) + WEIGHTS["coordination"] * len(events)
+    # Outcome and hook totals read the members in time order, before the score sort.
+    mains = [m for m in members if not m["sidechain"]]
+    outcome = outcome_of(mains)
+    hooks, tools, weekly = {}, {}, {}
+    for member in members:
+        for name, h in member["hooks"].items():
+            total = hooks.setdefault(name, {"deny": 0, "nonblocking": 0, "context": 0})
+            for k, v in h.items():
+                total[k] += v
+        for name, n in member["tools"].items():
+            tools[name] = tools.get(name, 0) + n
+        for week, counts in member["weekly"].items():
+            into = weekly.setdefault(week, {})
+            for k, v in counts.items():
+                into[k] = into.get(k, 0) + v
+    seen = [m["first_seen"] for m in members if m["first_seen"]]
+    last = [m["last_seen"] for m in members if m["last_seen"]]
+    inside = sum(m["in_window"]["inside"] for m in members)
+    total_entries = sum(m["in_window"]["total"] for m in members)
     members.sort(key=lambda m: -m["score"])
     for member in members:
-        del member["usage"]
+        del member["usage"], member["outcome_raw"]
     return {
         "run": key,
         "score": round(score, 2),
         "signals": signals,
+        "outcome": outcome,
+        "hooks": hooks,
+        "tools": tools,
+        "weekly": dict(sorted(weekly.items())),
+        "first_seen": min(seen) if seen else None,
+        "last_seen": max(last) if last else None,
+        "in_window": {"inside": inside, "total": total_entries,
+                      "share": round(inside / total_entries, 3) if total_entries else 0.0},
         "moments": sorted(moments, key=lambda m: (m["file"], m["line"])),
         "coordination_kinds": counts,
         "coordination_by_agent": by_agent,
@@ -667,18 +792,15 @@ def main():
     ap.add_argument("--coordination-kinds", default=COORDINATION_KINDS,
                     help="regex of event kinds that count as friction")
     ap.add_argument("--moments", type=int, help="moments per transcript, instead of by length")
+    ap.add_argument("--summary", action="store_true",
+                    help="emit cross-run JSON: outcomes, long-session share on both bases, hooks")
+    ap.add_argument("--blocking-claims", action="append", default=[], metavar="HOOK",
+                    help="a hook name that is said to block; flagged when it never denies")
     a = ap.parse_args()
 
     since = parse_date(a.since) if a.since else None
     until = parse_date(a.until, end=True) if a.until else None
     files = collect(a.paths)
-    if since is not None or until is not None:
-        kept = []
-        for f in files:
-            m = os.path.getmtime(f)
-            if (since is None or m >= since) and (until is None or m <= until):
-                kept.append(f)
-        files = kept
     if not files:
         print("no session files matched", file=sys.stderr)
         return 1
@@ -688,11 +810,32 @@ def main():
         print("--coordination needs exactly one run: name one session, or add --run",
               file=sys.stderr)
         return 2
+    # The window is applied to each entry's own timestamp, never to the file's mtime.
     scored = [
-        score_run(key, members, a.coordination, a.coordination_kinds, a.moments)
+        score_run(key, members, a.coordination, a.coordination_kinds, a.moments, since, until)
         for key, members in runs.items()
     ]
+    scored = [r for r in scored if r["members"]]
+    if not scored:
+        print("no session files matched", file=sys.stderr)
+        return 1
     ranked = sorted(scored, key=lambda r: -r["score"])[:a.top]
+
+    if a.summary:
+        hooks = {}
+        for r in scored:
+            for name, h in r["hooks"].items():
+                total = hooks.setdefault(name, {"deny": 0, "nonblocking": 0, "context": 0})
+                for k, v in h.items():
+                    total[k] += v
+        json.dump({"runs": len(scored),
+                   "outcomes": outcome_summary(scored),
+                   "long_session_share": long_session_share(scored),
+                   "hooks": hooks,
+                   "blocking_claims_never_deny": lib.flag_blocking_claims(
+                       hooks, a.blocking_claims)}, sys.stdout, indent=2, sort_keys=True)
+        print()
+        return 0
 
     if a.json:
         json.dump(ranked, sys.stdout, indent=2)

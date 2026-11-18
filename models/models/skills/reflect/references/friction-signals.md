@@ -67,7 +67,35 @@ in this shape, one per candidate:
 - home: skill:<name> | AGENTS.md:<path> | check:<pre-commit|CI|linter-rule> | tool:<name> | access
 - who: user | parent-agent | peer-session | tool   # whose turn the moment is; never "user" for rework
 - kind: mechanical | judgement          # mechanical defaults to a check, not prose
+- lens: prompts | always-on | skill-dispatch | hooks | tools | orchestration | cost | metrics | positive
+- mechanism: short slug; two findings with one cause share it   # input to synthesize.py
+- verdict: CONFIRMED | REFUTED | ROOT_CAUSE
+- count: how often it occurred; basis: full | <what the sample was>   # ROOT_CAUSE needs full
+- files: [hook, skill or setting the finding names]   # input to fixed.py
+- first_seen / last_seen: ISO times from the moments' `ts`
 ```
+
+## What the other scripts add
+
+All output is JSON. Event time (not file mtime) decides what is in a window; every run
+reports `in_window.share`. Every moment has a `ts`; every run has `first_seen`,
+`last_seen` and a `weekly` series of errors, corrections, steers and reworks.
+
+- `scan-sessions.py`: `signals.turns` counts unique message ids. `tools` counts calls per
+  tool per transcript (so per subagent). `hooks` counts deny, nonblocking and context events
+  per hook. `outcome` is `artifact` (a PR link), `evidence` (final message has a URL or a
+  verification line), `abandoned` (last turn is human) or `none`, with `human_loop` (human
+  turns of five words or fewer after the agent acted). `--summary` adds outcomes with mean
+  score per label, long-session share on both bases (`by_sessions`, `by_turns`), hook totals
+  and `--blocking-claims` hooks that never deny.
+- `cost.py`: `usage_usd` (per message id, times prices) and `cost_state_usd` (segments summed
+  across resets). An unknown model id warns and prices at zero.
+- `context-audit.py`: skill listing described versus name-only, characters per source,
+  tools offered versus called, per-skill invocation rate, always-on file sizes.
+- `drill.py PATH --pattern RE [--agent ID]`: matches ranked by file, scrubbed.
+- `fixed.py REPO FINDINGS.json`: FIXED, OPEN or UNKNOWN by `git log` on each finding's files.
+- `synthesize.py FINDINGS.json`: groups by mechanism, flags opposite verdicts, ranks only
+  claims backed by a full count.
 
 ### Extraction subagent brief (cross-session)
 
