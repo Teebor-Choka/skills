@@ -1,0 +1,34 @@
+reflect weekly report: 2026-03-02 to 2026-03-08 (7 days), 4 sessions (before: 2)
+
+changes since their date
+  R-sleep-hook (m3) since 2026-02-01: baseline 80.0 now 2.93 delta -77.07
+  R-noop (m4) since 2026-02-10: baseline 1 now 1.00 delta +0.00  no-op candidate: remove or rework
+  R-gate (m4) since 2026-03-01: baseline 1 now 1.00 delta +0.00
+
+north star
+  cost per merged PR: $18.00 (target <= $10.00)
+  merged share 33% (1 of 3 PRs), hours to merge p50 12.0, review rounds p50 1
+
+metric                                   now    before     delta  target   status
+m1 cost per human prompt               $2.93     $1.50     +1.43  <=$1.00  !!
+m2 tool errors per 100 calls            40.0       3.0    +37.00  <2.0     ..
+m3 hook blocks per 100 calls            80.0       1.0    +79.00  <0.8     !!
+m4 gate integrity (events)                 1         0        +1  =0       !!
+m5 human corrections per 100            25.0       0.0    +25.00  <3.0     !!
+m6 human-wait share of wall time       97.9%      0.0%   +97.9pp  track    !!
+m7 always-loaded context (tokens)          1         0        +1  <=8000   ok
+m8 skill dispatch hit rate                 -         -         -  >=50%    -
+m9 long-session share of spend          0.0%      0.0%    +0.0pp  <40%     ok
+m10 compactions per session             0.25      0.00     +0.25  <=1.0    ok
+m11 timer-driven turn share            15.4%      0.0%   +15.4pp  <5%      !!
+m12 unpriced sessions                      1         0        +1  =0       !!
+
+alerts
+  m1 session sess-pr $18.00 per prompt
+  m3 80.0 hook blocks per 100 calls
+  m4 1 policy-gate BLOCK events reached the agent as non-blocking
+  m5 25.0 corrections per 100 prompts
+  m6 1 session(s) with an agent idle over 24 h
+  m11 15.4% of turns are timer-driven
+  m12 1 unpriced session(s)
+  merged share 33% below 40%
