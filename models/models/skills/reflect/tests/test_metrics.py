@@ -182,3 +182,18 @@ def test_dispatch_table_marks_opportunities_and_invocations(tmp_path):
     full = json.loads(r.stdout)
     assert full["skill_opportunities"] == ["alpha"] and full["skills_invoked"] == ["alpha"]
     assert full["skills_offered"] == {"visible": ["alpha"], "name_only": ["beta"]}
+
+
+def test_synthetic_model_entries_do_not_make_a_session_unpriced(tmp_path):
+    rows = rows_at([user_text("hi"), asst_text("x", "m1", SONNET, u()),
+                    asst_text("x", "m2", "<synthetic>", u(5))])
+    full = record_of(write(tmp_path, rows), full=True)
+    assert full["unpriced"] is False and full["cost_usd"] == pytest.approx(3.0)
+
+
+def test_skill_listings_sent_in_pieces_are_merged(tmp_path):
+    def listing(text):
+        return {"type": "attachment", "attachment": {"type": "skill_listing", "content": text}}
+    rows = rows_at([listing("- alpha: a"), listing("- beta"), user_text("hi")])
+    offered = record_of(write(tmp_path, rows), full=True)["skills_offered"]
+    assert offered == {"visible": ["alpha"], "name_only": ["beta"]}
