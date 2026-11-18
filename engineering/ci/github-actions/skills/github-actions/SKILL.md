@@ -35,10 +35,13 @@ whenever a repo has `.github/workflows/`, or you touch a workflow file or Renova
   before committing, and again when the `security` skill hands stage 4 over:
   1. `zizmor --format plain <paths>` if `zizmor` is on `PATH`.
   2. Else `nix run nixpkgs#zizmor -- --format plain <paths>` if `nix` is installed.
-  3. If neither exists, report the workflows as **unvalidated** in the result. Never skip
-     silently, and never claim the workflows are clean.
+  3. If no step produces a zizmor report (tool absent, `nix run` fails, or zizmor errors),
+     report the workflows as **unvalidated** in the result. Never skip silently, and never
+     claim the workflows are clean.
 
-  Findings gate the work: fix them, or justify each one in the PR, before committing.
+  Findings gate the work: when you are editing the workflow, fix them, or justify each one
+  in the PR, before committing. On a `security` stage 4 handover, report the findings only
+  and make no edits: that scan is read-only.
 
 ## Merge queue and branch rulesets
 

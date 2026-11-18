@@ -50,9 +50,9 @@ Commands, flags, and caveats per tool are in [references/tools.md](references/to
    file per tool plus `summary.tsv`, and runs missing tools through `nix run nixpkgs#<tool>`.
    Read `summary.tsv` first: a tool with status `error` or `missing` is a coverage gap to
    report, not a clean result.
-3. Stage 4: when the diff touches `.github/`, hand the touched workflow paths to the
-   `github-actions` skill and use its zizmor result (findings, or "unvalidated"). Do not run
-   zizmor here. When the diff does not touch `.github/`, stage 4 does not run.
+3. Stage 4: when the diff touches `.github/`, hand the touched `.github/` paths to the
+   `github-actions` skill and use its zizmor result (findings, or "unvalidated"). Never run
+   the scanner here. When the diff does not touch `.github/`, stage 4 does not run.
    Run stage 5 on any skill or MCP config in scope, and stages 7 and 8 only when the gates
    allow.
 4. Dispatch the handoff chain (next section), in order.
@@ -61,8 +61,8 @@ Commands, flags, and caveats per tool are in [references/tools.md](references/to
    drop each candidate.
 6. Write the findings list in the format from `references/triage.md`. State coverage:
    which stages ran, which did not, and why. For stage 4, say whether `github-actions`
-   handled it (and whether its zizmor result was "unvalidated") or the diff had no
-   `.github/` change.
+   handled it (and whether its zizmor result was "unvalidated"), the diff had no
+   `.github/` change, or the scope was not a diff (stage 4 not run).
 
 ## Handoff chain
 

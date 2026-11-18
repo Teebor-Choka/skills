@@ -91,7 +91,7 @@ Write one table, most severe first. Never include a secret value.
 `state` is `confirmed`, `needs-validation`, or `rejected` (with the reason, so the next run
 does not re-open it). Follow the table with a coverage statement:
 
-- stages run and tool versions, from `summary.tsv`;
+- stages run and tool versions, from `summary.tsv`, plus the stage 4 result from `github-actions`;
 - stages skipped or errored, with the reason;
 - scope (whole repo, diff, paths) and the commit reviewed;
 - dropped false-positive and noise-class counts.
