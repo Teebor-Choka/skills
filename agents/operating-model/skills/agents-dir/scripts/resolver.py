@@ -423,6 +423,18 @@ def _runtime_policy(policy):
             errs.append(f"policy 'regression-threshold' must be a non-negative number, not {raw!r}")
         else:
             out["regression-threshold"] = value
+    if "communication-guarantees" in policy:
+        raw = policy["communication-guarantees"]
+        if isinstance(raw, list) and all(isinstance(g, str) and g in GUARANTEES for g in raw):
+            out["communication-guarantees"] = list(raw)
+        else:
+            errs.append(f"policy 'communication-guarantees' must be a list from {', '.join(GUARANTEES)}, not {raw!r}")
+    if "communication" in policy:
+        raw = policy["communication"]
+        if isinstance(raw, str) and raw.strip():
+            out["communication"] = raw.strip()
+        else:
+            errs.append(f"policy 'communication' must name how entities communicate (non-empty text), not {raw!r}")
     if "attested-decisions" in policy:
         raw = policy["attested-decisions"]
         if isinstance(raw, list) and all(isinstance(c, str) and c in CLASSES for c in raw):
@@ -465,7 +477,22 @@ def _gate_policy(procedure_text, resolved, out):
     return errs
 
 
-def start_run(project, *, environ=None, name=None, allow_dirty=False, inline=None, trust="claims", run_id=None):
+SIGNING = ("signed", "none")
+GUARANTEES = ("ordered", "durable", "replayable")  # what the improvement list and the votes rely on
+
+
+def _signing(resolved):
+    """The trust a run needs: `signed` or `claims`. Policy `signing` says it; team mode defaults to signed."""
+    raw = resolved.get("signing")
+    if raw is None:
+        return ("signed" if resolved.get("mode") == "team" else "claims"), []
+    if isinstance(raw, str) and raw in SIGNING:
+        return ("signed" if raw == "signed" else "claims"), []
+    return "claims", [f"policy 'signing' must be signed or none, not {raw!r}"]
+
+
+def start_run(project, *, environ=None, name=None, allow_dirty=False, inline=None, trust=None, run_id=None,
+              require_communication=True):
     """Freeze the resolved documents into a run. Returns None when there is nothing to run.
 
     Raises ResolutionError when the documents cannot start one."""
@@ -476,6 +503,17 @@ def start_run(project, *, environ=None, name=None, allow_dirty=False, inline=Non
         raise ResolutionError(got["errors"])
     policy, errs = _runtime_policy(got["policy"])
     errs += _gate_policy(got["procedure_text"], got["policy"], policy)
+    floor, more = _signing(got["policy"])
+    errs += more
+    if floor == "signed" and trust == "claims":
+        errs.append("policy 'signing' is signed, so a run with no signing is refused")
+    if trust is None:
+        trust = floor
+    if require_communication and trust == "signed":
+        if "communication" not in policy:
+            errs.append("a signed run must declare how entities communicate: set policy 'communication'")
+        if "ordered" not in policy.get("communication-guarantees", []):
+            errs.append("a signed run needs ordered delivery declared: set policy 'communication-guarantees' to include 'ordered'")
     if errs:
         raise ResolutionError(errs)
     try:

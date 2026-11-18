@@ -1,0 +1,5 @@
+{
+  "name": "deploy",
+  "version": "1.0.0",
+  "description": "Deploy stage for the development procedure: deploy a released or integrated revision and verify it from real logs or state. A failed verification leaves the stage open with the evidence."
+}

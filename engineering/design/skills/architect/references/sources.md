@@ -62,4 +62,4 @@ al. survey (IJCAI 2024), with the Tran et al. structure taxonomy flagged as a pr
 ## Engineering guardrails
 
 The research/adversarial/component-under-test disciplines echo standard testing practice (ATDD,
-fault injection) and are stated in the author's own words in `principles.md` and `execution.md`.
+fault injection) and are stated in the author's own words in `principles.md`.

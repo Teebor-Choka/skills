@@ -138,7 +138,7 @@ Architectures_. The full style catalog with diagrams and scorecards is in `archi
   chaos experiment, or lint rule that returns pass/fail against a threshold. A characteristic with
   no fitness function is unfalsifiable; reject the claim or write the function. This is the same
   discipline as §4: **the fitness function is the architecture-level adversarial test, and the
-  verification harness (`execution.md`) is where these functions live and run.** Prefer holistic,
+  verification criteria (`execution.md`) state which functions to run and observe.** Prefer holistic,
   continual functions for the properties most likely to erode silently: scalability, security,
   coupling.
 - **Contain the strongest coupling in the smallest boundary.** Reason about coupling with
