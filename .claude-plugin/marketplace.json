@@ -60,7 +60,7 @@
       "source": "./engineering/ci/github-actions",
       "strict": true,
       "metadata": {
-        "version": "1.0.1"
+        "version": "1.0.2"
       }
     },
     {
@@ -78,7 +78,7 @@
       "source": "./engineering/review",
       "strict": true,
       "metadata": {
-        "version": "2.2.2"
+        "version": "2.2.3"
       }
     },
     {
