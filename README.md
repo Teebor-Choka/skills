@@ -12,7 +12,6 @@ Layout: `<domain>/<plugin>/skills/<skill>`. The host shows `plugin:skill`.
 |                     | `ramble`            | Grill a rough idea into a gap-closed brief for the architect     |
 |                     | `decompose`         | Cut a goal into parallel units and file them                     |
 |                     | `graph-engine`      | Compute parallel waves, critical path, write-set collisions      |
-|                     | `policy`            | The `.agents/policy` format and loader                           |
 |                     | `project-docs`      | Standard `docs/` (overview, spec, ADRs) with a validator         |
 | `review`            | `by-angle`          | Red-first block loop plus four read-only review angles           |
 |                     | `code-quality`      | Risk audit from complexity, coverage, duplication metrics        |
@@ -20,6 +19,7 @@ Layout: `<domain>/<plugin>/skills/<skill>`. The host shows `plugin:skill`.
 | `swe`               | `rust`              | Rust house guidelines on every change                            |
 |                     | `typescript`        | TypeScript and JavaScript house guidelines on every change       |
 | `orchestrate`       | `assign`, `pull`    | Multi-agent runs: dispatcher or peer swarm over a shared board   |
+| `operating-model`   | `policy`            | The `.agents/policy` format and loader                           |
 | `models`            | `extension-author`  | Author and port skills and plugins across agents                 |
 |                     | `reflect`           | Mine sessions for agent struggles and propose fixes              |
 | `writing`           | `unslop`            | Remove AI tells from prose                                       |

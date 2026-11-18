@@ -1,0 +1,5 @@
+{
+  "name": "operating-model",
+  "version": "1.0.0",
+  "description": "How work is run, independent of the domain: policy (the layered .agents/policy settings and loader a skill reads instead of hardcoding a constant)."
+}
