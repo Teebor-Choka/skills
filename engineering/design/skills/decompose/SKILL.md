@@ -28,7 +28,9 @@ and integration cost often beats the wall-clock gain. Cut only where the seam is
 ## Steps
 
 1. **Decide whether to cut.** One unit, or work with no disjoint write-sets, has nothing to divide.
-   Stop and do it sequentially. Say so.
+   Stop and do it sequentially. Say so. If you must ask the user, first write 3-5 sentences in
+   chat naming the artifact, the fork and the cost of each branch, then ask with plain-language
+   options.
 2. **Find the seams.** Cut at interfaces: a schema, an API, a file boundary, a document section.
    Land shared contract seams first as their own units, so consumers proceed independently.
 3. **Write each unit.**

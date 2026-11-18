@@ -53,6 +53,16 @@ passes. The mechanics in `mechanics.md` apply unchanged; this file adds what is 
   `handoff` label. A new session runs `swarm-status` and does not message peers: list the items
   with holder and heartbeat age, the open PRs per item, and the stale leases. Act on that list.
 
+## State file and handoff
+
+A coordinator session is not a place to live. After 2 compactions or 1,500 turns, write `STATE.md`
+(goal, leases, open PRs, next 3 actions) and hand off to a fresh session. Count active hours,
+compactions and context size, not session age. Update `STATE.md` at each wake-up. A pick-up session
+reads `STATE.md` first, then runs `swarm-status`, and does not ask peers.
+
+Do not edit files in a peer's checkout. Edit in your own worktree or hand the edit to the item's
+builder. On "File has been modified since read": Read, then re-apply. Never retry the same edit.
+
 ## Self-starting passes
 
 Nobody starts a pass for you. When a reviewer's area has no open findings, the reviewer files the

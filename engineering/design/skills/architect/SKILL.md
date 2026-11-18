@@ -229,6 +229,8 @@ carries the Ford & Richards trade-off/characteristics/fitness-function material 
   that actually drive the system, choose the least-worst style for them, and give each a fitness
   function so the claim is falsifiable (Ford & Richards; `references/principles.md` §10). A claimed
   pure win means you haven't found the trade-off yet.
+- **Asking and editing:** read `references/methodology.md` § Asking and editing before you ask a
+  question or edit a long table.
 
 ## Optional checkpoint
 

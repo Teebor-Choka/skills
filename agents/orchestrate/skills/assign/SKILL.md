@@ -36,9 +36,18 @@ adds what is specific to assign.
 4. **Put the spawn-brief line from the charter in every brief.**
 5. **Brief roles and authority as `mechanics.md` says** (one structured message, merge authority
    explicit, delegated decisions).
+6. **Start every brief with a worker preamble:** the worktree path to use (paths under it only),
+   which search tool exists on the host (for example `rg` may be absent), the code-graph project
+   name or `unavailable`, and "one plain git command per shell call". Index the worktree or tell
+   the worker to use the main checkout path.
+7. **Do not fork a babysitter or poller.** Fork only when the child needs the full conversation.
+   Otherwise spawn a fresh worker on the Execution tier with a self-contained brief. A fork
+   inherits the parent's model and is not a cheap path.
 
 The dispatcher runs on the Light tier. A coordinator that reads large context and emits a few
-tokens per check is light work.
+tokens per check is light work. It only dispatches, watches and merges: it runs no builds and
+edits no product code, and it never edits files in a worker's checkout. It hands a reviewer a PR
+number and does not read the diff itself.
 
 ## Worker
 
@@ -46,6 +55,14 @@ tokens per check is light work.
   "submitted". For code, the repo's PR workflow (named in policy) defines what that means (own PR through merge, rebase,
   watcher).
 - Heartbeat while you work (rule 3). Write the result to the item (rule 5).
+- Return contract: the final message carries verified evidence (the gate you ran and its result)
+  and the artifact link (for example the PR URL).
+- A builder ends at "PR open, local gate green, evidence on the item". A watcher event wakes the
+  dispatcher, which spawns a fresh short fixer per "checks failed" or review-thread event. Do not
+  keep a builder alive through CI and review waits.
+- Review tier: use the top tier only for security, unsafe, auth or secrets changes, or a diff over
+  about 400 changed lines. Otherwise use the Execution tier. A re-review after rework covers only
+  the delta.
 
 ## Drive by events, not a clock
 
@@ -57,6 +74,8 @@ primitives do.
 - **Stall:** the lease is the signal. A silent worker is reaped (rule 4) and respawned fresh. Do not
   nudge a stalled worker: a nudge costs a turn and rarely helps.
 - **Idle:** use the host's one-shot idle signal where it exists, not a poll.
+- **"File has been modified since read":** another writer touched the checkout. Read the file,
+  then re-apply the edit. Never retry the same edit.
 
 ## Synthesize, then stop
 

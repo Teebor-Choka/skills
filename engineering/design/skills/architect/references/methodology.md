@@ -89,3 +89,10 @@ Every DAG node (and its spec block) names the requirement id it satisfies (Kiro-
 build honest: no block exists that no requirement asked for, and no requirement ships with no block.
 
 - Kiro specs: https://kiro.dev/docs/specs/feature-specs/
+
+## Asking and editing
+
+- Before you ask the user a question, write 3-5 sentences in chat: name the artifact, the fork and
+  the cost of each branch. Then ask with plain-language options, not your own terms.
+- Before a multi-line edit of a long table or prose section, re-read that section. Do not copy
+  strings from memory. Where a script rewrites the table from data, use the script.
