@@ -120,6 +120,16 @@
                 touch $out
               '';
 
+          concurrency-refs =
+            pkgs.runCommand "concurrency-refs"
+              {
+                nativeBuildInputs = [ py ];
+              }
+              ''
+                python3 ${self}/scripts/check-concurrency-refs.py ${self}
+                touch $out
+              '';
+
           marketplace-json =
             pkgs.runCommand "marketplace-json"
               {

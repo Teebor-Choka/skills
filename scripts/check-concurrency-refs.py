@@ -4,7 +4,7 @@
 Each `### ` entry in engineering/swe/skills/rust/references/concurrency-*.md needs a
 `Symptom:`, `Fix:`, `Source:` (with an https URL) and `Accessed:` (YYYY-MM-DD) line.
 SKILL.md must link every such file and name the concurrency triggers in its description.
-Each file stays at or below 250 lines (split it past that); the set holds 20 to 40 entries.
+Each file stays at or below 250 lines (split it past that); the set holds 20 to 30 entries.
 """
 
 import re
@@ -15,7 +15,7 @@ import yaml
 
 SKILL_DIR = Path("engineering/swe/skills/rust")
 MAX_LINES = 250
-MIN_ENTRIES, MAX_ENTRIES = 20, 40
+MIN_ENTRIES, MAX_ENTRIES = 20, 30
 FIELDS = ("Symptom", "Fix", "Source", "Accessed")
 TRIGGERS = (
     "blocking in async",
