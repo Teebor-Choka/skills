@@ -118,6 +118,7 @@ def check_spec(spec_path, errs, warns):
 
 
 LADDER = ["interfaces", "modules", "components", "functions"]
+EMPTY = {"", "-", "--", "n/a", "na", "none", "tbd", "todo"}
 
 
 def section(text, heading):
@@ -146,11 +147,15 @@ def check_depth(text, errs):
         errs.append(f"E9 spec: dialed rung '{rung or 'missing'}' is not one of {'|'.join(LADDER)}")
         return
     g = re.search(r"\*\*Given by:\*\*\s*(.+)", body)
-    if not g or re.search(r"default|assum|guess|infer", g.group(1), re.I):
-        errs.append("E9 spec: 'Given by' must say the user gave the depth; a silent default is not allowed")
+    if (not g or re.search(r"default|assum|guess|infer", g.group(1), re.I)
+            or not re.search(r"\b(user|owner|requester|operator)\b", g.group(1), re.I)):
+        errs.append("E9 spec: 'Given by' must name the user who gave the depth; a silent default is not allowed")
+    sc = re.search(r"\*\*Scope:\*\*\s*([^·\n]+)", body)
+    if not sc or sc.group(1).strip().lower() in EMPTY:
+        errs.append("E9 spec: the scope the depth applies to is not stated")
     acc = section(text, "Acceptance by rung") or ""
     _, rows = table_rows(acc)
-    have = {r[0].lower(): r[1] for r in rows if len(r) >= 2 and r[1].strip()}
+    have = {r[0].lower(): r[1] for r in rows if len(r) >= 2 and r[1].strip().lower() not in EMPTY}
     for r in LADDER[: LADDER.index(rung) + 1]:
         if r not in have:
             errs.append(f"E9 spec: no acceptance criteria for traversed rung '{r}'")
@@ -161,14 +166,25 @@ def _block_chunks(text):
     return {re.match(r"[\w.-]+", c).group(0): c for c in parts[1:] if re.match(r"[\w.-]+", c)}
 
 
+def _paths(cell):
+    """Write-set paths of a table cell: backticks, `./` and empty markers removed."""
+    out = []
+    for w in re.split(r"[,;\s]+", cell.replace("`", "")):
+        w = re.sub(r"^(\./)+", "", w).strip("/")
+        if w.lower() not in EMPTY:
+            out.append("." if w in (".", "") else w)
+    return out
+
+
 def _overlap(a, b):
-    a, b = a.strip("/"), b.strip("/")
+    if "." in (a, b):
+        return True
     return a == b or a.startswith(b + "/") or b.startswith(a + "/")
 
 
 def check_write_sets(text, errs, warns):
     """E10: overlapping write-sets need an ordering edge or a shared declared channel."""
-    m = re.search(r"(?ms)^#{2,3}\s+Block index\s*$(.*?)(?=^#{1,3}\s|\Z)", text)
+    m = re.search(r"(?ims)^#{2,3}\s+Block index\s*$(.*?)(?=^#{1,3}\s|\Z)", text)
     header, rows = table_rows(m.group(1)) if m else ([], [])
     low = [h.lower() for h in header]
     wi = next((i for i, h in enumerate(low) if "write" in h), None)
@@ -178,27 +194,41 @@ def check_write_sets(text, errs, warns):
     ni = low.index("#") if "#" in low else 0
     sets = {}
     for r in rows:
-        if len(r) > max(wi, ni) and re.match(r"^[\w.-]+$", r[ni]):
-            sets[r[ni]] = [w.strip() for w in re.split(r"[,;]", r[wi]) if w.strip() not in ("", "-")]
+        node = r[ni].replace("*", "").replace("`", "").strip() if len(r) > ni else ""
+        if len(r) > max(wi, ni) and re.match(r"^[\w.-]+$", node):
+            sets[node] = _paths(r[wi])
     succ = {}
     for dep, node in parse_block_deps(text):
         succ.setdefault(dep, set()).add(node)
 
-    def reach(a, b, seen=()):
-        return b in succ.get(a, ()) or any(reach(n, b, seen + (a,)) for n in succ.get(a, ()) if n not in seen)
+    closure = {}
+    for start in set(succ) | {n for v in succ.values() for n in v}:
+        seen, todo = set(), list(succ.get(start, ()))
+        while todo:
+            n = todo.pop()
+            if n not in seen:
+                seen.add(n)
+                todo.extend(succ.get(n, ()))
+        closure[start] = seen
+    for n, r in closure.items():
+        if n in r:
+            errs.append(f"E10 spec: block {n} depends on itself through a cycle in the Block index")
+
+    def reach(a, b):
+        return b in closure.get(a, ())
 
     chunks = _block_chunks(text)
 
     def channel(n):
-        c = re.search(r"Coordination channel:\*{0,2}\s*(\S+)", chunks.get(n, ""))
-        return c.group(1) if c else None
+        c = re.search(r"Coordination channel:\*{0,2}[ \t]*(\S+)", chunks.get(n, ""))
+        return c.group(1) if c and c.group(1).lower() not in EMPTY and not c.group(1).startswith("*") else None
 
     ids = list(sets)
     for i, a in enumerate(ids):
         for b in ids[i + 1:]:
             if not any(_overlap(x, y) for x in sets[a] for y in sets[b]):
                 continue
-            if reach(a, b) or reach(b, a):
+            if (reach(a, b) or reach(b, a)) and not (reach(a, a) or reach(b, b)):
                 continue
             if channel(a) and channel(a) == channel(b):
                 continue
@@ -215,7 +245,10 @@ def check_improve(text, errs):
         if not field(name):
             errs.append(f"I1 improve report: '{name}' is not stated")
     grounding = field("Grounding").lower()
-    if grounding and "graph" not in grounding and not ("direct read" in grounding and "warn" in grounding):
+    direct = "direct read" in grounding
+    ok = ("warn" in grounding) if direct else ("graph" in grounding and not re.search(
+        r"\bno\b[^;]*graph|unavailable|not available", grounding))
+    if grounding and not ok:
         errs.append("I2 improve report: Grounding must name the code graph, or 'direct read' with a warning")
     boxes = re.split(r"(?m)^###\s+Box\s+(?=\d)", "\n" + (section(text, "Boxes") or ""))[1:]
     header, rows = table_rows(section(text, "All findings") or "")
@@ -228,7 +261,9 @@ def check_improve(text, errs):
     if not boxes:
         errs.append("I3 improve report: no boxes and no 'nothing worth deepening' result")
     cap = field("Box cap")
-    if cap.isdigit() and len(boxes) > int(cap):
+    if cap and not (cap.isascii() and cap.isdigit()):
+        errs.append(f"I4 improve report: Box cap '{cap}' is not a number")
+    if cap.isascii() and cap.isdigit() and len(boxes) > int(cap):
         errs.append(f"I4 improve report: {len(boxes)} boxes exceed the cap of {cap}")
     for c in boxes:
         label = c.splitlines()[0].strip()

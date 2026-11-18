@@ -129,6 +129,53 @@ def test_overlapping_path_prefixes_count_as_shared():
     assert any("E10" in e for e in errs)
 
 
+def test_placeholder_channel_marker_does_not_count():
+    for v in ("none", "-", ""):
+        extra = f"## Block 1: a\n**Coordination channel:** {v}\n**Satisfies:** R\n## Block 2: b\n**Coordination channel:** {v}\n**Satisfies:** R\n"
+        errs, _ = ws(spec(["| 1 | a | x | - | src/a | R1 |", "| 2 | b | x | - | src/a | R1 |"], extra))
+        assert errs, v
+
+
+def test_dependency_cycle_does_not_excuse_a_shared_write_set():
+    errs, _ = ws(spec(["| 1 | a | x | 2 | src/a | R1 |", "| 2 | b | x | 1 | src/a | R1 |"]))
+    assert any("cycle" in e for e in errs)
+
+
+def test_backticked_and_space_separated_write_sets_are_compared():
+    errs, _ = ws(spec(["| 1 | a | x | - | `src/a` | R1 |", "| 2 | b | x | - | `src/b` `src/a/deep` | R1 |"]))
+    assert any("E10" in e for e in errs)
+
+
+def test_no_write_marker_is_not_an_overlap():
+    errs, _ = ws(spec(["| 1 | a | x | - | none | R1 |", "| 2 | b | x | - | n/a | R1 |"]))
+    assert errs == []
+
+
+def test_block_index_heading_is_case_insensitive():
+    errs, _ = ws(spec(["| 1 | a | x | - | src/a | R1 |", "| 2 | b | x | - | src/a | R1 |"]).replace("Block index", "Block Index"))
+    assert errs
+
+
+def test_depth_given_by_must_name_the_user():
+    assert depth_errs(DEPTH_OK.replace("the user, this invocation", "the architect"))
+
+
+def test_depth_scope_is_required():
+    assert any("scope" in e for e in depth_errs(DEPTH_OK.replace("**Scope:** the billing service · ", "")))
+
+
+def test_dash_is_not_acceptance():
+    assert any("modules" in e for e in depth_errs(DEPTH_OK.replace("The ledger module rejects a negative amount.", "n/a")))
+
+
+def test_direct_read_that_only_says_no_graph_fails():
+    assert improve_errs(report([row(1, "yes")], box(1), grounding="direct read; no code graph available"))
+
+
+def test_graph_claim_that_negates_the_graph_fails():
+    assert improve_errs(report([row(1, "yes")], box(1), grounding="no code graph, read the files"))
+
+
 # --- #45 improve report ---------------------------------------------------------------------
 
 def box(n):
@@ -170,6 +217,10 @@ def test_nothing_found_padded_with_a_box_fails():
 def test_boxes_over_cap_fail():
     rows = [row(1, "yes"), row(2, "yes"), row(3, "yes")]
     assert any("cap" in e for e in improve_errs(report(rows, box(1) + box(2) + box(3), cap=2)))
+
+
+def test_non_numeric_cap_fails():
+    assert any("cap" in e for e in improve_errs(report([row(1, "yes")], box(1), cap="few")))
 
 
 def test_tail_is_listed_and_not_emitted():
