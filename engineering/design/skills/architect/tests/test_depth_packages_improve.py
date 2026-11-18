@@ -1,0 +1,253 @@
+"""Checks for the depth dial (#46), package isolation (#43) and the `:improve` report (#45).
+
+Run: python3 -m pytest engineering/design/skills/architect/tests
+"""
+import importlib.util
+import pathlib
+import subprocess
+import sys
+
+import pytest
+
+HERE = pathlib.Path(__file__).resolve().parent
+SKILL = HERE.parent
+
+
+def _load(name):
+    spec = importlib.util.spec_from_file_location(name, SKILL / "scripts" / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+lint = _load("lint")
+
+DEPTH_OK = """## Decomposition depth
+**Dialed rung:** components · **Scope:** the billing service · **Given by:** the user, this invocation
+## Acceptance by rung
+| Rung | Acceptance criteria (ATDD) |
+|------|----------------------------|
+| interfaces | The API returns 402 on an unpaid invoice. |
+| modules | The ledger module rejects a negative amount. |
+| components | The tax component rounds half-even. |
+"""
+
+
+def depth_errs(text):
+    errs = []
+    lint.check_depth(text, errs)
+    return errs
+
+
+# --- #46 depth dial -------------------------------------------------------------------------
+
+def test_depth_with_acceptance_at_every_traversed_rung_passes():
+    assert depth_errs(DEPTH_OK) == []
+
+
+def test_missing_depth_section_fails():
+    assert any("E9" in e for e in depth_errs("## Block index\n"))
+
+
+def test_unknown_rung_fails():
+    assert depth_errs(DEPTH_OK.replace("components ·", "layers ·", 1))
+
+
+def test_default_picked_silently_fails():
+    assert depth_errs(DEPTH_OK.replace("the user, this invocation", "default"))
+
+
+def test_leaf_only_acceptance_fails():
+    text = DEPTH_OK.replace("| interfaces | The API returns 402 on an unpaid invoice. |\n", "")
+    assert any("interfaces" in e for e in depth_errs(text))
+
+
+def test_rung_below_the_dialed_one_is_not_required():
+    text = DEPTH_OK.replace("components ·", "modules ·", 1).replace(
+        "| components | The tax component rounds half-even. |\n", "")
+    assert depth_errs(text) == []
+
+
+def test_empty_acceptance_cell_fails():
+    text = DEPTH_OK.replace("The ledger module rejects a negative amount.", " ")
+    assert any("modules" in e for e in depth_errs(text))
+
+
+# --- #43 isolation --------------------------------------------------------------------------
+
+def spec(rows, extra=""):
+    head = "## Block index\n| # | Block | Runs on | Depends on | Write-set | Satisfies |\n|---|---|---|---|---|---|\n"
+    return head + "\n".join(rows) + "\n" + extra
+
+
+def ws(text):
+    errs, warns = [], []
+    lint.check_write_sets(text, errs, warns)
+    return errs, warns
+
+
+def test_disjoint_write_sets_pass():
+    errs, _ = ws(spec(["| 1 | a | x | - | src/a | R1 |", "| 2 | b | x | - | src/b | R1 |"]))
+    assert errs == []
+
+
+def test_shared_write_set_without_edge_or_channel_fails():
+    errs, _ = ws(spec(["| 1 | a | x | - | src/a | R1 |", "| 2 | b | x | - | src/a | R1 |"]))
+    assert any("E10" in e for e in errs)
+
+
+def test_shared_write_set_ordered_by_an_edge_passes():
+    errs, _ = ws(spec(["| 1 | a | x | - | src/a | R1 |", "| 2 | b | x | 1 | src/a | R1 |"]))
+    assert errs == []
+
+
+def test_shared_write_set_ordered_transitively_passes():
+    errs, _ = ws(spec(["| 1 | a | x | - | src/a | R1 |", "| 2 | b | x | 1 | src/b | R1 |",
+                       "| 3 | c | x | 2 | src/a | R1 |"]))
+    assert errs == []
+
+
+def test_shared_write_set_with_channel_marker_in_both_passes():
+    extra = "## Block 1: a\n**Coordination channel:** thread-ab\n## Block 2: b\n**Coordination channel:** thread-ab\n"
+    errs, _ = ws(spec(["| 1 | a | x | - | src/a | R1 |", "| 2 | b | x | - | src/a | R1 |"], extra))
+    assert errs == []
+
+
+def test_channel_marker_in_one_block_only_fails():
+    extra = "## Block 1: a\n**Coordination channel:** thread-ab\n## Block 2: b\n"
+    errs, _ = ws(spec(["| 1 | a | x | - | src/a | R1 |", "| 2 | b | x | - | src/a | R1 |"], extra))
+    assert errs
+
+
+def test_missing_write_set_column_warns():
+    errs, warns = ws("## Block index\n| # | Block | Depends on |\n|---|---|---|\n| 1 | a | - |\n")
+    assert errs == [] and any("W3" in w for w in warns)
+
+
+def test_overlapping_path_prefixes_count_as_shared():
+    errs, _ = ws(spec(["| 1 | a | x | - | src/a | R1 |", "| 2 | b | x | - | src/a/deep | R1 |"]))
+    assert any("E10" in e for e in errs)
+
+
+# --- #45 improve report ---------------------------------------------------------------------
+
+def box(n):
+    return (f"### Box {n}: deepen module {n}\n**Acceptance:** the interface of module {n} has one entry point.\n"
+            "**Invariant:** keep components and libraries deep with tiny interfaces.\n")
+
+
+def report(rows, boxes, cap=2, grounding="code graph (codebase-memory)", result="Findings below.", tail=""):
+    table = "| # | Finding | Kind | Importance | Scope | Impact | Emitted |\n|---|---|---|---|---|---|---|\n" + "\n".join(rows)
+    return (f"# r\n**Target:** the billing subtree\n**Grounding:** {grounding}\n"
+            f"**Output location:** one GitHub issue per box\n**Box cap:** {cap}\n"
+            f"## Result\n{result}\n## Boxes\n{boxes}\n## All findings\n{table}\n## Not emitted\n{tail}\n")
+
+
+def row(n, emitted):
+    return f"| {n} | f{n} | shallow | high | m | m | {emitted} |"
+
+
+def improve_errs(text):
+    errs = []
+    lint.check_improve(text, errs)
+    return errs
+
+
+def test_clean_report_within_cap_passes():
+    assert improve_errs(report([row(1, "yes"), row(2, "yes")], box(1) + box(2))) == []
+
+
+def test_nothing_found_must_say_so_and_emit_nothing():
+    text = report([], "", result="Nothing worth deepening in this target.")
+    assert improve_errs(text) == []
+
+
+def test_nothing_found_padded_with_a_box_fails():
+    text = report([], box(1), result="Nothing worth deepening in this target.")
+    assert improve_errs(text)
+
+
+def test_boxes_over_cap_fail():
+    rows = [row(1, "yes"), row(2, "yes"), row(3, "yes")]
+    assert any("cap" in e for e in improve_errs(report(rows, box(1) + box(2) + box(3), cap=2)))
+
+
+def test_tail_is_listed_and_not_emitted():
+    rows = [row(1, "yes"), row(2, "yes"), row(3, "no")]
+    text = report(rows, box(1) + box(2), tail="- f3 (below the cap)")
+    assert improve_errs(text) == []
+
+
+def test_tail_without_a_note_fails():
+    rows = [row(1, "yes"), row(2, "yes"), row(3, "no")]
+    assert improve_errs(report(rows, box(1) + box(2), tail=""))
+
+
+def test_emitted_rows_must_be_the_top_ranked():
+    rows = [row(1, "no"), row(2, "yes"), row(3, "yes")]
+    assert improve_errs(report(rows, box(2) + box(3), tail="- f1"))
+
+
+def test_box_without_the_invariant_fails():
+    text = report([row(1, "yes")], "### Box 1: x\n**Acceptance:** y\n")
+    assert any("invariant" in e.lower() for e in improve_errs(text))
+
+
+def test_direct_read_without_warning_fails():
+    text = report([row(1, "yes")], box(1), grounding="direct read of the code")
+    assert improve_errs(text)
+
+
+def test_direct_read_with_warning_passes():
+    text = report([row(1, "yes")], box(1), grounding="direct read; WARNING: no code index available")
+    assert improve_errs(text) == []
+
+
+def test_unstated_target_fails():
+    text = report([row(1, "yes")], box(1)).replace("**Target:** the billing subtree\n", "")
+    assert any("Target" in e for e in improve_errs(text))
+
+
+def test_unstated_output_location_fails():
+    text = report([row(1, "yes")], box(1)).replace("**Output location:** one GitHub issue per box\n", "")
+    assert any("Output location" in e for e in improve_errs(text))
+
+
+# --- scaffold + cross-references ------------------------------------------------------------
+
+def test_scaffolded_full_spec_declares_depth_write_set_and_channel(tmp_path):
+    subprocess.run([sys.executable, str(SKILL / "scripts" / "scaffold.py"), "--slug", "t",
+                    "--title", "T", "--dir", str(tmp_path / "p"), "--tier", "small"], check=True,
+                   capture_output=True)
+    text = (tmp_path / "p" / "t-spec.md").read_text()
+    for needle in ("Decomposition depth", "Acceptance by rung", "Write-set", "Coordination channel"):
+        assert needle in text, needle
+
+
+def test_scaffold_emits_an_improve_report_that_lints_clean_once_filled(tmp_path):
+    subprocess.run([sys.executable, str(SKILL / "scripts" / "scaffold.py"), "--slug", "t",
+                    "--title", "T", "--dir", str(tmp_path / "i"), "--improve"], check=True,
+                   capture_output=True)
+    path = tmp_path / "i" / "improve-report.md"
+    out = subprocess.run([sys.executable, str(SKILL / "scripts" / "lint.py"), str(path), "--improve"],
+                         capture_output=True, text=True)
+    assert out.returncode == 1 and "E3" in out.stdout  # unfilled scaffold is rejected
+
+
+@pytest.mark.parametrize("name", ["depth-dial.md", "improve.md"])
+def test_depth_and_improve_docs_cross_reference_each_other(name):
+    text = (SKILL / "references" / name).read_text()
+    other = "improve.md" if name == "depth-dial.md" else "depth-dial.md"
+    assert other in text
+
+
+def test_improve_doc_names_the_report_and_the_boundary():
+    text = (SKILL / "references" / "improve.md").read_text()
+    for needle in ("improve-report.md", "code-quality", "never edits", "Box cap"):
+        assert needle in text, needle
+
+
+def test_decompose_filing_guard_for_packages():
+    guide = (SKILL.parent / "decompose" / "references" / "filing.md").read_text()
+    for needle in ("Blocked by", "Blocks", "never opens", "work.tracker"):
+        assert needle in guide, needle
