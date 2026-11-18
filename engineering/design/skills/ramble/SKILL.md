@@ -10,6 +10,10 @@ Take whatever rough thing is brought — a ramble, a half-formed plan, a one-lin
 it until nothing load-bearing is left unsaid, then hand the architect a structured brief. The job is
 alignment, not output: resolve the decisions, don't write the thing.
 
+## Scope
+
+Hands a brief to `architect` and does nothing else. It does not design, decompose or build.
+
 ## The interview: a design tree, worked in rounds
 
 Map the idea as a **design tree** — every decision branches into the decisions that hang off it.

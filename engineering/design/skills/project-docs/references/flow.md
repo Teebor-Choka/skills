@@ -17,6 +17,12 @@ Prefer a code-graph tool over a blind file sweep (it is faster and finds the rea
 large or multi-part project, fan the exploration out to subagents and work from their findings. The
 goal is enough grounding that every line you write traces to something in the project.
 
+## Never write into docs
+
+No secrets or credentials, no internal host names or addresses, no personal data copied from `.env`,
+config, or logs. Describe where a secret comes from (the vault, the env var name), never its value.
+The validator's `secret-pattern` check is a backstop only.
+
 ## Describe, don't propose
 
 `overview.md` and `spec.md` document a system that already exists. Write in the present tense about
@@ -52,6 +58,11 @@ content is yours to fit the project):
   adversarial), and a diagram. Only when the opt-in test in the contract says the project needs it.
 - `assets/adr.skeleton.md`: one decision, in architect's shape. One file per decision under
   `decisions/`, kebab-named for the decision.
+- `assets/process.skeleton.md`: write it when the project has a procedure, a markdown file in
+  `.agents/procedures/` (required then; skip it otherwise). It names the procedure the project runs, where its documents live under `.agents/`, who
+  decides what, and points to `.agents/iterations/` for the record of changes. Do not copy the
+  procedure into it. Set `procedure` to the file name of `.agents/procedures/<name>.md`, without the
+  extension.
 - `assets/decisions-README.skeleton.md`: the index: a table linking every ADR. Keep it in sync
   with the directory; the validator checks both directions.
 - `assets/AGENTS.pointer.md`: the root pointer. Create it, or splice its pointers into an existing

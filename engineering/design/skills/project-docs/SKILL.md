@@ -72,9 +72,12 @@ plain voice.**
 5. **Write the ADRs.** One `decisions/<slug>.md` per **active** decision, and the
    `decisions/README.md` index listing them. Keep a denied or discarded alternative as a footnote on
    the active decision, not as its own file.
-6. **Wire `AGENTS.md`.** Create or update the root `AGENTS.md` to point at `docs/overview.md` and
+6. **Write `process.md`** if the project has a procedure (a markdown file in `.agents/procedures/`):
+   the procedure it runs, where its documents live, who decides what. Required then; skip it when
+   there is no procedure.
+7. **Wire `AGENTS.md`.** Create or update the root `AGENTS.md` to point at `docs/overview.md` and
    `docs/decisions/`, plus the few build/run essentials. It points; it does not restate.
-7. **Validate.** Run `python3 scripts/validate_docs.py <project>` and fix every finding before
+8. **Validate.** Run `python3 scripts/validate_docs.py <project>` and fix every finding before
    reporting done. For the exact flow and templates see [`references/flow.md`](references/flow.md).
 
 ## Diagrams

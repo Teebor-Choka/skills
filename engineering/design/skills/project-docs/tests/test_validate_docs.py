@@ -9,6 +9,7 @@ Pure standard library, no third-party deps beyond pytest itself.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -217,6 +218,252 @@ def test_spec_is_optional(make_repo):
     assert validate_docs.validate_project(repo) == []
 
 
+# --- optional process.md ------------------------------------------------------
+
+PROCESS_DOC = (
+    "---\n"
+    "title: widgetd process\n"
+    "kind: process\n"
+    "project: widgetd\n"
+    "updated: 2026-10-13\n"
+    "procedure: sw-development\n"
+    "---\n\n"
+    "# widgetd process\n\n"
+    "```mermaid\n"
+    "flowchart LR\n"
+    "    spec --> build --> review\n"
+    "```\n"
+)
+
+
+def add_process(repo: Path, text: str = PROCESS_DOC, procedure_file: str | None = "sw-development") -> Path:
+    """Write docs/process.md and, unless procedure_file is None, a stub procedure
+    under .agents/procedures/ so the procedure-exists rule has something to find.
+    Starts from a clean slate: the fixture's own .agents/ is removed first."""
+    shutil.rmtree(repo / ".agents", ignore_errors=True)
+    doc = repo / "docs" / "process.md"
+    doc.write_text(text)
+    if procedure_file is not None:
+        proc = repo / ".agents" / "procedures"
+        proc.mkdir(parents=True, exist_ok=True)
+        (proc / f"{procedure_file}.md").write_text("# stub\n")
+    return doc
+
+
+def test_conformant_fixture_carries_a_process_doc(conformant_src):
+    # The fixture exercises the process rules end to end: doc plus procedure file.
+    assert (conformant_src / "docs" / "process.md").is_file()
+    assert (conformant_src / ".agents" / "procedures" / "sw-development.md").is_file()
+
+
+def test_process_doc_is_optional_when_the_project_has_no_procedures(make_repo):
+    repo = make_repo()
+    (repo / "docs" / "process.md").unlink()
+    shutil.rmtree(repo / ".agents")
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_process_doc_is_required_when_the_project_has_a_procedure(make_repo):
+    repo = make_repo()
+    (repo / "docs" / "process.md").unlink()
+    assert (repo / ".agents" / "procedures" / "sw-development.md").is_file()
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == ["process-doc-missing"]
+    assert findings[0].file == "docs/process.md" and "sw-development" in findings[0].message
+
+
+@pytest.mark.parametrize("layout", ["empty-procedures-dir", "other-tools-files", "non-markdown-only", "policy-only"])
+def test_process_doc_is_not_required_without_a_procedure_file(make_repo, layout):
+    repo = make_repo()
+    (repo / "docs" / "process.md").unlink()
+    shutil.rmtree(repo / ".agents")
+    agents = repo / ".agents"
+    if layout == "empty-procedures-dir":
+        (agents / "procedures").mkdir(parents=True)
+    elif layout == "other-tools-files":
+        (agents / "skills" / "x").mkdir(parents=True)
+        (agents / "skills" / "x" / "SKILL.md").write_text("# x\n")
+    elif layout == "non-markdown-only":
+        (agents / "procedures").mkdir(parents=True)
+        (agents / "procedures" / "notes.txt").write_text("x")
+    else:
+        agents.mkdir()
+        (agents / "policy.md").write_text("# policy\n")
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_a_procedure_in_a_subdirectory_does_not_require_a_process_doc(make_repo):
+    repo = make_repo()
+    (repo / "docs" / "process.md").unlink()
+    shutil.rmtree(repo / ".agents")
+    (repo / ".agents" / "procedures" / "old").mkdir(parents=True)
+    (repo / ".agents" / "procedures" / "old" / "x.md").write_text("# x\n")
+    assert validate_docs.validate_project(repo) == []
+
+
+# ---- the procedure's content, checked by the procedure validator when one is installed
+
+def fake_validator(tmp_path, exit_code=0, message="", marker=None, sleep=0):
+    script = tmp_path / "validate_procedure.py"
+    lines = ["import sys, time"]
+    if marker:
+        lines.append(f"open({str(marker)!r}, 'a').write(sys.argv[1] + '\\n')")
+    if sleep:
+        lines.append(f"time.sleep({sleep})")
+    if message:
+        lines.append(f"print({message!r}, file=sys.stderr)")
+    lines.append(f"sys.exit({exit_code})")
+    script.write_text("\n".join(lines) + "\n")
+    return script
+
+
+def test_a_procedure_the_validator_accepts_passes(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(fake_validator(tmp_path)))
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_a_procedure_the_validator_rejects_is_a_finding_with_its_message(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(fake_validator(tmp_path, 1, "ERROR: stage 'a' needs metrics")))
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == ["process-procedure-invalid"]
+    assert findings[0].file == "docs/process.md" and "needs metrics" in findings[0].message
+    assert ".agents/procedures/sw-development.md" in findings[0].message
+
+
+def test_the_validator_is_given_the_procedure_file(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    marker = tmp_path / "args"
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(fake_validator(tmp_path, marker=marker)))
+    validate_docs.validate_project(repo)
+    assert marker.read_text().strip() == str(repo / ".agents" / "procedures" / "sw-development.md")
+
+
+def test_no_validator_installed_means_the_content_is_not_checked(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(tmp_path / "missing.py"))
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_an_empty_setting_turns_the_content_check_off(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    marker = tmp_path / "args"
+    fake_validator(tmp_path, 1, "ERROR", marker=marker)
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", "")
+    assert validate_docs.validate_project(repo) == [] and not marker.exists()
+
+
+def test_the_validator_is_not_run_when_the_procedure_file_is_missing(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    (repo / ".agents" / "procedures" / "sw-development.md").unlink()
+    (repo / ".agents" / "procedures" / "other.md").write_text("# other\n")
+    marker = tmp_path / "args"
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(fake_validator(tmp_path, 1, "ERROR", marker=marker)))
+    assert [f.rule for f in validate_docs.validate_project(repo)] == ["process-procedure-missing"] and not marker.exists()
+
+
+def test_a_validator_that_hangs_is_a_finding_not_a_hang(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(fake_validator(tmp_path, sleep=5)))
+    monkeypatch.setattr(validate_docs, "PROCEDURE_TIMEOUT", 1)
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == ["process-procedure-invalid"] and "timed out" in findings[0].message
+
+
+def test_the_validator_runs_without_the_environment_or_user_site(make_repo, tmp_path, monkeypatch):
+    repo = make_repo()
+    marker = tmp_path / "env"
+    script = tmp_path / "v.py"
+    script.write_text(f"import os, sys\nopen({str(marker)!r}, 'w').write(os.environ.get('SECRET_TOKEN', 'absent') + ' ' + str(sys.flags.ignore_environment))\n")
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", str(script))
+    monkeypatch.setenv("SECRET_TOKEN", "leak")
+    validate_docs.validate_project(repo)
+    assert marker.read_text() == "absent 1"
+
+
+def test_valid_process_doc_passes(make_repo):
+    repo = make_repo()
+    add_process(repo)
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_process_doc_without_agents_dir_passes(make_repo):
+    repo = make_repo()
+    add_process(repo, procedure_file=None)
+    assert not (repo / ".agents").exists()
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_agents_dir_without_procedures_dir_passes(make_repo):
+    # The procedure file is checked only when .agents/procedures/ exists.
+    repo = make_repo()
+    add_process(repo, procedure_file=None)
+    (repo / ".agents").mkdir()
+    (repo / ".agents" / "policy.md").write_text("# policy\n")
+    assert validate_docs.validate_project(repo) == []
+
+
+@pytest.mark.parametrize(
+    "old, new, rule",
+    [
+        pytest.param("kind: process", "kind: overview", "frontmatter-kind", id="wrong-kind"),
+        pytest.param("procedure: sw-development\n", "", "process-procedure", id="missing-procedure"),
+        pytest.param("procedure: sw-development", "procedure:", "process-procedure",
+                     id="empty-procedure"),
+        pytest.param("procedure: sw-development", "procedure: Sw_Development", "process-procedure",
+                     id="procedure-not-kebab"),
+        pytest.param("procedure: sw-development", "procedure: ../policy", "process-procedure",
+                     id="procedure-path-traversal"),
+        pytest.param("project: widgetd", "project: other-name", "project-divergence",
+                     id="divergent-project-name"),
+        pytest.param("updated: 2026-10-13", "updated: Oct 2026", "frontmatter-updated",
+                     id="bad-updated-date"),
+        pytest.param("title: widgetd process\n", "", "frontmatter-key", id="missing-title"),
+    ],
+)
+def test_process_doc_single_edit_raises_one_rule(make_repo, old, new, rule):
+    repo = make_repo()
+    assert old in PROCESS_DOC, f"fixture drift: {old!r}"
+    add_process(repo, PROCESS_DOC.replace(old, new))
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == [rule]
+    assert findings[0].file == "docs/process.md"
+
+
+def test_process_doc_malformed_frontmatter(make_repo):
+    repo = make_repo()
+    # Opening fence never closed: treated as missing frontmatter.
+    add_process(repo, "---\ntitle: widgetd process\nkind: process\n\n# body\n\n```mermaid\nflowchart LR\n    a --> b\n```\n")
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == ["frontmatter-missing"]
+    assert findings[0].file == "docs/process.md"
+
+
+def test_process_doc_without_mermaid(make_repo):
+    repo = make_repo()
+    start = PROCESS_DOC.index("```mermaid")
+    add_process(repo, PROCESS_DOC[:start])
+    assert rules(repo) == ["diagram"]
+
+
+def test_process_procedure_file_missing_when_procedures_dir_exists(make_repo):
+    repo = make_repo()
+    add_process(repo, procedure_file="other-procedure")
+    findings = validate_docs.validate_project(repo)
+    assert [f.rule for f in findings] == ["process-procedure-missing"]
+    assert findings[0].file == "docs/process.md"
+    assert ".agents/procedures/sw-development.md" in findings[0].message
+
+
+def test_process_procedure_dir_is_not_a_file(make_repo):
+    # A directory named <procedure>.md does not satisfy the rule.
+    repo = make_repo()
+    add_process(repo, procedure_file=None)
+    (repo / ".agents" / "procedures" / "sw-development.md").mkdir(parents=True)
+    assert rules(repo) == ["process-procedure-missing"]
+
+
 # --- extra docs under docs/ are ignored --------------------------------------
 
 
@@ -311,3 +558,187 @@ def test_cli_json_empty_on_pass(conformant_src):
     result = run_cli(str(conformant_src), "--json")
     assert result.returncode == 0
     assert json.loads(result.stdout) == []
+
+
+# --- hardening: exit codes, dates, diagrams, supersede, secrets ----------------
+
+import re  # noqa: E402
+
+DIAGRAM_BLOCK_RE = re.compile(r"```mermaid\n.*?```\n", re.DOTALL)
+
+
+def set_overview_diagram(repo: Path, block: str) -> None:
+    overview = repo / "docs" / "overview.md"
+    text = overview.read_text()
+    assert DIAGRAM_BLOCK_RE.search(text)
+    overview.write_text(DIAGRAM_BLOCK_RE.sub(lambda _: block, text, count=1))
+
+
+def test_cli_all_with_no_projects_exits_two(tmp_path):
+    result = run_cli("--all", str(tmp_path))
+    assert result.returncode == 2
+    assert "no projects found under" in result.stderr
+    assert "ok: all checks passed" not in result.stderr
+
+
+def test_non_utf8_doc_is_a_finding_not_a_crash(make_repo):
+    repo = make_repo()
+    (repo / "docs" / "overview.md").write_bytes(b"\xff\xfe\x00 not utf-8 \x80")
+    assert rules(repo) == ["unreadable-file"]
+
+
+def test_cli_all_continues_after_an_unreadable_doc(make_repo, tmp_path):
+    bad = make_repo("bad")
+    (bad / "docs" / "overview.md").write_bytes(b"\xff\xfe\x00 \x80")
+    make_repo("good")
+    result = run_cli("--all", str(tmp_path))
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "unreadable" in result.stdout
+    assert "PASS" in result.stderr and "FAIL" in result.stderr
+
+
+def test_unexpected_exception_exits_two(make_repo, monkeypatch, capsys):
+    def boom(*_a, **_k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(validate_docs, "validate_project", boom)
+    assert validate_docs.main([str(make_repo())]) == 2
+    assert "boom" in capsys.readouterr().err
+
+
+def test_updated_must_be_a_real_calendar_date(make_repo):
+    repo = make_repo()
+    p = repo / "docs" / "overview.md"
+    p.write_text(re.sub(r"(?m)^updated: .*$", "updated: 2026-13-45", p.read_text(), count=1))
+    assert rules(repo) == ["frontmatter-updated"]
+
+
+@pytest.mark.parametrize("block", ["```mermaid\n```\n", "```mermaid\n   \n\n```\n", "~~~mermaid\n~~~\n"])
+def test_empty_mermaid_fence_does_not_satisfy_diagram(make_repo, block):
+    repo = make_repo()
+    set_overview_diagram(repo, block)
+    assert rules(repo) == ["diagram"]
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        "~~~mermaid\nflowchart TD\n  a --> b\n~~~\n",
+        "````mermaid\nflowchart TD\n  a --> b\n````\n",
+    ],
+)
+def test_real_mermaid_fences_of_other_styles_pass(make_repo, block):
+    repo = make_repo()
+    set_overview_diagram(repo, block)
+    assert rules(repo) == []
+
+
+def test_mermaid_nested_in_a_longer_fence_does_not_count(make_repo):
+    repo = make_repo()
+    set_overview_diagram(
+        repo, "````markdown\n```mermaid\nflowchart TD\n  a --> b\n```\n````\n"
+    )
+    assert rules(repo) == ["diagram"]
+
+
+def add_adr(repo: Path, slug: str, extra_fm: str = "") -> None:
+    src = (repo / "docs" / "decisions" / "use-sqlite.md").read_text()
+    src = src.replace("status: accepted\n", "status: accepted\n" + extra_fm, 1)
+    (repo / "docs" / "decisions" / f"{slug}.md").write_text(src)
+    idx = repo / "docs" / "decisions" / "README.md"
+    idx.write_text(idx.read_text() + f"2. [{slug}]({slug}.md)\n")
+
+
+def set_fm(repo: Path, slug: str, line: str) -> None:
+    p = repo / "docs" / "decisions" / f"{slug}.md"
+    p.write_text(p.read_text().replace("status: accepted\n", f"status: accepted\n{line}\n", 1))
+
+
+def test_supersede_links_to_existing_adrs_pass(make_repo):
+    repo = make_repo()
+    add_adr(repo, "use-postgres", "supersedes: use-sqlite\n")
+    set_fm(repo, "use-sqlite", "superseded-by: use-postgres")
+    assert rules(repo) == []
+
+
+def test_supersedes_missing_target_is_flagged(make_repo):
+    repo = make_repo()
+    set_fm(repo, "use-sqlite", "supersedes: no-such-adr")
+    assert rules(repo) == ["adr-supersede"]
+
+
+def test_superseded_by_list_flags_only_the_missing_target(make_repo):
+    repo = make_repo()
+    add_adr(repo, "use-postgres")
+    set_fm(repo, "use-sqlite", "superseded-by: [use-postgres, ghost]")
+    found = [f for f in validate_docs.validate_project(repo) if f.rule == "adr-supersede"]
+    assert len(found) == 1 and "ghost" in found[0].message
+
+
+# Secrets are assembled at runtime so this file holds no literal token.
+SECRETS = {
+    "pem": "-----BEGIN " + "RSA PRIVATE KEY-----",
+    "aws": "AK" + "IA" + "ABCDEFGHIJKLMNOP",
+    "gh": "gh" + "p_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8",
+    "ghpat": "github" + "_pat_" + "a1B2c3D4e5F6g7H8i9J0k1",
+    "slack": "xo" + "xb-" + "123456789012-1234567890123-" + "abcdefghijABCDEFGHIJabcd",
+}
+
+
+@pytest.mark.parametrize("secret", SECRETS.values(), ids=SECRETS.keys())
+def test_secret_pattern_flags_without_echoing(make_repo, secret):
+    repo = make_repo()
+    p = repo / "docs" / "spec.md"
+    p.write_text(p.read_text() + f"\nconfig: {secret}\n")
+    assert rules(repo) == ["secret-pattern"]
+    plain = run_cli(str(repo))
+    as_json = run_cli(str(repo), "--json")
+    assert plain.returncode != 0 and as_json.returncode != 0
+    for out in (plain, as_json):
+        assert secret not in out.stdout + out.stderr
+    assert "secret-pattern" in [f["rule"] for f in json.loads(as_json.stdout)]
+
+
+def test_secret_pattern_ignores_prose_and_short_examples(make_repo):
+    repo = make_repo()
+    p = repo / "docs" / "spec.md"
+    p.write_text(
+        p.read_text()
+        + "\nThe password is read from the vault. Example: AKIA1234, ghp_short,"
+        " xoxb-1, github_pat_x, a PRIVATE KEY lives in the secret store.\n"
+    )
+    assert rules(repo) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "AKIAIOSFODNN7EXAMPLE",  # AWS's documented example key
+        "xoxb-your-token-here",
+        "BAKIA" + "ABCDEFGHIJKLMNOP",  # embedded in a longer word
+        "AKIA" + "ABCDEFGHIJKLMNOP" + "Q",
+    ],
+)
+def test_secret_pattern_ignores_documented_examples_and_embedded_text(make_repo, text):
+    repo = make_repo()
+    p = repo / "docs" / "spec.md"
+    p.write_text(p.read_text() + f"\nexample: {text}\n")
+    assert rules(repo) == []
+
+
+def test_four_space_indented_fence_is_not_a_fence(make_repo):
+    repo = make_repo()
+    set_overview_diagram(repo, "    ```mermaid\n    flowchart TD\n      a --> b\n    ```\n")
+    assert rules(repo) == ["diagram"]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file modes")
+@pytest.mark.parametrize("sub", ["docs", "docs/decisions"])
+def test_unreadable_doc_dir_is_a_finding_not_an_abort(make_repo, sub):
+    repo = make_repo()
+    d = repo / sub
+    d.chmod(0)
+    try:
+        assert rules(repo) == ["unreadable-file"]
+    finally:
+        d.chmod(0o755)

@@ -34,3 +34,9 @@ def make_repo(tmp_path):
         return dest
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def no_procedure_validator(monkeypatch):
+    """Tests never find a procedure validator on the machine they run on. One that wants it sets it."""
+    monkeypatch.setenv("PROCEDURE_VALIDATOR", "")
