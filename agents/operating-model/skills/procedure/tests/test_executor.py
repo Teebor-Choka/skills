@@ -175,11 +175,10 @@ def test_drive_refuses_a_run_that_is_not_new():
         drive(done, Scripted(ring), ring, verify_owner=OWNER_OK)
 
 
-def test_drive_refuses_a_claims_run():
+def test_drive_runs_an_unsigned_run_with_no_ring():
     from signed_fixtures import new_state
-    state = new_state(SWE)
-    with pytest.raises(ValueError, match="signed"):
-        drive(state, Scripted(ring_for(sfresh())), ring_for(sfresh()), verify_owner=OWNER_OK)
+    out = drive(new_state(SWE), type("E", (), {"run": lambda self, action: [] if action["do"] != "start-stage" else [{"type": "stage-done", "stage": action["stage"], "round": action["round"], "locators": LOCATORS[action["stage"]]}]})(), None, verify_owner=OWNER_OK)
+    assert out.status == "done"
 
 
 def test_drive_stops_at_the_step_bound_even_when_work_remains():
