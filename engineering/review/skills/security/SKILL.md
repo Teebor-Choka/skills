@@ -1,16 +1,9 @@
 ---
 name: security
 description: >
-  Run and combine the standard security scanners on a codebase, then triage their output
-  with an AI review pass into one deduplicated, evidence-backed findings list. Covers
-  secrets (gitleaks, trufflehog), dependencies (osv-scanner), SAST (semgrep), GitHub
-  Actions (zizmor), agent skills and MCP servers (SkillSpector), LLM endpoints (garak),
-  and, only with written authorization, live targets (nuclei, strix). Use when asked to
-  scan, audit, harden, or security-review a repo, a diff, a PR, a workflow, or an
-  installed skill, to check for leaked secrets or vulnerable dependencies, or before
-  shipping or installing code. Do not use for a pure threat-model discussion, for
-  testing systems you do not own, or for fixing one already-identified bug (use the
-  normal change workflow).
+  Run security scanners (gitleaks, trufflehog, osv-scanner, semgrep, zizmor) and triage
+  into one findings list. Use for "security scan/audit", leaked secrets, vulnerable deps,
+  or before shipping or installing code. Not for threat models.
 ---
 
 # Security scan

@@ -1,14 +1,9 @@
 ---
 name: dep-pr-triage
 description: >
-  Triage open dependency-bot pull requests (Dependabot, Renovate) across a GitHub org or list of
-  orgs: enumerate them with gh, classify each red check (format, lint, security audit, build,
-  test), apply the mechanical fix on the PR branch, push, and re-check. Never merges, approves, or
-  enables auto-merge. Use when asked to "go through the dependabot PRs", "fix the renovate PRs",
-  "why are the bump PRs red", "babysit the dependency updates", or to sweep several repos for
-  failing dependency PRs, including on a recurring schedule. Not for babysitting a single PR you
-  opened (use the repo's PR workflow skill), reviewing human-authored PRs (use code-review), for CI authoring (use github-actions), or for deciding whether to adopt an
-  upgrade that changes behaviour.
+  Fix red dependency-bot PRs (Dependabot, Renovate) in repos: classify each check, push
+  the mechanical fix, re-check, babysit to green. Never merges or approves. Use for "go
+  through dependency PRs", "why are bump PRs red". Not for one PR you opened.
 license: MIT
 compatibility: Needs the GitHub CLI (gh), authenticated with push access to the target repos.
 metadata:

@@ -1,14 +1,9 @@
 ---
 name: assign
 description: >-
-  Run a thin-dispatcher fleet (alias: direct): a dispatcher files known units on a shared work
-  board, claims each for a named worker, spawns workers at the right model tier in their own
-  workspace, and drives by events and leases instead of polling or relaying. Use when the units are
-  known up front, their write-sets are disjoint and each finishes alone, or when you are told "load
-  orchestrate:assign, role X". Process (roles, states, gates) comes from an owner-approved charter.
-  Works for code and non-code work. Not for work that spawns work or peer review loops (use
-  orchestrate:pull), not for cutting work into units (use decompose), not for git and PR mechanics
-  (use the repo's PR workflow skill), and not for one item (just do it).
+  Dispatch known, independent units to workers on the right model tier, driven by events not
+  polling. Use only when told "load orchestrate:assign, role X". Not for work that spawns work
+  (orchestrate:pull).
 license: MIT
 compatibility: any
 metadata:

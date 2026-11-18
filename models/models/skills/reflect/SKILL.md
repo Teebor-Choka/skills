@@ -1,6 +1,9 @@
 ---
 name: reflect
-description: Retrospective over agent sessions, including long multi-agent runs with subagents, orchestration logs and messages between sessions. Mine one session, or many across a project or time window, for the moments the agents struggled, then propose fixes to the environment, skills, and workflows it used (navigation pointers, deterministic checks, skill or AGENTS.md edits, process changes), most-severe-first. Improves the environment, never the work itself, and proposes only. Use when the user asks for a retrospective or runs /reflect.
+description: >
+  Run a retrospective over agent sessions ("/reflect", "/session-retrospective", "what went
+  wrong in these sessions"): find where agents struggled, propose fixes to skills, hooks,
+  AGENTS.md. Proposes only; edits nothing.
 ---
 
 The user asked for a **retrospective**. You suggest improvements to the agent's **setup**: its environment, and the skills, processes, and workflows it used, so future runs go better. You change the setup, not the work itself: take the mistake that shipped, the fact that took twenty tool calls to find, the convention a review missed, the skill step that read ambiguously, and ask what in the project, the steering, or the workflow let it happen. The session may be any kind of work (code, research, writing, ops); the engine is the same. You propose. Nothing changes until the user picks a candidate.

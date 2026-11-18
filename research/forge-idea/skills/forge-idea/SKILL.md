@@ -1,20 +1,10 @@
 ---
 name: forge-idea
 description: >
-  Forge a rough idea, thesis, or plan into a viable one through cooperative,
-  research-driven iteration. Reduces it to a sharp minimal kernel, fans out
-  independent agents in parallel to stress-test each branch, then prunes dead
-  branches and reshapes the rest with what research found — looping until the
-  idea stabilizes or the user stops. Use whenever the user wants to
-  pressure-test, validate, red-team, kill-test, gut-check, poke holes in,
-  evolve, refine, or find the viable version of a business thesis, product
-  direction, architecture, strategy, or research hypothesis — especially
-  phrasings like "will this actually work", "is this defensible", "tear this
-  apart", "why would this fail", "how do I make this work", "what's the wedge",
-  "should we build X", or when a premise developed in the conversation is ready
-  to be tested against reality. Do not use for open-ended fact-finding with no
-  premise to test (use a deep-research skill), for building an idea already
-  decided on, or for drafting or formatting a document.
+  Stress-test a rough idea or plan until a viable version remains. Use for
+  "will this work", "tear this apart", "red-team", "is this defensible",
+  "should we build X", "what's the wedge". Not for fact-finding or settled
+  decisions.
 ---
 
 # Forge Idea

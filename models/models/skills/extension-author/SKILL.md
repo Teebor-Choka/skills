@@ -1,17 +1,9 @@
 ---
 name: extension-author
 description: >
-  Author, port, and harden agent Skills (SKILL.md) that run across Claude Code, Codex, OpenCode,
-  and oh-my-pi from one portable source. Use whenever the user wants to create a skill, turn a
-  repeatable workflow into one, fix an existing skill's triggering, make a skill run on more than
-  one agent, package skills as a native plugin or marketplace bundle, or wire a skill into
-  programmatic triggering (description auto-trigger, slash/custom commands, hooks, CI/headless) or
-  multi-agent workflows (subagents, parallel fan-out, orchestration, MCP). Trigger even when the
-  user just says "make a skill", "package this as a plugin", "why isn't my skill firing", "add a
-  command or hook for this", or names Codex, OpenCode, or oh-my-pi. Produces a portable SKILL.md
-  plus per-agent adapters, optional plugin bundles, and evals. Also use to audit an existing skill
-  set, CLAUDE.md, or hooks (standards-over-rules, factory-vs-creative example copying, context
-  routing); see references/auditing.md.
+  Create, fix or audit agent skills. Load before editing any SKILL.md, or for "make a skill",
+  "why isn't my skill firing", "fix the trigger", plugin or hook packaging, portability across
+  Claude Code, Codex, OpenCode.
 ---
 
 # Agent extension author (cross-agent)
