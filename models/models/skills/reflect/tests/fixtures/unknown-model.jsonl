@@ -1,0 +1,4 @@
+{"type":"user","timestamp":"2026-03-05T08:00:00Z","sessionId":"sess-unknown","cwd":"/w/proj-c","message":{"role":"user","content":"hi"}}
+{"type":"assistant","timestamp":"2026-03-05T08:00:05Z","sessionId":"sess-unknown","message":{"id":"x1","model":"claude-mystery-9","content":[{"type":"text","text":"a"}],"usage":{"input_tokens":1000,"output_tokens":100}}}
+{"type":"assistant","timestamp":"2026-03-05T08:00:10Z","sessionId":"sess-unknown","message":{"id":"x2","model":"claude-mystery-9","content":[{"type":"text","text":"b"}],"usage":{"input_tokens":1000,"output_tokens":100}}}
+{"type":"cost-state","timestamp":"2026-03-05T08:00:11Z","totalCostUsd":3.0,"hasUnknownModelCost":true}

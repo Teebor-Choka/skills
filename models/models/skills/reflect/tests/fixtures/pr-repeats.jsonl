@@ -1,0 +1,8 @@
+{"type":"user","timestamp":"2026-03-06T07:00:00Z","sessionId":"sess-pr","cwd":"/w/proj-d","message":{"role":"user","content":"open a pr"}}
+{"type":"assistant","timestamp":"2026-03-06T07:00:05Z","sessionId":"sess-pr","message":{"id":"p1","model":"claude-sonnet-4-5","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1000000,"output_tokens":0}}}
+{"type":"pr-link","timestamp":"2026-03-06T07:00:06Z","sessionId":"sess-pr","prNumber":7,"prUrl":"https://github.com/o/r/pull/7","prRepository":"o/r"}
+{"type":"pr-link","timestamp":"2026-03-06T07:00:07Z","sessionId":"sess-pr","prNumber":7,"prUrl":"https://github.com/o/r/pull/7","prRepository":"o/r"}
+{"type":"pr-link","timestamp":"2026-03-06T07:00:08Z","sessionId":"sess-pr","prNumber":7,"prUrl":"https://github.com/o/r/pull/7","prRepository":"o/r"}
+{"type":"pr-link","timestamp":"2026-03-06T07:00:09Z","sessionId":"sess-pr","prNumber":8,"prUrl":"https://github.com/o/r/pull/8","prRepository":"o/r"}
+{"type":"pr-link","timestamp":"2026-03-06T07:00:10Z","sessionId":"sess-pr","prNumber":7,"prUrl":"https://github.com/o/r2/pull/7","prRepository":"o/r2"}
+{"type":"assistant","timestamp":"2026-03-06T07:00:20Z","sessionId":"sess-pr","message":{"id":"p2","model":"claude-sonnet-4-5","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":0,"output_tokens":1000000}}}

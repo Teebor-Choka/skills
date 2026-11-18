@@ -2,6 +2,8 @@
 import importlib.util
 import json
 import pathlib
+import subprocess
+import sys
 
 SKILL = pathlib.Path(__file__).resolve().parent.parent
 
@@ -12,6 +14,20 @@ def load(filename):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def run_script(name, *args, env=None):
+    """Run a skill script as users do (`python3 -I`), so a test sees the real CLI contract."""
+    return subprocess.run([sys.executable, "-I", str(SKILL / name), *map(str, args)],
+                          capture_output=True, text=True, env=env)
+
+
+def record_of(path, *, full=False):
+    r = run_script("metrics.py", "full" if full else "record", path)
+    assert r.returncode == 0, r.stderr
+    lines = r.stdout.splitlines()
+    assert len(lines) == 1, r.stdout
+    return json.loads(lines[0])
 
 
 def at(row, ts):
