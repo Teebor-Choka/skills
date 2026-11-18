@@ -1,7 +1,7 @@
 # Tool reference
 
 Commands run from the target root. Tools not on `PATH` run as `nix run nixpkgs#<attr> -- <args>`
-(attrs: `gitleaks`, `trufflehog`, `osv-scanner`, `semgrep`, `zizmor`, `nuclei`). SkillSpector,
+(attrs: `gitleaks`, `trufflehog`, `osv-scanner`, `semgrep`, `nuclei`). SkillSpector,
 garak, and strix are Python tools: run them with `uvx`, `uv tool install`, or their Docker image.
 Check each tool with `--help` first. Flags below were taken from the project READMEs.
 
@@ -60,16 +60,9 @@ network but upload no source with metrics off. Add language packs (`p/python`, `
 
 ## 4. GitHub Actions
 
-**zizmor**
-
-```
-zizmor --format sarif --no-progress .
-```
-
-Runs offline by default and skips the audits that need the GitHub API (impostor commits, known
-vulnerable actions). Set `GITHUB_TOKEN` or pass `--gh-token` to enable them. Fix by SHA-pinning
-actions, scoping `permissions:` per job, and moving `${{ }}` expressions out of `run:` into
-`env:`.
+Runs only when the diff touches `.github/`. Do not run zizmor from this skill: hand the
+touched workflow paths to the `github-actions` skill, which owns the zizmor step (PATH, then
+`nix run nixpkgs#zizmor --`, else "unvalidated"). Use its result as the stage 4 finding set.
 
 ## 5. Agent supply chain
 

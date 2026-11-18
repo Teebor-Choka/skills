@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the static scanners (secrets, dependencies, SAST, CI) on a target and write one result
+# Run the static scanners (secrets, dependencies, SAST) on a target and write one result
 # file per tool plus summary.tsv. Static stages only: no target code runs, no live endpoint is hit.
 # Usage: run-static.sh <target-dir> <out-dir>
 # Env:   TRUFFLEHOG_VERIFY=1  let trufflehog test found secrets against the provider APIs (off by default)
@@ -49,10 +49,5 @@ else
 fi
 stage osv-scanner osv-scanner osv.sarif -- scan source -r --format sarif .
 stage semgrep semgrep semgrep.sarif -- scan --config p/default --config p/security-audit --metrics=off --sarif --quiet .
-if [ -d "$target/.github/workflows" ] || [ -d "$target/.github/actions" ]; then
-  stage zizmor zizmor zizmor.sarif -- --format sarif --no-progress .
-else
-  printf 'zizmor\tskipped\tno .github/workflows\n' >>"$summary"
-fi
 
 cat "$summary"
