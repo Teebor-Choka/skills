@@ -26,7 +26,11 @@ stop-at-rung meaning is fixed.
 ## Input
 
 The depth — and the scope it applies to — is **given per invocation**. If it was not provided, the
-architect **asks**; it never silently picks a default rung.
+architect does not proceed on a guess. It resolves each in order: the `--depth` / `--scope` arg, then
+the policy keys `architect.depth` / `architect.scope`, then (only if an interactive channel exists) a
+question. If still missing and non-interactive, it halts before any work with a `needs-input` result
+naming the missing field and the arg or policy key that supplies it (`scripts/resolve_input.py`). It
+never silently picks a default rung.
 
 ## Output grain and layered ATDD
 

@@ -139,7 +139,7 @@ def check_depth(text, errs):
     """E9: depth dialed per invocation, acceptance at each rung from interfaces to the dialed one."""
     body = section(text, "Decomposition depth")
     if body is None:
-        errs.append("E9 spec: no '## Decomposition depth' section (ask the user for depth and scope)")
+        errs.append("E9 spec: no '## Decomposition depth' section; supply `--depth` and `--scope` (or policy keys `architect.depth`, `architect.scope`) to scaffold.py, never a guess")
         return
     m = re.search(r"\*\*Dialed rung:\*\*\s*([A-Za-z-]+)", body)
     rung = m.group(1).lower() if m else ""

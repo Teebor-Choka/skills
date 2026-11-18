@@ -89,6 +89,18 @@ When the system will be deployed, the spec also states **what to verify and what
 (criteria, technology, constraints), never how. `references/execution.md` lists what to specify.
 The deploy stage runs it.
 
+## Inputs the architect never guesses
+
+These skills run non-interactive first. Resolve each input in this order: the invocation arg, then a
+`.agents/policy` key, then, only when an interactive channel exists, a question. If a field is still
+missing and there is no interactive channel, **halt before any work** with a structured `needs-input`
+result (`scripts/resolve_input.py`, called by `scaffold.py`; exit 3) that names each missing field and
+the arg or policy key that supplies it: decomposition depth (`--depth`, `architect.depth`), scope
+(`--scope`, `architect.scope`), `:improve` target (`--target`, `architect.improve-target`). With
+`--interactive`, scaffold returns status `ask` (exit 4) and you put the question, then rerun with the
+answer as an arg. Stated defaults only: output location (policy `work.tracker`, else GitHub issues)
+and `:improve` box cap (5, written into the report). Never default a rung, a scope or a target.
+
 ## Workflow
 
 Steps 0–7 design the package; step 8 points to the deploy stage. Do them in order;
@@ -100,7 +112,8 @@ runs steps 0–4 and 7, skipping the graph.
 0. **Assemble the current state first: research, don't recall.** Before judging size or writing
    anything, build a complete model of what exists today — breadth before depth, survey before you
    zoom to concepts. Establish scope: inside one repo, that is the scope; otherwise scan the current
-   directory and ask the user which repos to include and what constitutes the project unit. Put
+   directory; the repos to include and the project unit come from the invocation (`--scope`) or policy
+   (`architect.scope`), else the two-path rule below applies. Put
    "is backward compatibility required?" in that first scoping question; don't audit or design on an assumed answer. Then, with
    the code indexing MCP when one is connected (prefer a fresh index of the in-scope repos), assemble in this order: **(a)** pull the
    whole-system map and its de-facto module clusters — the big picture, not just the area you expect to
@@ -147,8 +160,8 @@ runs steps 0–4 and 7, skipping the graph.
    is the anti-re-litigation doc. → _verify:_ nothing in the proposal is unexplained here.
 4. **Spec it into test-gated blocks, cut to the dialed depth.** Decompose top-down and stop at the
    **decomposition depth** set for the run — interfaces → modules → components → functions
-   (`references/depth-dial.md`); if the depth (or its scope) wasn't given, **ask** — never pick a rung
-   silently. Record it in the spec's "Decomposition depth" and "Acceptance by rung" sections (lint E9).
+   (`references/depth-dial.md`); if the depth or its scope was not given, follow the two-path rule below
+   (`scripts/scaffold.py` enforces it) — never pick a rung silently. Record it in the spec's "Decomposition depth" and "Acceptance by rung" sections (lint E9).
    The dialed rung is the leaf grain of the blocks. Each block: one deliverable, one
    write-set, one checkable done, small enough to become a ticket; purpose, architecture, interfaces
    (input/output/config surface), **verification (positive) tests AND adversarial (negative) tests**.

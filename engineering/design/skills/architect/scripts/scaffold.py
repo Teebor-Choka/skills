@@ -23,6 +23,9 @@ import re
 import sys
 from string import Template
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import resolve_input  # noqa: E402
+
 README = Template("""# $title ($slug): START HERE
 
 <one paragraph: what this is, what it is additive to, and what it is explicitly NOT>
@@ -198,10 +201,11 @@ both blocks (a marker only; the executor runs the channel).
 
 ## Decomposition depth
 
-Ask the user for the depth and scope; never pick a rung silently (`references/depth-dial.md`).
+Depth and scope come from the invocation or policy; the architect never picks a rung
+(`references/depth-dial.md`).
 
-**Dialed rung:** FILL-IN (interfaces | modules | components | functions) · **Scope:** FILL-IN
-· **Given by:** FILL-IN (the user, this invocation)
+**Dialed rung:** $depth · **Scope:** $scope
+· **Given by:** the user, via $given
 
 ## Acceptance by rung
 
@@ -209,7 +213,7 @@ One row per rung traversed, from `interfaces` down to and including the dialed r
 
 | Rung | Acceptance criteria (ATDD) |
 |------|----------------------------|
-| interfaces | FILL-IN |
+$acc_rows
 
 ## Block 0: Preconditions
 
@@ -267,10 +271,10 @@ IMPROVE = Template("""# $title: improve report
 
 Scope-only output of `:improve` (`references/improve.md`). No code was edited.
 
-**Target:** FILL-IN (given by the user: whole repo, a subtree, or a named module)
+**Target:** $target (given by the user, via $target_src)
 **Grounding:** FILL-IN (code graph: <tool>, or direct read with a WARNING that no index was available)
-**Output location:** FILL-IN (asked of the user; typical: one GitHub issue per box)
-**Box cap:** FILL-IN (a number)
+**Output location:** $output (from $output_src; typical: one GitHub issue per box)
+**Box cap:** $cap (from $cap_src)
 
 ## Result
 
@@ -440,6 +444,15 @@ def main():
     ap.add_argument("--dir", default=None, help="output dir (default: ./<slug>)")
     ap.add_argument("--tier", choices=["note", "small", "full"], default="full")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--depth", help="decomposition rung: interfaces|modules|components|functions")
+    ap.add_argument("--scope", help="what the depth applies to")
+    ap.add_argument("--target", help=":improve target: repo, subtree or module")
+    ap.add_argument("--output", help=":improve output location (default: policy work.tracker, else github issues)")
+    ap.add_argument("--cap", help=":improve box cap (default 5)")
+    ap.add_argument("--repo", default=".", help="repo whose .agents/policy supplies missing inputs")
+    ap.add_argument("--policy-loader", default=None, help="path to the policy skill's policy_loader.py")
+    ap.add_argument("--interactive", action="store_true",
+                    help="an interactive channel exists: emit status 'ask' instead of halting")
     ap.add_argument("--improve", action="store_true",
                     help="emit one improve-report.md for `:improve` (no package)")
     args = ap.parse_args()
@@ -449,6 +462,29 @@ def main():
         return 2
 
     sub = {"slug": args.slug, "title": args.title}
+
+    # Resolve the inputs the architect must not guess, before writing anything.
+    mode = "improve" if args.improve else ("design" if args.tier != "note" else None)
+    if mode:
+        res = resolve_input.resolve(
+            mode, {f: getattr(args, f) for f in resolve_input.NEEDS[mode]},
+            resolve_input.find_loader(args.policy_loader), args.repo, args.interactive)
+        if res["status"] != "ready":
+            return resolve_input.emit(res)
+        r = res["resolved"]
+
+        def src(f):
+            kind, _, name = r[f]["source"].partition(" ")
+            return f"invocation arg `{name}`" if kind == "arg" else (
+                f"policy key `{name}`" if kind == "policy" else "the stated default")
+        if mode == "design":
+            rungs = resolve_input.LADDER[: resolve_input.LADDER.index(r["depth"]["value"]) + 1]
+            sub.update(depth=r["depth"]["value"], scope=r["scope"]["value"], given=src("depth"),
+                       acc_rows="\n".join(f"| {x} | FILL-IN |" for x in rungs))
+        else:
+            sub.update(target=r["target"]["value"], target_src=src("target"), output=r["output"]["value"],
+                       output_src=src("output") + (" `work.tracker` unset" if r["output"]["source"] == "default" else ""),
+                       cap=r["cap"]["value"], cap_src=src("cap"))
 
     if args.improve:
         root = args.dir or args.slug
