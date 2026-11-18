@@ -1,7 +1,7 @@
 ---
 name: reflect
 description: >
-  Run a retrospective over agent sessions ("/reflect", "/session-retrospective", "what went
+  Run a retrospective over agent sessions ("/reflect", "session retrospective", "what went
   wrong in these sessions"): find where agents struggled, propose fixes to skills, hooks,
   AGENTS.md. Proposes only; edits nothing.
 ---
