@@ -874,3 +874,89 @@ def test_non_utf8_view_is_a_finding_not_a_crash(make_repo):
     view = add_view(repo)
     view.write_bytes(b"\xff\xfe\x00bad")
     assert rules(repo) == ["unreadable-file"]
+
+
+# --- views: bypasses of "no script, no network" found in review ---------------
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        pytest.param('<body onload="fetch(1)"></body>', id="onload-handler"),
+        pytest.param('<img alt="" src="data:," onerror="fetch(1)">', id="onerror-handler"),
+        pytest.param('<a href="javascript:fetch(1)">x</a>', id="javascript-url"),
+        pytest.param('<a href=" JavaScript:fetch(1)">x</a>', id="javascript-url-padded"),
+        pytest.param('<object data="https://x.example/a.svg"></object>', id="object-data"),
+        pytest.param('<svg><image href="https://x.example/a.png"/></svg>', id="svg-image-href"),
+        pytest.param('<svg><use href="https://x.example/s.svg#i"/></svg>', id="svg-use-href"),
+        pytest.param('<svg><use xlink:href="https://x.example/s.svg#i"/></svg>', id="xlink-href"),
+        pytest.param('<iframe srcdoc="<img src=https://x.example/a.png>"></iframe>', id="srcdoc"),
+        pytest.param('<img alt="" srcset="data:image/png;base64,AA 1x, https://x.example/a.png 2x">',
+                     id="srcset-second-candidate"),
+        pytest.param('<base href="https://x.example/">', id="base-href"),
+        pytest.param('<form action="https://x.example/post"></form>', id="form-action"),
+        pytest.param('<style>body{background:url(" https://x.example/a.png")}</style>',
+                     id="css-url-space-inside-quotes"),
+        pytest.param('<style>body{background:image-set("https://x.example/a.png" 1x)}</style>',
+                     id="css-image-set"),
+        pytest.param('<style>@IMPORT url(a.css);</style>', id="css-import-uppercase"),
+    ],
+)
+def test_view_bypasses_are_flagged(make_repo, snippet):
+    repo = make_repo()
+    add_view(repo, fill_template().replace("</body>", snippet + "\n</body>", 1))
+    assert rules(repo) == ["view-external"]
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        pytest.param("<style>/* @import url(https://x.example/a.css) */ p{color:red}</style>",
+                     id="css-comment-mentions-import"),
+        pytest.param('<img alt="" src="DATA:image/gif;base64,R0lGOD">', id="uppercase-data-uri"),
+        pytest.param('<svg><use href="#icon"/></svg>', id="svg-use-fragment"),
+        pytest.param('<img alt="" srcset="data:image/png;base64,AA 1x, data:image/png;base64,BB 2x">',
+                     id="srcset-all-data"),
+        pytest.param('<a href="#top">top</a><a href="../overview.md">overview</a>', id="plain-links"),
+    ],
+)
+def test_view_legitimate_markup_is_not_flagged(make_repo, snippet):
+    repo = make_repo()
+    add_view(repo, fill_template().replace("</body>", snippet + "\n</body>", 1))
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_view_meta_names_are_case_insensitive(make_repo):
+    repo = make_repo()
+    text = fill_template().replace('name="viewport"', 'name="Viewport"', 1)
+    add_view(repo, text)
+    assert validate_docs.validate_project(repo) == []
+
+
+def test_svg_title_does_not_satisfy_view_title(make_repo):
+    repo = make_repo()
+    text = fill_template().replace("<title>widgetd process</title>", "", 1)
+    add_view(repo, text.replace("</body>", "<svg><title>icon</title></svg></body>", 1))
+    assert rules(repo) == ["view-title"]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file modes")
+def test_unreadable_view_source_is_a_finding_not_a_crash(make_repo):
+    repo = make_repo()
+    notes = repo / "docs" / "notes.md"
+    notes.write_text("---\nupdated: 2026-10-13\n---\n# notes\n")
+    add_view(repo, name="notes")
+    notes.chmod(0)
+    try:
+        findings = validate_docs.validate_project(repo)
+    finally:
+        notes.chmod(0o644)
+    assert [(f.rule, f.file) for f in findings] == [("unreadable-file", "docs/notes.md")]
+
+
+def test_view_of_a_source_without_a_date_is_not_compared(make_repo):
+    # Nothing to compare against: the contract only dates its own doc kinds.
+    repo = make_repo()
+    (repo / "docs" / "notes.md").write_text("# notes, no frontmatter\n")
+    add_view(repo, name="notes")
+    assert validate_docs.validate_project(repo) == []
