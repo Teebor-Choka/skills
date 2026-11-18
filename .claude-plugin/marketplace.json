@@ -37,6 +37,15 @@
       }
     },
     {
+      "name": "deploy",
+      "description": "Deploy stage for the development procedure: deploy a released or integrated revision and verify it from real logs or state. A failed verification leaves the stage open with the evidence.",
+      "source": "./engineering/ci/deploy",
+      "strict": true,
+      "metadata": {
+        "version": "1.0.0"
+      }
+    },
+    {
       "name": "dep-pr-triage",
       "description": "Triage open Dependabot and Renovate PRs across orgs: classify each red check, apply the mechanical fix on the PR branch, push, re-check. Never merges or approves.",
       "source": "./engineering/ci/dep-pr-triage",
@@ -60,7 +69,7 @@
       "source": "./engineering/design",
       "strict": true,
       "metadata": {
-        "version": "3.1.0"
+        "version": "4.0.0"
       }
     },
     {

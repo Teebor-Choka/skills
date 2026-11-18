@@ -43,9 +43,9 @@ package, it never edits code. The actual refactor is a later `implement` run aga
    its blast-radius tier (often `small`: a proposal + decision-log + spec with tests), each box
    carrying **ATDD acceptance + end-to-end tests**, filed to the tracker `work.tracker` resolves to
    (typically a GitHub issue) — and because `:improve` is interactive, confirm that destination with
-   the user before filing (`references/filing.md`). Carry the
+   the user before handing off to `decompose`. Carry the
    **deep-module invariant** into `invariants.md` — _components and libraries stay deep: a large
-   implementation behind a tiny, stable interface_ — so every brief inherits it and the fix doesn't
+   implementation behind a tiny, stable interface_ — so every filed work item inherits it and the fix doesn't
    regress on the next change.
 
 ## What it reuses
