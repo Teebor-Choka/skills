@@ -32,6 +32,20 @@ Not verified against every Claude Code version: the hook attachment names, the
 them reports empty or null results (for example `tools_never_called: null`), never a guess.
 Check one real transcript with `drill.py` before trusting a null.
 
+## Fields the metrics read
+
+Names live in the ADAPTER section of `reflectlib.py`; another harness redefines them.
+
+- `pr-link` entries: `prRepository` and `prNumber` (the PR is `repository#number`).
+- `cost-state`: `totalCostUsd` or `totalCostUSD`, and `hasUnknownModelCost`.
+- Timer tools (a call whose later result or notification wakes the agent): `ScheduleWakeup`,
+  `Monitor`, `ListAgents`. Skill tool: `Skill`, with `input.skill`.
+- Interrupt: a user entry whose text starts `[Request interrupted by user`. Permission denial: an
+  error tool result containing `The user doesn't want to proceed with this tool use`.
+- Hook text: the first non-empty of `stderr`, `content`, `stdout`, `output`, `text` on the hook
+  attachment. Skill listings come in several `skill_listing` attachments; merge them.
+- A session's id is `sessionId`; its project is the base name of `cwd`.
+
 ## Not provided
 
 An adapter that turns cross-session messages, `SendMessage` calls and issue label events
