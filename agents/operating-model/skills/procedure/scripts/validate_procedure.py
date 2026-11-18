@@ -30,7 +30,9 @@ FLOOR_LOCKED = ("needs", "consumes", "produces", "skill", "entity")
 # cannot change on an existing id. `removable`: whether a delta may disable an id. `lower_only`:
 # numeric keys a delta may lower but not raise. A new map is one entry here.
 ID_MAPS = {
-    "entities": {"protected": ("escalates-to",), "removable": True},
+    # Who holds authority is protected: a role (the project manager is found by it), who an entity
+    # escalates to, and what it may spawn. Removing one is too. Adding an entity is not: that grows below.
+    "entities": {"protected": ("escalates-to", "role", "may-spawn"), "removable": False},
     "loops": {"protected": ("on-exhausted",), "removable": False, "lower_only": ("bound",)},
     "kpis": {"protected": ("owner",), "removable": False},
 }
@@ -421,6 +423,8 @@ def _merge_stages(base_stages, delta_stages):
             continue
         if is_floor:
             protected += _floor_delta_errors(sid, merged[sid], over)
+        elif sid in merged and "entity" in over and over["entity"] != merged[sid].get("entity"):
+            protected.append(f"stage '{sid}': a delta cannot change who runs it without the owner")
         merged.setdefault(sid, {}).update(over)
     return merged, errs, protected
 
@@ -443,9 +447,8 @@ def _merge_map(name, base_map, delta_map):
         old = merged.get(key)
         if over.get("disabled") is True:
             if old is not None and not spec["removable"]:
-                errs.append(f"{name}.{key} is protected: a delta cannot remove it")
-            else:
-                merged.pop(key, None)
+                errs.append(f"{name}.{key} is protected: removing it needs the owner")
+            merged.pop(key, None)  # applied only if the owner ratifies: a protected error blocks it otherwise
             continue
         if old is not None:
             for k in spec["protected"]:

@@ -22,7 +22,7 @@ from validate_procedure import apply_delta, parse_frontmatter, parse_procedure, 
 
 __all__ = (
     "new_state", "step", "replay", "register", "collector", "observed_rates", "regressed",
-    "iteration_report", "COLLECTORS", "HANDLERS", "Rejected",
+    "iteration_report", "item_digest", "COLLECTORS", "HANDLERS", "Rejected",
 )
 
 HANDLERS = {}
@@ -35,6 +35,7 @@ SETTLED = ("done", "skipped")  # a skipped stage satisfies `needs`: it chose not
 LIVE = ("running", "blocked")  # advice and spawning work while a run waits on an answer
 # Bounds on an event, checked before any copy: a hostile payload must not cost a crash.
 MAX_DEPTH, MAX_NODES, MAX_TEXT = 16, 5000, 4096
+MAX_REJECTED = 200  # the newest refusals kept in `rejected`; the metric still counts every one
 
 
 def collector(name):
@@ -95,11 +96,29 @@ class Rejected(Exception):
     """A handler raises this to refuse an event. The state is left exactly as it was."""
 
 
-def register(event_type):
-    """Register a handler `fn(state, event, ctx) -> [actions]` for an event type."""
+class Unauthenticated(Rejected):
+    """The sender could not be verified. In a signed run such an event moves nothing: it is neither
+    counted nor logged, so anyone who can send bytes cannot push a metric or grow the state."""
+
+
+SOURCES = ("agent", "executor", "owner")
+TRUST = ("claims", "signed")
+
+
+SOURCE_OF = {}  # event type -> who may send it: "agent", "executor" or "owner"
+
+
+def register(event_type, source="agent"):
+    """Register a handler `fn(state, event, ctx) -> [actions]` for an event type.
+
+    `source` says who may send it in a signed run: an `agent` (a verified entity), the `executor`
+    (a fact), or the `owner` (a decision the handler verifies itself)."""
+    if source not in SOURCES:
+        raise ValueError(f"source must be one of {', '.join(SOURCES)}, not {source!r}")
 
     def wrap(fn):
         HANDLERS[event_type] = fn
+        SOURCE_OF[event_type] = source
         return fn
 
     return wrap
@@ -108,17 +127,22 @@ def register(event_type):
 class Ctx:
     """What a handler may ask of its caller, beyond the state and the event."""
 
-    def __init__(self, verify_owner=None):
+    def __init__(self, verify_owner=None, sender=None):
         self.verify_owner = verify_owner
+        self.sender = sender  # the verified entity behind an agent event; None in claims mode
 
 
-def new_state(procedure_text, *, policy=None, strict=True, run_id="run"):
+def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="claims"):
     """Validate and freeze a procedure for one run. Raises ValueError when it is invalid."""
     errs = validate_text(procedure_text, "<procedure>", strict)
     if errs:
         raise ValueError("invalid procedure: " + "; ".join(errs))
     proc, _ = parse_procedure(procedure_text, "<procedure>")
     proc.pop("change", None)  # a hypothesis belongs to a delta, not to a frozen base
+    if trust not in TRUST:
+        raise ValueError(f"trust must be one of {', '.join(TRUST)}, not {trust!r}")
+    if trust == "signed" and not proc.get("entities"):
+        raise ValueError("a signed run needs entities: a sender must be one of them")
     policy = dict(policy or {})
     for key in CAPS:
         if key in policy and not (type(policy[key]) is int and policy[key] >= 0):
@@ -136,11 +160,13 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run"):
         "run_id": run_id,
         "version": 1,
         "status": "new",
+        "trust": trust,
         "proc": proc,
         "policy": policy,
         "stages": {sid: {"status": "pending", "locators": {}} for sid in proc["stages"]},
         "snapshots": [{"version": 1, "proc": copy.deepcopy(proc), "change": None, "baseline": {}, "outcome": "initial"}],
         "pending": [],
+        "seen": [],  # digests of signed events already applied: a signed event is single-use
         "metrics": {"1": _fresh_counters()},
         "log": [],
         "rejected": [],
@@ -182,8 +208,12 @@ def _error(reason, event=None):
     return {"do": "error", "reason": reason, "event": _label(event)}
 
 
-def _reject(state, event, reason):
+def _reject(state, event, reason, counted=True):
+    """Refuse an event. `counted` is false for one that was never authenticated in a signed run: it
+    changes nothing, so it cannot move a metric or grow the log."""
     out = copy.deepcopy(state)
+    if not counted:
+        return out, [_error(reason, event)]
     _count(out, "refusals")
     # A refused event is logged too: it moved a metric, so a replay needs it. One that cannot be
     # stored is logged as a placeholder of an unknown type, which a replay refuses the same way.
@@ -195,35 +225,94 @@ def _reject(state, event, reason):
     else:
         shown = {"dropped": f"not an event: {type(event).__name__}"}
     out["rejected"].append({"event": shown, "reason": reason})
+    del out["rejected"][:-MAX_REJECTED]
     return out, [_error(reason, event)]
 
 
-def step(state, event, *, verify_owner=None):
+def _signature_digest(event):
+    sig = event.get("signature")
+    return hashlib.sha256(sig.encode()).hexdigest()[:32] if isinstance(sig, str) and sig else None
+
+
+def _authenticate(state, event, source, verify_sender, verify_executor):
+    """In a signed run, check who sent an event. Returns (verified entity or None, verified).
+
+    The caller's verifier gets a copy of the event plus the run id, so it can bind a signature to
+    both, and it cannot change what the reducer goes on to use. It fails closed, and what it raises
+    never reaches the record."""
+    if state["trust"] != "signed":
+        return None
+    if source is None:  # a handler placed in HANDLERS without `register` has no declared sender
+        raise Unauthenticated(f"event type '{event['type']}' has no declared source")
+    if source == "owner":
+        return None  # the handler verifies the owner's decision itself
+    signed = {**copy.deepcopy(event), "run_id": state["run_id"]}
+    try:
+        if source == "executor":
+            ok = verify_executor is not None and verify_executor(signed) is True
+            sender = None
+        else:
+            sender = verify_sender(signed) if verify_sender is not None else None
+            ok = type(sender) is str and sender in (state["proc"].get("entities") or {})
+    except Exception:
+        ok, sender = False, None
+    if not ok:
+        raise Unauthenticated("event was not sent by the executor" if source == "executor" else "event has no verified sender")
+    digest = _signature_digest(event)
+    if digest is None or digest in state["seen"]:
+        raise Unauthenticated("event is a replay of one already applied" if digest else "event has no signature")
+    return sender
+
+
+def _in_round(state, st, event):
+    """In a signed run a stage result names the round it answers, so an old one cannot be replayed."""
+    if state["trust"] != "signed":
+        return
+    rnd = event.get("round")
+    if type(rnd) is not int or rnd != st.get("round", 1):
+        raise Rejected(f"stage result is for round {rnd!r}, but the stage is in round {st.get('round', 1)}")
+
+
+def _acting(state, ctx, claimed):
+    """In a signed run, the entity an event names must be the one that sent it."""
+    if state["trust"] == "signed" and ctx.sender != claimed:
+        raise Rejected(f"event names '{claimed}' but its verified sender is '{ctx.sender}'")
+
+
+def step(state, event, *, verify_owner=None, verify_sender=None, verify_executor=None):
     """Apply one event. Returns (new state, actions). Pure: `state` is never changed."""
+    pre = state["trust"] != "signed"  # in a signed run nothing is counted before the sender is known
     if not isinstance(event, dict) or not isinstance(event.get("type"), str) or not event["type"]:
-        return _reject(state, event, "malformed event: needs a non-empty text 'type'")
+        return _reject(state, event, "malformed event: needs a non-empty text 'type'", counted=pre)
     if not _sane(event):
-        return _reject(state, event, "event is too large, too deep or not plain data")
+        return _reject(state, event, "event is too large, too deep or not plain data", counted=pre)
     handler = HANDLERS.get(event["type"])
     if handler is None:
-        return _reject(state, event, f"unknown event type '{event['type']}'")
+        return _reject(state, event, f"unknown event type '{event['type']}'", counted=pre)
     work, mine = copy.deepcopy(state), copy.deepcopy(event)
+    verified = state["trust"] != "signed"
     try:
-        actions = copy.deepcopy(handler(work, mine, Ctx(verify_owner)))
+        sender = _authenticate(state, event, SOURCE_OF.get(event["type"]), verify_sender, verify_executor)
+        verified = True
+        actions = copy.deepcopy(handler(work, mine, Ctx(verify_owner, sender)))
+    except Unauthenticated as exc:
+        return _reject(state, event, str(exc), counted=state["trust"] != "signed")
     except Rejected as exc:
-        return _reject(state, event, str(exc))
+        return _reject(state, event, str(exc), counted=verified)
     except Exception as exc:  # a handler bug must be visible and must change nothing
-        return _reject(state, event, f"internal error in '{event['type']}': {type(exc).__name__}: {exc}")
+        return _reject(state, event, f"internal error in '{event['type']}': {type(exc).__name__}: {exc}", counted=verified)
+    if work["trust"] == "signed" and SOURCE_OF.get(event["type"]) in ("agent", "executor"):
+        work["seen"].append(_signature_digest(event))
     work["log"].append(copy.deepcopy(event))
     return work, actions
 
 
 def replay(procedure_text, events, **kwargs):
     """Fold a recorded event log from a fresh state. Returns (state, every action in order)."""
-    verify = kwargs.pop("verify_owner", None)
+    verifiers = {k: kwargs.pop(k, None) for k in ("verify_owner", "verify_sender", "verify_executor")}
     state, out = new_state(procedure_text, **kwargs), []
     for event in events:
-        state, actions = step(state, event, verify_owner=verify)
+        state, actions = step(state, event, **verifiers)
         out += actions
     return state, out
 
@@ -388,7 +477,7 @@ def _raise_to(state, to, asks, frm, blocks=(), loop=None, **extra):
         {"id": item, "from": frm, "at": to, "asks": asks, "status": "open", "blocks": list(blocks),
          "blocking": bool(blocks), "loop": loop, **extra}
     )
-    shown = {k: extra[k] for k in ("change", "protected", "kind", "evidence") if k in extra}
+    shown = {k: extra[k] for k in ("change", "protected", "kind", "evidence", "delta") if k in extra}
     if to == "owner":
         return {"do": "notify-owner", "item": item, "asks": asks, "from": frm, "default-if-silent": "wait", **shown}
     return {"do": "escalate", "item": item, "to": to, "asks": asks, "from": frm, **shown}
@@ -419,7 +508,7 @@ def _norm_path(path):
     return norm
 
 
-@register("run-started")
+@register("run-started", source="executor")
 def _run_started(state, event, ctx):
     if state["status"] != "new":
         raise Rejected("the run has already started")
@@ -469,6 +558,8 @@ def _stage_done(state, event, ctx):
     if st["status"] != "running":
         raise Rejected(f"stage '{sid}' is {st['status']}, not running")
     spec = state["proc"]["stages"][sid]
+    _acting(state, ctx, spec.get("entity"))
+    _in_round(state, st, event)
     locators = _locators(sid, spec, event, whole=True)
     st["status"] = "done"
     st["locators"] = {k: locators[k] for k in spec.get("produces") or []}
@@ -507,6 +598,8 @@ def _stage_failed(state, event, ctx):
     if st["status"] != "running":
         raise Rejected(f"stage '{sid}' is {st['status']}, not running")
     spec = state["proc"]["stages"][sid]
+    _acting(state, ctx, spec.get("entity"))
+    _in_round(state, st, event)
     locators = _locators(sid, spec, event, whole=False)
     name, lp = _loop_of(state, sid)
     reason = str(event.get("reason") or "failed")[:200]
@@ -571,6 +664,7 @@ def _advice_requested(state, event, ctx):
     _require_live(state)
     frm = event.get("from")
     _entity(state, frm)
+    _acting(state, ctx, frm)
     question = event.get("question")
     if not isinstance(question, str) or not question.strip():
         raise Rejected("advice needs a question")
@@ -583,6 +677,7 @@ def _advice_given(state, event, ctx):
     item = _item(state, event.get("item"))
     by, answer = event.get("by"), event.get("answer")
     _entity(state, by)  # the owner is not an entity: its answer comes only through `owner-decided`
+    _acting(state, ctx, by)
     if item["status"] != "open" or item["at"] != by:
         raise Rejected(f"item '{item['id']}' is with '{item['at']}', not '{by}'")
     if not isinstance(answer, str):
@@ -612,16 +707,20 @@ def _forward(item, to, frm, analysis):
     return {"do": "escalate", "to": to, **shared}
 
 
-@register("owner-decided")
+@register("owner-decided", source="owner")
 def _owner_decided(state, event, ctx):
     """Only a verified owner decision applies. With none, none does. `abort` ends the run."""
     item = _item(state, event.get("item"))
     if state["status"] in ("done", "halted"):
         raise Rejected(f"the run is {state['status']}: nothing is left to decide")
     # The verifier sees the run and a digest of what is being decided, so it can bind to both.
-    signed = {**event, "run_id": state["run_id"], "item_digest": _digest(item)}
-    if ctx.verify_owner is None or ctx.verify_owner(signed) is not True:
-        raise Rejected("owner decision has no valid signature")
+    signed = {**copy.deepcopy(event), "run_id": state["run_id"], "item_digest": _digest(item)}
+    try:
+        ok = ctx.verify_owner is not None and ctx.verify_owner(signed) is True
+    except Exception:
+        ok = False  # what a verifier raises never reaches the record
+    if not ok:
+        raise Unauthenticated("owner decision has no valid signature")
     if item["status"] != "open" or item["at"] != "owner":
         raise Rejected(f"item '{item['id']}' is not waiting on the owner")
     kind, decision = item.get("kind"), event.get("decision")
@@ -661,6 +760,7 @@ def _spawn_requested(state, event, ctx):
     _require_live(state)
     by, role, why = event.get("by"), event.get("role"), event.get("why")
     allowed = _entity(state, by).get("may-spawn") or []
+    _acting(state, ctx, by)
     if role not in (state["proc"].get("entities") or {}):
         raise Rejected(f"unknown role '{role}'")
     if role not in allowed:
@@ -728,15 +828,24 @@ def _install(state, proc, change, outcome="pending"):
     state["stages"] = {sid: state["stages"].get(sid, {"status": "pending", "locators": {}}) for sid in proc["stages"]}
     state["proc"], state["version"] = copy.deepcopy(proc), version
     state["metrics"][str(version)] = _fresh_counters()
+    moved = []
     for item in state.get("items", []):
         item["blocks"] = [sid for sid in item["blocks"] if sid in state["stages"]]  # never wait on a stage that is gone
+        if item["status"] == "open" and item["at"] != "owner" and item["at"] not in (proc.get("entities") or {}):
+            holder = item["at"]
+            while holder != "owner" and holder not in (proc.get("entities") or {}):
+                holder = (state["snapshots"][-2]["proc"].get("entities") or {}).get(holder, {}).get("escalates-to", "owner")
+            moved.append({"do": "item-reassigned", "item": item["id"], "from": item["at"], "to": holder})
+            item["at"] = holder
     # A finished stage whose inputs or outputs changed no longer holds what its dependents need.
     redo = [
         sid for sid, spec in proc["stages"].items()
         if sid in old and state["stages"][sid]["status"] == "done"
         and any(spec.get(k) != old[sid].get(k) for k in ("produces", "consumes"))
     ]
-    return [{"do": "snapshot-applied", "version": version, "change": change}] + (_invalidate(state, redo) if redo else [])
+    return [{"do": "snapshot-applied", "version": version, "change": change}] + moved + (
+        _invalidate(state, redo) if redo else []
+    )
 
 
 @register("amendment-proposed")
@@ -745,6 +854,7 @@ def _amendment_proposed(state, event, ctx):
     _require_live(state)
     by = event.get("by")
     _entity(state, by)
+    _acting(state, ctx, by)
     delta = event.get("delta")
     if not isinstance(delta, str) or not delta.strip():
         raise Rejected("an amendment needs a delta")
@@ -769,9 +879,20 @@ def _amendment_proposed(state, event, ctx):
 # ---------------------------------------------------------------- judging a change
 
 
+def item_digest(state, item_id):
+    """What an owner is deciding on, for a signature to cover. Raises KeyError for an unknown item.
+
+    It covers the item's id and everything that gives it meaning, so two items that read the same
+    still differ and a decision cannot be moved from one to another."""
+    item = next((i for i in state.get("items", []) if i["id"] == item_id), None)
+    if item is None:
+        raise KeyError(item_id)
+    return _digest(item)
+
+
 def _digest(item):
-    """What the owner is deciding on, so a signature can cover content and not only an id."""
-    body = [item.get("kind", "escalation"), item.get("delta"), item.get("target"), item["asks"], item["at"], item.get("base_version")]
+    keys = ("id", "kind", "from", "at", "asks", "blocks", "loop", "delta", "target", "base_version", "change", "evidence")
+    body = {k: item.get(k) for k in keys}
     return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
 
 

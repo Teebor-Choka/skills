@@ -12,7 +12,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.4.1"
+  version: "1.5.1"
 ---
 
 # procedure: a named graph of stages
@@ -260,21 +260,75 @@ A stage whose `when` fails is skipped, reported with `stage-skipped`, and counts
 stages that need it. `when` and a loop's `exit` use the closed predicates: `paths` against the
 change list, `policy`, `kind`. A caller adds an event type with `register`, with no edit to the core.
 
+## Trust: who may send what
+
+Every event has a source, and a run has a trust mode.
+
+- **`claims`** (the default): the entity an event names is only a claim. Any agent can answer as the
+  project manager, finish another entity's stage or name itself as any spawner. Use it for tests and
+  for a single actor playing every role, where identity cannot be enforced anyway. It gives no
+  guarantee against an agent that lies.
+- **`signed`**: nothing is taken on content alone. Team mode must use it. `new_state(..., trust="signed")`
+  needs `entities`.
+
+In a signed run an event is one of three kinds, declared when its handler is registered:
+
+| Source     | Sent by                                      | Checked with                          |
+| ---------- | -------------------------------------------- | ------------------------------------- |
+| `agent`    | an entity, signing as itself                 | `verify_sender(event) -> entity name` |
+| `executor` | the executor, stating a fact (`run-started`) | `verify_executor(event) -> True`      |
+| `owner`    | the owner, deciding                          | `verify_owner(event) -> True`         |
+
+The reducer holds no key. The caller supplies each verifier and keeps the secrets. A verifier gets a
+copy of the event plus `run_id`, so it can bind a signature to the run and to the exact content, and it
+cannot change what the reducer goes on to use. It fails closed: no verifier, an exception, or any answer
+other than a defined entity (or exactly `True`) refuses the event. The standard library has no
+public-key signatures, so the example in the tests is HMAC with one secret per entity instance, issued
+by the executor when it spawns the agent. The executor holds every secret, so it can verify but an
+agent cannot forge another.
+
+The reducer then requires that the verified sender is the entity the event names: `from` on advice,
+`by` on an answer, a spawn or a change, and the entity that runs the stage on a stage result. An agent
+cannot answer as the project manager, finish another entity's stage, or send an executor or owner
+event. A handler placed directly in `HANDLERS`, with no declared source, is refused in a signed run.
+
+What a signed run guarantees beyond identity:
+
+- **An unauthenticated event moves nothing.** If the sender cannot be verified, the event is refused
+  without being counted or logged, so anyone who can send bytes cannot push a metric (and so cannot
+  trigger a safety rollback) or grow the state. A verified entity that breaks a rule is still counted.
+  `rejected` keeps the newest 200 refusals, and the metric counts every one.
+- **A signed event is single-use.** Each applied agent or executor event records the digest of its
+  signature, and the same bytes are refused as a replay without being counted. A refused event can be
+  sent again once the cause is fixed.
+- **A stage result names its round** and must match the stage's current round, so a round-one result
+  cannot be replayed into round two and a captured failure cannot re-block a run the owner retried.
+- **An owner decision is bound to the run and to what it decides.** The verifier gets `run_id` and an
+  `item_digest` covering the item's id, holder, question, delta and more. Item ids repeat in every run,
+  so a verifier that signs only the id and the decision lets a decision captured in one run apply in
+  another. `item_digest(state, item)` returns the digest to sign.
+- **Moving authority is a protected change.** A role, an entity's `may-spawn` or `escalates-to`,
+  removing an entity, or changing who runs an existing stage needs the owner, and the notice to the
+  owner carries the delta. Adding an entity does not. Items held by a removed entity move up the
+  ladder (`item-reassigned`).
+- **A verifier cannot leak or meddle.** It gets a deep copy, a returned `str` subclass is refused, and
+  what it raises never reaches the record.
+
 What this does not do:
 
-- It does not authenticate the agents. The entity named in an event is a claim, so an agent can
-  answer as the entity that holds an item, and can name itself as any spawner. Only owner decisions
-  are verified, through the caller's `verify_owner`. The key behind it must never be readable by an
-  agent process.
-- It trusts `run-started`. An agent that sends it chooses the change list, and so which `paths`
-  stages run. Only the executor should send it.
-- Replay needs the same `verify_owner`: a decision accepted once is refused by a verifier that
-  cannot check it. `rejected` summarises an unreadable event, so it differs from a replay's.
-- The log grows with every event, refused ones included. The executor should rate-limit.
-- `register` is a global registry. Code that can call it can replace the owner gate, so only
-  trusted code may.
+- It does not protect the keys. An agent that can read the executor's or an entity's secret can sign as
+  it. Keep them out of every agent process.
+- A stage result is checked against the entity that runs the stage, not the instance. Two worker
+  instances that both hold the `worker` key can close each other's work.
+- In single mode one actor plays every role, so a signed run only guards against mistakes there.
+- A verifier that raises `KeyboardInterrupt` or `SystemExit` ends `step`. Interrupts are not swallowed.
+- Replay needs the same verifiers: an event accepted once is refused by a verifier that cannot check
+  it. The log and the list of seen signatures grow with every accepted event, so the executor should
+  rate-limit and checkpoint.
+- `register` is a global registry. Code that can call it can replace the owner gate, so only trusted
+  code may.
 - Paths match case-sensitively. A case-insensitive filesystem needs its changes lowercased first.
-- It does not build the executor. Metrics, amendments and rollback are here, within the limits above.
+- It does not build the executor.
 
 ## Metrics, changes and rollback
 
