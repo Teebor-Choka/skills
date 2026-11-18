@@ -368,3 +368,8 @@ def test_a_symlinked_iteration_record_covers_nothing(tmp_path):
     commit(repo, "change")
     errs = check_agents_dir(repo, base=base)
     assert has(errs, "not covered by the 'touches'"), errs
+
+
+def test_a_charter_delegate_must_be_a_name(tmp_path):
+    repo = make_repo(tmp_path, files={".agents/charter.md": CHARTER.replace("procedure:", "delegate: [a, b]\nprocedure:")})
+    assert has(check_agents_dir(repo), "delegate")

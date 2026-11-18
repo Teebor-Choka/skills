@@ -27,6 +27,8 @@ __all__ = (
 
 HANDLERS = {}
 CAPS = ("max-agents", "max-depth")
+ASSURANCE = ("signed", "attested")  # how a decision reached the runtime: the stakeholder signed it, or the delegate vouches for it
+CLASSES = ("ordinary", "protected")  # what an attested decision may close; `protected` items change the procedure, policy or charter
 DEFAULT_TOLERANCE = 0.1  # how far a metric may move the wrong way before it counts as a regression
 COLLECTORS = {}  # metric name -> fn(counters) -> number. Only code here may observe: agents cannot write one.
 COUNTERS = ("stages-done", "rework", "escalations", "refusals", "rounds")
@@ -130,6 +132,7 @@ class Ctx:
     def __init__(self, verify_owner=None, sender=None):
         self.verify_owner = verify_owner
         self.sender = sender  # the verified entity behind an agent event; None in claims mode
+        self.owner_verified = False  # set by the owner handler once verify_owner accepted the event
 
 
 def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="claims", bindings=None, revision=None):
@@ -155,6 +158,9 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="
     tol = policy.get("regression-threshold", DEFAULT_TOLERANCE)
     if type(tol) not in (int, float) or not math.isfinite(tol) or tol < 0:
         raise ValueError(f"policy 'regression-threshold' must be a non-negative number, not {tol!r}")
+    attest = policy.get("attested-decisions", ["ordinary"])
+    if not isinstance(attest, list) or not all(isinstance(c, str) and c in CLASSES for c in attest):
+        raise ValueError(f"policy 'attested-decisions' must be a list of {' and '.join(CLASSES)}, not {attest!r}")
     safety = policy.get("safety-metrics", [])
     if not isinstance(safety, list) or not all(isinstance(m, str) for m in safety):
         raise ValueError(f"policy 'safety-metrics' must be a list of metric names, not {safety!r}")
@@ -163,6 +169,7 @@ def new_state(procedure_text, *, policy=None, strict=True, run_id="run", trust="
         raise ValueError(f"policy 'safety-metrics' names {', '.join(unknown)}, which nothing observes")
     return {
         "run_id": run_id,
+        "procedure_text": procedure_text,  # recovery rebuilds a run from its ledger header
         "version": 1,
         "status": "new",
         "trust": trust,
@@ -230,13 +237,15 @@ def _error(reason, event=None):
     return {"do": "error", "reason": reason, "event": _label(event)}
 
 
-def _reject(state, event, reason, counted=True):
+def _reject(state, event, reason, counted=True, seen=None):
     """Refuse an event. `counted` is false for one that was never authenticated in a signed run: it
     changes nothing, so it cannot move a metric or grow the log."""
     out = copy.deepcopy(state)
     if not counted:
         return out, [_error(reason, event)]
     _count(out, "refusals")
+    if seen:  # a refused signed event is spent too: replaying captured bytes cannot push the metric again
+        out["seen"].append(seen)
     # A refused event is logged too: it moved a metric, so a replay needs it. One that cannot be
     # stored is logged as a placeholder of an unknown type, which a replay refuses the same way.
     out["log"].append(copy.deepcopy(event) if isinstance(event, dict) and _sane(event) else {"type": "unreadable-event"})
@@ -267,6 +276,8 @@ def _authenticate(state, event, source, verify_sender, verify_executor):
     if source is None:  # a handler placed in HANDLERS without `register` has no declared sender
         raise Unauthenticated(f"event type '{event['type']}' has no declared source")
     if source == "owner":
+        if _signature_digest(event) in state["seen"]:  # an applied decision, replayed
+            raise Unauthenticated("event is a replay of one already applied")
         return None  # the handler verifies the owner's decision itself
     signed = {**copy.deepcopy(event), "run_id": state["run_id"]}
     try:
@@ -284,6 +295,16 @@ def _authenticate(state, event, source, verify_sender, verify_executor):
     if digest is None or digest in state["seen"]:
         raise Unauthenticated("event is a replay of one already applied" if digest else "event has no signature")
     return sender
+
+
+def _spent(state, event, verified, ctx=None):
+    """The digest of an authenticated event that a handler refused, else None.
+
+    An owner event counts as authenticated only once the handler's verify_owner accepted it."""
+    source = SOURCE_OF.get(event["type"])
+    if state["trust"] == "signed" and verified and (source in ("agent", "executor") or (source == "owner" and ctx and ctx.owner_verified)):
+        return _signature_digest(event)
+    return None
 
 
 def _in_round(state, st, event):
@@ -313,18 +334,23 @@ def step(state, event, *, verify_owner=None, verify_sender=None, verify_executor
         return _reject(state, event, f"unknown event type '{event['type']}'", counted=pre)
     work, mine = copy.deepcopy(state), copy.deepcopy(event)
     verified = state["trust"] != "signed"
+    ctx = None
     try:
         sender = _authenticate(state, event, SOURCE_OF.get(event["type"]), verify_sender, verify_executor)
         verified = True
-        actions = copy.deepcopy(handler(work, mine, Ctx(verify_owner, sender)))
+        ctx = Ctx(verify_owner, sender)
+        actions = copy.deepcopy(handler(work, mine, ctx))
     except Unauthenticated as exc:
         return _reject(state, event, str(exc), counted=state["trust"] != "signed")
     except Rejected as exc:
-        return _reject(state, event, str(exc), counted=verified)
+        return _reject(state, event, str(exc), counted=verified, seen=_spent(state, event, verified, ctx))
     except Exception as exc:  # a handler bug must be visible and must change nothing
-        return _reject(state, event, f"internal error in '{event['type']}': {type(exc).__name__}: {exc}", counted=verified)
-    if work["trust"] == "signed" and SOURCE_OF.get(event["type"]) in ("agent", "executor"):
-        work["seen"].append(_signature_digest(event))
+        return _reject(state, event, f"internal error in '{event['type']}': {type(exc).__name__}: {exc}", counted=verified,
+                       seen=_spent(state, event, verified, ctx))
+    if work["trust"] == "signed" and SOURCE_OF.get(event["type"]) in ("agent", "executor", "owner"):
+        digest = _signature_digest(event)
+        if digest is not None:
+            work["seen"].append(digest)
     work["log"].append(copy.deepcopy(event))
     return work, actions
 
@@ -362,8 +388,16 @@ def _ready(state):
 def _inputs(state, sid):
     """The locators for exactly the kinds the stage consumes."""
     wanted = state["proc"]["stages"][sid].get("consumes") or []
+    upstream, todo = set(), list(state["proc"]["stages"][sid].get("needs") or [])
+    while todo:
+        n = todo.pop()
+        if n not in upstream and n in state["proc"]["stages"]:
+            upstream.add(n)
+            todo.extend(state["proc"]["stages"][n].get("needs") or [])
     found = {}
-    for st in state["stages"].values():
+    for name, st in state["stages"].items():
+        if name not in upstream:
+            continue  # a stage that is not upstream cannot feed this one
         for kind, loc in st["locators"].items():
             if kind in wanted:
                 found[kind] = loc
@@ -371,8 +405,13 @@ def _inputs(state, sid):
 
 
 def _start(state, sid):
+    state["stages"][sid]["status"] = "running"
+    return _start_action(state, sid)
+
+
+def _start_action(state, sid):
+    """The `start-stage` action for a stage, built from the state without changing it."""
     st = state["stages"][sid]
-    st["status"] = "running"
     spec = state["proc"]["stages"][sid]
     inputs = _inputs(state, sid)
     name, lp = _loop_of(state, sid)
@@ -388,6 +427,23 @@ def _start(state, sid):
         "round": st.get("round", 1),
         "verify": True,
     }
+
+
+def pending_actions(state):
+    """The actions a resumed run must issue again, built from the state without changing it.
+
+    A stage that is running has lost its agent with the process that held it, and an item that is open
+    still waits for whoever holds it. Both are issued as they were the first time."""
+    out = [_start_action(state, sid) for sid, st in state["stages"].items() if st["status"] == "running"]
+    for item in state.get("items", []):
+        if item["status"] != "open":
+            continue
+        shown = {k: item[k] for k in ("change", "protected", "kind", "evidence", "delta") if k in item}
+        if item["at"] == "owner":
+            out.append({"do": "notify-owner", "item": item["id"], "asks": item["asks"], "from": item["from"], "default-if-silent": "wait", **shown})
+        else:
+            out.append({"do": "escalate", "item": item["id"], "to": item["at"], "asks": item["asks"], "from": item["from"], **shown})
+    return out
 
 
 def _advance(state):
@@ -480,7 +536,10 @@ def _invalidate(state, sids, keep=None):
         for sid in span
         if state["stages"][sid]["status"] == "running" and sid != keep
     ]
+    cancelled = {a["stage"] for a in actions}
     _reset(state, span)
+    for sid in cancelled:  # its late result names the old round and is refused once it restarts
+        state["stages"][sid]["round"] += 1
     return actions
 
 
@@ -589,7 +648,7 @@ def _stage_done(state, event, ctx):
     _count(state, "stages-done")
     verdict = _evaluate(state)
     name, lp = _loop_of(state, sid)
-    if name and sid == _rank(state, lp["stages"])[-1]:
+    if name and all(state["stages"][m]["status"] in SETTLED for m in lp["stages"]):
         if not _holds(state, lp.get("exit")):
             return verdict + _next_round(state, name, lp, f"loop '{name}' exit condition not met")
         state.get("carried", {}).pop(name, None)  # the loop is finished: nothing carries over
@@ -609,7 +668,7 @@ def _next_round(state, name, lp, why, failed=None):
         return [_raise_to(state, lp["on-exhausted"], asks, None, members, loop=name)]
     actions = _invalidate(state, members, keep=failed)
     for sid in members:
-        state["stages"][sid]["round"] = rounds[name]
+        state["stages"][sid]["round"] = max(rounds[name], state["stages"][sid].get("round", 1))
     return actions + _advance(state)
 
 
@@ -641,7 +700,7 @@ def _stage_failed(state, event, ctx):
             span = _between(state, retry["to"], sid)
             actions = _invalidate(state, span, keep=sid)
             for member in span:
-                state["stages"][member]["round"] = count + 1
+                state["stages"][member]["round"] = max(count + 1, state["stages"][member].get("round", 1))
             return actions + _advance(state)
     st["status"] = "failed"
     state["status"] = "blocked"
@@ -733,9 +792,10 @@ def _forward(item, to, frm, analysis):
 @register("owner-decided", source="owner")
 def _owner_decided(state, event, ctx):
     """Only a verified owner decision applies. With none, none does. `abort` ends the run."""
-    item = _item(state, event.get("item"))
-    if state["status"] in ("done", "halted"):
-        raise Rejected(f"the run is {state['status']}: nothing is left to decide")
+    try:
+        item = _item(state, event.get("item"))
+    except Rejected as exc:  # no item, so nothing to bind a signature to: it cannot be an owner decision
+        raise Unauthenticated(str(exc)) from exc
     # The verifier sees the run and a digest of what is being decided, so it can bind to both.
     signed = {**copy.deepcopy(event), "run_id": state["run_id"], "item_digest": _digest(item)}
     try:
@@ -744,15 +804,25 @@ def _owner_decided(state, event, ctx):
         ok = False  # what a verifier raises never reaches the record
     if not ok:
         raise Unauthenticated("owner decision has no valid signature")
+    ctx.owner_verified = True
+    if state["status"] in ("done", "halted"):
+        raise Rejected(f"the run is {state['status']}: nothing is left to decide")
     if item["status"] != "open" or item["at"] != "owner":
         raise Rejected(f"item '{item['id']}' is not waiting on the owner")
+    assurance = event.get("assurance", "signed")
+    if not (isinstance(assurance, str) and assurance in ASSURANCE):
+        raise Rejected(f"assurance must be one of {', '.join(ASSURANCE)}, not {assurance!r}")
+    if assurance == "attested":
+        needed = "protected" if item.get("protected") else "ordinary"
+        if needed not in state["policy"].get("attested-decisions", ["ordinary"]):
+            raise Rejected(f"a {needed} item needs the stakeholder's own signature: the policy does not let the delegate's attestation close it")
     kind, decision = item.get("kind"), event.get("decision")
     if kind == "rollback" and decision not in ("rollback", "keep"):
         raise Rejected("a rollback is decided with 'rollback' or 'keep'")
     if kind == "amendment" and decision not in ("approve", "reject"):
         raise Rejected("a change is decided with 'approve' or 'reject'")
-    item["status"], item["decision"] = "owner-ruled", decision
-    actions = [{"do": "owner-ruled", "item": item["id"], "decision": decision}]
+    item["status"], item["decision"], item["assurance"] = "owner-ruled", decision, assurance
+    actions = [{"do": "owner-ruled", "item": item["id"], "decision": decision, "assurance": assurance}]
     if kind == "rollback":
         if decision == "keep":
             _mark(state, item["target"] + 1, "kept")
@@ -967,7 +1037,7 @@ def _evaluate(state):
     bad_named = sorted(m for m, e in named.items() if regressed(e["observed"], e["baseline"], e["direction"], tol))
     if bad_safety:
         snap["outcome"] = "regressed"  # becomes rolled-back only when the rollback is installed
-        state["pending"].append({"kind": "rollback", "item": None, "to": snap["version"] - 1, "auto": True})
+        state["pending"].insert(0, {"kind": "rollback", "item": None, "to": snap["version"] - 1, "auto": True})  # first: a queued change then fails its base_version check
         shown = {**named, **{m: safety[m] for m in bad_safety}}
         return [
             {"do": "change-regressed", "version": snap["version"], "metrics": shown, "auto": True},

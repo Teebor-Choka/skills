@@ -284,3 +284,29 @@ def test_verify_owner_cannot_change_the_decision_the_reducer_stores():
     ev = {"type": "owner-decided", "item": item, "decision": {"action": "retry"}, "signature": "x"}
     state, acts = srun(state, ev, verify_owner=meddling)
     assert state["items"][0]["decision"] == {"action": "retry"} and state["status"] == "running"
+
+
+# ---- replaying a refused event must not move a metric either
+
+def test_a_refused_signed_event_replayed_is_not_counted_again():
+    state, _ = go()
+    ev = seal({"type": "spawn-requested", "by": "lead", "role": "worker", "why": "x", "parent": 9}, "lead")
+    state, acts = srun(state, ev)
+    assert dos(acts[0]) == ["error"]
+    after_first = (counters(state)["refusals"], len(state["log"]))
+    state, acts = srun(state, ev, ev, ev)
+    assert all(refused(a, "replay") for a in acts)
+    assert (counters(state)["refusals"], len(state["log"])) == after_first
+
+
+def test_an_applied_owner_decision_replayed_is_not_counted():
+    from signed_fixtures import decide
+    state, _ = go()
+    state, acts = srun(state, sfailed("align"))
+    ev = decide(state, acts[0][0]["item"], "retry")
+    state, acts = srun(state, ev)
+    assert dos(acts[0])[0] == "owner-ruled"
+    before = (counters(state)["refusals"], len(state["log"]))
+    state, acts = srun(state, ev)
+    assert refused(acts[0], "replay")
+    assert (counters(state)["refusals"], len(state["log"])) == before

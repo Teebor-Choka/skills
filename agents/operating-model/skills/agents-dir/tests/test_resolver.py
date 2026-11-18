@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 
 import pytest
 from resolver_kit import (BOUND, OWNER_CHARTER, SPECIFICS, ResolutionError, agents, commit, env_for, git, has, ok,
@@ -374,7 +375,7 @@ def test_a_policy_value_the_runtime_cannot_use_is_an_error(tmp_path, policy, wor
 def test_a_signed_run_can_be_asked_for_and_needs_entities(tmp_path):
     repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC}))
     with pytest.raises(ResolutionError) as exc:
-        start_run(repo, environ=env_for(tmp_path), trust="signed")
+        start_run(repo, environ=env_for(tmp_path), trust="signed", require_communication=False)
     assert has(exc.value.errors, "entities")
 
 
@@ -795,3 +796,190 @@ def test_a_project_procedure_with_an_upper_case_suffix_is_refused(tmp_path):
     repo = project(tmp_path, agents({"procedures/foo.MD": NAMED("foo")}))
     got = resolve(repo, environ=env_for(tmp_path, {"procedures/foo.md": NAMED("foo"), "policy.md": "---\nprocedure: foo\n---\n"}))
     assert any("lowercase" in e for e in got["errors"]), got["errors"]
+
+
+# ---- the delegate: every escalation ends in an assigned, verifiable entity
+
+ENT = PROC.replace("kpis:", "entities:\n  lead:\n    role: team-lead\n    escalates-to: liaison\n  liaison:\n    role: delegate\n    escalates-to: owner\nkpis:", 1)
+ENT = re.sub(r"(\n  (?:brief|create|launch):\n)", r"\1    entity: lead\n", ENT)
+DELEGATE_CHARTER = "---\nowner:\n  channel: chat\n  answer-path: signed reply\ndelegate: liaison\n---\n"
+
+
+def _delegate(tmp_path, proc=ENT, charter=DELEGATE_CHARTER, **kw):
+    files = {"procedures/campaign-ops.md": proc}
+    if charter is not None:
+        files["charter.md"] = charter
+    return resolve(project(tmp_path, agents(files)), environ=env_for(tmp_path), **kw)
+
+
+def test_a_charter_that_names_the_delegate_lets_the_run_start(tmp_path):
+    assert _delegate(tmp_path)["errors"] == []
+
+
+def test_escalation_to_the_owner_needs_a_delegate_in_the_charter(tmp_path):
+    got = _delegate(tmp_path, charter=OWNER_CHARTER)
+    assert any("must name a 'delegate'" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_run_with_no_charter_at_all_is_refused_when_something_escalates_to_the_owner(tmp_path):
+    got = _delegate(tmp_path, charter=None)
+    assert any("delegate" in e for e in got["errors"]), got["errors"]
+
+
+def test_the_delegate_must_be_an_entity_of_the_procedure(tmp_path):
+    got = _delegate(tmp_path, charter=DELEGATE_CHARTER.replace("liaison", "ghost"))
+    assert any("ghost" in e for e in got["errors"]), got["errors"]
+
+
+def test_the_delegate_must_have_the_delegate_role(tmp_path):
+    got = _delegate(tmp_path, charter=DELEGATE_CHARTER.replace("liaison", "lead"))
+    assert any("role" in e and "delegate" in e for e in got["errors"]), got["errors"]
+
+
+def test_only_the_delegate_may_escalate_to_the_owner(tmp_path):
+    proc = ENT.replace("  lead:\n    role: team-lead\n    escalates-to: liaison", "  lead:\n    role: team-lead\n    escalates-to: owner")
+    got = _delegate(tmp_path, proc=proc)
+    assert any("lead" in e and "owner" in e for e in got["errors"]), got["errors"]
+
+
+def test_a_procedure_with_no_entity_escalating_to_the_owner_needs_no_delegate(tmp_path):
+    assert _delegate(tmp_path, proc=PROC, charter=OWNER_CHARTER)["errors"] == []
+
+
+def test_an_inline_charter_can_name_the_delegate(tmp_path):
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": ENT}))
+    got = resolve(repo, environ=env_for(tmp_path), inline={"charter": DELEGATE_CHARTER})
+    assert got["errors"] == [], got["errors"]
+
+
+def test_attested_decisions_reach_the_run_as_a_validated_list(tmp_path):
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC, "policy.md": "---\nattested-decisions: [ordinary, protected]\n---\n"}))
+    assert start_run(repo, environ=env_for(tmp_path))["policy"]["attested-decisions"] == ["ordinary", "protected"]
+
+
+def test_an_unknown_attested_class_is_refused(tmp_path):
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": PROC, "policy.md": "---\nattested-decisions: [everything]\n---\n"}))
+    with pytest.raises(ResolutionError):
+        start_run(repo, environ=env_for(tmp_path))
+
+
+def test_a_project_cannot_loosen_attested_decisions_when_the_user_locked_the_key(tmp_path):
+    user = {"policy.md": "---\nattested-decisions: [ordinary]\nlocked: [attested-decisions]\n---\n"}
+    got = _vs_user(tmp_path, {"policy.md": "---\nattested-decisions: [ordinary, protected]\n---\n", "procedures/campaign-ops.md": PROC}, user)
+    assert any("attested-decisions" in e for e in got["errors"]), got["errors"]
+
+
+def test_the_resolver_checks_the_attested_classes_itself():
+    from resolver import _runtime_policy
+    assert _runtime_policy({"attested-decisions": ["everything"]})[1]
+    assert _runtime_policy({"attested-decisions": ["ordinary"]}) == ({"attested-decisions": ["ordinary"]}, [])
+
+
+# ---- the signing setting and the communication requirement
+
+def _mode(tmp_path, policy, declare=True, **kw):
+    """A run of a procedure that has entities and a delegate, so a signed run can start.
+
+    A signed run must declare how entities communicate, so one is added unless `declare` is false."""
+    if declare and "communication" not in policy:
+        policy += "communication: socket:/run/om.sock\ncommunication-guarantees: [ordered, durable, replayable]\n"
+    repo = project(tmp_path, agents({"procedures/campaign-ops.md": ENT, "charter.md": DELEGATE_CHARTER, "policy.md": f"---\n{policy}---\n"}))
+    return start_run(repo, environ=env_for(tmp_path), **kw)
+
+
+def test_signing_signed_makes_the_run_signed(tmp_path):
+    assert _mode(tmp_path, "signing: signed\n")["trust"] == "signed"
+
+
+def test_signing_none_makes_the_run_unsigned(tmp_path):
+    assert _mode(tmp_path, "signing: none\n")["trust"] == "claims"
+
+
+def test_team_mode_defaults_to_signed(tmp_path):
+    assert _mode(tmp_path, "mode: team\n")["trust"] == "signed"
+
+
+def test_no_mode_and_no_setting_is_unsigned_as_before(tmp_path):
+    assert _mode(tmp_path, "mode: single\n")["trust"] == "claims"
+
+
+def test_team_mode_can_say_none_explicitly(tmp_path):
+    assert _mode(tmp_path, "mode: team\nsigning: none\n")["trust"] == "claims"
+
+
+def test_a_caller_cannot_run_unsigned_when_the_policy_requires_signing(tmp_path):
+    with pytest.raises(ResolutionError, match="signing"):
+        _mode(tmp_path, "signing: signed\n", trust="claims")
+
+
+def test_a_caller_may_ask_for_more_than_the_policy_requires(tmp_path):
+    assert _mode(tmp_path, "signing: none\n", trust="signed")["trust"] == "signed"
+
+
+@pytest.mark.parametrize("bad", ["yes", "required", "true", "signed, none"])
+def test_an_unknown_signing_value_is_refused(tmp_path, bad):
+    with pytest.raises(ResolutionError, match="signing"):
+        _mode(tmp_path, f"signing: {bad}\n")
+
+
+def test_a_project_cannot_downgrade_a_signing_setting_the_user_locked(tmp_path):
+    user = {"policy.md": "---\nsigning: signed\nlocked: [signing]\n---\n"}
+    got = _vs_user(tmp_path, {"policy.md": "---\nsigning: none\n---\n", "procedures/campaign-ops.md": PROC}, user)
+    assert any("signing" in e for e in got["errors"]), got["errors"]
+
+
+def test_an_inline_policy_cannot_downgrade_a_locked_signing_setting(tmp_path):
+    user = {"policy.md": "---\nsigning: signed\nlocked: [signing]\n---\n"}
+    got = _vs_user(tmp_path, {"procedures/campaign-ops.md": PROC}, user, inline={"policy": "---\nsigning: none\n---\n"})
+    assert any("signing" in e for e in got["errors"]), got["errors"]
+
+
+def test_the_communication_mechanism_is_carried_into_the_run(tmp_path):
+    assert _mode(tmp_path, "communication: xmpp:ops@example.org\n")["policy"]["communication"] == "xmpp:ops@example.org"
+
+
+@pytest.mark.parametrize("bad", ["", "[a, b]"])
+def test_the_communication_mechanism_must_be_text(tmp_path, bad):
+    with pytest.raises(ResolutionError, match="communication"):
+        _mode(tmp_path, f"communication: {bad}\n")
+
+
+def test_a_signed_run_must_declare_how_entities_communicate(tmp_path):
+    with pytest.raises(ResolutionError, match="how entities communicate"):
+        _mode(tmp_path, "signing: signed\n", declare=False)
+
+
+def test_a_run_with_no_signing_needs_no_declared_mechanism(tmp_path):
+    assert _mode(tmp_path, "signing: none\n", declare=False)["trust"] == "claims"
+
+
+def test_a_caller_can_opt_out_of_the_communication_requirement_for_a_test_run(tmp_path):
+    assert _mode(tmp_path, "signing: signed\n", declare=False, require_communication=False)["trust"] == "signed"
+
+
+def test_a_signed_run_needs_ordered_delivery_declared(tmp_path):
+    for guarantees in ("[durable, replayable]", "[]"):
+        with pytest.raises(ResolutionError, match="ordered"):
+            _mode(tmp_path, f"signing: signed\ncommunication: socket:/x\ncommunication-guarantees: {guarantees}\n", declare=False)
+
+
+def test_a_signed_run_that_declares_a_mechanism_but_no_guarantees_is_refused(tmp_path):
+    with pytest.raises(ResolutionError, match="guarantees"):
+        _mode(tmp_path, "signing: signed\ncommunication: socket:/x\n", declare=False)
+
+
+@pytest.mark.parametrize("bad", ["ordered", "[ordered, fast]", "[3]"])
+def test_unknown_delivery_guarantees_are_refused(tmp_path, bad):
+    with pytest.raises(ResolutionError, match="guarantees"):
+        _mode(tmp_path, f"signing: none\ncommunication-guarantees: {bad}\n", declare=False)
+
+
+def test_the_declared_guarantees_reach_the_run(tmp_path):
+    state = _mode(tmp_path, "signing: signed\n")
+    assert state["policy"]["communication-guarantees"] == ["ordered", "durable", "replayable"]
+
+
+def test_a_project_cannot_weaken_the_guarantees_the_user_locked(tmp_path):
+    user = {"policy.md": "---\ncommunication-guarantees: [ordered, durable]\nlocked: [communication-guarantees]\n---\n"}
+    got = _vs_user(tmp_path, {"policy.md": "---\ncommunication-guarantees: [ordered]\n---\n", "procedures/campaign-ops.md": PROC}, user)
+    assert any("communication-guarantees" in e for e in got["errors"]), got["errors"]

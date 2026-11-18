@@ -1,0 +1,285 @@
+import pytest
+from procedure_testkit import step
+from runtime_fixtures import LOCATORS, SWE, dos, of
+from signed_fixtures import STAGE_ENTITY, sfresh
+
+from executor import Identity, KeyRing, Outcome, drive
+
+OWNER_OK = lambda event: False  # noqa: E731  (no owner decision is ever valid)
+
+
+def ring_for(state):
+    return KeyRing(state["run_id"], entities=state["proc"]["entities"])
+
+
+class Scripted:
+    """An in-context executor: runs each start-stage as the stage's own entity and reports it done."""
+
+    def __init__(self, ring, fail=(), forge=None):
+        self.ring, self.seen, self.forge = ring, [], forge
+
+    def run(self, action):
+        self.seen.append(action["do"])
+        if action["do"] != "start-stage":
+            return []
+        sid = action["stage"]
+        who = self.forge or action["entity"]
+        who = self.ring.issue(who)
+        return [who.seal({"type": "stage-done", "stage": sid, "round": action["round"], "locators": LOCATORS[sid]})]
+
+
+def driven(**kw):
+    state = sfresh()
+    ring = ring_for(state)
+    ex = kw.pop("executor", None) or Scripted(ring)
+    return drive(state, ex, ring, verify_owner=OWNER_OK, **kw), ring, ex
+
+
+# ---- key custody
+
+def test_an_identity_seals_events_the_ring_verifies_as_that_entity():
+    ring = ring_for(sfresh())
+    event = ring.issue("worker").seal({"type": "stage-done", "stage": "build"})
+    assert ring.verify_sender({**event, "run_id": "run"}) == "worker"
+
+
+def test_each_issue_is_a_fresh_instance_with_its_own_secret():
+    ring = ring_for(sfresh())
+    one, two = ring.issue("worker"), ring.issue("worker")
+    assert one.instance != two.instance
+    a = one.seal({"type": "t"})
+    b = two.seal({"type": "t"})
+    assert a["signature"] != b["signature"]
+
+
+def test_a_sealed_event_cannot_be_retargeted_to_another_entity():
+    ring = ring_for(sfresh())
+    event = ring.issue("worker").seal({"type": "stage-done", "stage": "build"})
+    assert ring.verify_sender({**event, "sender": "pm", "run_id": "run"}) is None
+
+
+def test_a_tampered_body_or_another_run_fails_verification():
+    ring = ring_for(sfresh())
+    event = ring.issue("worker").seal({"type": "stage-done", "stage": "build"})
+    assert ring.verify_sender({**event, "stage": "review", "run_id": "run"}) is None
+    assert ring.verify_sender({**event, "run_id": "other"}) is None
+
+
+def test_an_unknown_instance_or_a_revoked_one_is_refused():
+    ring = ring_for(sfresh())
+    who = ring.issue("worker")
+    event = who.seal({"type": "t"})
+    assert ring.verify_sender({**event, "instance": "nope", "run_id": "run"}) is None
+    ring.revoke(who.instance)
+    assert ring.verify_sender({**event, "run_id": "run"}) is None
+
+
+def test_only_entities_of_the_procedure_get_an_identity():
+    with pytest.raises(ValueError, match="entity"):
+        ring_for(sfresh()).issue("intruder")
+
+
+def test_the_executor_key_is_separate_from_every_entity_key():
+    ring = ring_for(sfresh())
+    fact = ring.executor_event({"type": "run-started"})
+    assert ring.verify_executor({**fact, "run_id": "run"}) is True
+    assert ring.verify_sender({**fact, "run_id": "run"}) is None
+    forged = ring.issue("pm").seal({"type": "run-started"})
+    assert ring.verify_executor({**forged, "run_id": "run"}) is False
+
+
+def test_an_identity_does_not_show_its_secret():
+    ring = ring_for(sfresh())
+    who = ring.issue("worker")
+    assert isinstance(who, Identity)
+    event = who.seal({"type": "t"})
+    assert event["signature"] not in repr(who) and "key" not in repr(who).lower().replace("keyring", "")
+
+
+# ---- the drive loop
+
+def test_drive_runs_a_signed_procedure_to_completion():
+    out, ring, ex = driven()
+    assert isinstance(out, Outcome) and out.status == "done" and out.state["status"] == "done"
+    assert [e["stage"] for e in out.state["log"] if e["type"] == "stage-done"] == list(STAGE_ENTITY)
+
+
+def test_an_event_forged_for_another_entitys_stage_moves_nothing():
+    state = sfresh()
+    ring = ring_for(state)
+    out = drive(state, Scripted(ring, forge="worker"), ring, verify_owner=OWNER_OK)
+    assert out.status == "stalled" and out.state["stages"]["align"]["status"] == "running"
+    assert out.errors and "sender" in out.errors[0]["reason"]
+
+
+def test_drive_stops_waiting_when_the_run_needs_the_owner():
+    class Blocks(Scripted):
+        def run(self, action):
+            if action["do"] == "start-stage" and action["stage"] == "review":
+                who = self.ring.issue(action["entity"])
+                return [who.seal({"type": "stage-failed", "stage": "review", "round": action["round"],
+                                  "reason": "defects", "locators": {}})]
+            return super().run(action)
+
+    state = sfresh()
+    ring = ring_for(state)
+    out = drive(state, Blocks(ring), ring, verify_owner=OWNER_OK, max_steps=200)
+    assert out.status in ("waiting", "exhausted", "stalled") and out.state["status"] != "done"
+
+
+def test_drive_is_bounded_when_an_executor_never_settles():
+    class Echo:
+        def __init__(self, ring):
+            self.ring = ring
+
+        def run(self, action):
+            return [self.ring.executor_event({"type": "run-started"})]  # refused every time
+
+    state = sfresh()
+    ring = ring_for(state)
+    out = drive(state, Echo(ring), ring, verify_owner=OWNER_OK, max_steps=25)
+    assert out.status in ("exhausted", "stalled") and len(out.actions) <= 25 + 5
+
+
+def test_an_executor_that_raises_ends_the_drive_with_a_reason_not_a_crash():
+    class Boom:
+        def run(self, action):
+            raise RuntimeError("spawn failed")
+
+    state = sfresh()
+    ring = ring_for(state)
+    out = drive(state, Boom(), ring, verify_owner=OWNER_OK)
+    assert out.status == "failed" and "spawn failed" in out.errors[-1]["reason"]
+
+
+def test_two_executors_that_do_the_same_work_yield_the_same_log():
+    a, _, _ = driven()
+
+    class Team(Scripted):  # same decisions, one extra hop through a queue
+        def run(self, action):
+            queued = list(super().run(action))
+            return queued
+
+    state = sfresh()
+    ring = ring_for(state)
+    b = drive(state, Team(ring), ring, verify_owner=OWNER_OK)
+    strip = lambda o: [(e["type"], e.get("stage")) for e in o.state["log"]]  # noqa: E731
+    assert strip(a) == strip(b) and dos(a.actions) == dos(b.actions)
+
+
+def test_drive_refuses_a_run_that_is_not_new():
+    state = sfresh()
+    ring = ring_for(state)
+    done = drive(state, Scripted(ring), ring, verify_owner=OWNER_OK).state
+    with pytest.raises(ValueError, match="new"):
+        drive(done, Scripted(ring), ring, verify_owner=OWNER_OK)
+
+
+def test_drive_runs_an_unsigned_run_with_no_ring():
+    from signed_fixtures import new_state
+    out = drive(new_state(SWE), type("E", (), {"run": lambda self, action: [] if action["do"] != "start-stage" else [{"type": "stage-done", "stage": action["stage"], "round": action["round"], "locators": LOCATORS[action["stage"]]}]})(), None, verify_owner=OWNER_OK)
+    assert out.status == "done"
+
+
+def test_drive_stops_at_the_step_bound_even_when_work_remains():
+    out, _, _ = driven(max_steps=2)
+    assert out.status == "exhausted" and out.state["status"] != "done"
+
+
+# ---- review findings
+
+def _cells(fn):
+    return [c.cell_contents for c in (fn.__closure__ or ())]
+
+
+def test_an_identitys_seal_reaches_neither_the_ring_nor_another_key():
+    ring = ring_for(sfresh())
+    mine, other = ring.issue("worker"), ring.issue("pm")
+    cells = _cells(mine._seal)
+    assert not any(isinstance(c, KeyRing) for c in cells)
+    foreign = {ring._executor_key, ring._keys[other.instance][1]}
+    assert not any(c in foreign for c in cells if isinstance(c, bytes))
+
+
+@pytest.mark.parametrize("bad", [None, 7, {"type": "x"}, "events"])
+def test_an_executor_that_returns_a_non_list_fails_the_drive(bad):
+    class Bad:
+        def run(self, action):
+            return bad
+
+    state = sfresh()
+    ring = ring_for(state)
+    assert drive(state, Bad(), ring, verify_owner=OWNER_OK).status == "failed"
+
+
+def test_an_executor_that_raises_while_its_events_are_iterated_fails_the_drive():
+    class Lazy:
+        def run(self, action):
+            def gen():
+                raise RuntimeError("late")
+                yield
+            return gen()
+
+    state = sfresh()
+    ring = ring_for(state)
+    out = drive(state, Lazy(), ring, verify_owner=OWNER_OK)
+    assert out.status == "failed" and "late" in out.errors[-1]["reason"]
+
+
+def test_an_executor_that_edits_its_action_cannot_break_the_drive():
+    class Meddles(Scripted):
+        def run(self, action):
+            events = super().run(action)
+            action.clear()
+            return events
+
+    state = sfresh()
+    ring = ring_for(state)
+    out = drive(state, Meddles(ring), ring, verify_owner=OWNER_OK)
+    assert out.status == "done" and all("do" in a for a in out.actions)
+
+
+def test_the_step_bound_counts_events_not_only_actions():
+    class Flood(Scripted):
+        def run(self, action):
+            return [self.ring.executor_event({"type": "run-started"}) for _ in range(500)]
+
+    state = sfresh()
+    ring = ring_for(state)
+    out = drive(state, Flood(ring), ring, verify_owner=OWNER_OK, max_steps=50)
+    assert out.status == "exhausted" and len(out.errors) <= 60
+
+
+def test_an_early_refusal_does_not_turn_a_later_wait_into_a_stall():
+    class Async(Scripted):
+        def run(self, action):
+            events = super().run(action)
+            if action["do"] == "start-stage" and action["stage"] == "align":
+                return events + events  # a duplicate: refused as a replay
+            if action["do"] == "start-stage" and action["stage"] == "build":
+                return []  # the agent answers later
+            return events
+
+    state = sfresh()
+    ring = ring_for(state)
+    out = drive(state, Async(ring), ring, verify_owner=OWNER_OK)
+    assert out.errors and out.status == "waiting"
+
+
+def test_identical_events_from_one_instance_get_different_signatures():
+    who = ring_for(sfresh()).issue("pm")
+    assert who.seal({"type": "t"})["signature"] != who.seal({"type": "t"})["signature"]
+
+
+@pytest.mark.parametrize("changed", ["src/a.py", b"x", 5, None])
+def test_changed_must_be_a_list_of_paths(changed):
+    state = sfresh()
+    ring = ring_for(state)
+    with pytest.raises(ValueError, match="changed"):
+        drive(state, Scripted(ring), ring, verify_owner=OWNER_OK, changed=changed)
+
+
+def test_a_caller_supplied_run_id_never_survives_sealing():
+    ring = ring_for(sfresh())
+    assert "run_id" not in ring.issue("pm").seal({"type": "t", "run_id": "other"})
+    assert "run_id" not in ring.executor_event({"type": "t", "run_id": "other"})
