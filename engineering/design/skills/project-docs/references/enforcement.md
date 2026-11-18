@@ -58,7 +58,8 @@ any repo drifts.
 ## What it cannot do
 
 It confirms presence and shape: the tree, frontmatter, ADR sections, the decisions index in both
-directions, the AGENTS.md pointer, and that the mandatory mermaid blocks exist. It cannot tell
+directions, the AGENTS.md pointer, that the mandatory mermaid blocks exist, and that each optional
+`docs/views/*.html` is self-contained, themed, and as current as its source. It cannot tell
 whether a diagram is accurate, whether prose is actually terse, or whether an ADR is still true.
 Those are caught by writing it right (the authoring flow) and by the optional staleness review knob
 (a review that flags "the code changed but its ADR, spec, or diagram did not"), not by this script.

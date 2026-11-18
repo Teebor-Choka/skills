@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TITLE</title>
+    <!-- validate_docs.py checks both meta tags: source names the markdown doc, updated equals its frontmatter. -->
+    <meta name="source" content="docs/SOURCE-NAME.md" />
+    <meta name="updated" content="YYYY-MM-DD" />
+    <style>
+      /* One file, no script, no network: the page renders the same in any browser, offline, in print. */
+      :root {
+        --bg: #fafaf7;
+        --fg: #1c1c1a;
+        --mut: #6b6b64;
+        --card: #fff;
+        --line: #deded6;
+        --a: #b4531a;
+        --a-bg: #fbeee4;
+        --b: #1d5fa8;
+        --b-bg: #e4eefa;
+        --stop: #a23b3b;
+        --stop-bg: #f8e6e6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #161614;
+          --fg: #ecece6;
+          --mut: #9a9a90;
+          --card: #1f1f1c;
+          --line: #34342f;
+          --a: #f0a070;
+          --a-bg: #3a2517;
+          --b: #7fb2ee;
+          --b-bg: #16283d;
+          --stop: #e88a8a;
+          --stop-bg: #3a1d1d;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          15px/1.5 system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 32px 16px 64px;
+      }
+      h1 {
+        font-size: 26px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 18px;
+        margin: 36px 0 10px;
+        padding-top: 8px;
+        border-top: 1px solid var(--line);
+      }
+      .sub {
+        color: var(--mut);
+        margin: 0 0 16px;
+      }
+      code {
+        font:
+          13px ui-monospace,
+          Menlo,
+          monospace;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+      a {
+        color: var(--b);
+      }
+      .legend {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin: 10px 0;
+        font-size: 13px;
+      }
+      .dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 5px;
+      }
+      .flow {
+        margin: 12px 0;
+      }
+      .step {
+        display: grid;
+        grid-template-columns: 110px 1fr;
+        gap: 12px;
+      }
+      .who {
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding-top: 12px;
+        text-align: right;
+      }
+      .who.a {
+        color: var(--a);
+      }
+      .who.b {
+        color: var(--b);
+      }
+      .who.stop {
+        color: var(--stop);
+      }
+      .box {
+        border: 1px solid var(--line);
+        border-left-width: 4px;
+        border-radius: 8px;
+        background: var(--card);
+        padding: 9px 13px;
+        margin: 4px 0;
+      }
+      .box.a {
+        border-left-color: var(--a);
+      }
+      .box.b {
+        border-left-color: var(--b);
+      }
+      .box.stop {
+        border-left-color: var(--stop);
+        background: var(--stop-bg);
+      }
+      .box b {
+        display: block;
+      }
+      .box span {
+        color: var(--mut);
+        font-size: 13px;
+      }
+      .arrow {
+        margin-left: 122px;
+        color: var(--mut);
+        font-size: 12px;
+        line-height: 1;
+      }
+      .tag {
+        font:
+          12px ui-monospace,
+          Menlo,
+          monospace;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 1px 6px;
+        background: var(--bg);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+        background: var(--card);
+        border: 1px solid var(--line);
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 7px 10px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--mut);
+      }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 12px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px 14px;
+      }
+      .card h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+      }
+      .card ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+      .note {
+        background: var(--stop-bg);
+        border: 1px solid var(--stop);
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin: 14px 0;
+      }
+      .note ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+      @media (max-width: 640px) {
+        .step {
+          grid-template-columns: 1fr;
+          gap: 0;
+        }
+        .who {
+          text-align: left;
+          padding: 8px 0 0;
+        }
+        .arrow {
+          margin-left: 0;
+        }
+      }
+      @media print {
+        body {
+          background: #fff;
+          color: #000;
+        }
+        .box,
+        .card,
+        table {
+          break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>TITLE</h1>
+      <p class="sub">
+        PROJECT, updated YYYY-MM-DD. Rendered from
+        <a href="../SOURCE-NAME.md">docs/SOURCE-NAME.md</a>; the markdown is the
+        source of truth.
+      </p>
+
+      <!-- Keep the sections the source doc supports and delete the rest. Every figure, label and name
+     comes from the source doc or the project, never from this template. -->
+
+      <h2>Flow</h2>
+      <div class="legend">
+        <span
+          ><span class="dot" style="background: var(--a)"></span>ROLE A</span
+        >
+        <span
+          ><span class="dot" style="background: var(--b)"></span>ROLE B</span
+        >
+        <span
+          ><span class="dot" style="background: var(--stop)"></span>exit or
+          refusal</span
+        >
+      </div>
+      <div class="flow">
+        <div class="step">
+          <div class="who a">ROLE A</div>
+          <div class="box a">
+            <b>STEP TITLE <span class="tag">state</span></b
+            ><span>One line: what happens, and the entry condition.</span>
+          </div>
+        </div>
+        <div class="arrow">&#9660;</div>
+        <div class="step">
+          <div class="who b">ROLE B</div>
+          <div class="box b"><b>STEP TITLE</b><span>One line.</span></div>
+        </div>
+        <div class="step">
+          <div class="who stop">Exit</div>
+          <div class="box stop">
+            <b>EXIT TITLE</b
+            ><span>When this happens and what the state is afterwards.</span>
+          </div>
+        </div>
+      </div>
+
+      <h2>States</h2>
+      <table>
+        <tr>
+          <th>Name</th>
+          <th>Owner</th>
+          <th>Meaning</th>
+        </tr>
+        <tr>
+          <td><code>name</code></td>
+          <td>ROLE A</td>
+          <td>One line</td>
+        </tr>
+      </table>
+
+      <h2>Rules</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>GROUP</h3>
+          <ul>
+            <li>One rule per line</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>GROUP</h3>
+          <ul>
+            <li>One rule per line</li>
+          </ul>
+        </div>
+      </div>
+
+      <h2>Gaps</h2>
+      <div class="note">
+        <ul>
+          <li>
+            A place the doc and the project disagree, or where the doc is
+            silent.
+          </li>
+        </ul>
+      </div>
+    </main>
+  </body>
+</html>

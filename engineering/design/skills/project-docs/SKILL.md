@@ -75,9 +75,11 @@ plain voice.**
 6. **Write `process.md`** if the project has a procedure (a markdown file in `.agents/procedures/`):
    the procedure it runs, where its documents live, who decides what. Required then; skip it when
    there is no procedure.
-7. **Wire `AGENTS.md`.** Create or update the root `AGENTS.md` to point at `docs/overview.md` and
+7. **Render a view** (optional) of a doc a reader wants to scan, usually `process.md`: copy
+   `assets/view.template.html` to `docs/views/<name>.html`. One self-contained file, no cloud tooling.
+8. **Wire `AGENTS.md`.** Create or update the root `AGENTS.md` to point at `docs/overview.md` and
    `docs/decisions/`, plus the few build/run essentials. It points; it does not restate.
-8. **Validate.** Run `python3 scripts/validate_docs.py <project>` and fix every finding before
+9. **Validate.** Run `python3 scripts/validate_docs.py <project>` and fix every finding before
    reporting done. For the exact flow and templates see [`references/flow.md`](references/flow.md).
 
 ## Diagrams
