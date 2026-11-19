@@ -3,6 +3,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -161,8 +162,7 @@ class GraphFirstEndToEnd(unittest.TestCase):
             f.write(OTHER_CALL + "\n")
         payload = {"tool_name": "Read", "session_id": "e2e", "transcript_path": transcript,
                    "tool_input": {"file_path": src}}
-        path_dirs = [fakebin, os.path.dirname(subprocess.run(["which", "git"], capture_output=True,
-                                                            text=True).stdout.strip())]
+        path_dirs = [fakebin, os.path.dirname(shutil.which("git"))]
         out = json.loads(self.run_hook(payload, path_dirs).stdout)["hookSpecificOutput"]
         self.assertEqual(out["permissionDecision"], "deny")
         self.assertIn("ToolSearch", out["permissionDecisionReason"])
