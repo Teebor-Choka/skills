@@ -347,13 +347,13 @@ in `warn` mode and 1 in `fail` mode. Never a silent pass. The trigger runs only 
 **surface change** is an added or removed line, found with `git diff -w` and ignoring files under
 `tests/`, `benches/`, `examples/` and `*_test.*`, that matches:
 
-| Ecosystem | Public surface                                                                                                                                           |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Rust      | `^\s*pub\s+(fn\|struct\|enum\|trait\|type\|const\|static\|mod\|use)\b` (not `pub(crate)`, `pub(super)`, `pub(in ...)`)                                   |
-| TS/JS     | `^\s*export\b`                                                                                                                                           |
-| Python    | `__all__`, or a top-level `def`/`class` whose name has no leading `_`                                                                                    |
-| Go        | a top-level `func`, `type`, `var` or `const` with an upper-case name                                                                                     |
-| Wiring    | an edit in the component's own manifest on a line that names another component, other than a metadata key (`name`, `version`, `description` and similar) |
+| Ecosystem | Public surface                                                                                                                                                                                                                                   |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Rust      | `^\s*pub\s+((async\|unsafe\|extern(\s+"[^"]*")?)\s+)*(fn\|struct\|enum\|trait\|type\|const\|static\|mod\|use)\b`, so `pub async fn`, `pub unsafe fn`, `pub extern "C" fn` and combinations match (not `pub(crate)`, `pub(super)`, `pub(in ...)`) |
+| TS/JS     | `^\s*export\b`                                                                                                                                                                                                                                   |
+| Python    | `__all__`, or a top-level `def`/`class` whose name has no leading `_`                                                                                                                                                                            |
+| Go        | a top-level `func`, `type`, `var` or `const` with an upper-case name                                                                                                                                                                             |
+| Wiring    | an edit in the component's own manifest on a line that names another component, other than a metadata key (`name`, `version`, `description` and similar)                                                                                         |
 
 The language is taken from the file extension. A surface change is satisfied when the same range
 changes the body of the component's page (frontmatter keys and whitespace do not count), or a commit

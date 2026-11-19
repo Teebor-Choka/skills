@@ -480,7 +480,7 @@ def _diff(project: Path, *spec: str) -> dict[str, list[tuple[str, str]]]:
 # --- update trigger --------------------------------------------------------------------------------
 
 SURFACE = (
-    (frozenset({".rs"}), re.compile(r"^\s*pub\s+(fn|struct|enum|trait|type|const|static|mod|use)\b")),
+    (frozenset({".rs"}), re.compile(r"^\s*pub\s+((async|unsafe|extern(\s+\"[^\"]*\")?)\s+)*(fn|struct|enum|trait|type|const|static|mod|use)\b")),
     (frozenset({".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"}), re.compile(r"^\s*export\b")),
     (frozenset({".py"}), re.compile(r"^(__all__\b|(async\s+)?def\s+[A-Za-z]|class\s+[A-Za-z])")),
     (frozenset({".go"}), re.compile(r"^(func\s+(\([^)]*\)\s*)?[A-Z]|(type|var|const)\s+[A-Z])")),
