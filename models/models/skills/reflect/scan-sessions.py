@@ -396,6 +396,10 @@ def score_session(path, moments_override=None, seen_uuids=None, since=None, unti
                     use_id = next((b.get("tool_use_id") for b in content
                                    if isinstance(b, dict) and b.get("type") == "tool_result"), None)
                     name, command = tools.get(use_id, (None, None))
+                    denial = lib.tool_result_hook_denial(t)
+                    if denial:
+                        hooks.setdefault(denial[0], {"deny": 0, "nonblocking": 0,
+                                                     "context": 0})["deny"] += 1
                     if is_error_result(t, name, command):
                         test_run = name == "Bash" and bool(TEST_CMD_RE.search(command or ""))
                         err_hits.append((ln, excerpt(lib.scrub_result(command, t)), test_run))
