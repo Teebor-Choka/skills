@@ -27,13 +27,62 @@ def marketplace():
 PLUGIN_JSON = json.dumps({"name": "p", "version": "1.0.0"})
 
 
-def test_hooks_only_plugin_passes():
-    r = run({".claude-plugin/marketplace.json": marketplace(), "d/p/.claude-plugin/plugin.json": PLUGIN_JSON,
-             "d/p/hooks/hooks.json": "{}"})
-    assert r.returncode == 0, r.stderr
-
-
 def test_plugin_with_neither_skills_nor_hooks_fails():
     r = run({".claude-plugin/marketplace.json": marketplace(), "d/p/.claude-plugin/plugin.json": PLUGIN_JSON})
     assert r.returncode == 1
     assert "no skills" in r.stderr
+
+
+HOOKS_OK = json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x"}]}]}})
+MANIFEST_OK = json.dumps({"hooks": [{"id": "a", "event": "stop", "script": "hooks/a", "enforce": "warn"}]})
+
+
+def hooks_plugin(hooks_json, manifest):
+    files = {".claude-plugin/marketplace.json": marketplace(), "d/p/.claude-plugin/plugin.json": PLUGIN_JSON}
+    if hooks_json is not None:
+        files["d/p/hooks/hooks.json"] = hooks_json
+    if manifest is not None:
+        files["d/p/hooks/manifest.json"] = manifest
+    return run(files)
+
+
+def test_hooks_plugin_with_valid_hooks_and_manifest_passes():
+    r = hooks_plugin(HOOKS_OK, MANIFEST_OK)
+    assert r.returncode == 0, r.stderr
+
+
+def test_invalid_hooks_json_fails():
+    r = hooks_plugin("{not json", MANIFEST_OK)
+    assert r.returncode == 1
+    assert "hooks.json" in r.stderr
+
+
+def test_empty_object_hooks_json_fails():
+    r = hooks_plugin("{}", MANIFEST_OK)
+    assert r.returncode == 1
+    assert "hooks.json" in r.stderr
+
+
+def test_hooks_object_without_events_fails():
+    r = hooks_plugin(json.dumps({"hooks": {}}), MANIFEST_OK)
+    assert r.returncode == 1
+    assert "hooks.json" in r.stderr
+
+
+def test_hooks_json_without_manifest_fails():
+    r = hooks_plugin(HOOKS_OK, None)
+    assert r.returncode == 1
+    assert "manifest.json" in r.stderr
+
+
+def test_invalid_manifest_json_fails():
+    r = hooks_plugin(HOOKS_OK, "{nope")
+    assert r.returncode == 1
+    assert "manifest.json" in r.stderr
+
+
+def test_empty_manifest_fails():
+    for body in (json.dumps({"hooks": []}), "{}", json.dumps({"hooks": {}})):
+        r = hooks_plugin(HOOKS_OK, body)
+        assert r.returncode == 1, body
+        assert "manifest.json" in r.stderr
