@@ -1,0 +1,310 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Standard session record",
+  "description": "One record per message block, one JSON object per line. Every harness adapter exports to this shape. The stdlib validator in scripts/session_export.py is authoritative at run time; this file documents it.",
+  "oneOf": [
+    {
+      "title": "user",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "harness",
+        "session_id",
+        "seq",
+        "uuid",
+        "parent_uuid",
+        "timestamp",
+        "kind",
+        "text"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "parent_uuid": {
+          "type": ["string", "null"]
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "user"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "title": "assistant_text",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "harness",
+        "session_id",
+        "seq",
+        "uuid",
+        "parent_uuid",
+        "timestamp",
+        "kind",
+        "text",
+        "model"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "parent_uuid": {
+          "type": ["string", "null"]
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "assistant_text"
+        },
+        "text": {
+          "type": "string"
+        },
+        "model": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    {
+      "title": "tool_call",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "harness",
+        "session_id",
+        "seq",
+        "uuid",
+        "parent_uuid",
+        "timestamp",
+        "kind",
+        "tool_use_id",
+        "name",
+        "input"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "parent_uuid": {
+          "type": ["string", "null"]
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "tool_call"
+        },
+        "tool_use_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object",
+          "description": "Secrets redacted."
+        }
+      }
+    },
+    {
+      "title": "tool_result",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "harness",
+        "session_id",
+        "seq",
+        "uuid",
+        "parent_uuid",
+        "timestamp",
+        "kind",
+        "tool_use_id",
+        "content",
+        "is_error"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "parent_uuid": {
+          "type": ["string", "null"]
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "tool_result"
+        },
+        "tool_use_id": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string",
+          "description": "Text blocks joined by newline; other block types become a placeholder."
+        },
+        "is_error": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "title": "system",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "harness",
+        "session_id",
+        "seq",
+        "uuid",
+        "parent_uuid",
+        "timestamp",
+        "kind",
+        "subtype",
+        "content"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "parent_uuid": {
+          "type": ["string", "null"]
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "system"
+        },
+        "subtype": {
+          "type": ["string", "null"]
+        },
+        "content": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "title": "compaction",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "harness",
+        "session_id",
+        "seq",
+        "uuid",
+        "parent_uuid",
+        "timestamp",
+        "kind",
+        "text"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "parent_uuid": {
+          "type": ["string", "null"]
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "compaction"
+        },
+        "text": {
+          "type": "string",
+          "description": "The summary that replaced earlier turns."
+        }
+      }
+    }
+  ]
+}
