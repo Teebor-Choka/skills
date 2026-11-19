@@ -1,78 +1,21 @@
 #!/usr/bin/env python3
-"""PreToolUse hook (tool: ScheduleWakeup): stop timer-polling of PRs, boards and subagents.
+"""PreToolUse hook (tool: ScheduleWakeup): stop timer-polling of PRs, runs and subagents.
 
-Each wake re-reads the whole context to learn that nothing changed. Allow the first two wakes with a given prompt; deny the third, and deny at once a wake whose
-prompt or reason waits on a PR or run (`gh pr`, `gh run`), sleeps (`sleep N`) or polls a subagent. A per-session counter file holds
-the prompt counts. Fails open on malformed input or an unwritable temp dir.
+Each wake re-reads the whole context to learn that nothing changed. Deny a wake whose prompt or reason polls
+a PR or run (`gh pr`, `gh issue`, `gh run`), sleeps (`sleep N`) or waits on a subagent. Any other wake passes,
+however often the same prompt repeats: a dynamic loop re-issues one prompt every tick by design. The hook
+keeps no state. Fails open on malformed input.
 Tests: hooks/tests/test_orchestrate_guards.py.
 """
-import hashlib
 import json
-import os
 import re
 import sys
 
 WAIT_ON = re.compile(r"gh\s+(pr|issue|run)\b|\bsleep\s+\d|subagent|sub-agent", re.I)
-MAX_SAME_PROMPT = 2
 REASON = ("A timer wake re-reads your whole context to learn nothing changed. Run a watcher that prints "
           "only changes under Monitor (load it with ToolSearch select:Monitor), or end the turn: hand-backs "
           "and task notifications wake you. If the board shows no change since the last tick, reply `idle` "
           "and stop scheduling wakes.")
-
-
-def clean_session(session):
-    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(session or "")).lstrip(".")[:64]
-
-
-def session_slug(payload):
-    """Sanitised session id. Without one, a per-user, per-cwd name, so sessions never share a file."""
-    sid = clean_session(payload.get("session_id"))
-    if sid:
-        return sid
-    cwd = str(payload.get("cwd") or os.getcwd())
-    return "nosession-%d-%s" % (os.getuid(), hashlib.sha1(cwd.encode()).hexdigest()[:8])
-
-
-def read_state(path):
-    """File text, or None. Never follows a symlink."""
-    try:
-        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW)) as f:
-            return f.read()
-    except OSError:
-        return None
-
-
-def write_state(path, text):
-    """Replace the file with a fresh private one (O_EXCL|O_NOFOLLOW: a planted symlink is removed, never written through)."""
-    try:
-        try:
-            os.unlink(path)
-        except FileNotFoundError:
-            pass
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(text)
-    except OSError:
-        pass
-
-
-def counter_path(session):
-    return os.path.join(os.environ.get("TMPDIR") or "/tmp", f"agent-schedule-wakeup-guard.{clean_session(session) or 'nosession'}")
-
-
-def count_prompt(session, prompt):
-    key = hashlib.sha1(prompt.encode()).hexdigest()[:16]
-    path = counter_path(session)
-    counts = {}
-    try:
-        data = json.loads(read_state(path) or "")
-        if isinstance(data, dict):
-            counts = {k: v for k, v in data.items() if isinstance(v, int)}
-    except ValueError:
-        pass
-    counts[key] = counts.get(key, 0) + 1
-    write_state(path, json.dumps(counts))
-    return counts[key]
 
 
 def main():
@@ -83,14 +26,10 @@ def main():
         tool_input = payload.get("tool_input") or {}
         if tool_input.get("stop"):
             return
-        prompt = str(tool_input.get("prompt") or "")
-        reason = str(tool_input.get("reason") or "")
+        text = f"{tool_input.get('prompt') or ''} {tool_input.get('reason') or ''}"
     except Exception:
         return
-    deny = bool(WAIT_ON.search(prompt + " " + reason))
-    if count_prompt(session_slug(payload), prompt) > MAX_SAME_PROMPT:
-        deny = True
-    if deny:
+    if WAIT_ON.search(text):
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                  "permissionDecisionReason": REASON}}))
 

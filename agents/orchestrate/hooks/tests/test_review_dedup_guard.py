@@ -120,8 +120,7 @@ class Decide(unittest.TestCase):
                    "Review PR 77: find bugs (finder C)", "Verify finding 1 of the review of PR 77 (verifier)",
                    "Verify finding 2 of the review of PR 77 (verifier)", "Verify finding 3 of the review of PR 77 (verifier)"]
         self.assertEqual([self.d(p) for p in prompts], [""] * 6)
-        self.assertEqual(self.d("review PR 77"), "")  # the fan-out counted once per role, so this is the 3rd count at most
-        self.assertEqual(self.d("review PR 77"), "ask")
+        self.assertEqual(self.d("review PR 77"), "ask")  # the fan-out counted once per role: 2 so far, this is the 3rd
 
     def test_description_counts_too(self):
         self.assertEqual(self.d("look at it", description="Review PR #9"), "")
