@@ -3,7 +3,9 @@ name: rust
 description: >
   Load before editing any .rs, Cargo.toml, Cargo.lock or rust-toolchain file, or running
   cargo, clippy or rustfmt: house Rust rules for errors, async, unsafe, tests. Applies in
-  multi-language changes. Not for read-only audits.
+  multi-language changes. Also load for concurrency work: blocking in async, deadlock,
+  cancellation safety, select!, backpressure and bounded channels, atomics ordering, lock
+  contention, spawn_blocking, JoinSet, shutdown. Not for read-only audits.
 ---
 
 # Rust engineer
@@ -28,12 +30,15 @@ agent's subagents — each still applying this skill to its slice — while you 
 decisions. This skill's `SKILL.md` loads the same on Claude Code, Codex, and OpenCode; for
 how to wire subagents, commands, or hooks per agent, see the `models:extension-author` skill.
 
-## Concurrency performance
+## Concurrency
 
-For async or threaded code with a measured latency, throughput, memory or stall problem, read
-[references/concurrency-performance.md](references/concurrency-performance.md). Profile first
-with `swe:performance`. The file pools fixes from Tokio and library docs and from fixes that
-shipped in hoprnet, each with its source.
+Load these on demand, only when the change touches async or threaded code.
+
+- Hangs, deadlock, lost data, cancellation, shutdown, `Send` errors, atomics, loom or Miri:
+  [references/concurrency-correctness.md](references/concurrency-correctness.md).
+- Measured latency, throughput, memory or stall problems (blocked runtime, lock contention,
+  queues, backpressure, false sharing): [references/concurrency-performance.md](references/concurrency-performance.md).
+  Profile first with `swe:performance`.
 
 ## Guidelines index
 
