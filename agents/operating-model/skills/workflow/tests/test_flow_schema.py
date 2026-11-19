@@ -89,30 +89,23 @@ def test_a_missing_file_is_an_error_not_a_pass(tmp_path):
 
 def test_without_jsonschema_exit_3_with_install_hint(tmp_path):
     p = write(tmp_path, VALID)
-    # Block the import so the test is independent of what is installed.
-    code = (
-        "import sys, runpy; sys.modules['jsonschema'] = None; "
-        f"sys.argv = [{str(SCRIPT)!r}, {str(p)!r}]; "
-        f"runpy.run_path({str(SCRIPT)!r}, run_name='__main__')"
-    )
-    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    # Block one import and stub the other, so the test is independent of what is installed.
+    r = run_code("import types; sys.modules['yaml'] = types.ModuleType('yaml'); sys.modules['jsonschema'] = None", p)
     assert r.returncode == 3, r.stdout + r.stderr
     assert "uv run --with jsonschema" in r.stderr
     assert "'jsonschema'" in r.stderr
+    assert "PyYAML" not in r.stderr.split("Run:")[0]
     assert "OK" not in r.stdout
 
 
 def test_without_pyyaml_exit_3_with_install_hint(tmp_path):
     p = write(tmp_path, VALID)
-    code = (
-        "import sys, runpy; sys.modules['yaml'] = None; "
-        f"sys.argv = [{str(SCRIPT)!r}, {str(p)!r}]; "
-        f"runpy.run_path({str(SCRIPT)!r}, run_name='__main__')"
-    )
-    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    r = run_code("import types; sys.modules['jsonschema'] = types.ModuleType('jsonschema'); sys.modules['yaml'] = None", p)
     assert r.returncode == 3, r.stdout + r.stderr
     assert "--with pyyaml" in r.stderr
     assert "'PyYAML'" in r.stderr
+    assert "'jsonschema'" not in r.stderr
+    assert "OK" not in r.stdout
 
 
 def test_vendored_schema_matches_published_sha256():
@@ -126,6 +119,7 @@ def test_vendored_license_notice_present():
     assert "github.com/serverlessworkflow/specification/blob/v1.1.0/schema/workflow.yaml" in text
     assert PUBLISHED_SHA256 in text
     assert "Accessed:" in text
+    assert "github.com/serverlessworkflow/specification/blob/v1.1.0/LICENSE" in text
 
 
 def run_code(prefix, *argv):
@@ -198,7 +192,11 @@ def test_a_bad_schema_exits_2_and_never_passes(tmp_path, schema_text):
 
 def test_a_jsonschema_without_draft_2020_12_exits_3(tmp_path):
     p = write(tmp_path, VALID)
-    r = run_code("import types; sys.modules['jsonschema'] = types.ModuleType('jsonschema')", p)
+    r = run_code(
+        "import types; sys.modules['yaml'] = types.ModuleType('yaml'); "
+        "sys.modules['jsonschema'] = types.ModuleType('jsonschema')",
+        p,
+    )
     assert r.returncode == 3, r.stdout + r.stderr
     assert "Draft202012Validator" in r.stderr
     assert "Traceback" not in r.stderr
