@@ -67,6 +67,25 @@ class McpFindReminder(unittest.TestCase):
         self.assertTrue(os.path.exists(marker))
         os.unlink(marker)
 
+    def plant(self, content, session="plant"):
+        with open(os.path.join(self.sb.tmp, "agent-mcp-find-reminder." + session), "w") as f:
+            f.write(content)
+
+    def test_hostile_counter_file_is_never_evaluated_as_arithmetic(self):
+        side_effect = os.path.join(self.sb.tmp, "pwned")
+        self.plant("a[$(touch %s)]" % side_effect)
+        r = self.run_hook(session="plant")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(side_effect))
+
+    def test_non_numeric_counter_file_counts_as_zero(self):
+        for content in ("1 2", "abc", "", "-1", "1\n2"):
+            with self.subTest(content=content):
+                self.plant(content)
+                r = self.run_hook(session="plant")
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertTrue(r.stdout, "counter reset to 0 means the next call is the 1st and nudges")
+
 
 if __name__ == "__main__":
     unittest.main()
