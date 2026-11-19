@@ -16,12 +16,16 @@ Usage:
 
 Exit code 0 only when every checked project passes; 1 if any finding is raised (a finding
 labelled "warning" counts too); 2 for a usage error or an unexpected failure.
+
+Where docs/components/ exists, the component-page rules also run. They resolve the components with
+components.py, which must sit beside this file; a repo without docs/components/ never loads it.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime
+import importlib.util
 import json
 import os
 import re
@@ -77,6 +81,16 @@ VIEW_DARK_RE = re.compile(r"prefers-color-scheme\s*:\s*dark")
 VIEW_CSS_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 VIEW_CSS_IMPORT_RE = re.compile(r"@import\b|image-set\(", re.IGNORECASE)
 VIEW_CSS_URL_RE = re.compile(r"url\(\s*['\"]?\s*([^'\")]*)", re.IGNORECASE)
+
+# Component pages (docs/components/<name>.md), checked only where docs/components/ exists.
+COMPONENT_KEYS: tuple[object, ...] = ("title", "kind", NAME_KEYS, "updated", "component", "path", "depends-on")
+COMPONENT_SECTIONS = ("Purpose", "Structure", "Public API", "Interactions", "Flow", "Decisions")
+COMPONENT_MAX_LINES = 200
+COMPONENT_MAX_BYTES = 12 * 1024
+COMPONENT_API_MAX_ROWS = 25
+H2_RE = re.compile(r"^## +(\S.*?)\s*$")
+CODE_SPAN_RE = re.compile(r"`([^`]*)`")
+API_TOKEN_SPLIT_RE = re.compile(r"::|[{},\s]+")
 
 
 def _view_inline(value: str) -> bool:
@@ -234,6 +248,10 @@ def _name_value(fm: dict[str, object]) -> str | None:
     return None
 
 
+class ToolError(Exception):
+    """A failure that is not a finding: the CLI prints it and exits 2."""
+
+
 # --- per-project validation --------------------------------------------------
 
 
@@ -322,8 +340,26 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
         if kind is None:
             findings.extend(_check_supersede(project, rel, fm, adr_files))
 
+    # --- component pages (only where docs/components/ exists) --------------
+    component_pages: dict[str, str] = {}
+    comp_dir = docs / "components"
+    if comp_dir.is_dir():
+        for page in sorted(comp_dir.glob("*.md")):
+            rel = page.relative_to(project_path).as_posix()
+            text = _read(page, project, rel, findings)
+            if text is None:
+                continue
+            texts[page] = text  # the secret scan below covers pages too
+            component_pages[rel] = text
+            page_fm = split_frontmatter(text)[0]
+            page_name_val = _name_value(page_fm) if page_fm else None
+            if page_name_val is not None:
+                name_values[rel] = page_name_val
+
     # --- project value must be identical across all docs -------------------
     findings.extend(_check_name_divergence(project, name_values))
+    if comp_dir.is_dir():
+        findings.extend(_check_components(project, project_path, component_pages))
 
     # --- ADR filename + sections -------------------------------------------
     for adr in adr_files:
@@ -704,6 +740,181 @@ def _check_agents(project: str, project_path: Path) -> list[Finding]:
     ]
 
 
+# --- component pages -----------------------------------------------------------
+
+
+_COMPONENTS_MODULE = None
+
+
+def _components_module():
+    """components.py, loaded from beside this file. Loaded only when docs/components/ exists, so a
+    validator copied on its own keeps working for every repo that has no component layer."""
+    global _COMPONENTS_MODULE
+    if _COMPONENTS_MODULE is None:
+        path = Path(__file__).resolve().with_name("components.py")
+        if not path.is_file():
+            raise ToolError(f"docs/components/ exists, so components.py must sit beside validate_docs.py "
+                            f"(not found: {path})")
+        spec = importlib.util.spec_from_file_location("project_docs_components", path)
+        module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        sys.modules[spec.name] = module  # dataclasses resolves its annotations through sys.modules
+        spec.loader.exec_module(module)  # type: ignore[union-attr]
+        _COMPONENTS_MODULE = module
+    return _COMPONENTS_MODULE
+
+
+def _h2_sections(body: str) -> list[tuple[str, list[str]]]:
+    """The `## ` sections of a body as (title, lines), ignoring headings inside code fences."""
+    sections: list[tuple[str, list[str]]] = []
+    fence: tuple[str, int] | None = None
+    for line in body.splitlines():
+        m = FENCE_RE.match(line)
+        if fence is None:
+            if m:
+                fence = (m.group(1)[0], len(m.group(1)))
+            elif (h := H2_RE.match(line)):
+                sections.append((h.group(1), []))
+                continue
+        elif m and m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1] and not m.group(2).strip():
+            fence = None
+        if sections:
+            sections[-1][1].append(line)
+    return sections
+
+
+def _api_rows(lines: list[str]) -> list[str]:
+    """First cell of each body row of the first table in a section (header and separator skipped)."""
+    table = [ln.strip() for ln in lines if ln.strip().startswith("|")]
+    return [row.lstrip("|").split("|", 1)[0].strip() for row in table[2:]]
+
+
+def _api_identifiers(cell: str) -> list[str]:
+    """Identifiers named by the code spans of a Public API cell: `T::{a, b}` gives T, a, b."""
+    return [tok for span in CODE_SPAN_RE.findall(cell) for tok in API_TOKEN_SPLIT_RE.split(span) if tok]
+
+
+def _check_component_page(project: str, rel: str, text: str) -> tuple[list[Finding], dict | None]:
+    out: list[Finding] = []
+
+    def add(rule: str, message: str) -> None:
+        out.append(Finding(project, rel, rule, message))
+
+    lines = len(text.splitlines())
+    if lines > COMPONENT_MAX_LINES:
+        add("component-size", f"page is {lines} lines, the limit is {COMPONENT_MAX_LINES}")
+    size = len(text.encode("utf-8"))
+    if size > COMPONENT_MAX_BYTES:
+        add("component-size", f"page is {size} bytes, the limit is {COMPONENT_MAX_BYTES}")
+
+    fm, body = split_frontmatter(text)
+    if fm is None:
+        add("component-frontmatter", "missing YAML frontmatter block (--- ... ---)")
+    else:
+        for key in COMPONENT_KEYS:
+            if not _key_satisfied(fm, key):
+                add("component-frontmatter",
+                    f"missing or empty required frontmatter key: {key[0] if isinstance(key, tuple) else key}")
+        if fm.get("kind") is not None and fm.get("kind") != "component":
+            add("component-frontmatter", f"kind is {fm['kind']!r}, expected 'component'")
+        updated = fm.get("updated")
+        if _nonempty_str(updated) and not _is_iso_date(updated):  # type: ignore[arg-type]
+            add("component-frontmatter", f"updated {updated!r} is not an ISO date YYYY-MM-DD")
+        if "depends-on" in fm and not isinstance(fm["depends-on"], list):
+            add("component-frontmatter", "depends-on must be a list such as [a, b], or [] for none")
+
+    sections = _h2_sections(body)
+    titles = [t for t, _ in sections]
+    for name in COMPONENT_SECTIONS:
+        if name not in titles:
+            add("component-sections", f"missing section '## {name}'")
+    if all(n in titles for n in COMPONENT_SECTIONS):
+        present = [t for t in titles if t in COMPONENT_SECTIONS]
+        if present != list(COMPONENT_SECTIONS):
+            add("component-sections", f"sections are {present}, expected {list(COMPONENT_SECTIONS)} in order")
+
+    if not _has_mermaid_block(text):
+        add("component-mermaid", "page has no ```mermaid block with a body (the Flow diagram)")
+
+    api = next((ln for t, ln in sections if t == "Public API"), [])
+    if len(_api_rows(api)) > COMPONENT_API_MAX_ROWS:
+        add("component-size", f"Public API has {len(_api_rows(api))} rows, the limit is {COMPONENT_API_MAX_ROWS}")
+    return out, fm
+
+
+def _read_tree(root: Path, cache: dict[str, str], skip: Path) -> str:
+    """All text under root, joined; read once per directory. docs/ of the project is skipped, so a
+    page cannot satisfy its own identifiers."""
+    key = str(root)
+    if key not in cache:
+        chunks: list[str] = []
+        for dirpath, dirnames, filenames in os.walk(root):
+            here = Path(dirpath)
+            dirnames[:] = sorted(d for d in dirnames
+                                 if d not in COMPONENT_SCAN_SKIP and not (here / d == skip))
+            for name in sorted(filenames):
+                try:
+                    chunks.append((here / name).read_text(encoding="utf-8"))
+                except (OSError, UnicodeDecodeError):
+                    continue
+        cache[key] = "\n".join(chunks)
+    return cache[key]
+
+
+COMPONENT_SCAN_SKIP = frozenset({".git", "node_modules", "target", "__pycache__", ".direnv", "result"})
+
+
+def _check_components(project: str, project_path: Path, pages: dict[str, str]) -> list[Finding]:
+    out: list[Finding] = []
+    parsed: dict[str, dict | None] = {}
+    for rel, text in pages.items():
+        found, parsed[rel] = _check_component_page(project, rel, text)
+        out += found
+
+    mod = _components_module()
+    try:
+        resolved = mod.resolve(project_path)
+    except mod.NeedsInput as exc:
+        reasons = "; ".join(m["reason"] for m in exc.missing)
+        out.append(Finding(project, "docs/components", "components-unresolved",
+                           f"cannot determine the components: {reasons}. Supply one of: {'; '.join(mod.SUPPLY)}"))
+        return out
+    except mod.ManifestError as exc:
+        raise ToolError(str(exc)) from exc
+
+    scan_cache: dict[str, str] = {}
+    for rel, fm in parsed.items():
+        if fm is None or not _nonempty_str(fm.get("component")):
+            continue
+        cname, cpath = str(fm["component"]).strip(), str(fm.get("path", "")).strip().strip("/") or "."
+        match = next((c for c in resolved if c.name == cname and c.path == cpath), None)
+        if match is None:
+            out.append(Finding(project, rel, "component-unknown",
+                               f"component {cname!r} at path {cpath!r} matches no resolved component"))
+            continue
+        actual = fm.get("depends-on")
+        if match.source == "manifest" and isinstance(actual, list) and actual != list(match.depends_on):
+            out.append(Finding(project, rel, "component-deps",
+                               f"depends-on is [{', '.join(actual)}], the manifest says "
+                               f"[{', '.join(match.depends_on)}]"))
+        api = next((ln for t, ln in _h2_sections(split_frontmatter(pages[rel])[1]) if t == "Public API"), [])
+        wanted = dict.fromkeys(tok for cell in _api_rows(api) for tok in _api_identifiers(cell))
+        if wanted:
+            source = _read_tree(project_path / match.path, scan_cache, project_path / "docs")
+            for tok in wanted:
+                if not re.search(r"(?<![A-Za-z0-9_])" + re.escape(tok) + r"(?![A-Za-z0-9_])", source):
+                    out.append(Finding(project, rel, "component-api-unknown",
+                                       f"Public API names {tok!r}, which occurs in no file under {match.path}"))
+
+    if len(resolved) != 1:  # a single component is covered by the project layer
+        for c in resolved:
+            stem = mod.page_name(c.name)
+            if not (project_path / "docs" / "components" / f"{stem}.md").is_file():
+                out.append(Finding(project, f"docs/components/{stem}.md", "component-missing",
+                                   f"component {c.name!r} ({c.path}) has no page; add one or list it under "
+                                   "docs.components.exclude"))
+    return out
+
+
 # --- project discovery -------------------------------------------------------
 
 
@@ -743,6 +954,9 @@ def _format_line(f: Finding) -> str:
 def main(argv: list[str] | None = None) -> int:
     try:
         return _run(argv)
+    except ToolError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     except Exception as exc:  # exit 1 must always mean findings
         print(f"error: unexpected failure: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2

@@ -90,7 +90,9 @@ The validator checks structure, never content. Run it standalone
 project so it runs on every commit. The wiring is Nix-aware (registers as a `nix flake check` when
 the project has a flake) and pre-commit-origin-aware (detects whether it uses plain `core.hooksPath`
 hooks, the pre-commit framework, or Nix-managed git hooks, and joins that mechanism instead of
-clobbering it). Procedure and `scripts/install_hook.sh` are in
+clobbering it). Where a repo has a `docs/components/` layer, the validator also checks each component
+page against the manifests, using `scripts/components.py` (see "Components" in the contract).
+Procedure and `scripts/install_hook.sh` are in
 [`references/enforcement.md`](references/enforcement.md).
 
 ## Scope

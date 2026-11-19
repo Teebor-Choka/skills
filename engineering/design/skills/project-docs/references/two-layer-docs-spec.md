@@ -1,7 +1,8 @@
 # Two-layer docs: format spec
 
-Status: **proposed, not built.** [`contract.md`](contract.md) governs until phase P1 below lands. SKILL.md
-does not link this file, so a session using the skill today does not act on it.
+Status: **P1 built, P2 to P6 proposed.** [`contract.md`](contract.md#components) governs what is built:
+the component definitions, resolver, page template and validator rules. This file keeps what is not
+built yet. SKILL.md does not link it, so a session using the skill does not act on it.
 
 Covers Teebor-Choka/skills #107, #135 and #138. Extends [`contract.md`](contract.md),
 [`flow.md`](flow.md), [`enforcement.md`](enforcement.md) and [`diagrams.md`](diagrams.md); it restates
@@ -28,42 +29,19 @@ deleted.
 
 ## Definitions
 
-- **Component**: a crate, package or module with a public API. Two sources:
-  - **Manifest members** (default): a Cargo workspace member, an npm/yarn workspace package, a uv
-    workspace member or the single `pyproject.toml` package, a Go module in `go.work` or the single
-    `go.mod`.
-  - **Module tree** (declared): directories matched by the `docs.components.include` globs, for
-    example `crates/sandy/src/*/` in a single crate. The resolver never picks modules on its own,
-    because which modules carry a public API is a judgment call.
-- **Component name**: the manifest's package name (`[package].name`, `package.json` `name`,
-  `[project].name`, the last segment of the Go module path); for a declared module, its directory
-  name.
-- **Internal dependency**: a normal (non-dev, non-build) dependency on another component of the same
-  repo. Dev and build dependencies are excluded, so Cargo's acyclic rule holds for the graph.
+Component, component name, internal dependency and page name: see
+[`contract.md`](contract.md#definitions).
 
 ## Valid inputs
 
-1. **Repo with no `docs/components/`.** When `docs/components/` is absent, the validator and the
-   renderer shall treat the component layer as not adopted and apply only today's contract. From
-   P3 on (once `swe:component-docs` can write the pages), the validator shall also emit
+1. **Adoption.** Built in P1: component rules apply only where `docs/components/` exists. From P3 on
+   (once `swe:component-docs` can write the pages), the validator shall also emit
    `components-not-adopted` when the repo resolves to two or more components and the policy key
    `docs.components.adopt` is not `false`, so the layer cannot be skipped by omission. That rule
    turns existing conformant monorepos red, so it ships as a major version of the `design` plugin.
-2. **Single-component repo.** When the resolver finds exactly one component, the system shall
-   require no component page; the project layer covers it. A page that exists anyway must conform.
-3. **Component resolution.** When `components.py` runs on a repo, it shall resolve the component set
-   from the manifests in "Definitions" using only the standard library (`json`, and `tomllib`
-   imported only when a TOML manifest must be parsed), expand workspace globs with `fnmatch` over
-   directory names, honour Cargo `exclude`, and sort the result by codepoint of the POSIX relpath.
-   Provided the policy key `docs.components.include` (a glob list, or `--components`) is set, it
-   replaces manifest discovery; `docs.components.exclude` (a list of `name: reason` pairs) removes
-   members. If the repo has a workspace format the resolver cannot parse with the stdlib
-   (`pnpm-workspace.yaml`, Bazel, a Gradle multi-project) and no include list is set, it shall HALT
-   with `needs-input` (see "Failure definition"); it never guesses from the directory tree.
-4. **Component page.** A file `docs/components/<name>.md`, where `<name>` is the component name with
-   any character outside `[a-z0-9-]` replaced by `-`. Frontmatter is flat, parsed by the existing
-   `split_frontmatter` (one-line `[a, b]` lists are supported).
-5. **Changed-file set** (renderer trigger and `--pr-summary`). From `git diff --name-only <base>...HEAD`.
+2. **Component resolution, page, single-component repos.** Built in P1: see
+   [`contract.md`](contract.md#components).
+3. **Changed-file set** (renderer trigger and `--pr-summary`). From `git diff --name-only <base>...HEAD`.
    `<base>` is `--base <ref>` when given (CI passes the PR base SHA); else the merge-base of `HEAD` and
    `@{upstream}`; else the merge-base with `origin/HEAD`. If an explicit `--base` does not resolve
    (for example a shallow CI clone without the base SHA), the run shall exit 2. If no implicit base
@@ -71,118 +49,6 @@ deleted.
    mode, 1 in fail mode; it never passes silently.
 
 ## Expected outputs
-
-### Component page template
-
-Frontmatter keys (all required):
-
-| Key          | Value                                                                             |
-| ------------ | --------------------------------------------------------------------------------- |
-| `title`      | the component name                                                                |
-| `kind`       | `component`                                                                       |
-| `project`    | same value as every other doc in the project                                      |
-| `updated`    | `YYYY-MM-DD`                                                                      |
-| `component`  | the manifest package name, exactly                                                |
-| `path`       | repo-relative POSIX dir of the manifest                                           |
-| `depends-on` | `[a, b]` internal dependencies by component name, codepoint-sorted; `[]` for none |
-
-Sections, as `##` headings in this order: **Purpose**, **Structure**, **Public API**,
-**Interactions**, **Flow**, **Decisions**.
-
-- **Purpose**: one paragraph. The renderer copies it.
-- **Structure**: how the component is assembled, internal modules in a table (module, role). Stops at
-  module level; no per-function detail ([`diagrams.md`](diagrams.md), two tracks).
-- **Public API**: a table of the entry points a caller uses (item, what it does). Only items exported
-  at the component's root or entry point, at most 25 rows; link generated API docs for the rest.
-- **Interactions**: what it calls and what it exposes to the outside (files, sockets, processes,
-  env). `depends-on` carries the internal edges; "used by" is never authored, the renderer derives it.
-- **Flow**: the top-level flow through the component, as one mermaid block (`sequenceDiagram` or
-  `flowchart`). Mandatory: at least one mermaid block on the page.
-- **Decisions**: the worker's decisions in force, one per bullet, `**<decision>.** <reason>`. Current
-  state only. When a decision stops being true, the author deletes the bullet; git history keeps the
-  past. A rejected alternative stays as a footnote only while it still explains the current choice.
-  A decision that binds more than this component moves to `docs/decisions/` as an ADR and the bullet
-  links it.
-
-Size: at most 200 lines and 12 KB including frontmatter; target under 100 lines.
-
-### Worked example: `sandy-fsutil`
-
-Facts taken from kauki-labs/sandy at commit `734b2a9a` (`crates/sandy-fsutil/src/{lib,secret}.rs`,
-`Cargo.toml`). Its only dependencies are external (`getrandom`, `rustix`, `thiserror`), so
-`depends-on` is empty.
-
-````markdown
----
-title: sandy-fsutil
-kind: component
-project: sandy
-updated: 2026-11-19
-component: sandy-fsutil
-path: crates/sandy-fsutil
-depends-on: []
----
-
-# sandy-fsutil
-
-## Purpose
-
-Security-sensitive filesystem primitives every sandy crate shares: the owned staging base under the
-OS temp dir, symlink-safe opens beneath a host path, and the one `0600` writer for staged secrets.
-
-## Structure
-
-| Module    | Role                                                              |
-| --------- | ----------------------------------------------------------------- |
-| `staging` | create, validate and sweep the sandy staging base                 |
-| `beneath` | open a host path without following a symlink at or below its leaf |
-| `secret`  | `OwnedDir` handle and the `0600` secret writer (INV-1)            |
-| `lib.rs`  | re-exports, `FsError`, `current_uid`, `fsync_dir`                 |
-
-## Public API
-
-| Item                                                  | What it does                                                              |
-| ----------------------------------------------------- | ------------------------------------------------------------------------- |
-| `OwnedDir::{open, open_or_create, open_matching}`     | open a staging dir, validated as this user's and not group/world-writable |
-| `OwnedDir::write_secret`                              | write bytes as a `0600` file via temp, rename and dir sync                |
-| `private_staging_dir`                                 | new `0700` `<prefix>-<random>` dir under the staging base                 |
-| `ensure_sandy_staging_base`, `ensure_staging_base_in` | create or validate the staging base                                       |
-| `sweep_stale_staging_dirs`                            | remove aged staging dirs matching `STALE_STAGING_PREFIXES`                |
-| `Beneath`, `Entries`, `EntryKind`                     | handle-relative opens and listing that refuse symlinks                    |
-| `FsError`                                             | `Io`, `NotDurable`, `Unsafe`                                              |
-| `current_uid`, `fsync_dir`                            | real uid for receipts; fsync a directory                                  |
-
-## Interactions
-
-Reads and writes the OS temp dir (the staging base) and host paths handed in by callers. Calls the
-kernel through `rustix` (`openat`, `mkdirat`, `renameat`, `fstat`). No network, no processes.
-
-## Flow
-
-```mermaid
-sequenceDiagram
-  participant C as caller
-  participant D as OwnedDir
-  participant K as kernel
-  C->>D: open_or_create(path)
-  D->>K: open O_DIRECTORY|O_NOFOLLOW, fstat
-  D-->>C: handle (owner and mode checked)
-  C->>D: write_secret(name, bytes)
-  D->>K: openat tmp O_EXCL|O_NOFOLLOW 0600, write, fsync
-  D->>K: renameat tmp -> name
-  D->>K: fsync dir
-  D-->>C: path, or FsError::NotDurable if only the dir sync failed
-```
-
-## Decisions
-
-- **Work through directory handles, never a re-resolved path.** A path swapped after the check
-  cannot redirect a write, and a planted symlink is never followed.
-- **`NotDurable` is its own error.** The file is already in place when the dir sync fails, so a
-  caller can tell it from a failure before the rename (#196).
-- **Expose `current_uid`.** The CLI supervisor reads the uid without its own `libc` or `rustix`
-  dependency (#361).
-````
 
 ### Generated output
 
@@ -202,8 +68,7 @@ When `render_docs.py <project>` runs, it shall write `docs/generated/architectur
 - **`architecture.md`** opens with `<!-- generated by render_docs.py; do not edit -->`.
 - **`index.html`**: one file, light and dark theme, each diagram scrolls in its own frame, mermaid
   loaded from one pinned `cdn.jsdelivr.net` version with an SRI hash, every interpolated string
-  HTML-escaped. It is not a view: the [Views](contract.md#views) no-script rule does not apply to
-  `docs/generated/`, and the validator skips frontmatter, view and size checks there.
+  HTML-escaped. It is not a view: see [Generated files](contract.md#generated-files).
 - **`--check`**: render in memory, compare bytes with the committed files, exit 1 on any difference,
   naming the drifted file and the regenerate command.
 - **`--pr-summary`**: print to stdout a markdown block: one link to `docs/generated/architecture.md`
@@ -215,60 +80,25 @@ When `render_docs.py <project>` runs, it shall write `docs/generated/architectur
   exceeds 60 000 characters, it shall drop diagrams from the end and add the line
   `N more diagrams in architecture.md`.
 
-### Validator additions (`validate_docs.py`)
-
-New rules, active only when `docs/components/` exists (so P1 turns no existing repo red):
-`component-frontmatter`, `component-sections` (headings present, in order), `component-mermaid`,
-`component-size`, `component-missing` (a resolved component has no page and no `exclude` entry),
-`component-unknown` (a page's `component`/`path` matches no resolved component), `component-deps`
-(`depends-on` differs from the manifest's internal dependencies), `component-api-unknown` (a
-identifier in the Public API table's first column occurs as a whole word in no file under `path`).
-For `component-api-unknown`, each code span in the cell is split on `::`, `{`, `}`, `,` and
-whitespace, and every non-empty token is an identifier, so `OwnedDir::{open, open_or_create}`
-yields `OwnedDir`, `open`, `open_or_create`. If the resolver cannot determine the components, the
-validator emits `components-unresolved` (naming the same supply options as `needs-input`) and keeps
-its 0/1/2 exit contract. Each rule is a finding with exit 1, per
-[Severity](contract.md#severity-and-exit-code).
-
 ## Failure definition
 
-| Failure                                                                              | Exit           | Then                                                                                                                                                                                   |
-| ------------------------------------------------------------------------------------ | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Validator finding                                                                    | 1              | author fixes; hook and CI block                                                                                                                                                        |
-| `--check` drift                                                                      | 1              | author runs `render_docs.py` and commits `docs/generated/*`                                                                                                                            |
-| Unterminated fence, no `docs/`, unreadable file, bad frontmatter on a component page | 2              | message names file and line; nothing is written                                                                                                                                        |
-| `depends-on` cycle (only possible with hand-edited frontmatter)                      | 2              | renderer names the cycle; `component-deps` points at the manifest                                                                                                                      |
-| Resolver cannot determine components                                                 | 3              | `components.py` and `swe:component-docs` print `needs-input` (below) and stop; the validator reports `components-unresolved` (exit 1); the renderer reads only pages and is unaffected |
-| Update trigger fires, warn mode                                                      | 0              | stderr `warning: component-page-stale: <name>: <files>`                                                                                                                                |
-| Update trigger fires, fail mode                                                      | 1              | update the page body, or add the escape trailer                                                                                                                                        |
-| Explicit `--base` does not resolve                                                   | 2              | CI fetches the base (`fetch-depth: 0` or a fetch of the base SHA)                                                                                                                      |
-| No implicit diff base                                                                | 0 warn, 1 fail | stderr `warning: trigger-skipped: no diff base`                                                                                                                                        |
+| Failure                                                                              | Exit           | Then                                                              |
+| ------------------------------------------------------------------------------------ | -------------- | ----------------------------------------------------------------- |
+| Validator finding                                                                    | 1              | author fixes; hook and CI block                                   |
+| `--check` drift                                                                      | 1              | author runs `render_docs.py` and commits `docs/generated/*`       |
+| Unterminated fence, no `docs/`, unreadable file, bad frontmatter on a component page | 2              | message names file and line; nothing is written                   |
+| `depends-on` cycle (only possible with hand-edited frontmatter)                      | 2              | renderer names the cycle; `component-deps` points at the manifest |
+| Update trigger fires, warn mode                                                      | 0              | stderr `warning: component-page-stale: <name>: <files>`           |
+| Update trigger fires, fail mode                                                      | 1              | update the page body, or add the escape trailer                   |
+| Explicit `--base` does not resolve                                                   | 2              | CI fetches the base (`fetch-depth: 0` or a fetch of the base SHA) |
+| No implicit diff base                                                                | 0 warn, 1 fail | stderr `warning: trigger-skipped: no diff base`                   |
 
 The Nix `checks.<system>.project-docs-render` derivation has no `.git` in its sandbox, so it checks
 drift only (`--check --no-trigger`); the trigger runs in the pre-push hook and CI.
 
-**`needs-input` result.** When a required input cannot be derived from the repo, `swe:component-docs`
-and `components.py` shall print one JSON object to stdout and exit 3, and shall never substitute a
-default:
-
-```json
-{
-  "status": "needs-input",
-  "tool": "components.py",
-  "missing": [
-    {
-      "field": "components",
-      "reason": "pnpm-workspace.yaml is not parseable with the Python stdlib",
-      "supply": [
-        "--components 'packages/*'",
-        ".agents/policy docs.components.include"
-      ]
-    }
-  ]
-}
-```
-
-`--interactive` turns the same list into questions; without it the run never prompts.
+Built in P1, see [`contract.md`](contract.md#components): validator findings, the resolver halt
+(exit 3, `needs-input`) and `components-unresolved`. A component page with bad frontmatter is a
+validator finding (exit 1); the exit 2 row above is the renderer's.
 
 ## Update trigger (warn, then fail)
 
@@ -320,16 +150,14 @@ them. After the flip, the trailer is the only bypass and stays visible in `git l
 
 ## Dependency behaviour
 
-| Dependency                         | Assumed to guarantee                                                                        | If it does not                                                                                          |
-| ---------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Python 3.9+, as `validate_docs.py` | `json`, `fnmatch`, `html`; `tomllib` (3.11+) imported lazily, only to parse a TOML manifest | a TOML manifest on Python below 3.11: exit 2 with `python 3.11+ required to parse <file>`               |
-| git                                | `diff -w --name-only`, `merge-base`, `rev-parse`, `remote get-url`                          | not a repo or no implicit base: warn and skip the trigger (fail mode: exit 1); render still works       |
-| Manifests                          | valid TOML/JSON in the formats above                                                        | parse error: exit 2 naming the file                                                                     |
-| GitHub                             | renders mermaid in `.md` files and PR bodies                                                | `architecture.md` stays readable as source                                                              |
-| jsDelivr                           | serves the pinned mermaid build matching the SRI hash                                       | `index.html` shows the mermaid source unrendered; no fallback fetch                                     |
-| Formatter (prettier)               | leaves `docs/generated/` alone                                                              | `--check` drifts forever; `install_hook.sh` prints the treefmt/prettier exclude for `docs/generated/**` |
-| `.agents/policy`                   | flat keys under `docs.components.*`                                                         | absent: manifest discovery, `warn` mode                                                                 |
-| `design:project-docs`              | installed beside `swe:component-docs`                                                       | component-docs HALTs `needs-input`, field `project-docs`, supply `--project-docs <dir>`                 |
+| Dependency                         | Assumed to guarantee                                               | If it does not                                                                                          |
+| ---------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Python 3.9+, as `validate_docs.py` | `json`, `html`, `fnmatch`                                          | exit 2 with the interpreter version named                                                               |
+| git                                | `diff -w --name-only`, `merge-base`, `rev-parse`, `remote get-url` | not a repo or no implicit base: warn and skip the trigger (fail mode: exit 1); render still works       |
+| GitHub                             | renders mermaid in `.md` files and PR bodies                       | `architecture.md` stays readable as source                                                              |
+| jsDelivr                           | serves the pinned mermaid build matching the SRI hash              | `index.html` shows the mermaid source unrendered; no fallback fetch                                     |
+| Formatter (prettier)               | leaves `docs/generated/` alone                                     | `--check` drifts forever; `install_hook.sh` prints the treefmt/prettier exclude for `docs/generated/**` |
+| `design:project-docs`              | installed beside `swe:component-docs`                              | component-docs HALTs `needs-input`, field `project-docs`, supply `--project-docs <dir>`                 |
 
 ## Assumptions
 
@@ -355,8 +183,8 @@ them. After the flip, the trailer is the only bypass and stays visible in `git l
 
 ## AI-gap self-test
 
-_If an agent built this, passed all tests, but behaved wrong, what did I miss?_ Each answer is now a
-constraint above.
+_If an agent built this, passed all tests, but behaved wrong, what did I miss?_ Each answer is a constraint in this spec or in
+[`contract.md`](contract.md#components).
 
 | Miss                                                               | Constraint                                                                                     |
 | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
@@ -378,12 +206,16 @@ constraint above.
 
 | Phase | Deliverable                                                                                                                                                                                                       | Plugin, version                        | Acceptance     |
 | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | -------------- |
-| P1    | `contract.md` component section and `docs/generated/` carve-out; `scripts/components.py`; validator rules gated on `docs/components/`; `assets/component.skeleton.md`; fixtures                                   | design, minor                          | AT-1 to AT-10  |
 | P2    | `scripts/render_docs.py` (both layers, `--check`, `--pr-summary`, trigger in warn mode, `--trigger-audit`)                                                                                                        | design, minor                          | AT-11 to AT-25 |
 | P3    | `swe:component-docs` skill: explore, write pages, `needs-input`, `--interactive`; validator rule `components-not-adopted`                                                                                         | swe, minor; design, major; marketplace | AT-26 to AT-30 |
 | P4    | `install_hook.sh` pre-push render check and formatter exclude; Nix `checks.<system>.project-docs-render` (drift only); `AGENTS.pointer.md` mandatory line; `flow.md` render step after validate; `enforcement.md` | design, minor                          | AT-31 to AT-35 |
 | P5    | Teebor-Choka/skills-private `engineering/git/skills/workflow` PR conventions: paste `--pr-summary` when `docs/**/*.md` changes                                                                                    | git (private), patch                   | AT-36          |
 | P6    | Trigger promotion: run the audit, label hits, flip default when the rule holds                                                                                                                                    | design, minor                          | AT-37          |
+
+P1 is built: `contract.md` component section and `docs/generated/` carve-out, `scripts/components.py`,
+the validator rules, `assets/component.skeleton.md` and fixtures. Its acceptance tests AT-1 to AT-10 are
+`tests/test_components.py` and `tests/test_component_pages.py`; the resolver half of AT-25 (`tomllib`
+imported only for a TOML manifest) ships with them.
 
 The `AGENTS.pointer.md` mandatory line (P4): _Whenever `docs/**/*.md` changes, run
 `render_docs.py`, commit `docs/generated/*`, and paste `render_docs.py --pr-summary` into the PR
@@ -391,20 +223,9 @@ description. The pre-push hook and CI enforce the render._
 
 ## Proposed acceptance tests
 
-Proposed, not final; the owner derives the final list.
+Proposed, not final; the owner derives the final list. Numbers are kept so AT-11 onward stay stable.
 
-P1, contract, resolver, validator:
-
-1. Cargo workspace with globbed members and one `exclude`: resolver returns the expected names in codepoint order.
-2. npm workspaces (array and `{packages: []}` forms) and a uv workspace resolve; dev dependencies are not edges.
-3. `pnpm-workspace.yaml` only: resolver exits 3 with `field: components` and both supply options; the validator on the same repo with `docs/components/` reports `components-unresolved` and exits 1.
-4. `docs.components.include: [crates/a/src/*/]` in a single crate: each matched module is a component named by its directory.
-5. Single-crate repo with no `docs/components/`: validator passes with today's rules.
-6. Adversarial: two-crate repo with no `docs/components/`: P1 validator raises no component finding.
-7. Page missing `## Decisions`, sections out of order, no mermaid, 201 lines: one finding each.
-8. `depends-on: [b]` while the manifest says `[a, b]`: `component-deps`. Adversarial: a dev-only dependency added to the manifest raises nothing.
-9. Public API cell `` `T::{a, b}` `` where `b` is absent from the sources: `component-api-unknown` names `b` only.
-10. The `sandy-fsutil` worked example, placed in a fixture with a matching manifest, passes.
+P1 (AT-1 to AT-10) is built; see the tests named under "Work breakdown".
 
 P2, renderer:
 
@@ -447,7 +268,8 @@ P5 and P6:
 
 ## Open questions
 
-Each has a recommended default; the spec above assumes the default.
+Each has a recommended default; the spec above assumes the default. The owner approved the defaults of
+questions 1 to 3; both are now in [`contract.md`](contract.md#components) (1, 2) or in the update trigger (3).
 
 1. **Modules as components.** Default: manifest members only, modules only when declared in
    `docs.components.include`.

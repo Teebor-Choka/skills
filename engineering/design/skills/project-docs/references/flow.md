@@ -63,6 +63,12 @@ content is yours to fit the project):
   decides what, and points to `.agents/iterations/` for the record of changes. Do not copy the
   procedure into it. Set `procedure` to the file name of `.agents/procedures/<name>.md`, without the
   extension.
+- `assets/component.skeleton.md`: one page for a component (a crate, package or module with a public
+  API), under `docs/components/`. Only for a repo that adopts the component layer. Run
+  `scripts/components.py <project>` first: it lists the components to write, and when it prints
+  `needs-input` (exit 3), pass `--components` or set `docs.components.include` instead of guessing.
+  `depends-on` comes from its output, never from memory. Decisions hold current state only: delete a
+  bullet when it stops being true.
 - `assets/view.template.html`: an optional rendering of one doc as a single HTML file. Copy it to
   `docs/views/<name>.html` and replace the `TITLE`, `PROJECT`, `SOURCE-NAME` and `YYYY-MM-DD` tokens,
   then keep the sections the source supports. See "Views" below.
@@ -92,7 +98,9 @@ Write a view when a doc is mostly a flow, a state model or a set of rules that a
 
 ## Finish
 
-Run `python3 scripts/validate_docs.py <project>` and clear every finding before reporting done. The
+Run `python3 scripts/validate_docs.py <project>` and clear every finding before reporting done. Where
+`docs/components/` exists, the validator also checks each page against the manifests (see "Components"
+in the contract). The
 validator only proves the structure is right; you are still responsible for the content being true
 and the diagrams being accurate.
 
