@@ -17,8 +17,17 @@ checked passes. Any finding, including one labelled `warning` (such as `undocume
 exit 1; a usage error or an unexpected failure exits 2. It drops straight into a hook or a CI step.
 
 Where the target has `docs/components/`, `components.py` must sit beside `validate_docs.py`; the
-validator exits 2 naming it when it does not. `install_hook.sh` still copies only the validator
-(wiring both is a later phase of the two-layer docs work), so copy `components.py` by hand until then.
+validator exits 2 naming it when it does not. `render_docs.py` loads `components.py` and
+`validate_docs.py` the same way. Keep the three scripts in one directory: `install_hook.sh` refuses
+to run unless all three sit beside it, and the Nix snippet vendors all three.
+
+The renderer has its own modes, all in "Generated files" in `contract.md`:
+
+```sh
+python3 scripts/render_docs.py <project>               # write docs/generated/*
+python3 scripts/render_docs.py <project> --check       # exit 1 on drift; also runs the update trigger
+python3 scripts/render_docs.py <project> --check --no-trigger   # drift only; needs no .git
+```
 
 ## Wiring it into a target repo
 
@@ -44,19 +53,47 @@ block to add by hand.
 
 It is idempotent: re-running does not duplicate the hook.
 
+**Pre-push render check.** The same run installs a `pre-push` hook beside the `pre-commit` one (same
+rules for symlinks, `core.hooksPath` and linked worktrees). It runs `validate_docs.py` and then
+`render_docs.py --check` on the working tree, because the update trigger needs git history and the
+manifests. It exits 1 without checking when `docs/` has uncommitted changes, since those could hide
+drift in the commits being pushed. A repo without `docs/` passes. The pre-commit framework gets a
+second printed stanza, `project-docs-render` with `stages: [pre-push]`, and nothing is edited.
+
 ## Nix repos gate in the flake
 
 A repo with a `flake.nix` usually runs its checks through `nix flake check`, not only a git hook, so
 a hook alone would be invisible to that gate. When the target has a flake, `install_hook.sh` prints
-a ready-to-paste snippet adding the validator as a `checks.<system>.project-docs` derivation. Add it so
-the docs check runs in the same gate as the repo's other checks (treefmt, clippy, tests). The git
-hook and the flake check are complementary: the hook catches it before commit, the flake check
-catches it in CI and for anyone who skips hooks.
+a ready-to-paste snippet with two derivations: `checks.<system>.project-docs` (the validator) and
+`checks.<system>.project-docs-render` (`render_docs.py --check --no-trigger`). Copy `validate_docs.py`,
+`components.py` and `render_docs.py` into one in-tree directory (`ci/`) and reference it as a
+directory (`${./ci}/render_docs.py`), not as single files: a lone file lands in the store without its
+siblings and the import fails. The Nix sandbox has no `.git`, so the flake check covers drift only;
+the update trigger runs in the pre-push hook and in a CI step with a checkout (pass `--base` with the
+PR base SHA). The git hook and the flake check are complementary: the hook catches it before push,
+the flake check catches it in CI and for anyone who skips hooks.
+
+## Formatters
+
+A formatter that rewrites `docs/generated/*` makes `--check` fail on every run. `install_hook.sh`
+prints the exclude for each tool; add it wherever the repo formats:
+
+- `.prettierignore`: `docs/generated/**`
+- `treefmt.toml`: `[global]` `excludes = ["docs/generated/**"]`
+- treefmt-nix: `settings.global.excludes = [ "docs/generated/**" ];`
+
+## Pull requests
+
+`AGENTS.pointer.md` carries the mandatory line: when any `docs/**/*.md` changes, run `render_docs.py`,
+commit `docs/generated/*`, and paste `render_docs.py --pr-summary` into the PR description. The
+pre-push hook and CI enforce the render; pasting the summary is the author's step. Two PRs that both
+touch docs conflict on the generated files: rebase and re-render, never hand-merge them.
 
 ## CI
 
-In a plain CI job, run `python3 scripts/validate_docs.py --all .` (or per repo) as a step. It needs
-only Python 3. For a monorepo-of-repos, `--all` gives one pass over everything and a nonzero exit if
+In a plain CI job, run `python3 scripts/validate_docs.py --all .` (or per repo) as a step, then
+`python3 scripts/render_docs.py . --check --base <PR base SHA>` for each repo that has `docs/`. It needs
+only Python 3 (3.11 or later when a component manifest is TOML). For a monorepo-of-repos, `--all` gives one pass over everything and a nonzero exit if
 any repo drifts.
 
 ## What it cannot do

@@ -64,6 +64,8 @@
             "flake.lock"
             "**/package-lock.json"
             "**/node_modules/**"
+            # render_docs.py output is byte-compared by --check, so no formatter may touch it.
+            "**/docs/generated/**"
           ];
         };
 

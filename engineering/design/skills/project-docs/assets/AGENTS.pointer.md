@@ -22,3 +22,9 @@ One or two lines on what the project is. This file points into `docs/`; it does 
 
 The few build/run/test commands an agent needs before touching anything. Keep it short; the detail
 is in `docs/overview.md`.
+
+## Docs rule
+
+Whenever any `docs/**/*.md` changes, run `render_docs.py`, commit `docs/generated/*`,
+and paste the output of `render_docs.py --pr-summary` into the PR description. The pre-push hook and
+CI enforce the render.

@@ -87,7 +87,8 @@ authored here) are in [`references/diagrams.md`](references/diagrams.md).
 
 The validator checks structure, never content. Run it standalone
 (`scripts/validate_docs.py <project>`), across many projects (`--all <root>`), and wire it into a
-project so it runs on every commit. The wiring is Nix-aware (registers as a `nix flake check` when
+project so it runs on every commit; the same wiring adds a pre-push render check
+(`render_docs.py --check`) and a `project-docs-render` flake check. The wiring is Nix-aware (registers as a `nix flake check` when
 the project has a flake) and pre-commit-origin-aware (detects whether it uses plain `core.hooksPath`
 hooks, the pre-commit framework, or Nix-managed git hooks, and joins that mechanism instead of
 clobbering it). Where a repo has a `docs/components/` layer, the validator also checks each component

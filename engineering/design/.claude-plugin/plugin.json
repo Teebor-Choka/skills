@@ -1,5 +1,5 @@
 {
   "name": "design",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "description": "Design and plan before building: architect (work package), ramble (grill a rough idea into a brief), decompose (cut into parallel units), graph-engine (waves and critical path), project-docs (standard docs/ with a validator)."
 }
