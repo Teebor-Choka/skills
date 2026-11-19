@@ -34,7 +34,7 @@ Check one real transcript with `drill.py` before trusting a null.
 
 ## Fields the metrics read
 
-Names live in the ADAPTER section of `reflectlib.py`; another harness redefines them.
+Names (including the hook-denial pattern) live in the ADAPTER section of `reflectlib.py`; another harness redefines them.
 
 - `pr-link` entries: `prRepository` and `prNumber` (the PR is `repository#number`).
 - `cost-state`: `totalCostUsd` or `totalCostUSD`, and `hasUnknownModelCost`.
@@ -42,6 +42,14 @@ Names live in the ADAPTER section of `reflectlib.py`; another harness redefines 
   `Monitor`, `ListAgents`. Skill tool: `Skill`, with `input.skill`.
 - Interrupt: a user entry whose text starts `[Request interrupted by user`. Permission denial: an
   error tool result containing `The user doesn't want to proceed with this tool use`.
+- Hook denial in a tool result: a hook that denies through JSON `permissionDecision` writes no
+  `hook_blocking_error` attachment. The only trace is a `tool_result` with `is_error: true` and
+  string content that starts `<Event>:<Tool> hook error: <reason>` (seen: `PreToolUse:Bash`,
+  `PreToolUse:Edit`, `PreToolUse:SendMessage`). The prefix equals the `hookName` of the hook's
+  attachments, so both count under one name. The words inside other output (a file dump, a
+  quoted log) do not count: the match is anchored at the start. The reason is cut to 80
+  characters and scrubbed; nothing else of the result is kept. `tool_result_hook_denial` in
+  `reflectlib.py` holds the pattern.
 - Hook text: the first non-empty of `stderr`, `content`, `stdout`, `output`, `text` on the hook
   attachment. Skill listings come in several `skill_listing` attachments; merge them.
 - A session's id is `sessionId`; its project is the base name of `cwd`.
