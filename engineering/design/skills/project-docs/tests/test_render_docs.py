@@ -17,10 +17,10 @@ from pathlib import Path
 import pytest
 
 import render_docs  # noqa: E402  (path wired in conftest.py)
-from conftest import FIXTURES
 from docs_helpers import cargo_member, cargo_workspace, package_json, policy, write, write_page
 
 SCRIPT = Path(render_docs.__file__)
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 ARCH = "docs/generated/architecture.md"
 HTML = "docs/generated/index.html"
 
@@ -381,7 +381,7 @@ def test_other_ecosystems_surface_patterns_warn(tmp_path, rel, text):
 
 @pytest.mark.parametrize("rel,text", [
     ("pkg/mod.py", "def _private():\n    pass\n"),
-    ("pkg/mod.py", "class Outer:\n    def method(self):\n        pass\n"),
+    ("pkg/mod.py", "    def method(self):\n        pass\n"),
     ("go/x.go", "func unexported() {}\n"),
     ("src/api.ts", "const x = 1;\n"),
 ])
@@ -478,7 +478,9 @@ def test_a_directory_that_is_not_a_repo_skips_the_trigger_the_same_way(tmp_path)
 def test_implicit_base_is_the_upstream_merge_base(tmp_path):
     repo, base = git_project(tmp_path)
     git(repo, "update-ref", "refs/remotes/origin/main", base)
-    git(repo, "branch", "--set-upstream-to=origin/main", "main")
+    git(repo, "remote", "add", "origin", str(repo))
+    git(repo, "config", "branch.main.remote", "origin")
+    git(repo, "config", "branch.main.merge", "refs/heads/main")
     append(repo / "crates/a/src/lib.rs", "pub fn extra() {}\n")
     commit(repo, "feat: extra")
     r = run(repo, "--check")
