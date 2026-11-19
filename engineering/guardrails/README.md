@@ -13,6 +13,8 @@ Hooks that keep secrets and bulk file content out of an agent transcript.
 List site-specific ones in `AGENT_GUARDRAILS_SECRET_PATHS`: `os.pathsep`-separated globs, where `*` also matches `/`.
 A path is matched after `~user` expansion, resolution against the working directory (and an earlier `cd` in the
 same command), and `..` and symlink resolution. Case is folded on macOS and Windows.
+A file named exactly `ssh_config` is exempt from these globs, because it holds hostnames and no credentials. The
+exemption checks the resolved name too, so a symlink called `ssh_config` that points at a secret stays guarded.
 
 ```sh
 export AGENT_GUARDRAILS_SECRET_PATHS="$HOME/.config/example-org/*:/srv/secrets/*"
