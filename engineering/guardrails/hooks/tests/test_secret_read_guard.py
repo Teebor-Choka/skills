@@ -335,6 +335,84 @@ class Heredocs(unittest.TestCase):
         self.assertTrue(srg.bash_reason("cat <<EOF\nhi\nEOF\ncat .env"))
 
 
+class SafeBasenames(unittest.TestCase):
+    """Files that carry no secrets (ssh_config) pass even inside a configured protected directory."""
+
+    def setUp(self):
+        self._saved = os.environ.pop("AGENT_GUARDRAILS_SECRET_PATHS", None)
+        os.environ["AGENT_GUARDRAILS_SECRET_PATHS"] = "$HOME/.config/site/*/*"
+        self.d = "~/.config/site/org"
+
+    def tearDown(self):
+        os.environ.pop("AGENT_GUARDRAILS_SECRET_PATHS", None)
+        if self._saved is not None:
+            os.environ["AGENT_GUARDRAILS_SECRET_PATHS"] = self._saved
+
+    def test_ssh_config_passes_in_read_cat_head_grep_redirect_and_heredoc_forms(self):
+        home = os.path.expanduser("~")
+        self.assertEqual(srg.read_reason(home + "/.config/site/org/ssh_config"), "")
+        for cmd in ["cat %s/ssh_config", "head -5 %s/ssh_config", "cat < %s/ssh_config", "grep Host %s/ssh_config",
+                    "rg -n Host %s/ssh_config", "cat $HOME/.config/site/org/ssh_config",
+                    "cd %s && cat ssh_config", "bash -c 'cat %s/ssh_config'", "cat %s/ssh_config > /dev/null",
+                    "cat <<EOF\nx\nEOF\ncat %s/ssh_config"]:
+            with self.subTest(cmd=cmd):
+                self.assertEqual(srg.bash_reason(cmd.replace("%s", self.d) if "%s" in cmd else cmd), "")
+
+    def test_grep_tool_over_ssh_config_passes(self):
+        home = os.path.expanduser("~")
+        self.assertEqual(srg.grep_reason({"output_mode": "content", "pattern": "Host",
+                                          "path": home + "/.config/site/org/ssh_config"}), "")
+        self.assertTrue(srg.grep_reason({"output_mode": "content", "pattern": "x",
+                                         "path": home + "/.config/site/org/kubeconfig"}))
+
+    def test_other_names_in_the_directory_stay_guarded(self):
+        for name in ["ssh_config_backup", "ssh_config.bak", "ssh_config2", "kubeconfig", "talosconfig", "token",
+                     "vpn.key", "SSH_CONFIG.d"]:
+            with self.subTest(name=name):
+                self.assertTrue(srg.read_reason("~/.config/site/org/" + name))
+                self.assertTrue(srg.bash_reason("cat ~/.config/site/org/" + name))
+
+    def test_dotdot_traversal_cannot_reach_a_secret_through_ssh_config(self):
+        for path in ["~/.config/site/org/ssh_config/../token", "~/.config/site/org/../org/token",
+                     "~/.config/site/org/x/../kubeconfig"]:
+            with self.subTest(path=path):
+                self.assertTrue(srg.read_reason(path))
+                self.assertTrue(srg.bash_reason("cat " + path))
+
+    def test_cd_into_the_directory_does_not_exempt_other_files(self):
+        self.assertTrue(srg.bash_reason("cd ~/.config/site/org && cat kubeconfig"))
+        self.assertTrue(srg.bash_reason("cd ~/.config/site/org && cat ssh_config kubeconfig"))
+
+    def test_symlink_named_ssh_config_to_a_secret_stays_guarded(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            org = os.path.join(root, "site", "org")
+            os.makedirs(org)
+            secret = os.path.join(org, "token")
+            open(secret, "w").close()
+            link = os.path.join(org, "ssh_config")
+            os.symlink(secret, link)
+            os.environ["AGENT_GUARDRAILS_SECRET_PATHS"] = os.path.realpath(root) + "/site/*/*"
+            self.assertTrue(srg.read_reason(link))
+            self.assertTrue(srg.bash_reason("cat " + link))
+            os.unlink(link)
+            open(link, "w").close()  # a regular ssh_config
+            self.assertEqual(srg.read_reason(link), "")
+
+    def test_builtin_rules_still_apply_to_the_safe_name(self):
+        self.assertTrue(srg.read_reason("/p/.env"))
+        self.assertTrue(srg.read_reason("/p/kubeconfig"))
+
+    def test_hook_process_lets_ssh_config_through(self):
+        env = {**os.environ}
+        for tool, ti in [("Read", {"file_path": "~/.config/site/org/ssh_config"}),
+                         ("Bash", {"command": "cat ~/.config/site/org/ssh_config"})]:
+            rc, out = run_hook({"tool_name": tool, "tool_input": ti}, env=env)
+            self.assertEqual((rc, out.strip()), (0, ""), tool)
+        rc, out = run_hook({"tool_name": "Read", "tool_input": {"file_path": "~/.config/site/org/token"}}, env=env)
+        self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "ask")
+
+
 class GrepTool(unittest.TestCase):
     def setUp(self):
         os.environ.pop("AGENT_GUARDRAILS_SECRET_PATHS", None)
