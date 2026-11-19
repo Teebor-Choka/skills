@@ -19,9 +19,9 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # Only its pure lib is used (hook manifest renderer), so no flake inputs of its own.
-    # Pinned to the unmerged branch of Teebor-Choka/agent-env#17.
+    # Pinned until the renderer lands on main.
     agent-env = {
-      url = "git+https://github.com/Teebor-Choka/agent-env.git?ref=kauki/feat/agent-plugins/hooks-manifest-renderer&rev=2e47655df6d30d9e7dca7bb5923ff225fb6720c0";
+      url = "git+https://github.com/Teebor-Choka/agent-env.git?ref=kauki/feat/agent-plugins/hooks-manifest-renderer&rev=d7bbe379d2be917a4fb7bae755253966eab658c2";
       flake = false;
     };
   };
@@ -171,6 +171,19 @@
             in
             pkgs.runCommand "hooks-manifest" { nativeBuildInputs = [ pkgs.jq ]; } ''
               ${pkgs.lib.concatMapStrings one withHooks}
+              touch $out
+            '';
+
+          # Every plugin normalizes through agent-env, including hooks-only ones with no skills/ dir:
+          # forcing skillNames and the root of each would throw if one did not.
+          plugins-normalize =
+            let
+              l = import "${agent-env}/modules/home/agent-plugins-lib.nix" { inherit (pkgs) lib; };
+              plugins = l.normalize { src = self; };
+              line = p: "${p.name}: ${toString (builtins.length p.skillNames)} skill(s)\n";
+            in
+            pkgs.runCommand "plugins-normalize" { } ''
+              printf '%s' ${pkgs.lib.escapeShellArg (pkgs.lib.concatMapStrings line plugins)}
               touch $out
             '';
 
