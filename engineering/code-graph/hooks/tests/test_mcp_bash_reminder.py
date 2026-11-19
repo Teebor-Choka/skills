@@ -32,6 +32,13 @@ CASES = [
     ("env FOO=1 rg foo", True),
     ('bash -c "grep -r foo ."', True),
     ("git log | grep -r foo", True),  # any segment matching fires
+    ("grep -rn foo .", True),
+    ("grep -rl foo src", True),
+    ("grep -nr foo .", True),
+    ("grep -rI foo .", True),
+    ("grep -Rn foo .", True),
+    ("grep -inR foo .", True),
+    ("egrep -rn 'a|b' .", True),
     # not sweeps: stay silent
     ("grep foo file.rs", False),
     ("cat file.rs", False),
@@ -41,6 +48,11 @@ CASES = [
     ("echo 'grep -r foo .'", False),  # quoted text must not trigger
     ("git commit -m 'rg foo'", False),
     ("ls -la", False),
+    ("grep -n foo file.rs", False),
+    ("grep -in foo file.rs", False),
+    ("grep -e rr file.rs", False),
+    ("grep -erfoo file.rs", False),  # `rfoo` is the glued pattern of -e, not a recursion flag
+    ("grep -A5 foo file.rs", False),
 ]
 
 
