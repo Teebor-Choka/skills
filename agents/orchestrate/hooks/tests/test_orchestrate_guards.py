@@ -1,6 +1,4 @@
 """Tests for hooks/schedule-wakeup-guard and hooks/send-message-guard. Run: python3 -m pytest hooks/tests"""
-import importlib.machinery
-import importlib.util
 import json
 import os
 import subprocess
@@ -9,10 +7,6 @@ import tempfile
 import unittest
 
 HOOKS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-_loader = importlib.machinery.SourceFileLoader("schedule_wakeup_guard", os.path.join(HOOKS, "schedule-wakeup-guard"))
-_spec = importlib.util.spec_from_loader("schedule_wakeup_guard", _loader)
-wake = importlib.util.module_from_spec(_spec)
-_loader.exec_module(wake)
 
 
 def run(hook, payload=None, raw=None, tmp=None):
@@ -29,93 +23,41 @@ def decision(r):
 
 
 class ScheduleWakeupGuard(unittest.TestCase):
-    def call(self, tmp, prompt="check", reason="", session="s1", delay=1200):
+    def call(self, prompt="check", reason="", session="s1", delay=1200):
         return run("schedule-wakeup-guard", {"tool_name": "ScheduleWakeup", "session_id": session,
-                   "tool_input": {"prompt": prompt, "reason": reason, "delaySeconds": delay}}, tmp=tmp)
+                   "tool_input": {"prompt": prompt, "reason": reason, "delaySeconds": delay}})
 
     def test_first_wake_allowed(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            self.assertIsNone(decision(self.call(tmp)))
+        self.assertIsNone(decision(self.call()))
 
-    def test_same_prompt_repeated_is_denied_on_the_third(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            got = [decision(self.call(tmp, prompt="<<autonomous-loop-dynamic>>")) for _ in range(3)]
-            self.assertEqual(got, [None, None, "deny"])
+    def test_a_dynamic_loop_may_repeat_the_same_prompt_indefinitely(self):
+        got = [decision(self.call(prompt="<<autonomous-loop-dynamic>>")) for _ in range(6)]
+        self.assertEqual(got, [None] * 6)
 
-    def test_different_prompts_do_not_add_up(self):
+    def test_it_keeps_no_state_file(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual([decision(self.call(tmp, prompt=f"p{i}")) for i in range(4)], [None] * 4)
+            run("schedule-wakeup-guard", {"tool_name": "ScheduleWakeup", "session_id": "s",
+                                          "tool_input": {"prompt": "p"}}, tmp=tmp)
+            self.assertEqual(os.listdir(tmp), [])
 
-    def test_pr_or_subagent_wait_is_denied_at_once(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for reason in ("re-check gh pr view 277", "wait for the subagent", "gh issue list again"):
-                with self.subTest(reason=reason):
-                    r = self.call(tmp, reason=reason, prompt=reason)
-                    self.assertEqual(decision(r), "deny")
-                    self.assertIn("Monitor", json.loads(r.stdout)["hookSpecificOutput"]["permissionDecisionReason"])
+    def test_polling_waits_are_denied_at_once(self):
+        for reason in ("re-check gh pr view 277", "wait for the subagent", "gh issue list again",
+                       "gh run list again", "sleep 300 then check", "poll the subagent"):
+            with self.subTest(reason=reason):
+                r = self.call(reason=reason, prompt=reason)
+                self.assertEqual(decision(r), "deny")
+                self.assertIn("Monitor", json.loads(r.stdout)["hookSpecificOutput"]["permissionDecisionReason"])
 
-    def test_sessions_are_counted_apart_and_ids_cannot_escape(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for _ in range(2):
-                self.call(tmp, prompt="x", session="a")
-            self.assertIsNone(decision(self.call(tmp, prompt="x", session="b")))
-            self.call(tmp, session="../../evil")
-            self.assertIn("agent-schedule-wakeup-guard._.._evil", os.listdir(tmp))
+    def test_plain_words_do_not_deny(self):
+        for text in ("watch", "check back on the build", "wait", "babysit"):
+            with self.subTest(text=text):
+                self.assertIsNone(decision(self.call(prompt=text, reason=text)))
 
     def test_reason_names_no_tool_but_the_idle_reply(self):
         import re
-        with tempfile.TemporaryDirectory() as tmp:
-            r = self.call(tmp, reason="gh pr view 1", prompt="x")
-            reason = json.loads(r.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
-            self.assertEqual(re.findall(r"`([^`]+)`", reason), ["idle"])
-
-    def test_generic_polling_of_gh_and_sleep_is_denied_by_shape_not_by_tool_name(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for text in ("gh run list again", "sleep 300 then check", "poll the subagent"):
-                with self.subTest(text=text):
-                    self.assertEqual(decision(self.call(tmp, prompt=text, reason=text)), "deny")
-            for text in ("watch", "check back on the build", "wait"):
-                with self.subTest(text=text):
-                    self.assertIsNone(decision(self.call(tmp, prompt=text + " 1", reason="", session=text)))
-
-    def test_state_file_uses_agent_prefix(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            self.call(tmp, session="pfx")
-            self.assertEqual(os.listdir(tmp), ["agent-schedule-wakeup-guard.pfx"])
-
-    def test_empty_tmpdir_falls_back_to_tmp(self):
-        # an empty TMPDIR must not turn the state path into a relative one
-        for value in ("", None):
-            with self.subTest(tmpdir=value):
-                saved = os.environ.pop("TMPDIR", None)
-                try:
-                    if value is not None:
-                        os.environ["TMPDIR"] = value
-                    self.assertEqual(wake.counter_path("s"), "/tmp/agent-schedule-wakeup-guard.s")
-                finally:
-                    os.environ.pop("TMPDIR", None)
-                    if saved is not None:
-                        os.environ["TMPDIR"] = saved
-
-    def test_no_session_id_gets_a_per_user_per_cwd_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for cwd in ("/a", "/b"):
-                run("schedule-wakeup-guard", {"tool_name": "ScheduleWakeup", "cwd": cwd,
-                                              "tool_input": {"prompt": "p"}}, tmp=tmp)
-            names = sorted(os.listdir(tmp))
-            self.assertEqual(len(names), 2)
-            for name in names:
-                self.assertTrue(name.startswith("agent-schedule-wakeup-guard.nosession-%d-" % os.getuid()), name)
-
-    def test_planted_symlink_is_not_followed(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            victim = os.path.join(tmp, "victim")
-            with open(victim, "w") as f:
-                f.write("keep")
-            os.symlink(victim, os.path.join(tmp, "agent-schedule-wakeup-guard.sl"))
-            self.assertEqual(self.call(tmp, session="sl").returncode, 0)
-            with open(victim) as f:
-                self.assertEqual(f.read(), "keep")
+        r = self.call(reason="gh pr view 1", prompt="x")
+        reason = json.loads(r.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertEqual(re.findall(r"`([^`]+)`", reason), ["idle"])
 
     def test_stop_and_junk_fail_open(self):
         self.assertEqual(run("schedule-wakeup-guard", {"tool_name": "ScheduleWakeup", "tool_input": {"stop": True}}).returncode, 0)
