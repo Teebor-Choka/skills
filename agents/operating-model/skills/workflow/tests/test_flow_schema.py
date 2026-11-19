@@ -9,7 +9,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE.parent / "scripts" / "check_flow_schema.py"
-SCHEMA = HERE.parent / "schemas" / "ows" / "workflow.yaml"
+SCHEMA = HERE.parent / "schemas" / "ows" / "workflow.yaml.upstream"
 # sha256 of schema/workflow.yaml at tag v1.1.0 of serverlessworkflow/specification
 PUBLISHED_SHA256 = "a2d181c56b1328b1f94fdf7086d15980f640352405b0811389704242a321f1c9"
 
