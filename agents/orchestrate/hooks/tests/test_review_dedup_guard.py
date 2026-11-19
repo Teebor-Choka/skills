@@ -28,7 +28,7 @@ class PrRefs(unittest.TestCase):
             ("review PR-571", {"571"}),
             ("review https://github.com/o/r/pull/571/files", {"571"}),
             ("audit #12 and #13", {"12", "13"}),
-            ("review the sandy repo", set()),
+            ("review the payments repo", set()),
             ("review issue #", set()),
             ("pr review", set()),
             ("order 5 items", set()),
