@@ -6,7 +6,7 @@ import subprocess
 import sys
 
 import validate_docs  # noqa: E402  (path wired in conftest.py)
-from helpers import cargo_member, cargo_workspace, policy, write, write_page
+from docs_helpers import cargo_member, cargo_workspace, policy, write, write_page
 
 SCRIPT = validate_docs.__file__
 
