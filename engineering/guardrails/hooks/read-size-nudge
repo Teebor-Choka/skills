@@ -31,6 +31,10 @@ SOURCE_EXTS = {".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".go"
 GRAPH_CALL = re.compile(r'"name"\s*:\s*"mcp__codebase-memory-mcp__')
 
 
+def tmp_root():
+    return os.environ.get("TMPDIR") or "/tmp"
+
+
 def clean_session(session):
     return re.sub(r"[^A-Za-z0-9_.-]", "_", str(session or "")).lstrip(".")[:64]
 
@@ -99,7 +103,7 @@ def deny_reason(tool_input, transcript_path, size_of=os.path.getsize, which=shut
             "with get_code_snippet. To read the file itself, pass offset and limit.")
 
 
-def nudge(tool_input, session, tmpdir, size_of=os.path.getsize):
+def nudge(tool_input, session, tmpdir, size_of=os.path.getsize, which=shutil.which):
     """Return the reminder text, or "" when no nudge is due. Records a per-file marker."""
     path = tool_input.get("file_path")
     if not isinstance(path, str) or tool_input.get("offset") or tool_input.get("limit"):
@@ -114,9 +118,9 @@ def nudge(tool_input, session, tmpdir, size_of=os.path.getsize):
                                   f"{hashlib.sha1(path.encode()).hexdigest()[:12]}")
     if not mark_once(marker):
         return ""
+    graph = ", or for code use search_graph/get_code_snippet" if which("codebase-memory-mcp") else ""
     return (f"{os.path.basename(path)} is {size // 1024} KB. Read only what you need: use offset/limit, grep the "
-            "heading or symbol first, or for code use search_graph/get_code_snippet. A whole-file read of a large "
-            "file costs context on every later turn.")
+            f"heading or symbol first{graph}. A whole-file read of a large file costs context on every later turn.")
 
 
 def main():
@@ -130,7 +134,7 @@ def main():
             print(json.dumps({"hookSpecificOutput": {
                 "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
             return
-        text = nudge(tool_input, session_slug(data), os.environ.get("TMPDIR") or "/tmp")
+        text = nudge(tool_input, session_slug(data), tmp_root())
     except Exception:
         return
     if text:

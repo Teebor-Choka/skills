@@ -62,12 +62,21 @@ class ScheduleWakeupGuard(unittest.TestCase):
             self.call(tmp, session="../../evil")
             self.assertIn("agent-schedule-wakeup-guard._.._evil", os.listdir(tmp))
 
-    def test_reason_names_no_private_tooling(self):
+    def test_reason_names_no_tool_but_the_idle_reply(self):
+        import re
         with tempfile.TemporaryDirectory() as tmp:
             r = self.call(tmp, reason="gh pr view 1", prompt="x")
             reason = json.loads(r.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
-            for word in ("swarm-status", "babysit"):
-                self.assertNotIn(word, reason)
+            self.assertEqual(re.findall(r"`([^`]+)`", reason), ["idle"])
+
+    def test_generic_polling_of_gh_and_sleep_is_denied_by_shape_not_by_tool_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for text in ("gh run list again", "sleep 300 then check", "poll the subagent"):
+                with self.subTest(text=text):
+                    self.assertEqual(decision(self.call(tmp, prompt=text, reason=text)), "deny")
+            for text in ("watch", "check back on the build", "wait"):
+                with self.subTest(text=text):
+                    self.assertIsNone(decision(self.call(tmp, prompt=text + " 1", reason="", session=text)))
 
     def test_state_file_uses_agent_prefix(self):
         with tempfile.TemporaryDirectory() as tmp:

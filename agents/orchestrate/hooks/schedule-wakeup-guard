@@ -2,7 +2,7 @@
 """PreToolUse hook (tool: ScheduleWakeup): stop timer-polling of PRs, boards and subagents.
 
 Each wake re-reads the whole context to learn that nothing changed. Allow the first two wakes with a given prompt; deny the third, and deny at once a wake whose
-prompt or reason waits on a PR (`gh pr`, `gh issue list`) or a subagent. A per-session counter file holds
+prompt or reason waits on a PR or run (`gh pr`, `gh run`), sleeps (`sleep N`) or polls a subagent. A per-session counter file holds
 the prompt counts. Fails open on malformed input or an unwritable temp dir.
 Tests: hooks/tests/test_orchestrate_guards.py.
 """
@@ -12,7 +12,7 @@ import os
 import re
 import sys
 
-WAIT_ON = re.compile(r"gh\s+(pr|issue|run)\b|subagent|sub-agent|babysit", re.I)
+WAIT_ON = re.compile(r"gh\s+(pr|issue|run)\b|\bsleep\s+\d|subagent|sub-agent", re.I)
 MAX_SAME_PROMPT = 2
 REASON = ("A timer wake re-reads your whole context to learn nothing changed. Run a watcher that prints "
           "only changes under Monitor (load it with ToolSearch select:Monitor), or end the turn: hand-backs "
