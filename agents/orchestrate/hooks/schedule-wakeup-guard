@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""PreToolUse hook (tool: ScheduleWakeup): stop timer-polling of PRs, boards and subagents.
+
+Each wake re-reads the whole context to learn that nothing changed. Allow the first two wakes with a given prompt; deny the third, and deny at once a wake whose
+prompt or reason waits on a PR (`gh pr`, `gh issue list`) or a subagent. A per-session counter file holds
+the prompt counts. Fails open on malformed input or an unwritable temp dir.
+Tests: hooks/tests/test_orchestrate_guards.py.
+"""
+import hashlib
+import json
+import os
+import re
+import sys
+
+WAIT_ON = re.compile(r"gh\s+(pr|issue|run)\b|subagent|sub-agent|babysit", re.I)
+MAX_SAME_PROMPT = 2
+REASON = ("A timer wake re-reads your whole context to learn nothing changed. Run a watcher that prints "
+          "only changes under Monitor (load it with ToolSearch select:Monitor), or end the turn: hand-backs "
+          "and task notifications wake you. If the board shows no change since the last tick, reply `idle` "
+          "and stop scheduling wakes.")
+
+
+def counter_path(session):
+    session = re.sub(r"[^A-Za-z0-9_.-]", "_", str(session)).lstrip(".") or "nosession"
+    return os.path.join(os.environ.get("TMPDIR") or "/tmp", f"agent-schedule-wakeup-guard.{session}")
+
+
+def count_prompt(session, prompt):
+    key = hashlib.sha1(prompt.encode()).hexdigest()[:16]
+    path = counter_path(session)
+    counts = {}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            counts = {k: v for k, v in data.items() if isinstance(v, int)}
+    except (OSError, ValueError):
+        pass
+    counts[key] = counts.get(key, 0) + 1
+    try:
+        with open(path, "w") as f:
+            json.dump(counts, f)
+    except OSError:
+        pass
+    return counts[key]
+
+
+def main():
+    try:
+        payload = json.load(sys.stdin)
+        if not isinstance(payload, dict) or payload.get("tool_name") != "ScheduleWakeup":
+            return
+        tool_input = payload.get("tool_input") or {}
+        if tool_input.get("stop"):
+            return
+        prompt = str(tool_input.get("prompt") or "")
+        reason = str(tool_input.get("reason") or "")
+    except Exception:
+        return
+    deny = bool(WAIT_ON.search(prompt + " " + reason))
+    if count_prompt(payload.get("session_id") or "nosession", prompt) > MAX_SAME_PROMPT:
+        deny = True
+    if deny:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                                 "permissionDecisionReason": REASON}}))
+
+
+if __name__ == "__main__":
+    main()

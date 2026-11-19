@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""PreToolUse hook (tool: Agent): stop duplicate reviewers for one PR in a session.
+
+Several reviewers of one PR waste tokens and give conflicting findings. The key is a PR number in the Agent description or prompt, read from `#N`, `/pull/N` or `PR N`,
+together with a review or audit word. A per-session counter file keeps a count per PR number: the first
+spawn passes, the second asks, the third and later are denied. Every matching spawn counts, even one the user
+declined. A prompt naming several PRs is judged by its most-reviewed PR (at most 20 numbers are read).
+The counter is per session, so a duplicate started by another session is not seen; that needs the shared
+review lease (see the orchestrate pull skill) and is out of scope here.
+Counter file: $TMPDIR (else /tmp)/agent-review-dedup.<session>.json, session id sanitised. Matching uses
+bounded regexes (no nested quantifiers). Fails open on malformed input and unreadable or corrupt counter files.
+Tests: hooks/tests/test_review_dedup_guard.py.
+Schema: https://code.claude.com/docs/en/hooks.md
+"""
+import json
+import os
+import re
+import sys
+
+MAX_REFS = 20
+MAX_TEXT = 200_000
+_PR_REF = re.compile(r"#(\d{1,7})|/pull/(\d{1,7})|\bpr[\s#-]{0,3}(\d{1,7})")
+_REVIEW = re.compile(r"\b(review|audit)")
+
+
+def pr_refs(text):
+    refs = set()
+    for m in _PR_REF.finditer(text.lower()[:MAX_TEXT]):
+        refs.add(next(g for g in m.groups() if g))
+        if len(refs) >= MAX_REFS:
+            break
+    return refs
+
+
+def is_review(text):
+    return _REVIEW.search(text.lower()[:MAX_TEXT]) is not None
+
+
+def counter_path(session, tmpdir):
+    sid = re.sub(r"[^A-Za-z0-9_-]", "_", str(session or ""))[:64] or "nosession"
+    return os.path.join(tmpdir or "/tmp", f"agent-review-dedup.{sid}.json")
+
+
+def load(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, int)}
+
+
+def decide(tool_input, session, tmpdir):
+    """("", "") to allow, ("ask"|"deny", reason) otherwise. Counts every review spawn that names a PR."""
+    parts = [tool_input.get(k) for k in ("description", "prompt")]
+    text = "\n".join(p for p in parts if isinstance(p, str))
+    if not is_review(text):
+        return "", ""
+    refs = pr_refs(text)
+    if not refs:
+        return "", ""
+    path = counter_path(session, tmpdir)
+    counts = load(path)
+    for ref in refs:
+        counts[ref] = counts.get(ref, 0) + 1
+    try:
+        with open(path, "w") as f:
+            json.dump(counts, f)
+    except OSError:
+        pass
+    pr = max(refs, key=lambda r: counts[r])
+    n = counts[pr]
+    if n >= 3:
+        return "deny", (f"PR #{pr} has already had {n - 1} reviewer spawns in this session. Use their results, "
+                        "or message the running reviewer with SendMessage, instead of starting another.")
+    if n == 2:
+        return "ask", (f"PR #{pr} was already sent to a reviewer in this session. Approve only if this is a "
+                       "deliberate second angle; otherwise wait for that result or pick another PR.")
+    return "", ""
+
+
+def main():
+    try:
+        payload = json.load(sys.stdin)
+        if not isinstance(payload, dict) or payload.get("tool_name") != "Agent":
+            return
+        tool_input = payload.get("tool_input")
+        if not isinstance(tool_input, dict):
+            return
+        decision, reason = decide(tool_input, payload.get("session_id"), os.environ.get("TMPDIR"))
+    except Exception:
+        return
+    if decision:
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse", "permissionDecision": decision, "permissionDecisionReason": reason}}))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,5 +1,23 @@
 {
   "nodes": {
+    "agent-env": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1795104399,
+        "narHash": "sha256-ULHETpt+bhrX0nz2B0L3ag9CMcUu0JNCfinARrJ/3qQ=",
+        "ref": "kauki/feat/agent-plugins/hooks-manifest-renderer",
+        "rev": "2e47655df6d30d9e7dca7bb5923ff225fb6720c0",
+        "revCount": 24,
+        "type": "git",
+        "url": "https://github.com/Teebor-Choka/agent-env.git"
+      },
+      "original": {
+        "ref": "kauki/feat/agent-plugins/hooks-manifest-renderer",
+        "rev": "2e47655df6d30d9e7dca7bb5923ff225fb6720c0",
+        "type": "git",
+        "url": "https://github.com/Teebor-Choka/agent-env.git"
+      }
+    },
     "flake-compat": {
       "flake": false,
       "locked": {
@@ -89,6 +107,7 @@
     },
     "root": {
       "inputs": {
+        "agent-env": "agent-env",
         "flake-utils": "flake-utils",
         "git-hooks": "git-hooks",
         "nixpkgs": "nixpkgs",
