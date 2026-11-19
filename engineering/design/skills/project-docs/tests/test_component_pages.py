@@ -217,6 +217,7 @@ def test_single_component_needs_no_page(make_repo):
 def test_single_component_page_that_exists_must_conform(make_repo):
     repo = make_repo()
     write(repo, "Cargo.toml", '[package]\nname = "widgetd"\n')
+    write(repo, "src/lib.rs", "pub fn Thing() {}\n")
     write_page(repo, "widgetd", ".")
     assert rules(repo) == []
     edit(repo, "widgetd", "kind: component", "kind: spec")
@@ -311,3 +312,14 @@ def test_broken_manifest_makes_the_validator_exit_2(two):
     write(two, "Cargo.toml", "[workspace\n")
     run = run_cli(str(two))
     assert run.returncode == 2 and "Cargo.toml" in run.stderr
+
+
+def test_skeleton_filled_in_conforms(make_repo):
+    repo = make_repo()
+    write(repo, "Cargo.toml", '[package]\nname = "widgetd"\n')
+    write(repo, "src/lib.rs", "pub fn Item() {}\n")
+    skeleton = (Path(validate_docs.__file__).parent.parent / "assets" / "component.skeleton.md").read_text()
+    filled = (skeleton.replace("COMPONENT", "widgetd").replace("PROJECT", "widgetd")
+              .replace("YYYY-MM-DD", "2026-11-19").replace("DIR", "."))
+    write(repo, "docs/components/widgetd.md", filled)
+    assert rules(repo) == []

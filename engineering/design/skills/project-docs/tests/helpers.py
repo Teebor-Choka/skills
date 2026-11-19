@@ -71,7 +71,7 @@ def write(repo: Path, rel: str, text: str) -> Path:
 
 
 def cargo_member(repo: Path, name: str, dir: str | None = None, deps=(), dev=(), build=(),
-                 source: str = "pub fn thing() {}\n") -> str:
+                 source: str = "pub fn Thing() {}\n") -> str:
     """A crate under crates/<dir>; deps/dev/build name sibling crates. Returns its repo-relative dir."""
     rel = f"crates/{dir or name}"
     lines = [f'[package]\nname = "{name}"\nversion = "0.1.0"\n']
