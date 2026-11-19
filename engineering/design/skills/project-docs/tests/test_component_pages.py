@@ -63,14 +63,6 @@ def test_single_crate_without_components_dir_passes(make_repo):
     assert validate_docs.validate_project(repo) == []
 
 
-def test_two_crates_without_components_dir_raise_no_component_finding(make_repo):
-    repo = make_repo()
-    cargo_workspace(repo)
-    cargo_member(repo, "a")
-    cargo_member(repo, "b", deps=("a",))
-    assert validate_docs.validate_project(repo) == []
-
-
 def test_unparseable_workspace_without_components_dir_is_not_resolved(make_repo):
     repo = make_repo()
     write(repo, "pnpm-workspace.yaml", "packages:\n  - 'packages/*'\n")

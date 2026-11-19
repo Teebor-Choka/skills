@@ -142,6 +142,14 @@ def policy_options(project: Path) -> tuple[list[str] | None, dict[str, str]]:
     return (include or None), (exclude if isinstance(exclude, dict) else {})
 
 
+def policy_adopt(project: Path) -> bool:
+    """False only when docs.components.adopt is set to false; the default is to expect pages."""
+    node = read_policy(project).get("docs", {})
+    node = node.get("components", {}) if isinstance(node, dict) else {}
+    value = node.get("adopt") if isinstance(node, dict) else None
+    return str(value).strip().lower() != "false"
+
+
 # --- manifests -------------------------------------------------------------------------------------
 
 

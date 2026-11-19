@@ -18,6 +18,7 @@ Layout: `<domain>/<plugin>/skills/<skill>`. The host shows `plugin:skill`.
 |                     | `security`          | Run secret, dependency, SAST, CI scanners; AI triage             |
 | `swe`               | `rust`              | Rust house guidelines on every change                            |
 |                     | `typescript`        | TypeScript and JavaScript house guidelines on every change       |
+|                     | `component-docs`    | Write and update one docs page per component                     |
 | `orchestrate`       | `assign`, `pull`    | Multi-agent runs: dispatcher or peer swarm over a shared board   |
 | `operating-model`   | `policy`            | The `.agents/policy` format and loader                           |
 |                     | `procedure`         | Define and validate a named graph of stages                      |
