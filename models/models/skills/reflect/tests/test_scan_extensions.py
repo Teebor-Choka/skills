@@ -115,6 +115,30 @@ def test_hook_events_split_into_deny_nonblocking_and_context(tmp_path):
     assert run["hooks"] == {"gate.sh": {"deny": 1, "nonblocking": 2, "context": 1}}
 
 
+def hook_deny_result(text, use_id):
+    row = tool_result(text, use_id)
+    row["message"]["content"][0]["is_error"] = True
+    return row
+
+
+def test_hook_denial_in_a_tool_result_counts_as_a_deny_for_that_hook(tmp_path):
+    rows = [asst_tool("Bash", {"command": "git add ."}, use_id="u1"),
+            hook_deny_result("PreToolUse:Bash hook error: git-guard: stage explicit paths", "u1"),
+            asst_tool("Edit", {"file_path": "a"}, use_id="u2"),
+            hook_deny_result("PreToolUse:Edit hook error: load the skill first", "u2"),
+            {"type": "attachment", "attachment": {"type": "hook_non_blocking_error",
+                                                  "hookName": "PreToolUse:Bash", "exitCode": 1}}]
+    run = scan.score_run("k", [write(tmp_path, rows)])
+    assert run["hooks"]["PreToolUse:Bash"] == {"deny": 1, "nonblocking": 1, "context": 0}
+    assert run["hooks"]["PreToolUse:Edit"]["deny"] == 1
+
+
+def test_hook_error_text_inside_other_output_is_not_a_denial(tmp_path):
+    rows = [asst_tool("Bash", {"command": "cat notes"}, use_id="u1"),
+            tool_result("notes: PreToolUse:Bash hook error: quoted in a file", "u1")]
+    assert scan.score_run("k", [write(tmp_path, rows)])["hooks"] == {}
+
+
 # --- RF-11: outcomes and the human-as-loop signal -------------------------------------
 
 def outcome(tmp_path, rows):
