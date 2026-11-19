@@ -71,6 +71,37 @@ class GraphFirstDeny(unittest.TestCase):
         self.assertIn("get_code_snippet", reason)
         self.assertIn("offset", reason)
 
+    def assistant_call(self, name):
+        return json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t9", "name": name, "input": {}}]}})
+
+    def test_graph_call_at_the_start_of_a_huge_transcript_is_still_seen(self):
+        with open(self.transcript, "w") as f:
+            f.write(self.assistant_call("mcp__codebase-memory-mcp__search_graph") + "\n")
+            filler = json.dumps({"type": "user", "message": {"content": "x" * 100_000}}) + "\n"
+            for _ in range(50):  # 5 MB after the graph call, past the old 4 MB tail window
+                f.write(filler)
+        self.assertEqual(self.deny(), "")
+
+    def test_assistant_tool_use_line_counts(self):
+        with open(self.transcript, "w") as f:
+            f.write(self.assistant_call("mcp__codebase-memory-mcp__trace_path") + "\n")
+        self.assertEqual(self.deny(), "")
+
+    def test_quoted_tool_name_in_a_tool_result_or_user_text_does_not_count(self):
+        quoted = [
+            json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t",
+                        "content": 'grep found: "name": "mcp__codebase-memory-mcp__search_graph"'}]}}),
+            json.dumps({"type": "user", "message": {"content": 'use "name": "mcp__codebase-memory-mcp__x"'}}),
+            json.dumps({"type": "assistant", "message": {"content": [
+                {"type": "text", "text": '"name": "mcp__codebase-memory-mcp__search_graph"'}]}}),
+            'not json "name": "mcp__codebase-memory-mcp__search_graph"',
+        ]
+        for line in quoted:
+            with self.subTest(line=line[:60]):
+                self.write_transcript(OTHER_CALL, line)
+                self.assertIn("ToolSearch", self.deny())
+
     def test_threshold_boundary(self):
         self.assertEqual(self.deny(size=rsn.DENY_THRESHOLD - 1), "")
         self.assertNotEqual(self.deny(size=rsn.DENY_THRESHOLD), "")
@@ -108,6 +139,28 @@ class GraphFirstDeny(unittest.TestCase):
         self.assertEqual(rsn.deny_reason({"file_path": "/no/such.rs"}, self.transcript), "")
         self.assertEqual(rsn.deny_reason({}, self.transcript), "")
         self.assertEqual(rsn.deny_reason({"file_path": 5}, self.transcript), "")
+
+
+class NonSourceFiles(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def nudge(self, name, **extra):
+        return rsn.nudge({"file_path": "/x/" + name, **extra}, "s-" + name, self.tmp, size_of=lambda p: BIG,
+                         which=lambda n: "/bin/" + n)
+
+    def test_binary_and_document_formats_are_not_nudged(self):
+        for name in ("a.pdf", "a.png", "a.JPG", "a.jpeg", "a.gif", "a.webp", "a.ipynb", "a.svg", "a.mp4", "a.mov",
+                     "a.zip", "a.ico", "a.mp3", "a.wav"):
+            with self.subTest(name=name):
+                self.assertEqual(self.nudge(name), "")
+
+    def test_a_pages_request_is_not_nudged(self):
+        self.assertEqual(self.nudge("big.md", pages="1-5"), "")
+        self.assertEqual(self.nudge("big.pdf", pages="1-5"), "")
+
+    def test_text_files_still_are(self):
+        self.assertIn("60 KB", self.nudge("big.md"))
 
 
 class StateFiles(unittest.TestCase):
