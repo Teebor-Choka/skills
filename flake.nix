@@ -81,7 +81,7 @@
               enable = true;
               name = "skills-validate";
               entry = "${py}/bin/python3 scripts/validate-skills.py .";
-              files = "(^|/)SKILL\\.md$|^scripts/validate-skills\\.py$";
+              files = "(^|/)SKILL\\.md$|^scripts/validate-skills\\.py$|^scripts/skill-size-allow\\.txt$";
               pass_filenames = false;
             };
             shellcheck = {
@@ -196,6 +196,7 @@
                   (pkgs.python3.withPackages (ps: [
                     ps.pytest
                     ps.pytest-cov
+                    ps.pyyaml # scripts/tests run validate-skills.py, which imports yaml
                     codeQualityTools.crap4py
                     codeQualityTools.complexipy
                     codeQualityTools.pyscn

@@ -52,6 +52,10 @@ skills that stay lightweight with the heavy context in references (progressive d
 `authoring.md`). **Do not cut any context** — every block either stays where it is or moves to a
 reference file.
 
+Size check: a `SKILL.md` over 8 KB loads whole on every run. Move detail to `references/` and keep
+the body to the trigger, the steps and pointers. The repo validator warns at 8 KB and fails at 16 KB
+(`scripts/validate-skills.py`; the `references/` files do not count).
+
 Present a before/after file tree and every pointer you would add, before moving anything:
 
 ```
