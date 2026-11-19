@@ -17,6 +17,9 @@ SKILL_DIR = Path("engineering/swe/skills/rust")
 MAX_LINES = 250
 MIN_ENTRIES, MAX_ENTRIES = 20, 30
 FIELDS = ("Symptom", "Fix", "Source", "Accessed")
+REQUIRED_FILES = ("concurrency-correctness.md", "concurrency-performance.md")
+# Entries whose title contains the key must carry a Test: line.
+REQUIRE_TEST = ("guard across", "Notify", "loom")
 TRIGGERS = (
     "blocking in async",
     "deadlock",
@@ -66,8 +69,11 @@ def main():
     skill = root / SKILL_DIR
     files = sorted((skill / "references").glob("concurrency-*.md"))
     errors = []
-    if not files:
-        errors.append("no references/concurrency-*.md files")
+    errors += [
+        f"missing references/{n}"
+        for n in REQUIRED_FILES
+        if not (skill / "references" / n).is_file()
+    ]
     total = 0
     skill_md = (skill / "SKILL.md").read_text(encoding="utf-8")
     for f in files:
@@ -80,6 +86,10 @@ def main():
             errors.append(f"{f.name}: no entries")
         for title, body in found:
             errors += [f"{f.name}: {e}" for e in check_entry(title, body)]
+            if any(k in title for k in REQUIRE_TEST) and not any(
+                ln.startswith("Test:") for ln in body
+            ):
+                errors.append(f"{f.name}: {title!r}: missing Test:")
         if f"references/{f.name}" not in skill_md:
             errors.append(f"SKILL.md does not link references/{f.name}")
     if files and not MIN_ENTRIES <= total <= MAX_ENTRIES:
