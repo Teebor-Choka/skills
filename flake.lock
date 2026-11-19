@@ -3,17 +3,17 @@
     "agent-env": {
       "flake": false,
       "locked": {
-        "lastModified": 1795119673,
-        "narHash": "sha256-XSQErNy2SiHR/xrzz7BuN21v6YJBPXrA75a4w1QVOCs=",
+        "lastModified": 1795125892,
+        "narHash": "sha256-ioBj2bZ0T4VvmylG6Qd5S4PUweZ08MCOw6GZZiHRoDk=",
         "ref": "kauki/feat/agent-plugins/hooks-manifest-renderer",
-        "rev": "d7bbe379d2be917a4fb7bae755253966eab658c2",
-        "revCount": 26,
+        "rev": "e579167667d3dafa8a02a099151a742772a253ac",
+        "revCount": 28,
         "type": "git",
         "url": "https://github.com/Teebor-Choka/agent-env.git"
       },
       "original": {
         "ref": "kauki/feat/agent-plugins/hooks-manifest-renderer",
-        "rev": "d7bbe379d2be917a4fb7bae755253966eab658c2",
+        "rev": "e579167667d3dafa8a02a099151a742772a253ac",
         "type": "git",
         "url": "https://github.com/Teebor-Choka/agent-env.git"
       }
