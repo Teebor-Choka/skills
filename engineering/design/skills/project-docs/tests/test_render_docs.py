@@ -354,6 +354,31 @@ def test_non_surface_changes_do_not_warn(tmp_path, edit):
     assert r.returncode == 0 and not warnings(r), r.stderr
 
 
+@pytest.mark.parametrize("line", [
+    "pub async fn f() {}", "pub unsafe fn f() {}", "pub extern fn f() {}", 'pub extern "C" fn f() {}',
+    "pub async unsafe fn f() {}", "pub const fn f() {}", "pub const unsafe fn f() {}",
+    'pub unsafe extern "C" fn f() {}', "    pub async fn f() {}",
+])
+def test_rust_fn_qualifiers_are_public_surface(tmp_path, line):
+    repo, base = git_project(tmp_path)
+    append(repo / "crates/a/src/lib.rs", line + "\n")
+    commit(repo, "feat: qualified fn")
+    assert "component-page-stale: a: crates/a/src/lib.rs" in run(repo, "--check", "--base", base).stderr
+
+
+@pytest.mark.parametrize("line", [
+    "pub(crate) async fn f() {}", "pub(crate) unsafe fn f() {}", "pub(super) async fn f() {}",
+    "pub(in crate::x) extern fn f() {}", "// pub async fn f() {}", "/// pub unsafe fn f() {}",
+    'let s = "pub async fn f() {}";', '    "pub async fn f() {}",', "async fn f() {}", "unsafe fn f() {}",
+    "pub async {}", "pub asyncfn f() {}",
+])
+def test_rust_non_surface_qualified_lines_do_not_warn(tmp_path, line):
+    repo, base = git_project(tmp_path)
+    append(repo / "crates/a/src/lib.rs", line + "\n")
+    commit(repo, "chore: internal")
+    assert not warnings(run(repo, "--check", "--base", base))
+
+
 def test_whitespace_only_change_does_not_warn(tmp_path):
     repo, base = git_project(tmp_path)
     lib = repo / "crates/a/src/lib.rs"
