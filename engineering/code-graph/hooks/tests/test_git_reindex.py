@@ -36,25 +36,15 @@ class GitReindex(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout), (0, ""))
         self.assertEqual(self.sb.calls_seen(wait=0.5), [])
 
-    def test_held_lock_skips_the_refresh(self):
-        self.dirty()
-        os.makedirs(os.path.join(self.sb.home, ".cache"))
-        lock = os.path.join(self.sb.home, ".cache", "git-reindex." + self.sb.repo.replace("/", "_") + ".lock")
-        os.makedirs(lock)
-        self.sb.run(HOOK, {"cwd": self.sb.repo})
-        self.assertEqual(self.sb.calls_seen(wait=0.5), [])
-
     def test_lock_is_released_after_the_index_finishes(self):
         self.dirty()
         self.sb.run(HOOK, {"cwd": self.sb.repo})
         self.sb.calls_seen(wait=5)
-        lock = os.path.join(self.sb.home, ".cache", "git-reindex." + self.sb.repo.replace("/", "_") + ".lock")
         for _ in range(50):
-            if not os.path.exists(lock):
+            if not self.sb.locks():
                 break
-            import time
             time.sleep(0.1)
-        self.assertFalse(os.path.exists(lock))
+        self.assertEqual(self.sb.locks(), [])
 
     def test_payload_cwd_wins_over_project_dir_env(self):
         self.dirty()
@@ -153,7 +143,7 @@ class Lock(unittest.TestCase):
             os.kill(int(f.read()), signal.SIGKILL)  # no trap runs: the lock stays behind
         time.sleep(0.3)
         self.sb.run(HOOK, {"cwd": self.sb.repo})
-        self.assertEqual(len(self.sb.calls_seen(wait=3)), 2)
+        self.assertEqual(len(self.sb.calls_seen(wait=3, n=2)), 2)
 
     def test_lock_older_than_six_hours_is_reclaimed_even_if_the_pid_is_alive(self):
         self.start()
@@ -163,7 +153,7 @@ class Lock(unittest.TestCase):
         old = time.time() - 7 * 3600
         os.utime(lock, (old, old))
         self.sb.run(HOOK, {"cwd": self.sb.repo})
-        self.assertEqual(len(self.sb.calls_seen(wait=3)), 2)
+        self.assertEqual(len(self.sb.calls_seen(wait=3, n=2)), 2)
 
     def test_fresh_lock_of_a_live_foreign_pid_is_respected(self):
         self.start()
@@ -188,7 +178,7 @@ class Lock(unittest.TestCase):
         dirty(b)
         self.sb.run(HOOK, {"cwd": a})
         self.sb.run(HOOK, {"cwd": b})
-        self.assertEqual(len(self.sb.calls_seen(wait=3)), 2)
+        self.assertEqual(len(self.sb.calls_seen(wait=3, n=2)), 2)
         time.sleep(0.5)
         self.assertEqual(len(self.sb.locks()), 2)
 

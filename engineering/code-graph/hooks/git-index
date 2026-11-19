@@ -17,9 +17,7 @@ command -v codebase-memory-mcp >/dev/null 2>&1 || exit 0
 here=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || exit 0
 { read -r repo; read -r project; } < <("$(dirname "$0")/repo-root" "$dir")
 
-mkdir -p "$HOME/.cache"
-(codebase-memory-mcp cli index_repository "{\"repo_path\":\"$repo\"}" \
-  >>"$HOME/.cache/codebase-memory-index.log" 2>&1 &)
+"$(dirname "$0")/index-bg" "$repo"
 ctx="This repository is indexed into codebase-memory-mcp's knowledge graph as project \`$project\`; pass exactly that name as \`project\`. To find or understand ANY code — locating a symbol, definition, caller, call path, data flow, architecture, or change impact — call the codebase-memory-mcp tools FIRST (search_graph to locate, then trace_path, get_code_snippet, search_code, get_architecture, query_graph), never an opening grep/read sweep. Use grep and file reads only to open a file the graph pointed to, or when the graph provably cannot answer (non-code text, an unindexed path). The index may still be completing in the background at the very start of a fresh session."
 if [ "$here" != "$repo" ]; then
   ctx="$ctx This session is in a linked worktree ($here); the graph indexes the main checkout ($repo), so read files changed on this branch directly."

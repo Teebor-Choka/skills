@@ -21,14 +21,5 @@ repo=$("$(dirname "$0")/repo-root" "$dir" 2>/dev/null | head -n1) || exit 0
 [ -n "$repo" ] || exit 0
 [ -n "$(git -C "$repo" status --porcelain 2>/dev/null)" ] || exit 0
 
-# Per-repo lock (mkdir is atomic on macOS and Linux) so rapid turns don't stack re-indexes.
-mkdir -p "$HOME/.cache"
-lock="$HOME/.cache/git-reindex.$(printf '%s' "$repo" | tr '/ ' '__').lock"
-mkdir "$lock" 2>/dev/null || exit 0
-
-(
-  trap 'rmdir "$lock" 2>/dev/null || true' EXIT
-  codebase-memory-mcp cli index_repository "{\"repo_path\":\"$repo\"}" \
-    >>"$HOME/.cache/codebase-memory-index.log" 2>&1
-) &
+"$(dirname "$0")/index-bg" "$repo"
 exit 0

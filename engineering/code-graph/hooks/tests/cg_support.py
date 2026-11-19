@@ -68,8 +68,8 @@ class Sandbox:
         return sorted(os.path.join(cache, n) for n in os.listdir(cache) if n.startswith("git-reindex.")) \
             if os.path.isdir(cache) else []
 
-    def calls_seen(self, wait=0.0):
-        """Lines the fake binary logged; waits up to `wait` seconds for a backgrounded call."""
+    def calls_seen(self, wait=0.0, n=1):
+        """Lines the fake binary logged; waits up to `wait` seconds for `n` backgrounded calls."""
         deadline = time.time() + wait
         while True:
             try:
@@ -77,7 +77,7 @@ class Sandbox:
                     lines = f.read().splitlines()
             except OSError:
                 lines = []
-            if lines or time.time() >= deadline:
+            if len(lines) >= n or time.time() >= deadline:
                 return lines
             time.sleep(0.05)
 
