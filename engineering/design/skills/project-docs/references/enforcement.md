@@ -16,6 +16,10 @@ Pure Python 3 standard library, no dependencies to install. Exit code is 0 only 
 checked passes. Any finding, including one labelled `warning` (such as `undocumented`), makes it
 exit 1; a usage error or an unexpected failure exits 2. It drops straight into a hook or a CI step.
 
+Where the target has `docs/components/`, `components.py` must sit beside `validate_docs.py`; the
+validator exits 2 naming it when it does not. `install_hook.sh` still copies only the validator
+(wiring both is a later phase of the two-layer docs work), so copy `components.py` by hand until then.
+
 ## Wiring it into a target repo
 
 `scripts/install_hook.sh <target-project>` wires the validator to run on commit. It is
