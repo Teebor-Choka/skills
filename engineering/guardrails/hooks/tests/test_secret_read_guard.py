@@ -260,6 +260,115 @@ class ExtraPaths(unittest.TestCase):
         self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "ask")
 
 
+class BuiltInRulesResolveAgainstCwd(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("AGENT_GUARDRAILS_SECRET_PATHS", None)
+
+    def test_cd_into_the_secret_directory_then_read_a_bare_name(self):
+        for cmd in ["cd ~/.ssh && cat id_rsa", "cd $HOME/.ssh; cat id_ed25519", "cd ~/.kube && cat config",
+                    "cd ~/Library/Caches && cat KeePassXC/keepassxc.ini"]:
+            with self.subTest(cmd=cmd):
+                self.assertTrue(srg.bash_reason(cmd))
+
+    def test_payload_cwd_inside_a_secret_directory(self):
+        home = os.path.expanduser("~")
+        self.assertTrue(srg.read_reason("id_rsa", cwd=home + "/.ssh"))
+        self.assertTrue(srg.bash_reason("cat config", cwd=home + "/.kube"))
+        self.assertEqual(srg.read_reason("id_rsa.pub", cwd=home + "/.ssh"), "")
+        self.assertEqual(srg.read_reason("id_rsa", cwd="/work/project"), "")
+
+    def test_dotdot_into_a_secret_directory(self):
+        self.assertTrue(srg.bash_reason("cat ~/x/../.ssh/id_rsa"))
+
+
+class CompoundShapesAndWrappers(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("AGENT_GUARDRAILS_SECRET_PATHS", None)
+
+    def test_keywords_and_braces_are_not_the_command(self):
+        for cmd in ["for f in .env; do cat .env; done", "if true; then cat .env; fi", "{ cat .env; }",
+                    "while true; do cat .env; done", "! cat .env", "if cat .env; then echo hi; fi",
+                    "true && { cat .env; }", "if true\nthen\n  cat .env\nfi"]:
+            with self.subTest(cmd=cmd):
+                self.assertTrue(srg.bash_reason(cmd))
+
+    def test_wrappers_with_flags_leave_the_real_command(self):
+        for cmd in ["nice -n 5 cat .env", "env -u X cat .env", "env --unset X cat .env", "env -i FOO=1 cat .env",
+                    "timeout 60 cat .env", "timeout -s KILL 5 cat .env", "sudo -u root cat .env",
+                    "stdbuf -o L cat .env", "xargs -n 1 cat < .env", "command -p cat .env", "builtin echo $API_TOKEN",
+                    "ionice -c 3 cat .env", "setsid cat .env", "exec cat .env", "nohup cat .env", "time cat .env",
+                    "sudo env -u X cat .env", "nice -n 5 timeout 9 cat .env"]:
+            with self.subTest(cmd=cmd):
+                self.assertTrue(srg.bash_reason(cmd))
+
+    def test_wrapper_arguments_are_not_taken_for_the_command(self):
+        for cmd in ["nice -n 5 ls", "env -u TOKEN ls .env.example", "timeout 60 ls", "sudo -u cat ls"]:
+            with self.subTest(cmd=cmd):
+                self.assertEqual(srg.bash_reason(cmd), "")
+
+
+class Heredocs(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("AGENT_GUARDRAILS_SECRET_PATHS", None)
+
+    def test_quoted_heredoc_marker_does_not_swallow_later_lines(self):
+        self.assertTrue(srg.bash_reason("echo '<<EOF'\ncat .env\nEOF"))
+        self.assertTrue(srg.bash_reason('echo "a << b"\ncat .env'))
+        self.assertTrue(srg.bash_reason("echo x # not <<EOF\ncat .env"))
+
+    def test_multiline_quoted_string_does_not_start_a_heredoc(self):
+        self.assertTrue(srg.bash_reason("echo 'first\n<<EOF'\ncat .env"))
+
+    def test_real_heredoc_body_is_still_data_for_a_non_shell_consumer(self):
+        self.assertEqual(srg.bash_reason("cat <<EOF\ncat .env\nEOF"), "")
+        self.assertEqual(srg.bash_reason("cat <<'EOF' > out.txt\ncat .env\nEOF"), "")
+        self.assertEqual(srg.bash_reason("python3 - <<EOF\nprint(1)\nEOF"), "")
+
+    def test_body_fed_to_a_shell_is_scanned(self):
+        for cmd in ["cat <<'EOF' | bash\ncat .env\nEOF", "cat <<EOF | sh\ncat .env\nEOF", "bash <<EOF\ncat .env\nEOF",
+                    "sh -s <<EOF\ncat .env\nEOF", "sudo bash <<'EOF'\ncat .env\nEOF", "bash -s -- <<EOF\ncat .env\nEOF",
+                    "zsh <<EOF\ncat .env\nEOF"]:
+            with self.subTest(cmd=cmd):
+                self.assertTrue(srg.bash_reason(cmd))
+
+    def test_commands_after_the_terminator_are_scanned_as_before(self):
+        self.assertTrue(srg.bash_reason("cat <<EOF\nhi\nEOF\ncat .env"))
+
+
+class GrepTool(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("AGENT_GUARDRAILS_SECRET_PATHS", None)
+
+    def ask(self, **tool_input):
+        rc, out = run_hook({"tool_name": "Grep", "tool_input": {"pattern": "x", **tool_input}})
+        self.assertEqual(rc, 0)
+        return json.loads(out)["hookSpecificOutput"]["permissionDecision"] if out.strip() else None
+
+    def test_content_mode_over_a_secret_file_asks(self):
+        self.assertEqual(self.ask(path="/p/.env", output_mode="content"), "ask")
+        self.assertEqual(self.ask(path="/h/.ssh/id_rsa", output_mode="content"), "ask")
+
+    def test_content_mode_with_a_secret_glob_asks(self):
+        for glob in (".env*", "*.env", "**/*.pem", "*.kdbx", "credentials*", "**/.netrc"):
+            with self.subTest(glob=glob):
+                self.assertEqual(self.ask(glob=glob, output_mode="content"), "ask")
+
+    def test_listing_modes_and_ordinary_paths_pass(self):
+        self.assertIsNone(self.ask(path="/p/.env", output_mode="files_with_matches"))
+        self.assertIsNone(self.ask(path="/p/.env", output_mode="count"))
+        self.assertIsNone(self.ask(path="/p/.env"))  # default mode lists files
+        self.assertIsNone(self.ask(path="/p/src", output_mode="content"))
+        self.assertIsNone(self.ask(glob="*.rs", output_mode="content"))
+
+    def test_manifest_registers_grep_with_a_raw_claude_matcher(self):
+        with open(os.path.join(os.path.dirname(HOOK), "manifest.json")) as f:
+            entries = json.load(f)["hooks"]
+        grep = [e for e in entries if e["script"] == "hooks/secret-read-guard" and e.get("matcher") == "Grep"]
+        self.assertEqual(len(grep), 1)
+        with open(os.path.join(os.path.dirname(HOOK), "..", "README.md")) as f:
+            self.assertIn("Claude Code only", f.read())
+
+
 def run_hook(payload, env=None):
     r = subprocess.run([sys.executable, HOOK], input=payload if isinstance(payload, str) else json.dumps(payload),
                        capture_output=True, text=True, timeout=20, env=env)
