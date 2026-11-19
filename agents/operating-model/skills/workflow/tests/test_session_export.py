@@ -489,3 +489,35 @@ def test_envelope_fields_are_redacted_too(tmp_path):
     rec = se.session_export(write_native(tmp_path / "s.jsonl", [u]))[0]
     assert FAKE_KEY not in json.dumps(rec)
     assert rec["uuid"] == RED and rec["session_id"] == RED
+
+
+# ---- review 2: redaction must not stop early ---------------------------------
+
+@pytest.mark.parametrize("text,expected", [
+    ("curl https://user:s3cr3tP@ssw0rd!@host/x", "curl https://" + RED + "@host/x"),
+    ("https://u:p@a@b@host/x", "https://" + RED + "@host/x"),
+    ("https://user:p%40ss@host/x", "https://" + RED + "@host/x"),
+    ("https://u:pw@host/x?e=a@b", "https://" + RED + "@host/x?e=a@b"),
+    ("https://u:pw@host", "https://" + RED + "@host"),
+    ("https://user@host/x", "https://user@host/x"),
+    ("ssh://git@host/x", "ssh://git@host/x"),
+    ("see https://example.com/a@b and me@x.com", "see https://example.com/a@b and me@x.com"),
+])
+def test_url_userinfo_is_redacted_up_to_the_last_at_sign(text, expected):
+    assert se.redact(text) == expected
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Bearer abc def", "Bearer abc def".replace("Bearer abc", RED)),
+    ("Bearer abc", RED),
+    ("password: hunter two", "password: " + RED),
+    ("password: hunter two\nnext line", "password: " + RED + "\nnext line"),
+    ("password=hunter two", "password=" + RED + " two"),
+    ('password: "a b @c"', 'password: "' + RED + '"'),
+    ('{"password": "pa\\"ss tail"}', '{"password": "' + RED + '"}'),
+    ("password: 'it\\'s tail'", "password: '" + RED + "'"),
+    ("Authorization: Bearer abc def ghi", "Authorization: " + RED + " def ghi"),
+    ("Authorization: Basic dXNlcjpwYXNz extra", "Authorization: " + RED + " extra"),
+])
+def test_other_patterns_do_not_leak_a_tail(text, expected):
+    assert se.redact(text) == expected
