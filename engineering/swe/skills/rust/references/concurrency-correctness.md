@@ -1,7 +1,8 @@
 # Concurrency correctness
 
-Use this when async or threaded Rust hangs, deadlocks, loses data, leaks tasks, races, or fails to
-compile with a `Send` error. For latency, throughput and memory, read `concurrency-performance.md`.
+Use this when designing async or threaded Rust code, or when it hangs, deadlocks, loses data, leaks
+tasks, races, or fails to compile with a `Send` error. For latency, throughput and memory, read
+`concurrency-performance.md`.
 
 `overrides.md` section 5 still applies and is not contradicted here: native `async fn` in traits,
 `Send` bounds in `where` clauses, runtime-agnostic mutex choice, atomic swap or CAS for shared state.
