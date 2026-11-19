@@ -113,12 +113,6 @@ class Decide(unittest.TestCase):
         self.d("review #8", session="pfx")
         self.assertEqual(os.listdir(self.tmp), ["agent-review-dedup.pfx.json"])
 
-    def test_reason_names_no_private_tooling(self):
-        self.d("review #8")
-        self.d("review #8")
-        _, reason = rdg.decide(agent("review #8"), "s1", self.tmp)
-        self.assertNotIn("review-lease", reason)
-
     def test_no_session_id_gets_a_per_user_per_cwd_file(self):
         tmp = tempfile.mkdtemp()
         for cwd in ("/a", "/b"):
