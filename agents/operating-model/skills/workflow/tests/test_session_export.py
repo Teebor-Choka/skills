@@ -512,12 +512,275 @@ def test_url_userinfo_is_redacted_up_to_the_last_at_sign(text, expected):
     ("Bearer abc", RED),
     ("password: hunter two", "password: " + RED),
     ("password: hunter two\nnext line", "password: " + RED + "\nnext line"),
+    # "=" is shell syntax: an unquoted value ends at whitespace, as the shell word does.
     ("password=hunter two", "password=" + RED + " two"),
     ('password: "a b @c"', 'password: "' + RED + '"'),
     ('{"password": "pa\\"ss tail"}', '{"password": "' + RED + '"}'),
     ("password: 'it\\'s tail'", "password: '" + RED + "'"),
-    ("Authorization: Bearer abc def ghi", "Authorization: " + RED + " def ghi"),
-    ("Authorization: Basic dXNlcjpwYXNz extra", "Authorization: " + RED + " extra"),
+    # review 3: an Authorization header value always runs to the end of the line.
+    ("Authorization: Bearer abc def ghi", "Authorization: " + RED),
+    ("Authorization: Basic dXNlcjpwYXNz extra", "Authorization: " + RED),
 ])
 def test_other_patterns_do_not_leak_a_tail(text, expected):
     assert se.redact(text) == expected
+
+
+# ---- review 3: leaks ---------------------------------------------------------
+
+@pytest.mark.parametrize("text,expected", [
+    # 1. backslash-escaped quotes
+    ('curl -d "{\\"password\\":\\"hunter2xyz\\"}" http://h',
+     'curl -d "{\\"password\\":\\"' + RED + '\\"}" http://h'),
+    ('password=\\"hunter2xyz\\"', 'password=\\"' + RED + '\\"'),
+    ('{\\"api_key\\": \\"abcd1234efgh\\"}', '{\\"api_key\\": \\"' + RED + '\\"}'),
+    ("password=\\'hunter2xyz\\'", "password=\\'" + RED + "\\'"),
+    # 2. empty URL username
+    ("redis://:s3cr3tpw@localhost:6379/0", "redis://" + RED + "@localhost:6379/0"),
+    # 3. "#" and "?" in a URL password
+    ("https://user:pa#ss1234@host/x", "https://" + RED + "@host/x"),
+    ("https://user:pa?ss1234@host/x", "https://" + RED + "@host/x"),
+    # 4. text forms
+    ("Cookie: session=abc", "Cookie: " + RED),
+    ("Set-Cookie: sid=abc; HttpOnly", "Set-Cookie: " + RED),
+    ("GET /x?key=abc123&b=1 HTTP", "GET /x?key=" + RED + "&b=1 HTTP"),
+    ("https://h/x?a=1&api_key=zzz&b=2", "https://h/x?a=1&api_key=" + RED + "&b=2"),
+    ("export DB_PWD=abc", "export DB_PWD=" + RED),
+    ("SIGNING_KEY=abc", "SIGNING_KEY=" + RED),
+    ("ACCESS_KEY=abc", "ACCESS_KEY=" + RED),
+    ("ENCRYPTION_KEY=abc", "ENCRYPTION_KEY=" + RED),
+    ("MASTER_KEY=abc", "MASTER_KEY=" + RED),
+    ("auth: abc", "auth: " + RED),
+    ("author: someone", "author: someone"),
+    # 6. hash rocket
+    ("{'password' => 'hunter2xyz'}", "{'password' => '" + RED + "'}"),
+    ('{"password" => "hunter2xyz"}', '{"password" => "' + RED + '"}'),
+    # 8. tails after the first token
+    ('password=hun"ter2xyz', "password=" + RED),
+    ("Authorization: Negotiate TOKEN", "Authorization: " + RED),
+    ("Authorization: AWS4-HMAC-SHA256 Credential=AK/2020/x,Signature=ab12",
+     "Authorization: " + RED),
+])
+def test_review3_text_leaks(text, expected):
+    assert se.redact(text) == expected
+
+
+@pytest.mark.parametrize("secret", [
+    "sk_live_" + "a1B2c3D4" * 3,
+    "sk_test_" + "a1B2c3D4" * 3,
+    "rk_live_" + "a1B2c3D4" * 3,
+    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl",
+    "AIza" + "Sy" + "a1B2c3D4e5" * 3 + "xy",
+    "glpat-" + "a1B2c3D4e5" * 2,
+    "ASIA" + "A1B2C3D4E5F6G7H8",
+    "npm_" + "a1B2c3D4e5" * 4,
+    "hf_" + "a1B2c3D4e5" * 3 + "abcd",
+    "/services/T0123ABCD/B0123ABCD/a1B2c3D4e5f6a1B2c3D4e5f6",
+])
+def test_review3_token_shapes(secret):
+    assert se.redact("before " + secret + " after") == "before " + RED + " after"
+
+
+def test_pgp_private_key_block_is_redacted():
+    text = ("x -----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOYBF\n=abcd\n"
+            "-----END PGP PRIVATE KEY BLOCK----- y")
+    assert se.redact(text) == "x " + RED + " y"
+
+
+def test_structured_headers_cookies_and_env_pairs_are_redacted():
+    out = se._redact_value({
+        "headers": {"Authorization": "Basic dXNlcjpwYXNzd29yZA==", "Cookie": "sid=abc",
+                    "Set-Cookie": "sid=abc", "Accept": "text/plain"},
+        "env": [{"name": "API_KEY", "value": "abcdef123456"},
+                {"name": "HOME", "value": "/home/x"},
+                {"key": "DB_PWD", "value": "pw"}],
+        "pwd": "x", "signing_key": "x", "access_key": "x", "encryption_key": "x",
+        "master_key": "x", "auth": "x", "author": "me",
+    })
+    assert out == {
+        "headers": {"Authorization": RED, "Cookie": RED, "Set-Cookie": RED,
+                    "Accept": "text/plain"},
+        "env": [{"name": "API_KEY", "value": RED},
+                {"name": "HOME", "value": "/home/x"},
+                {"key": "DB_PWD", "value": RED}],
+        "pwd": RED, "signing_key": RED, "access_key": RED, "encryption_key": RED,
+        "master_key": RED, "auth": RED, "author": "me",
+    }
+
+
+# ---- review 3: denial of service ---------------------------------------------
+
+@pytest.mark.parametrize("unit", [
+    "password", "token", "secret", "api_key", "sk-", "ghp_", "eyJ", "a.", "a:", "a=",
+    "Bearer ", "Authorization:", "://", "x://:", "\\\"", "key=", "a ", "-----BEGIN ",
+])
+def test_redact_is_linear_on_repeated_keywords(unit):
+    start = time.time()
+    se.redact(unit * (40000 // len(unit)))
+    assert time.time() - start < 1
+
+
+# ---- review 3: silent drops and alterations ----------------------------------
+
+def _line(ty, **kw):
+    return {**_base("x1", None, ty, "T"), **kw}
+
+
+@pytest.mark.parametrize("message,reason", [
+    ("bare string", "non_object_message"),
+    ([1, 2], "non_object_message"),
+    ({"role": "user", "content": []}, "empty_message"),
+    ({"role": "user"}, "empty_message"),
+    (None, "empty_message"),
+])
+@pytest.mark.parametrize("ty", ["user", "assistant"])
+def test_message_with_no_blocks_is_counted_once(tmp_path, ty, message, reason):
+    keep = _line("user", uuid="k", message={"role": "user", "content": "hi"})
+    bad = _line(ty, message=message)
+    if message is None:
+        del bad["message"]
+    recs = se.session_export(write_native(tmp_path / "s.jsonl", [keep, bad]))
+    assert len(recs) == 1
+    assert dict(recs.dropped) == {reason: 1}
+
+
+def test_export_counts_redactions(native):
+    recs = se.session_export(native)
+    assert recs.redactions == 2
+    assert dict(recs.altered) == {}
+
+
+def test_redact_counted_counts_every_replacement():
+    text, n = se.redact_counted("a " + FAKE_KEY + " b password=hunter2 c")
+    assert text == "a " + RED + " b password=" + RED + " c"
+    assert n == 2
+    assert se.redact_counted("plain text") == ("plain text", 0)
+
+
+def test_over_redaction_changes_the_type_and_is_counted(tmp_path):
+    a = _line("assistant", message={"role": "assistant", "model": "m", "content": [
+        {"type": "tool_use", "id": "t", "name": "N", "input": {"max_tokens": 4096}}]})
+    recs = se.session_export(write_native(tmp_path / "s.jsonl", [a]))
+    assert recs[0]["input"] == {"max_tokens": RED}
+    assert recs.redactions == 1
+
+
+def test_altered_counter_names_each_silent_change(tmp_path):
+    lines = [
+        _line("assistant", uuid="a", message={"role": "assistant", "model": 5, "content": [
+            {"type": "tool_use", "id": "t", "name": "N", "input": None},
+            {"type": "tool_use", "id": "t2", "name": "N", "input": [1]},
+            {"type": "tool_use", "id": "t3", "name": "N",
+             "input": {FAKE_KEY: 1, FAKE_KEY + "z": 2}}]}),
+        _line("user", uuid="b", message={"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "t", "content": None}]}),
+        _line("system", uuid="c", subtype="s"),
+    ]
+    recs = se.session_export(write_native(tmp_path / "s.jsonl", lines))
+    assert dict(recs.altered) == {
+        "model_not_string": 1, "tool_input_null_to_empty_object": 1,
+        "tool_input_wrapped_as_raw": 1, "key_collision_suffix": 1,
+        "null_to_empty_string": 2,
+    }
+
+
+@pytest.mark.parametrize("field,value", [
+    ("isSidechain", "false"), ("isMeta", 0), ("isCompactSummary", "no"), ("isSidechain", []),
+])
+def test_envelope_flags_are_strict_booleans(tmp_path, field, value):
+    u = _line("user", message={"role": "user", "content": "hi"}, **{field: value})
+    with pytest.raises(ValueError, match="line 1.*" + field):
+        se.session_export(write_native(tmp_path / "s.jsonl", [u]))
+
+
+def test_is_error_must_be_a_real_boolean(tmp_path):
+    r = _line("user", message={"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "t", "content": "x", "is_error": "false"}]})
+    with pytest.raises(ValueError, match="line 1.*is_error"):
+        se.session_export(write_native(tmp_path / "s.jsonl", [r]))
+
+
+def test_null_or_missing_flags_default_to_false(tmp_path):
+    u = _line("user", message={"role": "user", "content": "hi"}, isSidechain=None)
+    del u["isSidechain"]
+    rec = se.session_export(write_native(tmp_path / "s.jsonl", [u]))[0]
+    assert rec["is_sidechain"] is False and rec["is_meta"] is False
+
+
+def test_cli_prints_redactions_and_altered_to_stderr(native, tmp_path, capsys):
+    out = tmp_path / "o.jsonl"
+    assert se.main([str(native), str(out)]) == 0
+    assert "redactions: 2" in capsys.readouterr().err
+    a = _line("assistant", message={"role": "assistant", "model": "m", "content": [
+        {"type": "tool_use", "id": "t", "name": "N", "input": None}]})
+    src = write_native(tmp_path / "s2.jsonl", [a])
+    assert se.main([str(src), str(out)]) == 0
+    assert "altered tool_input_null_to_empty_object: 1" in capsys.readouterr().err
+
+
+def test_module_docstring_documents_the_intended_alterations():
+    doc = se.__doc__
+    for phrase in ("redactions", "altered", "[REDACTED]", "max_tokens",
+                   "not exported", "joined with a newline"):
+        assert phrase in doc, phrase
+
+
+# ---- review 3: robustness ----------------------------------------------------
+
+@pytest.mark.parametrize("bad", [["a"], {"a": 1}, 5, True])
+def test_non_string_line_type_is_a_value_error_with_line_number(tmp_path, bad):
+    p = tmp_path / "s.jsonl"
+    p.write_text(json.dumps({"type": bad, "message": {}}) + "\n")
+    with pytest.raises(ValueError, match="line 1"):
+        se.session_export(p)
+
+
+def test_non_string_block_type_is_counted_not_a_crash(tmp_path):
+    a = _line("assistant", message={"role": "assistant", "model": "m", "content": [
+        {"type": ["x"]}, {"type": "text", "text": "ok"}]})
+    recs = se.session_export(write_native(tmp_path / "s.jsonl", [a]))
+    assert len(recs) == 1 and recs.dropped["unknown_block"] == 1
+
+
+def test_cli_refuses_to_overwrite_its_input(native, capsys, tmp_path):
+    before = native.read_bytes()
+    assert se.main([str(native), str(native)]) == 2
+    assert "same file" in capsys.readouterr().err
+    link = tmp_path / "link.jsonl"
+    link.symlink_to(native)
+    assert se.main([str(native), str(link)]) == 2
+    assert native.read_bytes() == before
+
+
+def test_validator_accepts_integral_floats_like_the_schema():
+    r = good()
+    r.update(seq=1.0, block_index=2.0)
+    se.validate_record(r)
+    jsonschema = pytest.importorskip("jsonschema", reason="optional: jsonschema not installed")
+    jsonschema.validate(r, json.loads(SCHEMA.read_text()))
+
+
+@pytest.mark.parametrize("value", [1.5, float("nan"), float("inf")])
+def test_validator_and_schema_both_reject_non_integers(value):
+    r = good()
+    r["seq"] = value
+    with pytest.raises(ValueError):
+        se.validate_record(r)
+
+
+@pytest.mark.parametrize("literal", ["NaN", "Infinity", "-Infinity", "1e999"])
+def test_non_finite_numbers_in_native_input_raise_with_line_number(tmp_path, literal):
+    p = tmp_path / "s.jsonl"
+    p.write_text('{"type": "assistant", "message": {"role": "assistant", "content": ['
+                 '{"type": "tool_use", "id": "t", "name": "N", "input": {"x": ' + literal
+                 + '}}]}}\n')
+    with pytest.raises(ValueError, match="line 1"):
+        se.session_export(p)
+
+
+def test_writer_refuses_non_finite_numbers(tmp_path):
+    r = {**good(), "kind": "tool_call", "tool_use_id": "t", "name": "n",
+         "input": {"x": float("nan")}}
+    del r["text"]
+    with pytest.raises(ValueError):
+        se.write_records([r], tmp_path / "o.jsonl")
+    assert list(tmp_path.iterdir()) == []
