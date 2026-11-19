@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import components  # noqa: E402  (path wired in conftest.py)
-from helpers import cargo_member, cargo_workspace, package_json, policy, write
+from docs_helpers import cargo_member, cargo_workspace, package_json, policy, write
 
 SCRIPT = Path(components.__file__)
 

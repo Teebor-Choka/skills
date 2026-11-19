@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import validate_docs  # noqa: E402  (path wired in conftest.py)
-from helpers import cargo_member, cargo_workspace, page_text, policy, write, write_page
+from docs_helpers import cargo_member, cargo_workspace, page_text, policy, write, write_page
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SCRIPT = Path(validate_docs.__file__)
