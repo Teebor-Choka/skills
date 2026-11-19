@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Wire validate_docs.py into a TARGET project so it runs on commit.
+# Wire validate_docs.py (on commit) and render_docs.py --check (on push) into a TARGET project.
 #
 # Origin-aware: it joins the hook mechanism the target already uses instead of
 # clobbering it.
@@ -13,8 +13,11 @@
 # to a temp dir), resolved at commit time, so linked worktrees and unstaged edits
 # behave. It never overwrites a symlinked hook, and never writes into a shared
 # core.hooksPath outside the target repo: it prints the block to add instead.
-# Nix-aware: if the target has a flake.nix, print a checks.<system>.project-docs
-# snippet so `nix flake check` gates on the docs too.
+# The pre-push hook runs the validator and `render_docs.py --check` on the working tree
+# and refuses to run over uncommitted docs changes, so it judges what is pushed.
+# Nix-aware: if the target has a flake.nix, print checks.<system>.project-docs and
+# checks.<system>.project-docs-render snippets so `nix flake check` gates on the docs too.
+# Always prints the formatter exclude for docs/generated/**.
 # Idempotent: re-running does not duplicate the hook.
 #
 # Usage: install_hook.sh <target-project>
@@ -23,6 +26,8 @@ set -eu
 
 MARKER='# >>> project-docs validate_docs hook >>>'
 END_MARKER='# <<< project-docs validate_docs hook <<<'
+PUSH_MARKER='# >>> project-docs render hook >>>'
+PUSH_END_MARKER='# <<< project-docs render hook <<<'
 
 usage() {
   echo "usage: $0 <target-project>" >&2
@@ -63,14 +68,17 @@ done
   exit 2
 }
 
-# Resolve the validator's absolute path at install time, so the hook does not
-# depend on this script's location later.
+# Resolve the scripts' absolute paths at install time, so the hooks do not
+# depend on this script's location later. The three scripts import each other from
+# their own directory, so they must sit together.
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
 VALIDATOR="$SCRIPT_DIR/validate_docs.py"
-[ -f "$VALIDATOR" ] || {
-  echo "error: validator not found next to this script: $VALIDATOR" >&2
-  exit 1
-}
+for f in validate_docs.py components.py render_docs.py; do
+  [ -f "$SCRIPT_DIR/$f" ] || {
+    echo "error: $f not found next to this script: $SCRIPT_DIR/$f" >&2
+    exit 1
+  }
+done
 
 TARGET_ABS=$(CDPATH='' cd -- "$TARGET" && pwd -P)
 
@@ -112,29 +120,63 @@ BLOCK="$MARKER
 $HOOK_CMD
 $END_MARKER"
 
-write_managed_hook() {
-  # $1 = destination hook file. Insert our marked block after the shebang (so an
-  # existing hook that ends in `exit 0` cannot strand it), idempotently.
+# The pre-push block: validate, then check the render. It reads the working tree (the
+# update trigger needs git history and the manifests), so it refuses to run over
+# uncommitted docs changes: they could hide drift in the commits being pushed.
+emit_push_cmd() {
+  cat <<EOF
+(
+  SCRIPTS=$(sh_quote "$SCRIPT_DIR")
+  SUBDIR=$(sh_quote "$SUBDIR")
+  for f in validate_docs.py components.py render_docs.py; do
+    [ -f "\$SCRIPTS/\$f" ] || {
+      echo "project-docs: \$f not found in \$SCRIPTS (moved or garbage collected); re-run install_hook.sh" >&2
+      exit 1
+    }
+  done
+  root=\$(git rev-parse --show-toplevel) || exit \$?
+  [ -d "\$root/\${SUBDIR}docs" ] || exit 0
+  if [ -n "\$(git -C "\$root" status --porcelain -- "\${SUBDIR}docs")" ]; then
+    echo "project-docs: uncommitted changes under \${SUBDIR}docs; commit or stash them before pushing" >&2
+    exit 1
+  fi
+  python3 "\$SCRIPTS/validate_docs.py" "\$root/\$SUBDIR" || exit \$?
+  python3 "\$SCRIPTS/render_docs.py" "\$root/\$SUBDIR" --check || exit \$?
+) || exit \$?
+EOF
+}
+PUSH_BLOCK="$PUSH_MARKER
+$(emit_push_cmd)
+$PUSH_END_MARKER"
+
+write_managed_hook() (
+  # $1 = destination hook file, $2 = block, $3 and $4 = its start and end markers,
+  # $5 = hook name. Insert the marked block after the shebang (so an existing hook
+  # that ends in `exit 0` cannot strand it), idempotently.
   dest=$1
+  blk=$2
+  mk=$3
+  endmk=$4
+  hook_name=$5
   if [ -L "$dest" ]; then
     echo "$dest is a symlink; leaving it (and its target) untouched."
     echo "Add this block to the hook it points to, after the shebang:"
     echo
-    printf '%s\n' "$BLOCK"
+    printf '%s\n' "$blk"
     return 0
   fi
-  block=$BLOCK
+  block=$blk
 
-  if [ -f "$dest" ] && grep -qF "$MARKER" "$dest" 2>/dev/null; then
+  if [ -f "$dest" ] && grep -qF "$mk" "$dest" 2>/dev/null; then
     # Replace the managed block in place, so an older install gets upgraded.
-    if ! grep -qF "$END_MARKER" "$dest"; then
+    if ! grep -qF "$endmk" "$dest"; then
       echo "error: $dest has the start marker but no end marker; fix it by hand" >&2
       return 1
     fi
     tmp="$dest.project-docs.tmp"
     blockfile="$dest.project-docs.block"
     printf '%s\n' "$block" >"$blockfile"
-    awk -v m="$MARKER" -v e="$END_MARKER" -v bf="$blockfile" '
+    awk -v m="$mk" -v e="$endmk" -v bf="$blockfile" '
       $0 == m { while ((getline l < bf) > 0) print l; skip = 1; next }
       skip && $0 == e { skip = 0; next }
       !skip { print }' "$dest" >"$tmp"
@@ -146,7 +188,7 @@ write_managed_hook() {
     fi
     chmod +x "$tmp"
     mv "$tmp" "$dest"
-    echo "updated project-docs pre-commit hook: $dest"
+    echo "updated project-docs $hook_name hook: $dest"
     return 0
   fi
 
@@ -175,17 +217,17 @@ write_managed_hook() {
     mv "$tmp" "$dest"
   fi
   chmod +x "$dest"
-  echo "installed project-docs pre-commit hook: $dest"
-}
+  echo "installed project-docs $hook_name hook: $dest"
+)
 
 # --- (a) pre-commit framework: print only, never edit the YAML ----------------
 if [ -f "$TARGET_ABS/.pre-commit-config.yaml" ]; then
   CFG="$TARGET_ABS/.pre-commit-config.yaml"
-  if grep -qF 'id: project-docs' "$CFG" 2>/dev/null; then
-    echo "pre-commit framework detected; project-docs hook already present in $CFG"
+  if grep -qF 'id: project-docs-render' "$CFG" 2>/dev/null; then
+    echo "pre-commit framework detected; project-docs hooks already present in $CFG"
   else
     echo "pre-commit framework detected (.pre-commit-config.yaml)."
-    echo "Add this under the existing 'repos:' key (not pasted blindly at EOF):"
+    echo "Add this under the existing 'repos:' key (not pasted blindly at EOF; skip a hook you already have):"
     echo
     cat <<EOF
   - repo: local
@@ -197,6 +239,13 @@ if [ -f "$TARGET_ABS/.pre-commit-config.yaml" ]; then
         language: system
         pass_filenames: false
         always_run: true
+      - id: project-docs-render
+        name: project-docs render check
+        entry: $(yaml_sq "sh -c $(sh_quote "python3 $(sh_quote "$VALIDATOR") . && python3 $(sh_quote "$SCRIPT_DIR/render_docs.py") . --check")")
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
 EOF
   fi
 # --- (b) git hook at the dir git actually uses --------------------------------
@@ -223,13 +272,18 @@ elif command -v git >/dev/null 2>&1 && git -C "$TARGET_ABS" rev-parse --git-dir 
       echo "Add this block to the pre-commit hook there, after the shebang:"
       echo
       printf '%s\n' "$BLOCK"
+      echo
+      echo "And this block to the pre-push hook there, after the shebang:"
+      echo
+      printf '%s\n' "$PUSH_BLOCK"
       HOOKS_DIR=''
       ;;
     esac
   fi
   if [ -n "$HOOKS_DIR" ]; then
     mkdir -p "$HOOKS_DIR"
-    write_managed_hook "$HOOKS_DIR/pre-commit"
+    write_managed_hook "$HOOKS_DIR/pre-commit" "$BLOCK" "$MARKER" "$END_MARKER" pre-commit
+    write_managed_hook "$HOOKS_DIR/pre-push" "$PUSH_BLOCK" "$PUSH_MARKER" "$PUSH_END_MARKER" pre-push
   fi
 else
   echo "error: $TARGET_ABS has no pre-commit config and is not a git repo;" >&2
@@ -241,16 +295,32 @@ fi
 if [ -f "$TARGET_ABS/flake.nix" ]; then
   echo
   echo "flake.nix detected. A git hook is invisible to 'nix flake check'."
-  echo "Vendor the validator into the repo (it is stdlib-only), e.g.:"
-  echo "    cp $(sh_quote "$VALIDATOR") ci/validate_docs.py"
-  echo "then add a flake check that references the in-tree copy (an absolute"
-  echo "out-of-tree path is unreadable in the build sandbox):"
+  echo "Vendor the three scripts together (they import each other; stdlib only), e.g.:"
+  echo "    mkdir -p ci && cp $(sh_quote "$SCRIPT_DIR")/{validate_docs,components,render_docs}.py ci/"
+  echo "then add flake checks that reference the in-tree directory (an absolute"
+  echo "out-of-tree path is unreadable in the build sandbox; reference ./ci as a"
+  echo "directory, not one file, so components.py stays beside the others)."
+  echo "The sandbox has no .git, so the render check covers drift only: the update"
+  echo "trigger runs in the pre-push hook and in a CI step with a checkout."
   echo
   cat <<'EOF'
   # inside outputs, per-system (e.g. under flake-utils or your perSystem):
   checks.${system}.project-docs = pkgs.runCommand "project-docs" { } ''
-    ${pkgs.python3}/bin/python3 ${./ci/validate_docs.py} ${./.}
+    ${pkgs.python3}/bin/python3 ${./ci}/validate_docs.py ${./.}
+    touch $out
+  '';
+  checks.${system}.project-docs-render = pkgs.runCommand "project-docs-render" { } ''
+    ${pkgs.python3}/bin/python3 ${./ci}/render_docs.py ${./.} --check --no-trigger
     touch $out
   '';
 EOF
 fi
+
+# --- Formatter exclude --------------------------------------------------------
+# The renderer's bytes are the contract: a formatter that rewrites them makes
+# `render_docs.py --check` fail forever.
+echo
+echo "Exclude docs/generated/** from every formatter, or --check never passes:"
+echo "  .prettierignore:  docs/generated/**"
+echo '  treefmt.toml:     [global]  excludes = ["docs/generated/**"]'
+echo '  treefmt-nix:      settings.global.excludes = [ "docs/generated/**" ];'
