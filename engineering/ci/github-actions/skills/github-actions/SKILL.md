@@ -30,10 +30,18 @@ whenever a repo has `.github/workflows/`, or you touch a workflow file or Renova
   `Test / Unit`), so inner jobs should use short names that do not repeat the group.
 - **Lint before committing, as hooks, not as a habit.** Wire shellcheck, actionlint, and zizmor
   as pre-commit hooks scoped to `.github/workflows/**` and shell scripts; the snippet is in
-  [references/lint-hooks.md](references/lint-hooks.md). Without the hooks, run
-  `zizmor --format plain .github/workflows/` after every workflow edit and fix all findings
-  before committing. If `zizmor` is not on `PATH` (not in the nix devshell, say), skip it rather
-  than installing it.
+  [references/lint-hooks.md](references/lint-hooks.md).
+- **zizmor is mandatory on every workflow edit**, hooks or not. Run it on the edited paths
+  before committing, and again when the `security` skill hands stage 4 over:
+  1. `zizmor --format plain <paths>` if `zizmor` is on `PATH`.
+  2. Else `nix run nixpkgs#zizmor -- --format plain <paths>` if `nix` is installed.
+  3. If no step produces a zizmor report (tool absent, `nix run` fails, or zizmor errors),
+     report the workflows as **unvalidated** in the result. Never skip silently, and never
+     claim the workflows are clean.
+
+  Findings gate the work: when you are editing the workflow, fix them, or justify each one
+  in the PR, before committing. On a `security` stage 4 handover, report the findings only
+  and make no edits: that scan is read-only.
 
 ## Merge queue and branch rulesets
 

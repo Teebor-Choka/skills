@@ -60,7 +60,7 @@
       "source": "./engineering/ci/github-actions",
       "strict": true,
       "metadata": {
-        "version": "1.0.1"
+        "version": "1.0.2"
       }
     },
     {
@@ -74,11 +74,11 @@
     },
     {
       "name": "review",
-      "description": "Read-only review: by-angle (red-first block loop plus four review angles), code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass), and security (gitleaks, trufflehog, osv-scanner, semgrep, zizmor, SkillSpector, garak, nuclei, strix plus an AI triage pass).",
+      "description": "Read-only review: by-angle (red-first block loop plus four review angles), code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass), and security (gitleaks, trufflehog, osv-scanner, semgrep, SkillSpector, garak, nuclei, strix plus an AI triage pass).",
       "source": "./engineering/review",
       "strict": true,
       "metadata": {
-        "version": "2.2.2"
+        "version": "2.2.3"
       }
     },
     {
