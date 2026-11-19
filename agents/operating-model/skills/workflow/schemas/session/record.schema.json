@@ -16,6 +16,9 @@
         "parent_uuid",
         "timestamp",
         "kind",
+        "block_index",
+        "is_sidechain",
+        "is_meta",
         "text"
       ],
       "properties": {
@@ -26,26 +29,42 @@
           "type": "string"
         },
         "session_id": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "seq": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Position in the export, starting at 0."
         },
         "uuid": {
-          "type": "string"
+          "type": ["string", "null"],
+          "description": "Native line id, or null when the line has none. Blocks of one line share it."
         },
         "parent_uuid": {
           "type": ["string", "null"]
         },
         "timestamp": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "kind": {
           "const": "user"
         },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the block in the native line's content. (uuid, block_index) is the record key."
+        },
+        "is_sidechain": {
+          "type": "boolean",
+          "description": "The native line is from a sidechain (subagent) transcript."
+        },
+        "is_meta": {
+          "type": "boolean",
+          "description": "The native line is marked meta."
+        },
         "text": {
-          "type": "string"
+          "type": "string",
+          "description": "Message text. For compaction, the summary that replaced earlier turns."
         }
       }
     },
@@ -62,6 +81,9 @@
         "parent_uuid",
         "timestamp",
         "kind",
+        "block_index",
+        "is_sidechain",
+        "is_meta",
         "text",
         "model"
       ],
@@ -73,26 +95,42 @@
           "type": "string"
         },
         "session_id": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "seq": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Position in the export, starting at 0."
         },
         "uuid": {
-          "type": "string"
+          "type": ["string", "null"],
+          "description": "Native line id, or null when the line has none. Blocks of one line share it."
         },
         "parent_uuid": {
           "type": ["string", "null"]
         },
         "timestamp": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "kind": {
           "const": "assistant_text"
         },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the block in the native line's content. (uuid, block_index) is the record key."
+        },
+        "is_sidechain": {
+          "type": "boolean",
+          "description": "The native line is from a sidechain (subagent) transcript."
+        },
+        "is_meta": {
+          "type": "boolean",
+          "description": "The native line is marked meta."
+        },
         "text": {
-          "type": "string"
+          "type": "string",
+          "description": "Message text. For compaction, the summary that replaced earlier turns."
         },
         "model": {
           "type": ["string", "null"]
@@ -112,6 +150,9 @@
         "parent_uuid",
         "timestamp",
         "kind",
+        "block_index",
+        "is_sidechain",
+        "is_meta",
         "tool_use_id",
         "name",
         "input"
@@ -124,23 +165,38 @@
           "type": "string"
         },
         "session_id": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "seq": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Position in the export, starting at 0."
         },
         "uuid": {
-          "type": "string"
+          "type": ["string", "null"],
+          "description": "Native line id, or null when the line has none. Blocks of one line share it."
         },
         "parent_uuid": {
           "type": ["string", "null"]
         },
         "timestamp": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "kind": {
           "const": "tool_call"
+        },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the block in the native line's content. (uuid, block_index) is the record key."
+        },
+        "is_sidechain": {
+          "type": "boolean",
+          "description": "The native line is from a sidechain (subagent) transcript."
+        },
+        "is_meta": {
+          "type": "boolean",
+          "description": "The native line is marked meta."
         },
         "tool_use_id": {
           "type": "string"
@@ -150,7 +206,7 @@
         },
         "input": {
           "type": "object",
-          "description": "Secrets redacted."
+          "description": "Secrets redacted. A tool input that is not an object is kept as {\"_raw\": text}."
         }
       }
     },
@@ -167,6 +223,9 @@
         "parent_uuid",
         "timestamp",
         "kind",
+        "block_index",
+        "is_sidechain",
+        "is_meta",
         "tool_use_id",
         "content",
         "is_error"
@@ -179,30 +238,45 @@
           "type": "string"
         },
         "session_id": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "seq": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Position in the export, starting at 0."
         },
         "uuid": {
-          "type": "string"
+          "type": ["string", "null"],
+          "description": "Native line id, or null when the line has none. Blocks of one line share it."
         },
         "parent_uuid": {
           "type": ["string", "null"]
         },
         "timestamp": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "kind": {
           "const": "tool_result"
+        },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the block in the native line's content. (uuid, block_index) is the record key."
+        },
+        "is_sidechain": {
+          "type": "boolean",
+          "description": "The native line is from a sidechain (subagent) transcript."
+        },
+        "is_meta": {
+          "type": "boolean",
+          "description": "The native line is marked meta."
         },
         "tool_use_id": {
           "type": "string"
         },
         "content": {
           "type": "string",
-          "description": "Text blocks joined by newline; other block types become a placeholder."
+          "description": "Text. For tool_result, text blocks joined by newline, other block types become a placeholder."
         },
         "is_error": {
           "type": "boolean"
@@ -222,6 +296,9 @@
         "parent_uuid",
         "timestamp",
         "kind",
+        "block_index",
+        "is_sidechain",
+        "is_meta",
         "subtype",
         "content"
       ],
@@ -233,29 +310,46 @@
           "type": "string"
         },
         "session_id": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "seq": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Position in the export, starting at 0."
         },
         "uuid": {
-          "type": "string"
+          "type": ["string", "null"],
+          "description": "Native line id, or null when the line has none. Blocks of one line share it."
         },
         "parent_uuid": {
           "type": ["string", "null"]
         },
         "timestamp": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "kind": {
           "const": "system"
         },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the block in the native line's content. (uuid, block_index) is the record key."
+        },
+        "is_sidechain": {
+          "type": "boolean",
+          "description": "The native line is from a sidechain (subagent) transcript."
+        },
+        "is_meta": {
+          "type": "boolean",
+          "description": "The native line is marked meta."
+        },
         "subtype": {
-          "type": ["string", "null"]
+          "type": ["string", "null"],
+          "description": "Native subtype. \"unknown-line\" marks a native line type the adapter does not know; content is only its type name."
         },
         "content": {
-          "type": "string"
+          "type": "string",
+          "description": "Text. For tool_result, text blocks joined by newline, other block types become a placeholder."
         }
       }
     },
@@ -272,6 +366,9 @@
         "parent_uuid",
         "timestamp",
         "kind",
+        "block_index",
+        "is_sidechain",
+        "is_meta",
         "text"
       ],
       "properties": {
@@ -282,27 +379,42 @@
           "type": "string"
         },
         "session_id": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "seq": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Position in the export, starting at 0."
         },
         "uuid": {
-          "type": "string"
+          "type": ["string", "null"],
+          "description": "Native line id, or null when the line has none. Blocks of one line share it."
         },
         "parent_uuid": {
           "type": ["string", "null"]
         },
         "timestamp": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "kind": {
           "const": "compaction"
         },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the block in the native line's content. (uuid, block_index) is the record key."
+        },
+        "is_sidechain": {
+          "type": "boolean",
+          "description": "The native line is from a sidechain (subagent) transcript."
+        },
+        "is_meta": {
+          "type": "boolean",
+          "description": "The native line is marked meta."
+        },
         "text": {
           "type": "string",
-          "description": "The summary that replaced earlier turns."
+          "description": "Message text. For compaction, the summary that replaced earlier turns."
         }
       }
     }
