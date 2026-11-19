@@ -74,6 +74,21 @@ class IndexRepoRewrite(Fixture):
         self.assertIn(self.main, out["additionalContext"])
         self.assertIn(self.wt, out["additionalContext"])
 
+    def test_context_is_conditional_on_the_runtime_applying_the_update(self):
+        text = json.loads(self.run_hook(self.wt).stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("if your harness applies", text)
+        self.assertIn("confirm", text)
+        self.assertIn(self.wt, text)
+        self.assertIn(self.main, text)
+
+    def test_readme_flags_the_behaviour_as_unverified_and_claude_only(self):
+        readme = os.path.join(HOOKS, "..", "README.md")
+        with open(readme) as f:
+            text = f.read().lower()
+        self.assertIn("index-repo-rewrite", text)
+        self.assertIn("unverified", text)
+        self.assertIn("claude code only", text)
+
     def test_subdirectory_of_main_is_a_deliberate_index_and_untouched(self):
         self.assertEqual(self.run_hook(os.path.join(self.main, "sub")).stdout, "")
 
