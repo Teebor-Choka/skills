@@ -208,6 +208,52 @@ class ExtraPaths(unittest.TestCase):
             os.environ["AGENT_GUARDRAILS_SECRET_PATHS"] = value
             self.assertEqual(srg.read_reason("/p/README.md"), "")
 
+    def test_dotdot_segments_are_resolved_before_matching(self):
+        os.environ["AGENT_GUARDRAILS_SECRET_PATHS"] = "/srv/secrets/*"
+        self.assertTrue(srg.bash_reason("cat /srv/x/../secrets/db"))
+        self.assertTrue(srg.read_reason("/srv/x/../secrets/db"))
+        self.assertEqual(srg.bash_reason("cat /srv/x/db"), "")
+
+    def test_relative_paths_resolve_against_the_payload_cwd(self):
+        os.environ["AGENT_GUARDRAILS_SECRET_PATHS"] = "/srv/secrets/*"
+        self.assertTrue(srg.read_reason("db", cwd="/srv/secrets"))
+        self.assertTrue(srg.read_reason("../secrets/db", cwd="/srv/x"))
+        self.assertTrue(srg.bash_reason("cat db", cwd="/srv/secrets"))
+        self.assertEqual(srg.read_reason("db", cwd="/srv/other"), "")
+
+    def test_cd_earlier_in_the_command_moves_the_working_directory(self):
+        os.environ["AGENT_GUARDRAILS_SECRET_PATHS"] = "/srv/secrets/*"
+        self.assertTrue(srg.bash_reason("cd /srv/secrets && cat db"))
+        self.assertTrue(srg.bash_reason("cd /srv; cd secrets; cat db"))
+        self.assertTrue(srg.bash_reason("cd /srv && bash -c 'cd secrets && cat db'"))
+        self.assertEqual(srg.bash_reason("cd /srv/other && cat db"), "")
+
+    def test_user_home_forms_are_expanded(self):
+        root = os.path.expanduser("~root")
+        if root == "~root":
+            self.skipTest("no root user home")
+        os.environ["AGENT_GUARDRAILS_SECRET_PATHS"] = root + "/vault/*"
+        self.assertTrue(srg.bash_reason("cat ~root/vault/tok"))
+
+    def test_case_variants_match_only_on_a_case_insensitive_filesystem(self):
+        os.environ["AGENT_GUARDRAILS_SECRET_PATHS"] = "/srv/secrets/*"
+        saved = srg.CASE_INSENSITIVE
+        try:
+            srg.CASE_INSENSITIVE = True
+            self.assertTrue(srg.read_reason("/SRV/Secrets/DB"))
+            srg.CASE_INSENSITIVE = False
+            self.assertEqual(srg.read_reason("/SRV/Secrets/DB"), "")
+        finally:
+            srg.CASE_INSENSITIVE = saved
+
+    def test_case_default_follows_the_platform(self):
+        self.assertEqual(srg.CASE_INSENSITIVE, sys.platform in ("darwin", "win32"))
+
+    def test_hook_process_resolves_a_relative_read_against_the_payload_cwd(self):
+        env = {**os.environ, "AGENT_GUARDRAILS_SECRET_PATHS": "/srv/secrets/*"}
+        rc, out = run_hook({"tool_name": "Read", "cwd": "/srv/secrets", "tool_input": {"file_path": "db"}}, env=env)
+        self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "ask")
+
     def test_hook_process_reads_the_env(self):
         env = {**os.environ, "AGENT_GUARDRAILS_SECRET_PATHS": EXTRA}
         rc, out = run_hook({"tool_name": "Read", "tool_input": {"file_path": "/srv/secrets/db"}}, env=env)
