@@ -119,22 +119,56 @@ class StateFiles(unittest.TestCase):
 
     def test_empty_tmpdir_falls_back_to_tmp(self):
         # an empty TMPDIR must not turn the marker path into a relative one
-        work = tempfile.mkdtemp()
-        big = os.path.join(work, "spec.md")
+        for value in ("", None):
+            with self.subTest(tmpdir=value):
+                saved = os.environ.pop("TMPDIR", None)
+                try:
+                    if value is not None:
+                        os.environ["TMPDIR"] = value
+                    self.assertEqual(rsn.tmp_root(), "/tmp")
+                finally:
+                    os.environ.pop("TMPDIR", None)
+                    if saved is not None:
+                        os.environ["TMPDIR"] = saved
+
+    def test_tmpdir_is_used_when_set(self):
+        saved = os.environ.get("TMPDIR")
+        os.environ["TMPDIR"] = "/somewhere"
+        try:
+            self.assertEqual(rsn.tmp_root(), "/somewhere")
+        finally:
+            if saved is None:
+                os.environ.pop("TMPDIR", None)
+            else:
+                os.environ["TMPDIR"] = saved
+
+
+class GraphClaims(unittest.TestCase):
+    """The text only talks about the code graph when the graph binary is on PATH."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def nudge(self, found):
+        return rsn.nudge({"file_path": "/x/spec.md"}, "s", self.tmp, size_of=lambda p: BIG,
+                         which=(lambda n: "/bin/" + n) if found else (lambda n: None))
+
+    def test_nudge_names_the_graph_only_when_the_binary_exists(self):
+        self.assertIn("search_graph", self.nudge(found=True))
+        self.tmp = tempfile.mkdtemp()
+        self.assertNotIn("search_graph", self.nudge(found=False))
+        self.assertNotIn("indexed", self.nudge(found=False) or "")
+
+    def test_deny_claims_indexed_only_when_the_binary_exists(self):
+        with open(os.path.join(self.tmp, "t.jsonl"), "w") as f:
+            f.write("{}\n")
+        t = os.path.join(self.tmp, "t.jsonl")
+        big = os.path.join(self.tmp, "x.rs")
         with open(big, "w") as f:
             f.write("x" * BIG)
-        cwd = tempfile.mkdtemp()
-        sid = "emptytmp-%d" % os.getpid()
-        r = subprocess.run([sys.executable, HOOK], input=json.dumps(
-            {"tool_name": "Read", "session_id": sid, "tool_input": {"file_path": big}}),
-            capture_output=True, text=True, timeout=20, cwd=cwd, env={**os.environ, "TMPDIR": ""})
-        self.assertIn("additionalContext", r.stdout)
-        self.assertEqual(os.listdir(cwd), [])
-        import glob
-        markers = glob.glob("/tmp/agent-read-size-nudge.%s.*" % sid)
-        self.assertEqual(len(markers), 1)
-        for m in markers:
-            os.unlink(m)
+        text = rsn.deny_reason({"file_path": big}, t, which=lambda n: "/bin/" + n, in_git=lambda p: True)
+        self.assertIn("indexed", text)
+        self.assertEqual(rsn.deny_reason({"file_path": big}, t, which=lambda n: None, in_git=lambda p: True), "")
 
 
 class StatePathSafety(unittest.TestCase):

@@ -1,4 +1,6 @@
 """Tests for hooks/schedule-wakeup-guard and hooks/send-message-guard. Run: python3 -m pytest hooks/tests"""
+import importlib.machinery
+import importlib.util
 import json
 import os
 import subprocess
@@ -7,6 +9,10 @@ import tempfile
 import unittest
 
 HOOKS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+_loader = importlib.machinery.SourceFileLoader("schedule_wakeup_guard", os.path.join(HOOKS, "schedule-wakeup-guard"))
+_spec = importlib.util.spec_from_loader("schedule_wakeup_guard", _loader)
+wake = importlib.util.module_from_spec(_spec)
+_loader.exec_module(wake)
 
 
 def run(hook, payload=None, raw=None, tmp=None):
@@ -54,7 +60,7 @@ class ScheduleWakeupGuard(unittest.TestCase):
                 self.call(tmp, prompt="x", session="a")
             self.assertIsNone(decision(self.call(tmp, prompt="x", session="b")))
             self.call(tmp, session="../../evil")
-            self.assertFalse(os.path.exists(os.path.join(tmp, "..", "..", "evil")))
+            self.assertIn("agent-schedule-wakeup-guard._.._evil", os.listdir(tmp))
 
     def test_reason_names_no_private_tooling(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -70,14 +76,17 @@ class ScheduleWakeupGuard(unittest.TestCase):
 
     def test_empty_tmpdir_falls_back_to_tmp(self):
         # an empty TMPDIR must not turn the state path into a relative one
-        with tempfile.TemporaryDirectory() as cwd:
-            env = {**os.environ, "TMPDIR": ""}
-            subprocess.run([sys.executable, os.path.join(HOOKS, "schedule-wakeup-guard")],
-                           input=json.dumps({"tool_name": "ScheduleWakeup", "session_id": "emptytmp",
-                                             "tool_input": {"prompt": "p"}}),
-                           capture_output=True, text=True, timeout=20, env=env, cwd=cwd)
-            self.assertEqual(os.listdir(cwd), [])
-        os.unlink("/tmp/agent-schedule-wakeup-guard.emptytmp")
+        for value in ("", None):
+            with self.subTest(tmpdir=value):
+                saved = os.environ.pop("TMPDIR", None)
+                try:
+                    if value is not None:
+                        os.environ["TMPDIR"] = value
+                    self.assertEqual(wake.counter_path("s"), "/tmp/agent-schedule-wakeup-guard.s")
+                finally:
+                    os.environ.pop("TMPDIR", None)
+                    if saved is not None:
+                        os.environ["TMPDIR"] = saved
 
     def test_no_session_id_gets_a_per_user_per_cwd_file(self):
         with tempfile.TemporaryDirectory() as tmp:

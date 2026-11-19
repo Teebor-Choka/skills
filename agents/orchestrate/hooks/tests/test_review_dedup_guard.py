@@ -104,9 +104,9 @@ class Decide(unittest.TestCase):
         for sid in ["../../etc/x", "a/b", "", None, "x" * 500, "\x00"]:
             with self.subTest(sid=sid):
                 rdg.decide(agent("review #3"), sid, self.tmp)
-        os.environ.pop("TMPDIR", None)
-        self.assertIn(rdg.decide(agent("review #3"), "s", "")[0], ("", "ask", "deny"))
-        self.assertEqual(os.listdir(self.tmp).count("etc"), 0)
+        self.assertEqual(rdg.counter_path("s", ""), "/tmp/agent-review-dedup.s.json")
+        self.assertEqual(rdg.counter_path("s", None), "/tmp/agent-review-dedup.s.json")
+        self.assertIn("agent-review-dedup._.._etc_x.json", os.listdir(self.tmp))
         self.assertTrue(all(os.sep not in n for n in os.listdir(self.tmp)))
 
     def test_state_file_uses_agent_prefix(self):

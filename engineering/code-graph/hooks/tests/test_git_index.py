@@ -1,6 +1,7 @@
 """Tests for hooks/git-index (SessionStart). Run: python3 -m pytest hooks/tests"""
 import json
 import os
+import time
 import unittest
 
 from cg_support import Sandbox, git
@@ -24,7 +25,9 @@ class GitIndex(unittest.TestCase):
         self.assertEqual(out["hookEventName"], "SessionStart")
         self.assertIn(self.sb.project, out["additionalContext"])
         self.assertIn("search_graph", out["additionalContext"])
-        calls = self.sb.calls_seen(wait=5)
+        self.sb.calls_seen(wait=5)
+        time.sleep(1.0)  # long enough for a stray second call to land
+        calls = self.sb.calls_seen()
         self.assertEqual(len(calls), 1)
         self.assertIn("index_repository", calls[0])
         self.assertIn(self.sb.repo, calls[0])
