@@ -20,6 +20,9 @@ docs/
   process.md               # optional, for a project with an .agents/ process (see below)
   views/
     <name>.html            # optional, a rendered view of docs/<name>.md (see "Views")
+  components/
+    <name>.md              # optional layer, one page per component (see "Components")
+  generated/               # written by tools, never by hand (see "Generated files")
   decisions/
     README.md              # required: the index
     <slug>.md              # one ADR per decision, >=1
@@ -33,12 +36,14 @@ AGENTS.md                  # required: points into docs/
 - `process.md` is **required when the project has a procedure** (a markdown file directly in
   `.agents/procedures/`) and optional otherwise: a project with no procedure omits it, and a repo with
   no `.agents/` needs none. See "Process doc" below. When present, it must conform.
+- `components/` is the **component layer**. It is opt-in: a repo without `docs/components/` is checked
+  by the rules above and no others. See "Components".
 - A project may keep extra docs (`design/`, `providers/`, `architecture/`); the contract neither
   requires nor forbids them, and the validator ignores them.
 
 ## Frontmatter
 
-Every doc under `docs/` starts with YAML frontmatter. Keys per kind:
+Every doc under `docs/` starts with YAML frontmatter, except `docs/generated/`. Keys per kind:
 
 | File                  | `kind`            | required keys                                      | optional keys                 |
 | --------------------- | ----------------- | -------------------------------------------------- | ----------------------------- |
@@ -47,6 +52,7 @@ Every doc under `docs/` starts with YAML frontmatter. Keys per kind:
 | `process.md`          | `process`         | `title`, `kind`, `project`, `updated`, `procedure` | none                          |
 | `decisions/README.md` | `decisions-index` | `title`, `kind`, `project`, `updated`              | none                          |
 | `decisions/<slug>.md` | (ADR, no `kind`)  | `title`, `status`, `project`, `updated`            | `supersedes`, `superseded-by` |
+| `components/<n>.md`   | `component`       | see "Components"                                   | none                          |
 
 - `title`: non-empty string.
 - `project`: the project's short name; the same value across every doc in that project. `repo` is
@@ -93,12 +99,13 @@ are mentioned.
 Diagrams are mermaid fenced blocks, in-file, so they version and diff with the prose. What must be
 present:
 
-| Doc           | Mandatory                                                  |
-| ------------- | ---------------------------------------------------------- |
-| `overview.md` | at least one mermaid block (the context or component view) |
-| `spec.md`     | at least one mermaid block (a subsystem view)              |
-| `process.md`  | at least one mermaid block (the process)                   |
-| ADRs          | none (add one only where the decision is structural)       |
+| Doc            | Mandatory                                                  |
+| -------------- | ---------------------------------------------------------- |
+| `overview.md`  | at least one mermaid block (the context or component view) |
+| `spec.md`      | at least one mermaid block (a subsystem view)              |
+| `process.md`   | at least one mermaid block (the process)                   |
+| component page | at least one mermaid block (the flow)                      |
+| ADRs           | none (add one only where the decision is structural)       |
 
 The validator checks presence of a non-empty mermaid block, never correctness. "A diagram per subsystem" in `spec.md` and the
 choice of form (flowchart, sequence, state, DAG) are standards in `diagrams.md`, enforced by review,
@@ -153,6 +160,146 @@ When `docs/views/` exists, each `*.html` in it must have:
 
 The validator also scans views for credential-shaped strings. It does not check that the view says
 what its source says; the authoring flow and review do.
+
+## Components
+
+The component layer documents each crate, package or module that has a public API, one page each.
+`design:project-docs` owns the contract and the validator rules; the pages are written next to the code
+change. The layer is **opt-in**: every rule in this section is active only where `docs/components/`
+exists, so a repo without it passes exactly as before.
+
+A repo with no `docs/components/` is not asked for pages. A repo that resolves to one component
+needs no page either, because the project layer covers it; a page that exists anyway must conform.
+
+### Definitions
+
+- **Component**: a crate, package or module with a public API. Two sources:
+  - **Manifest members** (default): a Cargo workspace member, an npm/yarn workspace package, a uv
+    workspace member or the single `pyproject.toml` package, a Go module in `go.work` or the single
+    `go.mod`.
+  - **Declared directories**: directories matched by the `docs.components.include` globs, for
+    example `crates/sandy/src/*/` in a single crate. The resolver never picks modules on its own,
+    because which modules carry a public API is a judgment call. A matched directory with a manifest
+    is read as a manifest member; one without is a module named by its directory.
+- **Component name**: the manifest's package name (`[package].name`, `package.json` `name`,
+  `[project].name`, the last segment of the Go module path); for a module, its directory name.
+- **Internal dependency**: a normal (non-dev, non-build) dependency on another component of the same
+  repo. Dev, build, optional-group and `devDependencies` entries are not edges, so the graph stays
+  acyclic.
+- **Page name**: `docs/components/<name>.md`, where `<name>` is the component name with each
+  character outside `[a-z0-9-]` replaced by `-`.
+
+### Resolver
+
+`scripts/components.py [project] [--components GLOB ...] [--interactive]` resolves the component set
+with the standard library only. It expands workspace globs with `fnmatch` over directory names,
+honours Cargo `exclude` and npm `!` patterns, and sorts the result by codepoint of the POSIX relpath.
+`tomllib` is imported only to parse a TOML manifest; on Python below 3.11 that exits 2 with
+`python 3.11+ required to parse <file>`. A manifest that does not parse, or two components with one
+name, also exit 2 and name the file.
+
+Policy keys come from the project's own `.agents/policy.md` (the global layer is not read), in the
+shared policy format: maps by indentation, inline lists, no block lists.
+
+```yaml
+docs:
+  components:
+    include: ["crates/sandy/src/*/"] # replaces manifest discovery; --components does the same
+    exclude: # name: reason, removes a member and its edges
+      sandy-test-kit: test helper, no public API
+```
+
+If the repo has a workspace format the resolver cannot parse (`pnpm-workspace.yaml`, Bazel,
+a Gradle multi-project) and no include list is set, it **halts**: one JSON object on stdout, exit 3,
+and no default is substituted.
+
+```json
+{
+  "status": "needs-input",
+  "tool": "components.py",
+  "missing": [
+    {
+      "field": "components",
+      "reason": "pnpm-workspace.yaml is not parseable with the Python stdlib",
+      "supply": [
+        "--components 'packages/*'",
+        ".agents/policy docs.components.include"
+      ]
+    }
+  ]
+}
+```
+
+The run never prompts. `--interactive` turns the same list into questions on stderr; stdout stays
+JSON. Exit codes: 0 resolved, 2 unreadable input, 3 needs-input. A repo with no manifests resolves
+to an empty set.
+
+### Component page
+
+Frontmatter is flat; keys are all required:
+
+| Key          | Value                                                                             |
+| ------------ | --------------------------------------------------------------------------------- |
+| `title`      | the component name                                                                |
+| `kind`       | `component`                                                                       |
+| `project`    | same value as every other doc in the project                                      |
+| `updated`    | `YYYY-MM-DD`                                                                      |
+| `component`  | the manifest package name, exactly                                                |
+| `path`       | repo-relative POSIX dir of the manifest                                           |
+| `depends-on` | `[a, b]` internal dependencies by component name, codepoint-sorted; `[]` for none |
+
+Sections, as `##` headings in this order: **Purpose**, **Structure**, **Public API**,
+**Interactions**, **Flow**, **Decisions**. `assets/component.skeleton.md` is the starting shape.
+
+- **Purpose**: one paragraph.
+- **Structure**: how the component is assembled, internal modules in a table (module, role). Stops at
+  module level; no per-function detail ([`diagrams.md`](diagrams.md), two tracks).
+- **Public API**: a table of the entry points a caller uses (item, what it does). Only items exported
+  at the component's root or entry point, at most 25 rows; link generated API docs for the rest.
+- **Interactions**: what it calls and what it exposes to the outside (files, sockets, processes,
+  env). `depends-on` carries the internal edges; "used by" is never authored.
+- **Flow**: the top-level flow through the component, as one mermaid block (`sequenceDiagram` or
+  `flowchart`). At least one mermaid block on the page.
+- **Decisions**: the decisions in force, one per bullet, `**<decision>.** <reason>`. **Current state
+  only.** When a decision stops being true, delete the bullet; git history keeps the past. A rejected
+  alternative stays as a footnote only while it still explains the current choice. A decision that
+  binds more than this component moves to `docs/decisions/` as an ADR and the bullet links it.
+  Review checks this rule; the validator cannot.
+
+Size: at most 200 lines and 12 KB including frontmatter; target under 100 lines.
+
+A worked example, `sandy-fsutil` (facts from kauki-labs/sandy at `734b2a9a`), is the validator's
+test fixture: `tests/fixtures/sandy-fsutil/docs/components/sandy-fsutil.md`.
+
+### Component rules
+
+Each is a finding with exit 1, per [Severity](#severity-and-exit-code).
+
+| Rule                    | Fires when                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| `component-frontmatter` | no frontmatter, a key missing or empty, `kind` not `component`, bad `updated`, `depends-on` not a list |
+| `component-sections`    | a section heading is missing, or the six are out of order (headings inside code fences do not count)   |
+| `component-mermaid`     | no non-empty mermaid block on the page                                                                 |
+| `component-size`        | over 200 lines, over 12 KB, or a Public API table over 25 rows                                         |
+| `component-missing`     | a resolved component has no page and no `exclude` entry (not checked when there is one component)      |
+| `component-unknown`     | a page's `component` and `path` match no resolved component                                            |
+| `component-deps`        | `depends-on` differs from the manifest's internal dependencies (not checked for declared modules)      |
+| `component-api-unknown` | an identifier in the Public API table's first column occurs as a whole word in no file under `path`    |
+| `components-unresolved` | the resolver halts with needs-input; the message names the same supply options                         |
+
+For `component-api-unknown`, each code span in the cell is split on `::`, `{`, `}`, `,` and
+whitespace, and every non-empty token is an identifier, so `OwnedDir::{open, open_or_create}`
+yields `OwnedDir`, `open`, `open_or_create`. The scan skips the project's `docs/`, `.git`,
+`node_modules`, `target` and similar build directories, so a page cannot satisfy itself.
+
+Component pages also take part in the whole-project checks: `project-divergence` and
+`secret-pattern`. The validator loads `components.py` from beside itself, and only when
+`docs/components/` exists; a copy of `validate_docs.py` on its own exits 2 there, naming the file.
+
+### Generated files
+
+`docs/generated/` holds files written by tools and never edited by hand. The validator skips
+frontmatter, view and size checks there, and the [Views](#views) no-script rule does not apply to it.
 
 ## Spec opt-in
 
