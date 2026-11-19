@@ -68,6 +68,20 @@ class IndexRepoRewrite(Fixture):
         out = json.loads(r.stdout)["hookSpecificOutput"]
         self.assertEqual(out["updatedInput"], {"repo_path": self.main, "mode": "fast"})
 
+    def test_rewrite_leaves_the_permission_decision_to_the_normal_flow(self):
+        out = json.loads(self.run_hook(self.wt).stdout)["hookSpecificOutput"]
+        self.assertNotIn("permissionDecision", out)
+        self.assertIn(self.main, out["additionalContext"])
+        self.assertIn(self.wt, out["additionalContext"])
+
+    def test_subdirectory_of_main_is_a_deliberate_index_and_untouched(self):
+        self.assertEqual(self.run_hook(os.path.join(self.main, "sub")).stdout, "")
+
+    def test_subdirectory_of_a_linked_worktree_is_untouched(self):
+        sub = os.path.join(self.wt, "sub")
+        os.makedirs(sub)
+        self.assertEqual(self.run_hook(sub).stdout, "")
+
     def test_main_path_untouched(self):
         self.assertEqual((self.run_hook(self.main).returncode, self.run_hook(self.main).stdout), (0, ""))
 
