@@ -61,13 +61,16 @@ class Export(list):
 REDACTED = "[REDACTED]"
 _KW = r"(?:password|passwd|passphrase|secret|token|api[_-]?key|private[_-]?key|credential)"
 _PEM_BEGIN = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
-_URL_CREDS = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@")
+# userinfo runs to the LAST "@" of the authority, so a raw "@" in the password cannot end it early
+_URL_CREDS = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/?#\s:@]+:[^/?#\s]+@")
+_Q = r"\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'"
 _AUTH = re.compile(
     r"(?i)(\bauthorization[\"']?\s*[:=]\s*)(?:(?:basic|bearer|token|digest)\s+)?"
-    r"(\"[^\"]*\"|'[^']*'|[^\s\"']+)")
+    r"(" + _Q + r"|[^\s\"']+)")
+# An unquoted value after ":" runs to the end of the line (it may hold spaces); after "=" it ends at a space.
 _KV = re.compile(
-    r"(?i)(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]*" + _KW + r"[A-Za-z0-9_.-]*[\"']?\s*[=:]\s*)"
-    r"(\"[^\"]*\"|'[^']*'|[^\s\"']+)")
+    r"(?i)(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]*" + _KW + r"[A-Za-z0-9_.-]*[\"']?\s*([=:])\s*)"
+    r"(" + _Q + r"|[^\n]+)")
 _TOKENS = [
     re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"),
@@ -75,14 +78,26 @@ _TOKENS = [
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),
 ]
-_BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{4,}")
+_BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
 _SECRET_KEY = re.compile(r"(?i)(passw|secret|token|api[_-]?key|private[_-]?key|credential)")
 
 
-def _keep_value_quotes(m):
-    val = m.group(2)
+def _keep_quotes(m, i):
+    val = m.group(i)
     q = val[0] if val[:1] in "\"'" else ""
     return m.group(1) + q + REDACTED + q
+
+
+def _keep_value_quotes(m):
+    return _keep_quotes(m, 2)
+
+
+def _redact_kv(m):
+    val = m.group(3)
+    if val[:1] in "\"'" or m.group(2) == ":":
+        return _keep_quotes(m, 3)
+    word = re.match(r"[^\s\"']+", val)
+    return m.group(1) + REDACTED + val[word.end():] if word else m.group(0)
 
 
 def _redact_pem(text):
@@ -110,7 +125,7 @@ def redact(text):
         text = p.sub(REDACTED, text)
     text = _AUTH.sub(_keep_value_quotes, text)
     text = _BEARER.sub(REDACTED, text)
-    return _KV.sub(_keep_value_quotes, text)
+    return _KV.sub(_redact_kv, text)
 
 
 def _redact_value(v):
