@@ -18,7 +18,9 @@ Exit code 0 only when every checked project passes; 1 if any finding is raised (
 labelled "warning" counts too); 2 for a usage error or an unexpected failure.
 
 Where docs/components/ exists, the component-page rules also run. They resolve the components with
-components.py, which must sit beside this file; a repo without docs/components/ never loads it.
+components.py, which must sit beside this file. A repo without docs/components/ resolves them only to
+raise components-not-adopted (two or more components, `docs.components.adopt` not false); with
+components.py absent that check is skipped.
 """
 
 from __future__ import annotations
@@ -360,6 +362,8 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
     findings.extend(_check_name_divergence(project, name_values))
     if comp_dir.is_dir():
         findings.extend(_check_components(project, project_path, component_pages))
+    else:
+        findings.extend(_check_adoption(project, project_path))
 
     # --- ADR filename + sections -------------------------------------------
     for adr in adr_files:
@@ -861,6 +865,26 @@ def _read_tree(root: Path, cache: dict[str, str], skip: Path) -> str:
 
 
 COMPONENT_SCAN_SKIP = frozenset({".git", "node_modules", "target", "__pycache__", ".direnv", "result"})
+
+
+def _check_adoption(project: str, project_path: Path) -> list[Finding]:
+    """`components-not-adopted`: two or more components and no docs/components/. Quiet when the
+    resolver is not beside this file, the workspace cannot be read, or the policy opts out."""
+    if not Path(__file__).resolve().with_name("components.py").is_file():
+        return []
+    mod = _components_module()
+    try:
+        if not mod.policy_adopt(project_path):
+            return []
+        resolved = mod.resolve(project_path)
+    except (mod.NeedsInput, mod.ManifestError):
+        return []
+    if len(resolved) < 2:
+        return []
+    names = ", ".join(c.name for c in resolved)
+    return [Finding(project, "docs/components", "components-not-adopted",
+                    f"{len(resolved)} components ({names}) and no docs/components/; add one page per component "
+                    "or set docs.components.adopt: false in .agents/policy.md")]
 
 
 def _check_components(project: str, project_path: Path, pages: dict[str, str]) -> list[Finding]:

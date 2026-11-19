@@ -1,6 +1,6 @@
 # Two-layer docs: format spec
 
-Status: **P1 built, P2 to P6 proposed.** [`contract.md`](contract.md#components) governs what is built:
+Status: **P1 and the validator half of P3 built, P2 and P4 to P6 proposed.** [`contract.md`](contract.md#components) governs what is built:
 the component definitions, resolver, page template and validator rules. This file keeps what is not
 built yet. SKILL.md does not link it, so a session using the skill does not act on it.
 

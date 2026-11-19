@@ -165,11 +165,12 @@ what its source says; the authoring flow and review do.
 
 The component layer documents each crate, package or module that has a public API, one page each.
 `design:project-docs` owns the contract and the validator rules; the pages are written next to the code
-change. The layer is **opt-in**: every rule in this section is active only where `docs/components/`
-exists, so a repo without it passes exactly as before.
+change. Every page rule in this section is active only where `docs/components/` exists.
 
-A repo with no `docs/components/` is not asked for pages. A repo that resolves to one component
-needs no page either, because the project layer covers it; a page that exists anyway must conform.
+A repo that resolves to one component needs no page, because the project layer covers it; a page
+that exists anyway must conform. A repo that resolves to two or more components and has no
+`docs/components/` fails `components-not-adopted`, so the layer cannot be skipped by omission. Opt out
+with `docs.components.adopt: false` in the policy.
 
 ### Definitions
 
@@ -207,6 +208,7 @@ docs:
     include: ["crates/sandy/src/*/"] # replaces manifest discovery; --components does the same
     exclude: # name: reason, removes a member and its edges
       sandy-test-kit: test helper, no public API
+    adopt: false # only to opt out of components-not-adopted; any other value, or none, expects pages
 ```
 
 If the repo has a workspace format the resolver cannot parse (`pnpm-workspace.yaml`, Bazel,
@@ -275,17 +277,18 @@ test fixture: `tests/fixtures/sandy-fsutil/docs/components/sandy-fsutil.md`.
 
 Each is a finding with exit 1, per [Severity](#severity-and-exit-code).
 
-| Rule                    | Fires when                                                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------------------------ |
-| `component-frontmatter` | no frontmatter, a key missing or empty, `kind` not `component`, bad `updated`, `depends-on` not a list |
-| `component-sections`    | a section heading is missing, or the six are out of order (headings inside code fences do not count)   |
-| `component-mermaid`     | no non-empty mermaid block on the page                                                                 |
-| `component-size`        | over 200 lines, over 12 KB, or a Public API table over 25 rows                                         |
-| `component-missing`     | a resolved component has no page and no `exclude` entry (not checked when there is one component)      |
-| `component-unknown`     | a page's `component` and `path` match no resolved component                                            |
-| `component-deps`        | `depends-on` differs from the manifest's internal dependencies (not checked for declared modules)      |
-| `component-api-unknown` | an identifier in the Public API table's first column occurs as a whole word in no file under `path`    |
-| `components-unresolved` | the resolver halts with needs-input; the message names the same supply options                         |
+| Rule                     | Fires when                                                                                                                                                                        |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `component-frontmatter`  | no frontmatter, a key missing or empty, `kind` not `component`, bad `updated`, `depends-on` not a list                                                                            |
+| `component-sections`     | a section heading is missing, or the six are out of order (headings inside code fences do not count)                                                                              |
+| `component-mermaid`      | no non-empty mermaid block on the page                                                                                                                                            |
+| `component-size`         | over 200 lines, over 12 KB, or a Public API table over 25 rows                                                                                                                    |
+| `component-missing`      | a resolved component has no page and no `exclude` entry (not checked when there is one component)                                                                                 |
+| `component-unknown`      | a page's `component` and `path` match no resolved component                                                                                                                       |
+| `component-deps`         | `depends-on` differs from the manifest's internal dependencies (not checked for declared modules)                                                                                 |
+| `component-api-unknown`  | an identifier in the Public API table's first column occurs as a whole word in no file under `path`                                                                               |
+| `components-not-adopted` | two or more components resolve and `docs/components/` does not exist; skipped when `docs.components.adopt` is `false`, the workspace cannot be read, or `components.py` is absent |
+| `components-unresolved`  | the resolver halts with needs-input; the message names the same supply options                                                                                                    |
 
 For `component-api-unknown`, each code span in the cell is split on `::`, `{`, `}`, `,` and
 whitespace, and every non-empty token is an identifier, so `OwnedDir::{open, open_or_create}`

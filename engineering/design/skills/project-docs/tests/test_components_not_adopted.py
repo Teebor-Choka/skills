@@ -83,7 +83,7 @@ def test_broken_manifest_without_components_dir_is_not_flagged(make_repo):
 
 def test_cli_exits_1_naming_the_rule(make_repo):
     repo = two_crates(make_repo)
-    run = subprocess.run([sys.executable, SCRIPT, str(repo)], capture_output=True, text=True, timeout=60)
+    run = subprocess.run([sys.executable, SCRIPT, str(repo), "--json"], capture_output=True, text=True, timeout=60)
     assert run.returncode == 1 and "components-not-adopted" in run.stdout
 
 
