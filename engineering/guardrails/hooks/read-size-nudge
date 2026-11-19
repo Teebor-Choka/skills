@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""PreToolUse hook (tool: Read): nudge before a whole-file read of a large file.
+
+Whole-file reads of large docs and sources (30-60 KB and up) fill the context and force early compaction.
+Over ~40 KB with no offset/limit, inject additionalContext pointing to
+a ranged read, grep by section, or the code graph. The nudge never blocks and fires once per file per session.
+
+Exception: a whole-file Read of a SOURCE file over DENY_THRESHOLD is denied while no codebase-memory graph
+tool has been called this session.
+The hook cannot ask the MCP whether the repo is indexed. The code-graph plugin's git-index hook indexes every
+git work tree at session start whenever `codebase-memory-mcp` is on PATH, so that pair (binary on PATH, file in a git work tree)
+stands in for "indexed". "No graph tool this session" is read from the transcript tail: a tool_use block
+named mcp__codebase-memory-mcp__*. Any doubt (no binary, not a repo, transcript unreadable) fails open.
+A ranged read (offset/limit) always passes. Tests: hooks/tests/test_read_size_nudge.py.
+Schema: https://docs.claude.com/en/docs/claude-code/hooks
+"""
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+THRESHOLD = 40 * 1024
+DENY_THRESHOLD = 40 * 1024
+TRANSCRIPT_TAIL = 4_000_000  # bytes read from the end of the transcript
+SOURCE_EXTS = {".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".go", ".java", ".kt", ".scala",
+               ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".rb", ".php", ".swift", ".sol", ".lua", ".zig",
+               ".sh", ".nix"}
+GRAPH_CALL = re.compile(r'"name"\s*:\s*"mcp__codebase-memory-mcp__')
+
+
+def graph_used(transcript_path):
+    """True when the transcript tail holds a graph tool call. None when it cannot be read."""
+    if not isinstance(transcript_path, str):
+        return None
+    try:
+        with open(transcript_path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - TRANSCRIPT_TAIL))
+            text = f.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+    return GRAPH_CALL.search(text) is not None
+
+
+def in_git_work_tree(path):
+    try:
+        r = subprocess.run(["git", "-C", os.path.dirname(path) or ".", "rev-parse", "--is-inside-work-tree"],
+                           capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and r.stdout.strip() == "true"
+
+
+def deny_reason(tool_input, transcript_path, size_of=os.path.getsize, which=shutil.which, in_git=in_git_work_tree):
+    """Return the denial text for a big whole-file source Read before any graph call, else ""."""
+    path = tool_input.get("file_path")
+    if not isinstance(path, str) or tool_input.get("offset") or tool_input.get("limit"):
+        return ""
+    if os.path.splitext(path)[1].lower() not in SOURCE_EXTS:
+        return ""
+    try:
+        size = size_of(path)
+    except OSError:
+        return ""
+    if size < DENY_THRESHOLD or not which("codebase-memory-mcp") or not in_git(path):
+        return ""
+    if graph_used(transcript_path) is not False:
+        return ""
+    return (f"{os.path.basename(path)} is {size // 1024} KB and this repo is indexed. No code-graph tool has run "
+            "this session. Run ToolSearch select:mcp__codebase-memory-mcp__search_graph,"
+            "mcp__codebase-memory-mcp__get_code_snippet, then locate the symbol with search_graph and read it "
+            "with get_code_snippet. To read the file itself, pass offset and limit.")
+
+
+def nudge(tool_input, session, tmpdir, size_of=os.path.getsize):
+    """Return the reminder text, or "" when no nudge is due. Records a per-file marker."""
+    path = tool_input.get("file_path")
+    if not isinstance(path, str) or tool_input.get("offset") or tool_input.get("limit"):
+        return ""
+    try:
+        size = size_of(path)
+    except OSError:
+        return ""
+    if size < THRESHOLD:
+        return ""
+    marker = os.path.join(tmpdir, f"agent-read-size-nudge.{session}.{hashlib.sha1(path.encode()).hexdigest()[:12]}")
+    if os.path.exists(marker):
+        return ""
+    try:
+        open(marker, "w").close()
+    except OSError:
+        pass
+    return (f"{os.path.basename(path)} is {size // 1024} KB. Read only what you need: use offset/limit, grep the "
+            "heading or symbol first, or for code use search_graph/get_code_snippet. A whole-file read of a large "
+            "file costs context on every later turn.")
+
+
+def main():
+    try:
+        data = json.load(sys.stdin)
+        if data.get("tool_name") != "Read":
+            return
+        tool_input = data.get("tool_input") or {}
+        reason = deny_reason(tool_input, data.get("transcript_path"))
+        if reason:
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
+            return
+        text = nudge(tool_input, data.get("session_id") or "nosession", os.environ.get("TMPDIR") or "/tmp")
+    except Exception:
+        return
+    if text:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": text}}))
+
+
+if __name__ == "__main__":
+    main()

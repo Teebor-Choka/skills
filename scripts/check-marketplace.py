@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Validate .claude-plugin/marketplace.json: parse, and verify each plugin source has a matching
-plugin.json and at least one skills/<name>/SKILL.md (plus any explicit `skills` paths)."""
+plugin.json and at least one skills/<name>/SKILL.md or a hooks/hooks.json (plus any explicit `skills` paths)."""
 
 import glob
 import json
@@ -38,7 +38,7 @@ def main():
             except (OSError, json.JSONDecodeError):
                 errors.append(f"plugin {plugin_name!r}: missing or invalid {pj}")
             skills = glob.glob(os.path.join(src, "skills", "*", "SKILL.md"))
-            if not skills:
+            if not skills and not os.path.isfile(os.path.join(src, "hooks", "hooks.json")):
                 errors.append(f"plugin {plugin_name!r}: no skills/*/SKILL.md under {src}")
         for skill_path in plugin.get("skills", []):
             full = os.path.normpath(os.path.join(root, skill_path))
