@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""PreToolUse hook (matcher: mcp__codebase-memory-mcp__index_repository): index a linked
+worktree into its main checkout's project.
+
+Without this, indexing a worktree adds a new project per worktree, and the graph keeps it after the
+worktree is pruned, so the index grows without bound. Rewrites `repo_path` to the main checkout via
+`repo-root` and returns it as updatedInput. The graph then reflects the main checkout's files; read
+files that differ on the worktree branch directly. Fails open (no output) on malformed input,
+non-git paths, and paths that already are the main checkout.
+Tests: hooks/tests/test_repo_root.py.
+Schema: https://docs.claude.com/en/docs/claude-code/hooks
+"""
+import json
+import os
+import subprocess
+import sys
+
+REPO_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "repo-root")
+
+
+def main():
+    try:
+        payload = json.load(sys.stdin)
+        tool_input = payload["tool_input"]
+        repo_path = tool_input["repo_path"]
+        if not isinstance(repo_path, str):
+            return
+    except Exception:
+        return
+    r = subprocess.run([REPO_ROOT, repo_path], capture_output=True, text=True)
+    if r.returncode != 0:
+        return
+    root = r.stdout.split("\n")[0]
+    if not root or os.path.realpath(root) == os.path.realpath(repo_path):
+        return
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": f"indexing worktree {repo_path} into its main checkout {root}",
+        "updatedInput": {**tool_input, "repo_path": root},
+    }}))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# PreToolUse hook (tools: Grep, Glob): a non-blocking, once-per-session nudge to reach
+# for the codebase-memory-mcp graph before grepping for code. NEVER blocks — it only injects
+# additionalContext, so a legitimate grep/glob always proceeds. Same guard as git-index
+# (git work tree + codebase-memory-mcp on PATH); outside that it is a silent no-op.
+#
+# Fires on the 1st, 6th and 16th Grep/Glob of a session (a per-session counter), so a nudge the agent
+# ignored comes back without re-injecting context on every search. Keep the
+# reminder consistent with the SessionStart/SubagentStart MCP directive.
+set -euo pipefail
+
+payload=$(cat)
+session=$(printf '%s' "$payload" | jq -r '.session_id // "nosession"' 2>/dev/null || echo nosession)
+dir=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null || true)
+dir="${dir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+
+command -v codebase-memory-mcp >/dev/null 2>&1 || exit 0
+git -C "$dir" rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
+
+# Count Grep/Glob calls; repeat the nudge on the 1st, 6th and 16th (once per session was not enough).
+session="${session//[^A-Za-z0-9_.-]/_}"
+while [[ $session == .* ]]; do session="${session#.}"; done
+marker="${TMPDIR:-/tmp}/agent-mcp-find-reminder.${session:-nosession}"
+count=$(cat "$marker" 2>/dev/null || echo 0)
+count=$((count + 1))
+printf '%s' "$count" > "$marker" 2>/dev/null || true
+case "$count" in 1|6|16) ;; *) exit 0 ;; esac
+
+reminder='Finding code? This repo is indexed into codebase-memory-mcp. Prefer search_graph (then trace_path / get_code_snippet / search_code / get_architecture) over grep/glob for locating a symbol, definition, caller, call path, or data flow. grep/glob is right for non-code text or a path the index has not built yet.'
+
+jq -nc --arg ctx "$reminder" \
+  '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$ctx}}'
