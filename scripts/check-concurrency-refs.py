@@ -48,16 +48,15 @@ def entries(text):
 
 
 def check_entry(title, body):
-    errors = []
-    for field in FIELDS:
-        lines = [ln for ln in body if ln.startswith(f"{field}:")]
-        if not lines:
-            errors.append(f"{title!r}: missing {field}:")
-    src = [ln for ln in body if ln.startswith("Source:")]
-    if src and not re.search(r"https?://\S+", src[0]):
+    values = {}
+    for ln in body:
+        key, _, value = ln.partition(":")
+        if key in FIELDS:
+            values.setdefault(key, value.strip())
+    errors = [f"{title!r}: missing {f}:" for f in FIELDS if f not in values]
+    if "Source" in values and not re.search(r"https?://\S+", values["Source"]):
         errors.append(f"{title!r}: Source: has no URL")
-    acc = [ln for ln in body if ln.startswith("Accessed:")]
-    if acc and not DATE_RE.match(acc[0].split(":", 1)[1].strip()):
+    if "Accessed" in values and not DATE_RE.match(values["Accessed"]):
         errors.append(f"{title!r}: Accessed: is not a YYYY-MM-DD date")
     return errors
 
@@ -73,8 +72,7 @@ def main():
     skill_md = (skill / "SKILL.md").read_text(encoding="utf-8")
     for f in files:
         text = f.read_text(encoding="utf-8")
-        n_lines = len(text.splitlines())
-        if n_lines > MAX_LINES:
+        if (n_lines := len(text.splitlines())) > MAX_LINES:
             errors.append(f"{f.name}: {n_lines} lines > {MAX_LINES}; split it")
         found = list(entries(text))
         total += len(found)
@@ -86,9 +84,13 @@ def main():
             errors.append(f"SKILL.md does not link references/{f.name}")
     if files and not MIN_ENTRIES <= total <= MAX_ENTRIES:
         errors.append(f"{total} entries; expected {MIN_ENTRIES} to {MAX_ENTRIES}")
-    fm = yaml.safe_load(skill_md.split("\n---\n", 1)[0].removeprefix("---\n"))
-    desc = " ".join(fm["description"].split()).lower()
-    errors += [f"description lacks trigger {t!r}" for t in TRIGGERS if t not in desc]
+    head, sep, _ = skill_md.replace("\r\n", "\n").removeprefix("---\n").partition("\n---\n")
+    fm = yaml.safe_load(head) if sep else None
+    if not isinstance(fm, dict) or not isinstance(fm.get("description"), str):
+        errors.append("SKILL.md has no front matter with a description")
+    else:
+        desc = " ".join(fm["description"].split()).lower()
+        errors += [f"description lacks trigger {t!r}" for t in TRIGGERS if t not in desc]
     for e in errors:
         print(f"FAIL {e}")
     print(f"{len(files)} file(s), {total} entr(ies), {len(errors)} error(s).")

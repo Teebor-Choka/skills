@@ -32,8 +32,7 @@ how to wire subagents, commands, or hooks per agent, see the `models:extension-a
 
 ## Concurrency
 
-Load these on demand, only when the change touches async or threaded code. Each entry lists
-symptom, fix, a regression-test pattern where one exists, and a source opened on its access date.
+Load these on demand, only when the change touches async or threaded code.
 
 - Hangs, deadlock, lost data, cancellation, shutdown, `Send` errors, atomics, loom or Miri:
   [references/concurrency-correctness.md](references/concurrency-correctness.md).

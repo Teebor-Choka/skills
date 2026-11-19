@@ -6,11 +6,9 @@ For hangs, lost data and shutdown bugs, read `concurrency-correctness.md`.
 
 `overrides.md` section 5 still applies. This file adds the performance reasons behind it.
 
-Entry format: `Symptom`, `Fix`, optional `Test` and `Status`, `Source`, `Accessed`. Docs pages were
-opened on the access date (tokio 1.54.1, futures 0.3.34, arc-swap 1.9.5, crossbeam-utils 0.8.23).
-`hoprnet <hash>` entries are commits in github.com/hoprnet/hoprnet. Their claims come from PR #98's
-read of each diff; on 2026-11-19 only the hash and commit title were re-checked. Rust snippets are
-sketches, not compiled. `Status` marks a fix that production reverted or that is version-specific.
+Entry format and caveats: see `concurrency-correctness.md`. Versions read on the access date: tokio
+1.54.1, futures 0.3.34, arc-swap 1.9.5, crossbeam-utils 0.8.23. `hoprnet <hash>` entries: their claims
+come from PR #98's read of each diff; on 2026-11-19 only the hash and commit title were re-checked.
 
 ## 1. Keep the runtime's workers free
 
@@ -177,15 +175,15 @@ Accessed: 2026-11-19
 
 Symptom: throughput collapses on small hosts.
 Fix: a decode limit of `pool - reserved` evaluated to `2 - 2 = 0`, clamped to 1, and collapsed relay
-throughput on 4-core nodes. Clamp to a sane minimum and calibrate on the deployed pool size.
-Status: reverted in production. The defaults were ready-queue depths, not thread counts.
+throughput on 4-core nodes. Clamp to a sane minimum and calibrate on the deployed pool size. The same
+commit also fixed decode starving encode on a shared pool: a cheap gate that reads one atomic count of
+outstanding tasks and delays ingress above a high-water mark kept encode moving. Reuse that gate, not
+the reverted reserved-thread cap.
+Status: the reserved-thread cap was reverted in production. The defaults were ready-queue depths, not
+thread counts.
 Source: https://github.com/hoprnet/hoprnet/commit/8ff6bec7ca (the cap) ;
 https://github.com/hoprnet/hoprnet/commit/3579344dd2 (the revert)
 Accessed: 2026-11-19
-
-The same commit also fixed decode starving encode on a shared pool: a cheap gate that reads one
-atomic count of outstanding tasks and delays ingress above a high-water mark kept encode moving.
-Reuse that gate, not the reverted reserved-thread cap.
 
 ## 5. Cache lines
 
