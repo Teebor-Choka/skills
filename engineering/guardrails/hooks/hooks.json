@@ -13,6 +13,15 @@
       {
         "hooks": [
           {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/secret-read-guard\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "Grep"
+      },
+      {
+        "hooks": [
+          {
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/read-size-nudge\"",
             "type": "command"
           }

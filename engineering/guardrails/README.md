@@ -27,3 +27,17 @@ example `~/.config/<your-org-dir>/*` (leave out any file that holds no credentia
 `secret-read-guard` never denies: it answers `ask`, so a person can approve a deliberate read. A harness that
 cannot ask a person treats `ask` as a deny (the runtime maps it). The manifest marks the hook `warn` for that
 reason.
+
+## Grep, compound commands and heredocs
+
+`secret-read-guard` also asks before a `Grep` in `content` mode over a secret path, or with a `glob` that names secret
+files (`.env*`, `*.pem`, `credentials*`). Listing modes only name files and pass. `Glob` lists names only and is not
+guarded.
+
+The built-in rules resolve a path against the working directory and any earlier `cd`, so `cd ~/.ssh && cat id_rsa`
+asks. Compound keywords and braces (`if`, `do`, `{`) and wrappers with arguments (`nice -n 5`, `env -u X`,
+`timeout 60`, `sudo -u user`) are looked through to the real command. A `<<` inside quotes is not a heredoc, and a
+heredoc body fed to a shell (`bash <<EOF`, `cat <<EOF | sh`) is scanned as commands.
+
+The `Grep` registration uses a raw matcher, so it works on Claude Code only; other harnesses need their own matcher for
+their search tool.
