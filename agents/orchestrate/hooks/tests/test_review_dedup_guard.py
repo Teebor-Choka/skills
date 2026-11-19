@@ -32,6 +32,11 @@ class PrRefs(unittest.TestCase):
             ("review issue #", set()),
             ("pr review", set()),
             ("order 5 items", set()),
+            ("review src/a.rs per the rules in #1", set()),
+            ("review the module, see #1 for the rules", set()),
+            ("audit the auth code against issue #12", set()),
+            ("review item #3", set()),
+            ("review pr #4 against the rules in #1", {"4"}),
         ]
         for text, want in cases:
             with self.subTest(text=text):
@@ -80,6 +85,11 @@ class Decide(unittest.TestCase):
             self.assertEqual(self.d("fix the bug in #571"), "")
             self.assertEqual(self.d("review the architecture"), "")
         self.assertEqual(self.d("review #571"), "")
+
+    def test_three_reviews_citing_the_same_rules_item_are_all_allowed(self):
+        for target in ("src/a.rs", "src/b.rs", "src/c.rs"):
+            self.assertEqual(self.d(f"Review {target} following the rules in #1"), "")
+        self.assertEqual(self.d("audit the parser, see #1 for the checklist"), "")
 
     def test_description_counts_too(self):
         self.assertEqual(self.d("look at it", description="Review PR #9"), "")
