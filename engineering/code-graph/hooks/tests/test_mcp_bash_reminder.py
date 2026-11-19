@@ -119,6 +119,30 @@ class EndToEnd(unittest.TestCase):
         self.assertTrue(os.path.exists(marker))
         os.unlink(marker)
 
+    def test_no_session_id_gets_a_per_user_per_cwd_marker(self):
+        for cwd in (self.sb.repo, os.path.join(self.sb.repo, ".git")):
+            p = self.payload(cwd=cwd)
+            del p["session_id"]
+            self.run_hook(p)
+        names = [n for n in os.listdir(self.sb.tmp) if n.startswith("agent-mcp-bash-reminder.")]
+        self.assertEqual(len(names), 2, names)
+        for name in names:
+            self.assertTrue(name.startswith("agent-mcp-bash-reminder.nosession-%d-" % os.getuid()), name)
+
+    def test_session_id_is_sanitised_like_the_other_hooks(self):
+        self.run_hook(self.payload(session="../../escape x"))
+        self.assertIn("agent-mcp-bash-reminder._.._escape_x", os.listdir(self.sb.tmp))
+
+    def test_planted_symlink_is_not_followed(self):
+        victim = os.path.join(self.sb.tmp, "victim")
+        with open(victim, "w") as f:
+            f.write("keep")
+        os.symlink(victim, os.path.join(self.sb.tmp, "agent-mcp-bash-reminder.sl"))
+        r = self.run_hook(self.payload(session="sl"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(victim) as f:
+            self.assertEqual(f.read(), "keep")
+
 
 if __name__ == "__main__":
     unittest.main()

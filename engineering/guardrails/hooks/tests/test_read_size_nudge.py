@@ -137,6 +137,47 @@ class StateFiles(unittest.TestCase):
             os.unlink(m)
 
 
+class StatePathSafety(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.big = os.path.join(self.tmp, "spec.md")
+        with open(self.big, "w") as f:
+            f.write("x" * BIG)
+
+    def run_hook(self, payload):
+        return subprocess.run([sys.executable, HOOK], input=json.dumps(payload), capture_output=True, text=True,
+                              timeout=20, env={**os.environ, "TMPDIR": self.tmp})
+
+    def markers(self):
+        return sorted(n for n in os.listdir(self.tmp) if n.startswith("agent-read-size-nudge."))
+
+    def test_no_session_id_gets_a_per_user_per_cwd_marker(self):
+        for cwd in ("/a", "/b"):
+            self.run_hook({"tool_name": "Read", "cwd": cwd, "tool_input": {"file_path": self.big}})
+        names = self.markers()
+        self.assertEqual(len(names), 2)
+        for name in names:
+            self.assertTrue(name.startswith("agent-read-size-nudge.nosession-%d-" % os.getuid()), name)
+
+    def test_session_id_is_sanitised_like_the_other_hooks(self):
+        self.run_hook({"tool_name": "Read", "session_id": "../../evil x", "tool_input": {"file_path": self.big}})
+        names = self.markers()
+        self.assertEqual(len(names), 1)
+        self.assertTrue(names[0].startswith("agent-read-size-nudge._.._evil_x."), names)
+
+    def test_planted_symlink_is_not_followed(self):
+        import hashlib
+        victim = os.path.join(self.tmp, "victim")
+        with open(victim, "w") as f:
+            f.write("keep")
+        digest = hashlib.sha1(self.big.encode()).hexdigest()[:12]
+        os.symlink(victim, os.path.join(self.tmp, "agent-read-size-nudge.sl." + digest))
+        r = self.run_hook({"tool_name": "Read", "session_id": "sl", "tool_input": {"file_path": self.big}})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(victim) as f:
+            self.assertEqual(f.read(), "keep")
+
+
 class GraphFirstEndToEnd(unittest.TestCase):
     def run_hook(self, payload, path_dirs):
         env = {**os.environ, "PATH": os.pathsep.join(path_dirs), "TMPDIR": tempfile.mkdtemp()}

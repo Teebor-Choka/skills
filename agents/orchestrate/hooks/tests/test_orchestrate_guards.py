@@ -79,6 +79,26 @@ class ScheduleWakeupGuard(unittest.TestCase):
             self.assertEqual(os.listdir(cwd), [])
         os.unlink("/tmp/agent-schedule-wakeup-guard.emptytmp")
 
+    def test_no_session_id_gets_a_per_user_per_cwd_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for cwd in ("/a", "/b"):
+                run("schedule-wakeup-guard", {"tool_name": "ScheduleWakeup", "cwd": cwd,
+                                              "tool_input": {"prompt": "p"}}, tmp=tmp)
+            names = sorted(os.listdir(tmp))
+            self.assertEqual(len(names), 2)
+            for name in names:
+                self.assertTrue(name.startswith("agent-schedule-wakeup-guard.nosession-%d-" % os.getuid()), name)
+
+    def test_planted_symlink_is_not_followed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            victim = os.path.join(tmp, "victim")
+            with open(victim, "w") as f:
+                f.write("keep")
+            os.symlink(victim, os.path.join(tmp, "agent-schedule-wakeup-guard.sl"))
+            self.assertEqual(self.call(tmp, session="sl").returncode, 0)
+            with open(victim) as f:
+                self.assertEqual(f.read(), "keep")
+
     def test_stop_and_junk_fail_open(self):
         self.assertEqual(run("schedule-wakeup-guard", {"tool_name": "ScheduleWakeup", "tool_input": {"stop": True}}).returncode, 0)
         for raw in ("", "not json", "[]"):

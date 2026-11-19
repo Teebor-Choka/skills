@@ -109,6 +109,26 @@ class Decide(unittest.TestCase):
         _, reason = rdg.decide(agent("review #8"), "s1", self.tmp)
         self.assertNotIn("review-lease", reason)
 
+    def test_no_session_id_gets_a_per_user_per_cwd_file(self):
+        tmp = tempfile.mkdtemp()
+        for cwd in ("/a", "/b"):
+            run_hook({"tool_name": "Agent", "cwd": cwd, "tool_input": {"prompt": "review PR #77"}}, tmp)
+        names = sorted(os.listdir(tmp))
+        self.assertEqual(len(names), 2)
+        for name in names:
+            self.assertTrue(name.startswith("agent-review-dedup.nosession-%d-" % os.getuid()), name)
+
+    def test_planted_symlink_is_not_followed(self):
+        tmp = tempfile.mkdtemp()
+        victim = os.path.join(tmp, "victim")
+        with open(victim, "w") as f:
+            f.write("keep")
+        os.symlink(victim, os.path.join(tmp, "agent-review-dedup.sl.json"))
+        p = {"tool_name": "Agent", "session_id": "sl", "tool_input": {"prompt": "review PR #77"}}
+        self.assertEqual(run_hook(p, tmp)[0], 0)
+        with open(victim) as f:
+            self.assertEqual(f.read(), "keep")
+
     def test_corrupt_counter_file_fails_open(self):
         self.d("review #5", session="c")
         for name in os.listdir(self.tmp):
