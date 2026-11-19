@@ -15,6 +15,7 @@ once per session (separate marker from mcp-find-reminder's, since these catch di
 Tests: hooks/tests/test_mcp_bash_reminder.py.
 Schema: https://docs.claude.com/en/docs/claude-code/hooks
 """
+import hashlib
 import json
 import os
 import re
@@ -93,6 +94,30 @@ def is_sweep(command):
     return any(_is_sweep(seg) for seg in segments)
 
 
+def clean_session(session):
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(session or "")).lstrip(".")[:64]
+
+
+def session_slug(payload):
+    """Sanitised session id. Without one, a per-user, per-cwd name, so sessions never share a file."""
+    sid = clean_session(payload.get("session_id"))
+    if sid:
+        return sid
+    cwd = str(payload.get("cwd") or os.getcwd())
+    return "nosession-%d-%s" % (os.getuid(), hashlib.sha1(cwd.encode()).hexdigest()[:8])
+
+
+def mark_once(path):
+    """Create the marker exclusively. False when it already exists (or is a planted symlink): never written through."""
+    try:
+        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600))
+    except FileExistsError:
+        return False
+    except OSError:
+        pass
+    return True
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -104,7 +129,7 @@ def main():
     if not isinstance(command, str) or not is_sweep(command):
         return
 
-    session = payload.get("session_id") or "nosession"
+    session = session_slug(payload)
     directory = payload.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
 
     if not _on_path("codebase-memory-mcp"):
@@ -113,12 +138,8 @@ def main():
         return
 
     marker = os.path.join(os.environ.get("TMPDIR") or "/tmp", f"agent-mcp-bash-reminder.{session}")
-    if os.path.exists(marker):
+    if not mark_once(marker):
         return
-    try:
-        open(marker, "a").close()
-    except OSError:
-        pass
 
     reminder = (
         "That Bash command looks like a grep/find sweep over source files. This repo is indexed "

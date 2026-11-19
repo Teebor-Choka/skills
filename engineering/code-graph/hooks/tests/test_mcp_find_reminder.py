@@ -86,8 +86,13 @@ class McpFindReminder(unittest.TestCase):
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertTrue(r.stdout, "counter reset to 0 means the next call is the 1st and nudges")
 
+    def subdir(self):
+        d = os.path.join(self.sb.repo, "sub")
+        os.makedirs(d, exist_ok=True)
+        return d
+
     def test_no_session_id_gets_a_per_user_per_cwd_counter(self):
-        for cwd in (self.sb.repo, os.path.join(self.sb.repo, ".git")):
+        for cwd in (self.sb.repo, self.subdir()):
             self.run_hook(payload={"tool_name": "Grep", "cwd": cwd})
         names = [n for n in os.listdir(self.sb.tmp) if n.startswith("agent-mcp-find-reminder.")]
         self.assertEqual(len(names), 2, names)

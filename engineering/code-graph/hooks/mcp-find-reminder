@@ -10,7 +10,7 @@
 set -euo pipefail
 
 payload=$(cat)
-session=$(printf '%s' "$payload" | jq -r '.session_id // "nosession"' 2>/dev/null || echo nosession)
+session=$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null || true)
 dir=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null || true)
 dir="${dir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 
@@ -20,10 +20,22 @@ git -C "$dir" rev-parse --show-toplevel >/dev/null 2>&1 || exit 0
 # Count Grep/Glob calls; repeat the nudge on the 1st, 6th and 16th (once per session was not enough).
 session="${session//[^A-Za-z0-9_.-]/_}"
 while [[ $session == .* ]]; do session="${session#.}"; done
-marker="${TMPDIR:-/tmp}/agent-mcp-find-reminder.${session:-nosession}"
-count=$(cat "$marker" 2>/dev/null || echo 0)
-count=$((count + 1))
-printf '%s' "$count" > "$marker" 2>/dev/null || true
+session="${session:0:64}"
+if [ -z "$session" ]; then
+  # no session id: a per-user, per-cwd name so sessions never share a counter
+  session="nosession-$(id -u)-$(printf '%s' "$dir" | cksum | cut -d' ' -f1)"
+fi
+marker="${TMPDIR:-/tmp}/agent-mcp-find-reminder.${session}"
+count=0
+if [ ! -L "$marker" ]; then
+  count=$(cat "$marker" 2>/dev/null || echo 0)
+fi
+# the file is untrusted input: only plain digits may reach the arithmetic below
+[[ $count =~ ^[0-9]{1,9}$ ]] || count=0
+count=$((10#$count + 1))
+# rm drops a planted symlink itself; noclobber makes the write O_EXCL, so it never goes through a link
+rm -f "$marker" 2>/dev/null || true
+(set -C; printf '%s' "$count" > "$marker") 2>/dev/null || true
 case "$count" in 1|6|16) ;; *) exit 0 ;; esac
 
 reminder='Finding code? This repo is indexed into codebase-memory-mcp. Prefer search_graph (then trace_path / get_code_snippet / search_code / get_architecture) over grep/glob for locating a symbol, definition, caller, call path, or data flow. grep/glob is right for non-code text or a path the index has not built yet.'

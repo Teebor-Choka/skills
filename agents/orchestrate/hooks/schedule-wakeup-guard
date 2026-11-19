@@ -20,9 +20,44 @@ REASON = ("A timer wake re-reads your whole context to learn nothing changed. Ru
           "and stop scheduling wakes.")
 
 
+def clean_session(session):
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(session or "")).lstrip(".")[:64]
+
+
+def session_slug(payload):
+    """Sanitised session id. Without one, a per-user, per-cwd name, so sessions never share a file."""
+    sid = clean_session(payload.get("session_id"))
+    if sid:
+        return sid
+    cwd = str(payload.get("cwd") or os.getcwd())
+    return "nosession-%d-%s" % (os.getuid(), hashlib.sha1(cwd.encode()).hexdigest()[:8])
+
+
+def read_state(path):
+    """File text, or None. Never follows a symlink."""
+    try:
+        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW)) as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def write_state(path, text):
+    """Replace the file with a fresh private one (O_EXCL|O_NOFOLLOW: a planted symlink is removed, never written through)."""
+    try:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+    except OSError:
+        pass
+
+
 def counter_path(session):
-    session = re.sub(r"[^A-Za-z0-9_.-]", "_", str(session)).lstrip(".") or "nosession"
-    return os.path.join(os.environ.get("TMPDIR") or "/tmp", f"agent-schedule-wakeup-guard.{session}")
+    return os.path.join(os.environ.get("TMPDIR") or "/tmp", f"agent-schedule-wakeup-guard.{clean_session(session) or 'nosession'}")
 
 
 def count_prompt(session, prompt):
@@ -30,18 +65,13 @@ def count_prompt(session, prompt):
     path = counter_path(session)
     counts = {}
     try:
-        with open(path) as f:
-            data = json.load(f)
+        data = json.loads(read_state(path) or "")
         if isinstance(data, dict):
             counts = {k: v for k, v in data.items() if isinstance(v, int)}
-    except (OSError, ValueError):
+    except ValueError:
         pass
     counts[key] = counts.get(key, 0) + 1
-    try:
-        with open(path, "w") as f:
-            json.dump(counts, f)
-    except OSError:
-        pass
+    write_state(path, json.dumps(counts))
     return counts[key]
 
 
@@ -58,7 +88,7 @@ def main():
     except Exception:
         return
     deny = bool(WAIT_ON.search(prompt + " " + reason))
-    if count_prompt(payload.get("session_id") or "nosession", prompt) > MAX_SAME_PROMPT:
+    if count_prompt(session_slug(payload), prompt) > MAX_SAME_PROMPT:
         deny = True
     if deny:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",

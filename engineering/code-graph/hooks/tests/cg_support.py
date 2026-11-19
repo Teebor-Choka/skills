@@ -9,7 +9,7 @@ import tempfile
 import time
 
 TOOLS = ["bash", "sh", "env", "jq", "git", "sed", "tr", "dirname", "basename", "cat", "head", "mkdir", "rmdir",
-         "date", "printf"]
+         "date", "printf", "id", "cksum", "cut", "rm", "sleep", "kill", "ps", "stat", "touch"]
 GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@t"}
 

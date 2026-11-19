@@ -119,8 +119,13 @@ class EndToEnd(unittest.TestCase):
         self.assertTrue(os.path.exists(marker))
         os.unlink(marker)
 
+    def subdir(self):
+        d = os.path.join(self.sb.repo, "sub")
+        os.makedirs(d, exist_ok=True)
+        return d
+
     def test_no_session_id_gets_a_per_user_per_cwd_marker(self):
-        for cwd in (self.sb.repo, os.path.join(self.sb.repo, ".git")):
+        for cwd in (self.sb.repo, self.subdir()):
             p = self.payload(cwd=cwd)
             del p["session_id"]
             self.run_hook(p)

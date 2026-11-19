@@ -31,6 +31,30 @@ SOURCE_EXTS = {".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".go"
 GRAPH_CALL = re.compile(r'"name"\s*:\s*"mcp__codebase-memory-mcp__')
 
 
+def clean_session(session):
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(session or "")).lstrip(".")[:64]
+
+
+def session_slug(payload):
+    """Sanitised session id. Without one, a per-user, per-cwd name, so sessions never share a file."""
+    sid = clean_session(payload.get("session_id"))
+    if sid:
+        return sid
+    cwd = str(payload.get("cwd") or os.getcwd())
+    return "nosession-%d-%s" % (os.getuid(), hashlib.sha1(cwd.encode()).hexdigest()[:8])
+
+
+def mark_once(path):
+    """Create the marker exclusively. False when it already exists (or is a planted symlink): never written through."""
+    try:
+        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600))
+    except FileExistsError:
+        return False
+    except OSError:
+        pass
+    return True
+
+
 def graph_used(transcript_path):
     """True when the transcript tail holds a graph tool call. None when it cannot be read."""
     if not isinstance(transcript_path, str):
@@ -86,13 +110,10 @@ def nudge(tool_input, session, tmpdir, size_of=os.path.getsize):
         return ""
     if size < THRESHOLD:
         return ""
-    marker = os.path.join(tmpdir, f"agent-read-size-nudge.{session}.{hashlib.sha1(path.encode()).hexdigest()[:12]}")
-    if os.path.exists(marker):
+    marker = os.path.join(tmpdir, f"agent-read-size-nudge.{clean_session(session) or 'nosession'}."
+                                  f"{hashlib.sha1(path.encode()).hexdigest()[:12]}")
+    if not mark_once(marker):
         return ""
-    try:
-        open(marker, "w").close()
-    except OSError:
-        pass
     return (f"{os.path.basename(path)} is {size // 1024} KB. Read only what you need: use offset/limit, grep the "
             "heading or symbol first, or for code use search_graph/get_code_snippet. A whole-file read of a large "
             "file costs context on every later turn.")
@@ -109,7 +130,7 @@ def main():
             print(json.dumps({"hookSpecificOutput": {
                 "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
             return
-        text = nudge(tool_input, data.get("session_id") or "nosession", os.environ.get("TMPDIR") or "/tmp")
+        text = nudge(tool_input, session_slug(data), os.environ.get("TMPDIR") or "/tmp")
     except Exception:
         return
     if text:

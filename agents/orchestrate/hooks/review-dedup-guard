@@ -12,6 +12,7 @@ bounded regexes (no nested quantifiers). Fails open on malformed input and unrea
 Tests: hooks/tests/test_review_dedup_guard.py.
 Schema: https://code.claude.com/docs/en/hooks.md
 """
+import hashlib
 import json
 import os
 import re
@@ -36,16 +37,51 @@ def is_review(text):
     return _REVIEW.search(text.lower()[:MAX_TEXT]) is not None
 
 
+def clean_session(session):
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(session or "")).lstrip(".")[:64]
+
+
+def session_slug(payload):
+    """Sanitised session id. Without one, a per-user, per-cwd name, so sessions never share a file."""
+    sid = clean_session(payload.get("session_id"))
+    if sid:
+        return sid
+    cwd = str(payload.get("cwd") or os.getcwd())
+    return "nosession-%d-%s" % (os.getuid(), hashlib.sha1(cwd.encode()).hexdigest()[:8])
+
+
+def read_state(path):
+    """File text, or None. Never follows a symlink."""
+    try:
+        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW)) as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def write_state(path, text):
+    """Replace the file with a fresh private one (O_EXCL|O_NOFOLLOW: a planted symlink is removed, never written through)."""
+    try:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+    except OSError:
+        pass
+
+
 def counter_path(session, tmpdir):
-    sid = re.sub(r"[^A-Za-z0-9_-]", "_", str(session or ""))[:64] or "nosession"
+    sid = clean_session(session) or "nosession"
     return os.path.join(tmpdir or "/tmp", f"agent-review-dedup.{sid}.json")
 
 
 def load(path):
     try:
-        with open(path) as f:
-            data = json.load(f)
-    except (OSError, ValueError):
+        data = json.loads(read_state(path) or "")
+    except ValueError:
         return {}
     if not isinstance(data, dict):
         return {}
@@ -65,11 +101,7 @@ def decide(tool_input, session, tmpdir):
     counts = load(path)
     for ref in refs:
         counts[ref] = counts.get(ref, 0) + 1
-    try:
-        with open(path, "w") as f:
-            json.dump(counts, f)
-    except OSError:
-        pass
+    write_state(path, json.dumps(counts))
     pr = max(refs, key=lambda r: counts[r])
     n = counts[pr]
     if n >= 3:
@@ -89,7 +121,7 @@ def main():
         tool_input = payload.get("tool_input")
         if not isinstance(tool_input, dict):
             return
-        decision, reason = decide(tool_input, payload.get("session_id"), os.environ.get("TMPDIR"))
+        decision, reason = decide(tool_input, session_slug(payload), os.environ.get("TMPDIR"))
     except Exception:
         return
     if decision:
