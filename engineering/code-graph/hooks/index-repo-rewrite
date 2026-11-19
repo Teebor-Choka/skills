@@ -5,7 +5,8 @@ main checkout's project.
 Without this, indexing a worktree adds a new project per worktree, and the graph keeps it after the
 worktree is pruned, so the index grows without bound. When `repo_path` is the root of a linked git worktree,
 rewrite it to the main checkout via `repo-root` and return it as updatedInput, with additionalContext saying
-so. It never emits a permission decision: the normal permission flow still decides. A plain subdirectory
+so (worded as conditional: the runtime may drop `updatedInput` when no permission decision is given;
+unverified live). It never emits a permission decision: the normal permission flow still decides. A plain subdirectory
 (a deliberate partial index), a subdirectory of a worktree, the main checkout and non-git paths pass
 through untouched. The graph then reflects the main checkout's files; read files that differ on the
 worktree branch directly. Fails open (no output) on malformed input.
@@ -39,8 +40,9 @@ def main():
         return
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
-        "additionalContext": f"indexing worktree {repo_path} into its main checkout {root}: repo_path was rewritten; "
-                             "read files that differ on this branch directly",
+        "additionalContext": f"repo_path rewritten from {repo_path} to {root} if your harness applies the update; "
+                             "confirm in the index_repository call. The graph indexes the main checkout, so read "
+                             "files that differ on this branch directly",
         "updatedInput": {**tool_input, "repo_path": root},
     }}))
 
