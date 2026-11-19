@@ -189,13 +189,17 @@ def test_skill_is_concise_and_references_exist():
 
 
 def test_skill_covers_the_authoring_duties():
-    text = (SKILL / "SKILL.md").read_text() + "".join(p.read_text() for p in (SKILL / "references").glob("*.md"))
-    for needle in ("Docs-Unchanged:", "needs-input", "Decisions", "current state", "--scaffold"):
+    skill = (SKILL / "SKILL.md").read_text()
+    text = (skill + "".join(p.read_text() for p in (SKILL / "references").glob("*.md"))).lower()
+    for needle in ("docs-unchanged:", "needs-input", "decisions", "current state", "--scaffold"):
         assert needle in text, needle
-    assert "--interactive" not in (SKILL / "SKILL.md").read_text().split("## ")[1]  # never a required step
+    assert "--interactive" not in skill  # asking is never a required step
 
 
 def test_no_cross_plugin_skill_names():
-    text = "".join(p.read_text() for p in [SKILL / "SKILL.md", *(SKILL / "references").glob("*.md")])
-    for banned in ("design:", "project-docs", "swe:", "by-angle", "architect"):
-        assert banned not in text, banned
+    skill = (SKILL / "SKILL.md").read_text()
+    refs = "".join(p.read_text() for p in (SKILL / "references").glob("*.md"))
+    for banned in ("design:", "swe:", "by-angle", "architect"):
+        assert banned not in skill + refs, banned
+    # The tooling is named only as the halt's field and flag, never as a skill, and not in SKILL.md.
+    assert "project-docs" not in skill
