@@ -45,7 +45,7 @@ def git(cwd, *args, check=True):
 def make_scripts(base: Path, name: str) -> Path:
     d = base / name
     d.mkdir()
-    for f in ("validate_docs.py", "install_hook.sh"):
+    for f in ("validate_docs.py", "components.py", "render_docs.py", "install_hook.sh"):
         shutil.copy(SCRIPTS / f, d / f)
     return d
 
@@ -278,3 +278,151 @@ def test_hook_removes_its_temp_dir_on_sigterm(scripts, repo, tmp_path):
             break
         time.sleep(0.1)
     assert not tmp_root.exists()
+
+
+# --- P4: pre-push render check, Nix render check, formatter exclude (AT-31 to AT-34) ---
+
+PUSH_MARKER = "# >>> project-docs render hook >>>"
+SKILL = TESTS_DIR.parent
+
+
+def render(repo: Path) -> None:
+    assert run("python3", SCRIPTS / "render_docs.py", repo).returncode == 0
+    git(repo, "add", "docs/generated")
+    git(repo, "commit", "-q", "-m", "render")
+
+
+EXTRA = "\n## Extra\n\nA new first paragraph.\n\n```mermaid\nflowchart LR\n  X --> Y\n```\n"
+
+
+def extend_overview(root: Path) -> None:
+    overview = root / "docs" / "overview.md"
+    overview.write_text(overview.read_text() + EXTRA)
+
+
+def push_hook(repo: Path) -> Path:
+    return repo / ".git" / "hooks" / "pre-push"
+
+
+def run_push_hook(repo: Path) -> subprocess.CompletedProcess:
+    return run(push_hook(repo), "origin", "url", cwd=repo)
+
+
+def test_pre_push_hook_passes_when_the_render_is_current(scripts, repo):
+    render(repo)
+    assert install(scripts, repo).returncode == 0
+    result = run_push_hook(repo)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_pre_push_hook_blocks_when_generated_files_are_missing(scripts, repo):
+    install(scripts, repo)
+    result = run_push_hook(repo)
+    assert result.returncode != 0
+    assert "out of date" in result.stderr
+
+
+def test_pre_push_hook_blocks_when_a_doc_changed_without_a_re_render(scripts, repo):
+    render(repo)
+    install(scripts, repo)
+    extend_overview(repo)
+    git(repo, "add", "docs/overview.md")
+    git(repo, "commit", "-q", "-m", "docs", check=False)
+    result = run_push_hook(repo)
+    assert result.returncode != 0
+    assert "out of date" in result.stderr
+
+
+def test_pre_push_hook_runs_the_validator(scripts, repo):
+    render(repo)
+    install(scripts, repo)
+    break_doc(repo)
+    git(repo, "add", "docs/overview.md")
+    git(repo, "commit", "-q", "-m", "bad", "--no-verify")
+    result = run_push_hook(repo)
+    assert result.returncode != 0
+    assert "frontmatter" in result.stdout + result.stderr
+
+
+def test_pre_push_hook_refuses_uncommitted_docs_changes(scripts, repo):
+    render(repo)
+    install(scripts, repo)
+    (repo / "docs" / "overview.md").write_text("edited, not committed\n")
+    result = run_push_hook(repo)
+    assert result.returncode != 0
+    assert "uncommitted" in result.stderr
+
+
+def test_pre_push_hook_is_idempotent_and_keeps_the_pre_commit_hook(scripts, repo):
+    install(scripts, repo)
+    again = install(scripts, repo)
+    assert again.returncode == 0
+    assert push_hook(repo).read_text().count(PUSH_MARKER) == 1
+    assert (repo / ".git" / "hooks" / "pre-commit").read_text().count(MARKER) == 1
+
+
+def test_pre_push_hook_keeps_existing_content_and_fails_without_the_renderer(scripts, repo):
+    push_hook(repo).parent.mkdir(exist_ok=True)
+    push_hook(repo).write_text("#!/bin/sh\necho keep-me\n")
+    push_hook(repo).chmod(0o755)
+    render(repo)
+    install(scripts, repo)
+    assert "echo keep-me" in push_hook(repo).read_text()
+    (scripts / "render_docs.py").unlink()
+    result = run_push_hook(repo)
+    assert result.returncode != 0
+    assert "install_hook.sh" in result.stderr
+
+
+def test_install_refuses_when_components_py_is_missing(scripts, repo):
+    (scripts / "components.py").unlink()
+    result = install(scripts, repo)
+    assert result.returncode == 1
+    assert "components.py" in result.stderr
+
+
+def test_pre_commit_framework_repo_gets_a_pre_push_stanza_and_no_edits(scripts, repo):
+    cfg = repo / ".pre-commit-config.yaml"
+    cfg.write_text("repos: []\n")
+    result = install(scripts, repo)
+    assert result.returncode == 0
+    assert "id: project-docs-render" in result.stdout
+    assert "pre-push" in result.stdout
+    assert "render_docs.py" in result.stdout
+    assert cfg.read_text() == "repos: []\n"
+    assert not push_hook(repo).exists()
+
+
+def test_flake_repo_gets_the_render_check_snippet(scripts, repo):
+    (repo / "flake.nix").write_text("{ }\n")
+    out = install(scripts, repo).stdout
+    assert "checks.${system}.project-docs-render" in out
+    assert "checks.${system}.project-docs " in out
+    assert "--check --no-trigger" in out
+    for name in ("validate_docs.py", "components.py", "render_docs.py"):
+        assert name in out
+    assert "${./ci}/render_docs.py" in out  # a directory, so components.py sits beside it
+
+
+def test_render_check_passes_and_fails_on_drift_with_no_git_dir(tmp_path):
+    """What the Nix derivation runs: the three scripts side by side, a source copy without .git."""
+    ci = tmp_path / "ci"
+    ci.mkdir()
+    for f in ("validate_docs.py", "components.py", "render_docs.py"):
+        shutil.copy(SCRIPTS / f, ci / f)
+    src = tmp_path / "src"
+    shutil.copytree(FIXTURE, src)
+    cmd = ["python3", str(ci / "render_docs.py"), "--check", "--no-trigger", str(src)]
+    assert run(*cmd).returncode == 1  # nothing rendered yet
+    assert run("python3", ci / "render_docs.py", src).returncode == 0
+    assert run(*cmd).returncode == 0
+    assert not (src / ".git").exists()
+    extend_overview(src)
+    assert run(*cmd).returncode == 1
+
+
+def test_formatter_exclude_for_generated_files_is_printed(scripts, repo):
+    out = install(scripts, repo).stdout
+    assert "docs/generated/**" in out
+    assert ".prettierignore" in out
+    assert "treefmt" in out
