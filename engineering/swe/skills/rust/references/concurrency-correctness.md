@@ -9,26 +9,48 @@ compile with a `Send` error. For latency, throughput and memory, read `concurren
 Entry format: `Symptom`, `Fix`, optional `Test` and `Status`, `Source`, `Accessed`. Docs pages were
 opened on the access date (tokio 1.54.1, Rust std 1.100.0, loom 0.7.3, parking_lot 0.13.0). Rust
 snippets are sketches, not compiled. `Status` marks a fix that production reverted or that is
-version-specific. `hoprnet <hash>` entries are commits in github.com/hoprnet/hoprnet, re-checked by
-hash and title only.
+version-specific. `hoprnet` links are commits in github.com/hoprnet/hoprnet; their figures were
+re-read with `gh api` from the commit message (and diff where noted) on the access date.
 
 ## 1. Locks and deadlock
 
-### Never hold a `std` mutex guard across `.await`
+### Never hold a lock guard across `.await`, and keep non-`Send` values out of the future
 
-Symptom: compile error "future is not `Send` as this value is used across an await", or, with a
-`Send` guard type, a deadlock ("The code compiles, but it deadlocks!").
-Fix: end the guard's scope before the await. `drop(guard)` is not enough, because the compiler
-judges `Send` by scope. Or hide the mutex in a type whose sync methods lock inside.
-Test: a unit test that spawns the future on a multi-thread runtime; the `Send` check is compile time.
+Symptom: compile error "future cannot be sent between threads safely" on `tokio::spawn` (an `Rc` or
+a `std` `MutexGuard` "used across an await"); or, with a `Send` guard type, a deadlock ("The code
+compiles, but it deadlocks!").
+Fix: a task is `Send` only if all data held across `.await` is `Send`. Wrap the guard or the
+non-`Send` value in an inner block so it drops before the await, or hide the mutex in a type whose
+sync methods lock inside. On a public trait, bare `async fn` cannot let callers require `Send`: use
+`trait_variant::make` or `-> impl Future<Output = T> + Send`, as `overrides.md` section 5 requires.
+Status: version-specific. The Tokio tutorial says an explicit `drop(lock)` "fails too" because the
+compiler judges `Send` "based on scope information only" (the page names no Rust version). Rust 1.74
+release notes list "Enable MIR-based drop-tracking for `async` blocks". On rustc 1.95.0 (sketch below)
+a bare `let g = m.lock().unwrap(); drop(g); other().await;` compiled, but `*g += 1; drop(g);` before
+the await was still rejected. Use the inner block. Trait-bound advice needs Rust 1.75 or later.
+Test: on a `current_thread` runtime, a second task needs the same lock and retries
+`try_lock` with `yield_now().await` under `tokio::time::timeout`. A guard held across an await,
+including a `Send` one such as `parking_lot`, makes the timeout fire and fails the test (sketch below, not compiled).
 Source: https://tokio.rs/tokio/tutorial/shared-state ;
-https://tokio.rs/tokio/tutorial/spawning
+https://tokio.rs/tokio/tutorial/spawning ;
+https://github.com/rust-lang/rust/blob/master/RELEASES.md (Version 1.74.0, Language) ;
+https://blog.rust-lang.org/2023/12/21/async-fn-rpit-in-traits/
 Accessed: 2026-11-19
 
 ```rust
-// sketch
-{ let mut g = mutex.lock().unwrap(); *g += 1; } // guard dropped here
-do_something_async().await;
+// sketch, not compiled against a tokio version
+let m = std::sync::Arc::new(parking_lot::Mutex::new(0));
+let m2 = m.clone();
+tokio::spawn(async move { work_that_must_not_hold_the_lock(&m2).await });
+tokio::task::yield_now().await;
+tokio::time::timeout(std::time::Duration::from_millis(200), async {
+    loop {
+        if let Some(_g) = m.try_lock() { break; }
+        tokio::task::yield_now().await;
+    }
+})
+.await
+.expect("lock still held across an await");
 ```
 
 ### Never re-lock on the same thread, and never nest reads behind a queued writer
@@ -100,9 +122,17 @@ Accessed: 2026-11-19
 ### Register interest before you check, with `Notify`
 
 Symptom: a waiter sleeps forever although a notification was sent: a lost wakeup.
-Fix: `notify_one` stores one permit, but `notify_waiters` stores none and wakes only registered
-`Notified` futures. A `Notified` future is not guaranteed `notify_one` wakeups until it is polled,
-so call `enable` before re-checking the condition when two tasks wait at once.
+Fix: create the `Notified` future before you check the condition, call `enable()` on it, check the
+condition, and only then `.await` the future. In the docs' mpmc example: `let future =
+notify.notified(); tokio::pin!(future);` then in a loop `future.as_mut().enable();`, then
+`try_recv()`, then `future.as_mut().await`, then `future.set(notify.notified())`. A `Notified` that
+was not yet polled is "not guaranteed to receive wakeups from calls to `notify_one()`". `notify_one`
+stores one permit if nobody waits, so a single consumer that checks the condition and then awaits
+cannot lose a wakeup (the docs' mpsc example skips `enable`). `notify_waiters` stores no permit, but a
+`Notified` "is guaranteed to receive wakeups from `notify_waiters()` as soon as it has been created".
+Test: spawn `notify_waiters()` between the condition check and the `.await`; with
+`notified()` created first the waiter wakes, and with `notified()` created after the check it hangs
+under `tokio::time::timeout` (sketch, not compiled).
 Source: https://docs.rs/tokio/latest/tokio/sync/struct.Notify.html
 Accessed: 2026-11-19
 
@@ -114,7 +144,7 @@ Fix: arm an idle deadline when the sink first returns `Pending`, reset it on eac
 error on expiry. For a cycle, break it: the hoprnet case used an unbounded channel, which is safe
 only when another limit bounds the data.
 Source: https://github.com/hoprnet/hoprnet/commit/3889e2bb69 ;
-https://github.com/hoprnet/hoprnet/commit/c4ace897aa
+https://github.com/hoprnet/hoprnet/commit/c4ace897aa (both commit messages re-read 2026-11-19)
 Accessed: 2026-11-19
 
 ## 3. Task lifecycle
@@ -156,22 +186,7 @@ Source: https://github.com/rust-lang/rust/issues/126482 ;
 https://docs.rs/tokio/latest/tokio/task/index.html
 Accessed: 2026-11-19
 
-## 4. `Send` and async traits
-
-### Fix a non-`Send` future by narrowing the scope of the value
-
-Symptom: "future cannot be sent between threads safely" on `tokio::spawn`, from an `Rc` or a
-`MutexGuard` used across an await.
-Fix: a task is `Send` only if all data held across `.await` is `Send`. Wrap the non-`Send` value in
-an inner block so it drops before the await. On a public trait, bare `async fn` cannot let callers
-require `Send`: use `trait_variant::make` or write `-> impl Future<Output = T> + Send`, as
-`overrides.md` section 5 requires.
-Status: Rust 1.75 and later.
-Source: https://tokio.rs/tokio/tutorial/spawning ;
-https://blog.rust-lang.org/2023/12/21/async-fn-rpit-in-traits/
-Accessed: 2026-11-19
-
-## 5. Memory model and library bugs
+## 4. Memory model and library bugs
 
 ### Match atomic ordering to what the data needs
 
@@ -180,10 +195,12 @@ Fix: `Relaxed` gives only a per-variable total order, enough for an independent 
 passes between threads, pair a `Release` store with an `Acquire` load. "SeqCst ordering is almost
 never necessary in practice", and a stronger ordering "might even slow your program down".
 For shared shadow state use swap or CAS, not a load then a store (`overrides.md` section 5).
-Test: model the publish pattern in loom with `Relaxed` to see the failure, then with `Release` and
-`Acquire`.
+Test: write the publish pattern with `Release` and `Acquire` and check it under loom and under Miri
+with `-Zmiri-many-seeds`. Neither tool models every `Relaxed` behaviour, so a pass is not proof for
+`Relaxed` code.
 Source: https://doc.rust-lang.org/std/sync/atomic/enum.Ordering.html ;
-http://mara.nl/atomics/memory-ordering.html
+http://mara.nl/atomics/memory-ordering.html ;
+https://docs.rs/loom/latest/loom/ ; https://github.com/rust-lang/miri/blob/master/README.md
 Accessed: 2026-11-19
 
 ### Pin patched versions of concurrency libraries
@@ -202,10 +219,13 @@ Accessed: 2026-11-19
 Symptom: a rare interleaving corrupts data and ordinary tests pass.
 Fix: model-test with loom: route all synchronisation through a crate-local `sync` module that
 re-exports `loom` types under `--cfg loom` and `std` types otherwise. Bound large models with
-`LOOM_MAX_PREEMPTIONS` (2 or 3 catches most bugs). Loom cannot fully model `Relaxed`. Run the
-suite under Miri (`cargo miri test`, `MIRIFLAGS="-Zmiri-many-seeds"` for other interleavings). Miri
-detects data races and emulates "some" weak memory effects, so a pass is not proof.
-Test: a loom test per lock-free structure, run in CI on the `loom` cfg.
+`LOOM_MAX_PREEMPTIONS` (2 or 3 catches most bugs). Loom "can't fully model" `Relaxed`, so a loom
+pass is not proof for `Relaxed` code. Cross-check with Miri (`cargo miri test`), which detects data
+races and emulates "some" weak memory effects, using `MIRIFLAGS="-Zmiri-many-seeds"` to try other
+interleavings. A Miri pass is not proof either; its README says weak memory emulation "is not
+complete".
+Test: one loom test per lock-free structure, run in CI on the `loom` cfg, plus the same tests under
+`cargo miri test` with `-Zmiri-many-seeds=0..16`. A failure in either fails CI.
 Source: https://docs.rs/loom/latest/loom/ ;
 https://github.com/rust-lang/miri/blob/master/README.md
 Accessed: 2026-11-19

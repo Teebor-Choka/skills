@@ -7,8 +7,10 @@ For hangs, lost data and shutdown bugs, read `concurrency-correctness.md`.
 `overrides.md` section 5 still applies. This file adds the performance reasons behind it.
 
 Entry format and caveats: see `concurrency-correctness.md`. Versions read on the access date: tokio
-1.54.1, futures 0.3.34, arc-swap 1.9.5, crossbeam-utils 0.8.23. `hoprnet <hash>` entries: their claims
-come from PR #98's read of each diff; on 2026-11-19 only the hash and commit title were re-checked.
+1.54.1, futures 0.3.34, arc-swap 1.9.5, crossbeam-utils 0.8.23. `hoprnet` links are commits in
+github.com/hoprnet/hoprnet. Their figures were re-read with `gh api` from the commit message on
+2026-11-19 (the diff too for `daea01c4c4`); an earlier pass, PR #98 in github.com/Teebor-Choka/skills,
+first read them from the diffs.
 
 ## 1. Keep the runtime's workers free
 
@@ -24,7 +26,8 @@ Source: https://ryhl.io/blog/async-what-is-blocking/ ;
 https://tokio.rs/blog/2020-04-preemption ;
 https://docs.rs/tokio/latest/tokio/task/coop/index.html ;
 https://github.com/hoprnet/hoprnet/commit/9abf25458d (a dispatch loop built on `future::ready`
-monopolised its thread; fixed with `consume_budget`); guideline `M-YIELD-POINTS`.
+monopolised its thread; fixed with `consume_budget`; commit message re-read 2026-11-19); guideline
+`M-YIELD-POINTS`.
 Accessed: 2026-11-19
 
 ### Route blocking work by kind, and cap it
@@ -51,10 +54,11 @@ let out = rx.await?;
 ### Keep storage reads off the hot path
 
 Symptom: pool workers block on one database read per packet.
-Fix: cache the derived value in memory so the fast path calls no backend.
-Test: a mock backend that fails the test if the fast path calls it.
-Source: https://github.com/hoprnet/hoprnet/commit/daea01c4c4 (a per-packet redb read on a crypto
-worker removed).
+Fix: keep the value the fast path needs in memory, so it does no I/O. The commit caches the unrealized
+value for the tracked epoch and never calls the queue's `peek()` on that path.
+Test: a spy queue that counts `peek()` calls; the test fails if the fast path calls it.
+Source: https://github.com/hoprnet/hoprnet/commit/daea01c4c4 (a per-packet redb read on a Rayon
+decode worker removed; message and diff re-read 2026-11-19).
 Accessed: 2026-11-19
 
 ### Never loop in `poll` without a waker
@@ -62,7 +66,7 @@ Accessed: 2026-11-19
 Symptom: idle nodes use 100% of one core.
 Fix: return `Pending` and let the inner future's waker drive the next poll.
 Source: https://github.com/hoprnet/hoprnet/commit/eb21c1354c (a flush `continue`d in a loop when the
-delay was zero).
+delay was zero; commit message re-read 2026-11-19).
 Accessed: 2026-11-19
 
 ## 2. Locks and shared state
@@ -77,7 +81,7 @@ across an `.await`. Do not hold a lock across many items: release or yield betwe
 Source: https://docs.rs/tokio/latest/tokio/sync/struct.Mutex.html ;
 https://tokio.rs/tokio/tutorial/shared-state ;
 https://github.com/hoprnet/hoprnet/commit/eb21c1354c (a flush held a write lock across consecutive
-upserts; fixed by yielding every 8).
+upserts; fixed by yielding every 8; commit message re-read 2026-11-19).
 Accessed: 2026-11-19
 
 ### Shard a contended map, or give the resource one owner task
@@ -112,7 +116,7 @@ eventually fill up all available memory". A queue built on a `Vec`/heap needs `p
 Test: push past capacity and assert the sender is pending, not that memory grew.
 Source: https://tokio.rs/tokio/tutorial/channels ;
 https://github.com/hoprnet/hoprnet/commit/5639d4c891 (a heap whose capacity was only a
-pre-allocation hint grew until OOM).
+pre-allocation hint grew until OOM; commit message re-read 2026-11-19).
 Accessed: 2026-11-19
 
 ### Check what "bounded" means for your channel
@@ -121,16 +125,37 @@ Symptom: a channel holds more than its stated capacity, so memory or latency exc
 Fix: read the capacity rule. `futures::channel::mpsc::channel(n)` holds `n` plus one per sender
 clone. `tokio::sync::broadcast` rounds capacity up to a power of two (`channel(3)` holds 4) and
 overwrites the oldest value. Use a strict-capacity channel when clones multiply.
-Source: https://github.com/hoprnet/hoprnet/commit/ac365f2b82 (commit body) ;
+Source: https://github.com/hoprnet/hoprnet/commit/ac365f2b82 (commit message re-read 2026-11-19) ;
 https://docs.rs/tokio/latest/tokio/sync/broadcast/index.html
 Accessed: 2026-11-19
 
 ### Size a buffer in front of a CPU pool to the pool
 
 Symptom: a burst reaches the pool at once, tail items pass a timeout and drop silently.
-Fix: a small buffer applies backpressure early. A 200 000 item buffer was the cause in hoprnet.
-Test: assert the buffer-size constant.
-Source: https://github.com/hoprnet/hoprnet/commit/e576e99553
+Fix: a small buffer applies backpressure early. In hoprnet a 200 000 item buffer let a 2 060 packet
+burst reach the pool at once; cutting it to 256 made `poll_ready` return `Pending` at item 257.
+Test: assert the buffer-size constant stays at or below the limit, and that a full sink returns
+`Poll::Pending`.
+Source: https://github.com/hoprnet/hoprnet/commit/e576e99553 (commit message re-read 2026-11-19)
+Accessed: 2026-11-19
+
+### Pick the channel type by job
+
+Symptom: lost updates, wasted memory, or a panic from the wrong channel in the wrong context.
+Fix: `oneshot` sends a single value from one producer to one consumer. `mpsc` sends many values
+from many producers to one consumer. `broadcast` sends many values to many consumers, and each
+consumer receives each value. `watch` stores only the most recent value, so use it when only the
+latest value matters, such as configuration; its receivers are not guaranteed to see every value.
+Between sync and async code, use `blocking_send` and `blocking_recv`. Both are "to call outside of
+asynchronous contexts" and panic inside one. `std::sync::mpsc` and `crossbeam` channels halt the
+thread while they wait, so keep them out of async code.
+Test: for a `watch` or `broadcast` consumer, send faster than it reads and assert the intended
+outcome (latest value, or `RecvError::Lagged`); for `blocking_send`, call it from a `std::thread`.
+Source: https://docs.rs/tokio/latest/tokio/sync/index.html ;
+https://docs.rs/tokio/latest/tokio/sync/watch/index.html ;
+https://docs.rs/tokio/latest/tokio/sync/mpsc/struct.Sender.html ;
+https://docs.rs/tokio/latest/tokio/sync/mpsc/struct.Receiver.html ;
+https://tokio.rs/tokio/tutorial/channels
 Accessed: 2026-11-19
 
 ### Give each slow consumer its own bounded queue and drop policy
@@ -140,7 +165,7 @@ Fix: `try_send` into a per-destination bounded queue with an explicit overflow p
 or drop-oldest when freshness matters). Use one spawned task per destination for slow opens. With
 `broadcast`, a slow receiver gets `RecvError::Lagged` and may skip ahead.
 Source: https://github.com/hoprnet/hoprnet/commit/d670a6c505 ;
-https://github.com/hoprnet/hoprnet/commit/5639d4c891 ;
+https://github.com/hoprnet/hoprnet/commit/5639d4c891 (both commit messages re-read 2026-11-19) ;
 https://docs.rs/tokio/latest/tokio/sync/broadcast/index.html
 Accessed: 2026-11-19
 
@@ -152,7 +177,7 @@ Fix: check admission cheaply before queueing. In h2, a flood of paired `HEADERS`
 frames grew the accept queue; the fix caps remote reset streams by default.
 Status: h2 fix is version-specific (patched in `>=0.3.17`).
 Source: https://github.com/hoprnet/hoprnet/commit/9947bd29b5 (about 110 forged start requests per
-second parked every handler) ; https://rustsec.org/advisories/RUSTSEC-2023-0034.html
+second parked every handler; commit message re-read 2026-11-19) ; https://rustsec.org/advisories/RUSTSEC-2023-0034.html
 Accessed: 2026-11-19
 
 ### Bound in-flight work
@@ -166,7 +191,7 @@ deadline.
 Source: https://docs.rs/futures/latest/futures/stream/trait.StreamExt.html ;
 https://docs.rs/tokio/latest/tokio/sync/struct.Semaphore.html ;
 https://github.com/hoprnet/hoprnet/commit/adefa298ad (one unresolved packet stopped all origination
-for about 1 h 44 min with a green healthcheck).
+for about 1 h 44 min with a green healthcheck; commit message re-read 2026-11-19).
 Accessed: 2026-11-19
 
 ## 4. Pools shared by two directions
@@ -182,7 +207,8 @@ the reverted reserved-thread cap.
 Status: the reserved-thread cap was reverted in production. The defaults were ready-queue depths, not
 thread counts.
 Source: https://github.com/hoprnet/hoprnet/commit/8ff6bec7ca (the cap) ;
-https://github.com/hoprnet/hoprnet/commit/3579344dd2 (the revert)
+https://github.com/hoprnet/hoprnet/commit/3579344dd2 (the revert; both commit messages re-read
+2026-11-19)
 Accessed: 2026-11-19
 
 ## 5. Cache lines
