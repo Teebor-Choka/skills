@@ -430,8 +430,7 @@ def test_github_pat_is_redacted():
     ("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI", "AWS_SECRET_ACCESS_KEY=" + RED),
     ("MY_API_KEY=xyz", "MY_API_KEY=" + RED),
     ('{"password": "hunter2"}', '{"password": "' + RED + '"}'),
-    ("Authorization: Basic dXNlcjpwYXNz", "Authorization: " + RED),
-    ("authorization=Bearer abc", "authorization=" + RED),
+    # Authorization values run to the end of the line: see test_other_patterns_do_not_leak_a_tail.
     ("git clone https://user:pass@github.com/org/repo.git",
      "git clone https://" + RED + "@github.com/org/repo.git"),
     ("-----BEGIN PRIVATE KEY-----\nMIIBVQIBADANBg\n-----END PRIVATE KEY-----", RED),
@@ -520,6 +519,8 @@ def test_url_userinfo_is_redacted_up_to_the_last_at_sign(text, expected):
     # review 3: an Authorization header value always runs to the end of the line.
     ("Authorization: Bearer abc def ghi", "Authorization: " + RED),
     ("Authorization: Basic dXNlcjpwYXNz extra", "Authorization: " + RED),
+    ("Authorization: Basic dXNlcjpwYXNz", "Authorization: " + RED),
+    ("authorization=Bearer abc", "authorization=" + RED),
 ])
 def test_other_patterns_do_not_leak_a_tail(text, expected):
     assert se.redact(text) == expected
@@ -667,6 +668,7 @@ def test_over_redaction_changes_the_type_and_is_counted(tmp_path):
 def test_altered_counter_names_each_silent_change(tmp_path):
     lines = [
         _line("assistant", uuid="a", message={"role": "assistant", "model": 5, "content": [
+            {"type": "text", "text": "t"},
             {"type": "tool_use", "id": "t", "name": "N", "input": None},
             {"type": "tool_use", "id": "t2", "name": "N", "input": [1]},
             {"type": "tool_use", "id": "t3", "name": "N",
