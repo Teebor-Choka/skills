@@ -26,7 +26,11 @@ stop-at-rung meaning is fixed.
 ## Input
 
 The depth — and the scope it applies to — is **given per invocation**. If it was not provided, the
-architect **asks**; it never silently picks a default rung.
+architect does not proceed on a guess. It resolves each in order: the `--depth` / `--scope` arg, then
+the policy keys `architect.depth` / `architect.scope`, then (only if an interactive channel exists) a
+question. If still missing and non-interactive, it halts before any work with a `needs-input` result
+naming the missing field and the arg or policy key that supplies it (`scripts/resolve_input.py`). It
+never silently picks a default rung.
 
 ## Output grain and layered ATDD
 
@@ -35,6 +39,11 @@ rung traversed**: it writes **separate acceptance criteria at each depth**, not 
 run dialed to `components` carries acceptance at interfaces, then modules, then components — each
 rung's contract tested at its own grain (interface-contract tests, then module, then component).
 Deeper rungs refine, they do not replace, the acceptance of the rungs above them.
+
+The spec records this in two scaffolded sections, "Decomposition depth" (the dialed rung, the scope,
+and who gave them) and "Acceptance by rung" (one row per rung from `interfaces` to the dialed one).
+`lint.py` rule E9 fails a spec that lacks either, names an unknown rung, says the depth was a default,
+or skips a traversed rung.
 
 ## Relation to `:improve`
 

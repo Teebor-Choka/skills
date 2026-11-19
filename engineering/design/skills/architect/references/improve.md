@@ -10,8 +10,13 @@ have no good seam to lock it down, or in a spare moment of upkeep. For a new cap
 flow; `:improve` is for structure that already exists.
 
 You give it the **target** — the whole repo, a subtree, or a named module. `:improve` never picks its
-own blast radius; **ask for the scope if it wasn't named.** And it only **scopes**: it emits a work
+own blast radius; **the scope must be named** (`--target` or policy `architect.improve-target`; a question only when an interactive channel exists, else a `needs-input` halt before any scan). And it only **scopes**: it emits a work
 package, it never edits code. The actual refactor is a later `implement` run against the boxes.
+
+Not code-health. Duplication, dead code, coverage and complexity metrics stay with the
+`code-quality` skill; `:improve` judges module depth from structure (interface width against
+implementation volume, fan-in and fan-out). It shares the depth idea with the depth-dialed scoping of
+the main flow (`depth-dial.md`) but is a different process: do not merge them.
 
 ## The move
 
@@ -39,14 +44,25 @@ package, it never edits code. The actual refactor is a later `implement` run aga
    deepening," never padding with marginal boxes. When **many clear it**, cap the list to the few
    worth acting on, but **list all** found: the sub-cap tail is noted below, not dropped and not
    emitted as boxes.
-5. **Feed the pick into the main flow.** The chosen deepening becomes a normal architect package at
+   Record the result in `improve-report.md` (`scripts/scaffold.py --slug <slug> --title "<Title>"
+--improve`, then `scripts/lint.py <file> --improve`). It states the target, the grounding, the
+   **Box cap** (a number: `--cap` or policy `architect.box-cap`, default 5, always written into the report) and the
+   output location. Findings are listed all together, ranked by importance, scope and impact, and the
+   top rows up to the cap become boxes. The rest go in the "Not emitted" tail note.
+5. **Resolve where the output goes, then feed the pick into the main flow.** The location comes from
+   `--output`, else policy `work.tracker`, else GitHub issues (a stated default, written into the report). The chosen deepening becomes a normal architect package at
    its blast-radius tier (often `small`: a proposal + decision-log + spec with tests), each box
    carrying **ATDD acceptance + end-to-end tests**, filed to the tracker `work.tracker` resolves to
-   (typically a GitHub issue) — and because `:improve` is interactive, confirm that destination with
-   the user before handing off to `decompose`. Carry the
+   (typically a GitHub issue) — the destination is confirmed in an interactive session, or taken as resolved above when there is none, before handing off to `decompose`. Carry the
    **deep-module invariant** into `invariants.md` — _components and libraries stay deep: a large
    implementation behind a tiny, stable interface_ — so every filed work item inherits it and the fix doesn't
    regress on the next change.
+
+## Guards
+
+`:improve` never edits code, never chooses its own target, never pads a clean target with marginal
+boxes, never emits an uncapped dump, and never falls back to grep without saying so. `lint.py --improve`
+checks the report for each of these that a file can show.
 
 ## What it reuses
 

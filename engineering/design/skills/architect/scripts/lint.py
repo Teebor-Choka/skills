@@ -24,8 +24,15 @@ The rules, keyed to the document set:
   E6  research-notes.md and the proposal each carry a Sources section with >=1 URL
   E7  the development graph is acyclic (graphlib), and its edges match the spec block table
   E8  every relative markdown link resolves to a file that exists
+  E9  the spec states the decomposition depth (interfaces|modules|components|functions), says the
+      user gave it, and carries acceptance criteria at every rung from interfaces down to it
+  E10 two blocks whose write-sets overlap are ordered by a dependency edge or both declare the same
+      `Coordination channel:`; sharing a write-set implicitly is an error
   W1  a spec block declares a requirement backlink (task -> requirement traceability)
   W2  the README names a hinge decision and lists open items
+  W3  the Block index has no Write-set column, so isolation cannot be checked
+
+`--improve` lints a single `:improve` report instead of a package (rules I-*, see check_improve).
 """
 import argparse
 import glob
@@ -108,6 +115,168 @@ def check_spec(spec_path, errs, warns):
             errs.append(f"E4 spec Block {label}: test tables have no data rows")
         if not re.search(r"(requirement|satisfies|REQ-)", chunk, re.I):
             warns.append(f"W1 spec Block {label}: no requirement backlink (task -> requirement)")
+
+
+LADDER = ["interfaces", "modules", "components", "functions"]
+EMPTY = {"", "-", "--", "n/a", "na", "none", "tbd", "todo"}
+
+
+def section(text, heading):
+    """Body of the `## heading` section (up to the next `## `), or None when absent."""
+    m = re.search(rf"(?ims)^##\s+{re.escape(heading)}\s*$(.*?)(?=^##\s|\Z)", text)
+    return m.group(1) if m else None
+
+
+def table_rows(body):
+    """Data rows of the first markdown table in body, as cell lists, plus its header cells."""
+    lines = [ln for ln in body.splitlines() if ln.strip().startswith("|")]
+    sep = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
+    cells = [[c.strip() for c in ln.strip().strip("|").split("|")] for ln in lines if not sep.match(ln)]
+    return (cells[0], cells[1:]) if cells else ([], [])
+
+
+def check_depth(text, errs):
+    """E9: depth dialed per invocation, acceptance at each rung from interfaces to the dialed one."""
+    body = section(text, "Decomposition depth")
+    if body is None:
+        errs.append("E9 spec: no '## Decomposition depth' section; supply `--depth` and `--scope` (or policy keys `architect.depth`, `architect.scope`) to scaffold.py, never a guess")
+        return
+    m = re.search(r"\*\*Dialed rung:\*\*\s*([A-Za-z-]+)", body)
+    rung = m.group(1).lower() if m else ""
+    if rung not in LADDER:
+        errs.append(f"E9 spec: dialed rung '{rung or 'missing'}' is not one of {'|'.join(LADDER)}")
+        return
+    g = re.search(r"\*\*Given by:\*\*\s*(.+)", body)
+    if (not g or re.search(r"default|assum|guess|infer", g.group(1), re.I)
+            or not re.search(r"\b(user|owner|requester|operator)\b", g.group(1), re.I)):
+        errs.append("E9 spec: 'Given by' must name the user who gave the depth; a silent default is not allowed")
+    sc = re.search(r"\*\*Scope:\*\*\s*([^·\n]+)", body)
+    if not sc or sc.group(1).strip().lower() in EMPTY:
+        errs.append("E9 spec: the scope the depth applies to is not stated")
+    acc = section(text, "Acceptance by rung") or ""
+    _, rows = table_rows(acc)
+    have = {r[0].lower(): r[1] for r in rows if len(r) >= 2 and r[1].strip().lower() not in EMPTY}
+    for r in LADDER[: LADDER.index(rung) + 1]:
+        if r not in have:
+            errs.append(f"E9 spec: no acceptance criteria for traversed rung '{r}'")
+
+
+def _block_chunks(text):
+    parts = re.split(r"(?m)^#{2,3}\s+Block\s+(?=\d)", text)
+    return {re.match(r"[\w.-]+", c).group(0): c for c in parts[1:] if re.match(r"[\w.-]+", c)}
+
+
+def _paths(cell):
+    """Write-set paths of a table cell: backticks, `./` and empty markers removed."""
+    out = []
+    for w in re.split(r"[,;\s]+", cell.replace("`", "")):
+        w = re.sub(r"^(\./)+", "", w).strip("/")
+        if w.lower() not in EMPTY:
+            out.append("." if w in (".", "") else w)
+    return out
+
+
+def _overlap(a, b):
+    if "." in (a, b):
+        return True
+    return a == b or a.startswith(b + "/") or b.startswith(a + "/")
+
+
+def check_write_sets(text, errs, warns):
+    """E10: overlapping write-sets need an ordering edge or a shared declared channel."""
+    m = re.search(r"(?ims)^#{2,3}\s+Block index\s*$(.*?)(?=^#{1,3}\s|\Z)", text)
+    header, rows = table_rows(m.group(1)) if m else ([], [])
+    low = [h.lower() for h in header]
+    wi = next((i for i, h in enumerate(low) if "write" in h), None)
+    if wi is None:
+        warns.append("W3 spec: Block index has no Write-set column; isolation cannot be checked")
+        return
+    ni = low.index("#") if "#" in low else 0
+    sets = {}
+    for r in rows:
+        node = r[ni].replace("*", "").replace("`", "").strip() if len(r) > ni else ""
+        if len(r) > max(wi, ni) and re.match(r"^[\w.-]+$", node):
+            sets[node] = _paths(r[wi])
+    succ = {}
+    for dep, node in parse_block_deps(text):
+        succ.setdefault(dep, set()).add(node)
+
+    closure = {}
+    for start in set(succ) | {n for v in succ.values() for n in v}:
+        seen, todo = set(), list(succ.get(start, ()))
+        while todo:
+            n = todo.pop()
+            if n not in seen:
+                seen.add(n)
+                todo.extend(succ.get(n, ()))
+        closure[start] = seen
+    for n, r in closure.items():
+        if n in r:
+            errs.append(f"E10 spec: block {n} depends on itself through a cycle in the Block index")
+
+    def reach(a, b):
+        return b in closure.get(a, ())
+
+    chunks = _block_chunks(text)
+
+    def channel(n):
+        c = re.search(r"Coordination channel:\*{0,2}[ \t]*(\S+)", chunks.get(n, ""))
+        return c.group(1) if c and c.group(1).lower() not in EMPTY and not c.group(1).startswith("*") else None
+
+    ids = list(sets)
+    for i, a in enumerate(ids):
+        for b in ids[i + 1:]:
+            if not any(_overlap(x, y) for x in sets[a] for y in sets[b]):
+                continue
+            if (reach(a, b) or reach(b, a)) and not (reach(a, a) or reach(b, b)):
+                continue
+            if channel(a) and channel(a) == channel(b):
+                continue
+            errs.append(f"E10 spec: blocks {a} and {b} share a write-set with no dependency edge "
+                        "and no shared 'Coordination channel:' declared in both")
+
+
+def check_improve(text, errs):
+    """`:improve` report: target/grounding/location given, honest empty result, capped boxes."""
+    def field(name):
+        m = re.search(rf"\*\*{name}:\*\*[ \t]*(.+)", text)
+        return m.group(1).strip() if m else ""
+    for name in ("Target", "Grounding", "Output location", "Box cap"):
+        if not field(name):
+            errs.append(f"I1 improve report: '{name}' is not stated")
+    grounding = field("Grounding").lower()
+    direct = "direct read" in grounding
+    ok = ("warn" in grounding) if direct else ("graph" in grounding and not re.search(
+        r"\bno\b[^;]*graph|unavailable|not available", grounding))
+    if grounding and not ok:
+        errs.append("I2 improve report: Grounding must name the code graph, or 'direct read' with a warning")
+    boxes = re.split(r"(?m)^###\s+Box\s+(?=\d)", "\n" + (section(text, "Boxes") or ""))[1:]
+    header, rows = table_rows(section(text, "All findings") or "")
+    ei = next((i for i, h in enumerate(h.lower() for h in header) if h == "emitted"), None)
+    emitted = [r[ei].lower().startswith("y") for r in rows if ei is not None and len(r) > ei]
+    if "nothing worth deepening" in (section(text, "Result") or "").lower():
+        if boxes or rows:
+            errs.append("I3 improve report: 'nothing worth deepening' must come with no boxes and no findings")
+        return
+    if not boxes:
+        errs.append("I3 improve report: no boxes and no 'nothing worth deepening' result")
+    cap = field("Box cap")
+    if cap and not (cap.isascii() and cap.isdigit()):
+        errs.append(f"I4 improve report: Box cap '{cap}' is not a number")
+    if cap.isascii() and cap.isdigit() and len(boxes) > int(cap):
+        errs.append(f"I4 improve report: {len(boxes)} boxes exceed the cap of {cap}")
+    for c in boxes:
+        label = c.splitlines()[0].strip()
+        if "acceptance" not in c.lower():
+            errs.append(f"I5 improve report: Box {label} has no acceptance criteria")
+        if "deep with tiny interfaces" not in c.lower():
+            errs.append(f"I5 improve report: Box {label} lacks the deep-module invariant")
+    if sum(emitted) != len(boxes):
+        errs.append("I6 improve report: rows marked emitted do not match the box count")
+    if emitted != sorted(emitted, reverse=True):
+        errs.append("I6 improve report: emitted rows must be the top-ranked ones, listed first")
+    if not all(emitted) and not (section(text, "Not emitted") or "").strip():
+        errs.append("I6 improve report: findings below the cap need a 'Not emitted' tail note")
 
 
 def check_decision_log(path, errs):
@@ -248,10 +417,20 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("dir")
     ap.add_argument("--tier", choices=["note", "small", "full"], default="full")
+    ap.add_argument("--improve", action="store_true", help="lint one :improve report file")
     ap.add_argument("--strict", action="store_true", help="fail on warnings too")
     args = ap.parse_args()
 
     root = args.dir
+    if args.improve:
+        errs = []
+        text = read(root)
+        check_placeholders(root, text, errs)
+        check_improve(text, errs)
+        for e in errs:
+            print(f"FAIL {e}")
+        print(f"\n1 report checked, {len(errs)} error(s).")
+        return 0 if not errs else 1
     if not os.path.isdir(root):
         print(f"error: not a directory: {root}", file=sys.stderr)
         return 2
@@ -304,6 +483,8 @@ def main():
     # E4 spec, E5 decisions, E6 sources, E7 dag, E8 links, W2 readme.
     if spec:
         check_spec(spec, errs, warns)
+        check_depth(read(spec), errs)
+        check_write_sets(read(spec), errs, warns)
     dlog = os.path.join(root, "decision-log.md")
     if os.path.exists(dlog):
         check_decision_log(dlog, errs)

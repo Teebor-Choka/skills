@@ -75,7 +75,7 @@ def _scaffold_full(tmp_path):
     root = tmp_path / "pkg"
     subprocess.run(
         [sys.executable, str(SCAFFOLD), "--slug", "demo", "--title", "Demo", "--tier", "full",
-         "--dir", str(root)],
+         "--depth", "modules", "--scope", "demo", "--dir", str(root)],
         check=True, capture_output=True,
     )
     return root

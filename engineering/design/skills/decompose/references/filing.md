@@ -19,12 +19,12 @@ skill. Unset: default to `github` when the repo has a GitHub remote and `gh` is 
 
 ## What gets filed
 
-One work item per unit (an architect spec block for the `full` tier, or the single `<slug>-plan.md`
-for `note`/`small`), the item an executor such as `implement` picks up. Each item carries, verbatim from the package:
+One work item per unit (an architect spec block for the `full` and `small` tiers, or the single
+`<slug>-plan.md` for `note`), the item an executor such as `implement` picks up. Each item carries, verbatim from the package:
 
 - the block's objective, interface contract, and both test tables (positive + adversarial);
 - its **dependency edges** as an explicit `Blocked by: <item>` / `Blocks: <item>` summary, taken from
-  `development-graph.md`, so execution order is unambiguous without reading the whole set;
+  `development-graph.md` (the spec's Block index for the `small` tier, which has no graph), so execution order is unambiguous without reading the whole set;
 - a link back to the package (path or commit) so the full context is one hop away.
 
 File in dependency order, so a blocker's id exists before the item that cites it.
@@ -35,7 +35,8 @@ The graph step already cut the units for **disjoint write-sets** (collision-free
 units are not cleanly disjoint, because they touch a shared boundary the cut could not separate,
 `decompose` **declares** it: a line in both items naming a shared coordination channel for
 execution (e.g. a linked discussion). It is a marker the executor honors; `decompose` never opens
-or runs the channel.
+or runs the channel. The architect's spec lint (E10) already rejects a shared write-set that has
+neither a dependency edge nor the same `Coordination channel:` line in both blocks.
 
 ## Terminal
 
