@@ -61,6 +61,19 @@ def _unwrap(words):
     return words
 
 
+def _cluster_has_recursion(arg):
+    """`-rn`, `-nr`, `-Rn`, `-rI`: r or R inside a short-flag cluster. A flag that takes a value (-e, -f, -m,
+    -A, -B, -C, -d) ends the scan, since the rest of the token is its glued value (`-erfoo`)."""
+    if not arg.startswith("-") or arg.startswith("--") or len(arg) < 2:
+        return False
+    for ch in arg[1:]:
+        if ch in "rR":
+            return True
+        if ch in "efmABCd" or ch.isdigit():
+            return False
+    return False
+
+
 def _is_sweep(words):
     """Does this segment look like a grep/find/rg/ag sweep over source files?"""
     words = _unwrap(words)
@@ -78,7 +91,7 @@ def _is_sweep(words):
         return False
     if cmd in _GREP_FAMILY:
         return any(a in _RECURSIVE_GREP_FLAGS or a.startswith("--include") or a.startswith("--exclude")
-                   for a in rest)
+                   or _cluster_has_recursion(a) for a in rest)
     if cmd in ("rg", "ag"):
         return True
     if cmd == "find":
