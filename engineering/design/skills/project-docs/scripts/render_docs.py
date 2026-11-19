@@ -491,7 +491,7 @@ MANIFEST_METADATA = re.compile(
     r"""^\s*"?(name|version|description|authors?|edition|license|readme|repository|homepage|keywords|"""
     r"""categories|main|module|types|scripts|go|requires-python)"?\s*[=:\s]""")
 FRONTMATTER_LINE = re.compile(r"^(title|kind|project|updated|component|path|depends-on):")
-TRAILER = re.compile(r"^Docs-Unchanged:\s*(.+?)\s*:\s*(\S.*)$", re.M)
+TRAILER = re.compile(r"^Docs-Unchanged:[ \t]*(.+?)[ \t]*:[ \t]*(\S.*)$", re.M)  # one line: no \s across a newline
 TEST_DIRS = frozenset({"tests", "benches", "examples"})
 
 
@@ -564,12 +564,12 @@ GITHUB_REMOTE = re.compile(
     r"([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")
 
 
-def pr_summary(project: Path, base_arg: str | None) -> str:
+def pr_summary(project: Path, explicit_base: str | None) -> str:
     head = _git(project, "rev-parse", "HEAD")
     if head.returncode != 0:
         raise InputError(f"{project}: not a git repository with a commit")
     sha = head.stdout.strip()
-    base = resolve_base(project, base_arg)
+    base = explicit_base or resolve_base(project, None)
     m = GITHUB_REMOTE.match(_git(project, "remote", "get-url", "origin").stdout.strip())
     link = (f"Architecture: [{GENERATED_MD}](https://github.com/{m.group(1)}/{m.group(2)}/blob/{sha}/{GENERATED_MD})"
             if m else f"Architecture: {GENERATED_MD} @ {sha}")
@@ -614,9 +614,9 @@ def _trigger_mode(project: Path, arg: str | None) -> str:
     return arg
 
 
-def run_trigger(project: Path, base_arg: str | None, mode: str) -> int:
+def run_trigger(project: Path, explicit_base: str | None, mode: str) -> int:
     """The update trigger over base...HEAD. Exit 0 clean or warn, 1 in fail mode."""
-    base = resolve_base(project, base_arg)
+    base = explicit_base or resolve_base(project, None)
     if base is None:
         print(NO_BASE, file=sys.stderr)
         return 1 if mode == "fail" else 0
@@ -649,7 +649,7 @@ def run_audit(project: Path, rev_range: str) -> int:
     return 0
 
 
-def run_check(project: Path, args) -> int:
+def run_check(project: Path, args, base: str | None) -> int:
     code = 0
     for rel, text in sorted(render(project).items()):
         try:
@@ -660,7 +660,7 @@ def run_check(project: Path, args) -> int:
             print(f"error: {rel} is out of date; run: {TOOL} {args.path}", file=sys.stderr)
             code = 1
     if not args.no_trigger and (project / "docs" / "components").is_dir():
-        code = max(code, run_trigger(project, args.base, _trigger_mode(project, args.trigger)))
+        code = max(code, run_trigger(project, base, _trigger_mode(project, args.trigger)))
     return code
 
 
@@ -696,12 +696,11 @@ def main(argv: list[str] | None = None, version=sys.version_info) -> int:
     try:
         if not project.is_dir():
             raise InputError(f"{project}: not a directory")
-        if args.base and not (args.check or args.pr_summary):
-            resolve_base(project, args.base)  # an explicit base that does not resolve fails in any mode
+        base = resolve_base(project, args.base) if args.base else None  # unresolvable: exit 2 in any mode
         if args.check:
-            return run_check(project, args)
+            return run_check(project, args, base)
         if args.pr_summary:
-            sys.stdout.write(pr_summary(project, args.base))
+            sys.stdout.write(pr_summary(project, base))
             return 0
         if args.trigger_audit:
             return run_audit(project, args.trigger_audit)

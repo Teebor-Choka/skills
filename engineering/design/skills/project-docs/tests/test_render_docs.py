@@ -445,6 +445,25 @@ def test_docs_unchanged_trailer_satisfies_only_for_that_component_with_a_reason(
         assert "component-page-stale: a:" in r.stderr, trailer
 
 
+def test_reasonless_trailer_does_not_swallow_the_next_line_or_commit(tmp_path):
+    repo, base = git_project(tmp_path)
+    append(repo / "crates/a/src/lib.rs", "pub fn extra() {}\n")
+    commit(repo, "feat: extra\n\nDocs-Unchanged: a:\nCo-Authored-By: x <x@example.org>")
+    assert "component-page-stale: a:" in run(repo, "--check", "--base", base).stderr
+    before = git(repo, "rev-parse", "HEAD")
+    append(repo / "crates/a/src/lib.rs", "pub fn more() {}\n")
+    commit(repo, "feat: more\n\nDocs-Unchanged: a:")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "a reason on the next commit is not the trailer's reason")
+    assert "component-page-stale: a:" in run(repo, "--check", "--base", before).stderr
+
+
+def test_rendered_output_leaves_the_project_valid(tmp_path):
+    repo = bare_project(tmp_path)
+    assert run(repo).returncode == 0
+    import validate_docs
+    assert not [f for f in validate_docs.validate_project(repo) if "generated" in f.file]
+
+
 def test_trigger_does_not_run_without_a_component_layer(tmp_path):
     repo, base = git_project(tmp_path)
     shutil.rmtree(repo / "docs/components")
@@ -512,9 +531,15 @@ def test_explicit_base_missing_from_a_shallow_clone_exits_2(tmp_path):
 
 def test_unresolvable_explicit_base_exits_2_in_every_mode(tmp_path):
     repo, _ = git_project(tmp_path)
-    for mode in ((), ("--check",), ("--check", "--trigger", "fail"), ("--pr-summary",)):
+    modes = ((), ("--check",), ("--check", "--trigger", "fail"), ("--check", "--no-trigger"), ("--pr-summary",))
+    for mode in modes:
         r = run(repo, *mode, "--base", "no-such-ref")
         assert r.returncode == 2 and "no-such-ref" in r.stderr, mode
+    plain = bare_project(tmp_path / "plain")  # no component layer, so the trigger never asks for a base
+    shutil.rmtree(plain / "docs/components")
+    git(plain, "init", "-q", "-b", "main")
+    commit(plain, "base")
+    assert run(plain, "--check", "--base", "no-such-ref").returncode == 2
 
 
 # --- needs-input and the Python rules (AT-25) ---------------------------------
