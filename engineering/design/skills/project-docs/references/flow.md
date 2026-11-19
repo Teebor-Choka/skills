@@ -98,11 +98,16 @@ Write a view when a doc is mostly a flow, a state model or a set of rules that a
 
 ## Finish
 
-Run `python3 scripts/validate_docs.py <project>` and clear every finding before reporting done. Where
-`docs/components/` exists, the validator also checks each page against the manifests (see "Components"
-in the contract). The
-validator only proves the structure is right; you are still responsible for the content being true
-and the diagrams being accurate.
+1. **Validate.** Run `python3 scripts/validate_docs.py <project>` and clear every finding before
+   reporting done. Where `docs/components/` exists, the validator also checks each page against the
+   manifests (see "Components" in the contract). The validator only proves the structure is right; you
+   are still responsible for the content being true and the diagrams being accurate.
+2. **Render.** Run `python3 scripts/render_docs.py <project>` and commit `docs/generated/*`. Run it
+   after the validator, which checks the pages the renderer reads. `render_docs.py --check` proves the committed files match the docs. Where
+   `docs/components/` exists, it also warns when a change to a component's public surface left its
+   page alone: update the page body, or add a `Docs-Unchanged: <component>: <reason>` trailer.
+3. **Paste the summary.** When `docs/**/*.md` changed, put the output of `render_docs.py --pr-summary
+--base <base>` in the PR description.
 
 ## Multi-project runs
 

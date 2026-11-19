@@ -282,6 +282,23 @@ def hook_text(att):
     return ""
 
 
+# A hook that denies through JSON `permissionDecision` leaves no attachment, only a tool result
+# that starts `<Event>:<Tool> hook error: <reason>`. Anchored: the same words inside other output
+# (a file dump, a quoted log) are not a denial.
+HOOK_DENIAL_RE = re.compile(r"\A\s*(\w+(?::[\w.\-]+)+) hook error: ?(.*)", re.S)
+HOOK_REASON_MAX = 80
+
+
+def tool_result_hook_denial(text):
+    """(hook name, reason cut to 80 chars and scrubbed) for a tool result that reports a hook
+    denial, else None. The hook name matches `hookName` on the hook's own attachments."""
+    m = HOOK_DENIAL_RE.match(text) if isinstance(text, str) else None
+    if not m:
+        return None
+    reason = re.sub(r"\s+", " ", scrub(m.group(2)[:HOOK_REASON_MAX * 3])).strip()
+    return m.group(1), reason[:HOOK_REASON_MAX]
+
+
 def pr_ref(entry):
     """`owner/repo#number` of a pr-link entry, else None. Repeats are the caller's to dedupe."""
     if entry.get("type") != "pr-link":

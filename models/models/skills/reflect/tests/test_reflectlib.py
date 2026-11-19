@@ -61,6 +61,19 @@ def test_a_hook_claimed_to_block_that_never_denies_is_flagged():
     assert lib.flag_blocking_claims(hooks, ["gate.sh", "ok.sh", "idle.sh"]) == ["gate.sh"]
 
 
+def test_tool_result_hook_denial_gives_hook_name_and_a_short_scrubbed_reason():
+    name, reason = lib.tool_result_hook_denial(
+        "PreToolUse:Bash hook error: token=abcd1234secret " + "x" * 200)
+    assert name == "PreToolUse:Bash"
+    assert len(reason) <= 80 and "abcd1234secret" not in reason
+
+
+@pytest.mark.parametrize("text", ["plain output", "", None,
+                                  "see PreToolUse:Bash hook error: quoted"])
+def test_other_tool_results_are_not_hook_denials(text):
+    assert lib.tool_result_hook_denial(text) is None
+
+
 # --- RF-08: secret scrubbing -------------------------------------------------
 
 @pytest.mark.parametrize("text,secret", [
