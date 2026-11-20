@@ -827,6 +827,33 @@ def test_emit_in_the_gates_own_workflow_is_left_to_validate_org(root):
     sw["do"].append({"forge": {"emit": {"event": {"with": {"type": "org.owner-decided"}}}}})
     jdump(os.path.join(root, "workflows", "sw-development.json"), sw)
     assert not any("is listened on by gate" in e for e in check_manifest(root))
+    # The same emit in another workflow is refused, so the rule is live and only the same-workflow case is skipped.
+    set_improve(root, [{"forge": {"emit": {"event": {"with": {"type": "org.owner-decided"}}}}}])
+    assert any("emit 'forge' type 'org.owner-decided' is listened on by gate" in e for e in check_manifest(root))
+
+
+def test_non_literal_gate_type_is_not_indexed(root):
+    sw = jload(os.path.join(root, "workflows", "sw-development.json"))
+    gate = next(t["merge-gate"] for t in sw["do"] if "merge-gate" in t)
+    gate["listen"]["to"]["one"]["with"]["type"] = "${ .t }"
+    jdump(os.path.join(root, "workflows", "sw-development.json"), sw)
+    set_improve(root, [{"e": {"emit": {"event": {"with": {"type": "org.owner-decided"}}}}}])
+    assert check_manifest(root) == []
+    # Control: with a literal gate type the same emit is refused.
+    gate["listen"]["to"]["one"]["with"]["type"] = "org.owner-decided"
+    jdump(os.path.join(root, "workflows", "sw-development.json"), sw)
+    assert any("is listened on by gate" in e for e in check_manifest(root))
+
+
+def test_plain_gate_may_listen_on_an_emitted_type(root):
+    sw = jload(os.path.join(root, "workflows", "sw-development.json"))
+    gate = next(t["merge-gate"] for t in sw["do"] if "merge-gate" in t)
+    set_improve(root, [{"e": {"emit": {"event": {"with": {"type": "org.owner-decided"}}}}}])
+    # Control: as a decision gate (role owner) the emit is refused.
+    assert any("is listened on by gate" in e for e in check_manifest(root))
+    gate["metadata"]["org"]["role"] = "lead"  # no human item and role not owner: a plain gate
+    jdump(os.path.join(root, "workflows", "sw-development.json"), sw)
+    assert not any("is listened on by gate" in e for e in check_manifest(root))
 
 
 def _three_workflow_root(root, edges):
@@ -988,7 +1015,7 @@ def test_l11_yaml_unclosed_flow(tmp_path):
 def test_yaml_nesting_too_deep(tmp_path):
     _need_yaml()
     p = write(tmp_path, "a.yaml", "a: " + "[" * 20000 + "]" * 20000 + "\n")
-    assert "nesting too deep to load" in load_msg(p) or "parse error" in load_msg(p)
+    assert load_msg(p) == f"{p}: nesting too deep to load"
 
 
 def test_yaml_positive_control_keeps_strings(tmp_path):
@@ -1184,3 +1211,143 @@ def test_modules_import_only_the_standard_library_at_module_level():
                 mods = [node.module.split(".")[0]]
             for m in mods:
                 assert m in stdlib or m == "validate_catalog", f"{name} imports {m} at module level"
+
+
+# ---------------------------------------------------------------- review 1
+
+
+def test_catalog_name_pattern_refuses_a_trailing_newline(root):
+    errs = check_catalog(root, lambda c: c.__setitem__("lead-time\n", copy.deepcopy(c["lead-time"])))
+    assert has(errs, "catalog: lead-time\n: name must be kebab-case")
+
+
+def test_reads_source_refuses_a_trailing_newline(root):
+    errs = check_catalog(root, lambda c: c["lead-time"].__setitem__("reads", ["a\n"]))
+    assert has(errs, "catalog: lead-time.reads: must be a non-empty list of source names")
+
+
+@pytest.mark.parametrize("path", ["collectors/a.py\n", "collectors/a\n.py"])
+def test_collector_path_refuses_a_newline(root, path):
+    errs = check_catalog(root, lambda c: c["lead-time"].__setitem__("collector", path))
+    assert has(errs, "catalog: lead-time.collector: must be a relative path under collectors/ ending .py")
+
+
+def test_namespace_refuses_a_trailing_newline(root):
+    errs = check_manifest(root, lambda m: m.__setitem__("namespace", "org\n"))
+    assert has(errs, "manifest: namespace: must match the OWS namespace pattern")
+
+
+def test_role_name_refuses_a_trailing_newline(root):
+    errs = check_manifest(root, lambda m: m["roles"].__setitem__("worker2\n", {"escalates-to": "lead"}))
+    assert has(errs, "manifest: roles.worker2\n: name must be kebab-case")
+
+
+def test_workflow_name_refuses_a_trailing_newline(root):
+    def add(m):
+        m["workflows"]["improve\n"] = {"path": "workflows/improve.json", "floors": []}
+
+    assert has(check_manifest(root, add), "manifest: workflows.improve\n: name must be kebab-case")
+
+
+def test_floor_name_refuses_a_trailing_newline(root):
+    errs = check_manifest(root, lambda m: m["workflows"]["improve"].__setitem__("floors", ["a\n"]))
+    assert has(errs, "manifest: workflows.improve.floors: must be a list of task names")
+
+
+def test_json_syntax_error_at_char_4300_is_a_parse_error_not_a_digit_error(tmp_path):
+    p = write(tmp_path, "a.json", '{"a": "' + "x" * 4290 + '" ,, }')
+    msg = load_msg(p)
+    assert "(char 4300)" in msg or "char 43" in msg
+    assert msg.startswith(f"{p}: parse error: ")
+
+
+def test_parse_error_offset_containing_4300_exactly(tmp_path):
+    # Find a prefix length whose JSON error message mentions 4300, then check it is not misreported.
+    for n in range(4280, 4320):
+        p = write(tmp_path, "a.json", '{"a": ' + " " * n + "}x")
+        try:
+            vc.load_document(p)
+        except vc.LoadError as exc:
+            if "4300" in exc.msg:
+                assert exc.msg.startswith("parse error: "), exc.msg
+                return
+    pytest.fail("no JSON error message contained 4300")
+
+
+def test_cycle_search_survives_a_very_long_chain():
+    names = [f"w{i:05d}" for i in range(5000)]
+    edges = {n: set() for n in names}
+    for a, b in zip(names, names[1:]):
+        edges[a].add(b)
+    assert vm._cycle_error(edges) is None
+    edges[names[-1]].add(names[0])
+    err = vm._cycle_error(edges)
+    assert err.startswith("manifest: workflows: start cycle 'w00000' -> 'w00001'")
+    assert err.endswith("'w04999' -> 'w00000'")
+
+
+def test_long_chain_of_listed_workflows_is_located_not_a_crash(root):
+    n = 1200
+    edges = {f"w{i:04d}": ([f"w{i + 1:04d}"] if i + 1 < n else []) for i in range(n)}
+    assert _three_workflow_root(root, edges) == []
+    edges[f"w{n - 1:04d}"] = ["w0000"]
+    errs = _three_workflow_root(root, edges)
+    assert len([e for e in errs if "start cycle" in e]) == 1
+
+
+def test_lone_surrogate_in_a_name_does_not_crash_the_command_line(root):
+    cat = jload(os.path.join(root, "metrics.json"))
+    bad = os.path.join(root, "bad.json")
+    Path(bad).write_text(json.dumps({"a\ud800": cat["lead-time"]}), encoding="utf-8")
+    r = run_cli("validate_catalog.py", "--root", root, bad)
+    assert r.returncode == 1 and "Traceback" not in r.stderr and "name must be kebab-case" in r.stderr
+
+
+def test_lone_surrogate_in_a_collector_path_is_not_found_not_a_crash(root):
+    errs = check_catalog(root, lambda c: c["lead-time"].__setitem__("collector", "collectors/a\ud800.py"))
+    assert has(errs, "catalog: lead-time.collector: file not found under root: ")
+
+
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="chmod 000 does not stop root")
+def test_unreadable_workflow_file_is_a_located_load_error(root):
+    p = os.path.join(root, "workflows", "improve.json")
+    os.chmod(p, 0)
+    try:
+        errs = check_manifest(root)
+    finally:
+        os.chmod(p, 0o644)
+    assert has(errs, "manifest: workflows.improve.path: cannot read: ")
+
+
+def test_symlink_loop_as_a_workflow_path_is_not_found(root):
+    loop = os.path.join(root, "workflows", "loop.json")
+    os.symlink(loop, loop)
+    errs = check_manifest(root, lambda m: m["workflows"]["improve"].__setitem__("path", "workflows/loop.json"))
+    assert has(errs, "manifest: workflows.improve.path: file not found under root: workflows/loop.json")
+
+
+def test_loader_extension_check_is_case_sensitive(tmp_path):
+    p = write(tmp_path, "a.JSON", "{}")
+    with pytest.raises(vc.UsageError):
+        vc.load_document(p)
+
+
+@pytest.mark.parametrize("value", [1, ["x"], None, {"a": 1}])
+def test_role_summary_must_be_a_string(root, value):
+    errs = check_manifest(root, lambda m: m["roles"]["pm"].__setitem__("summary", value))
+    assert has(errs, "manifest: roles.pm.summary: must be a string")
+
+
+def test_role_summary_string_is_valid(root):
+    assert check_manifest(root, lambda m: m["roles"]["pm"].__setitem__("summary", "owns the backlog")) == []
+
+
+def test_two_manifest_keys_for_one_file_report_an_emit_error_once(root):
+    set_improve(root, [{"e": {"emit": {"event": {"with": {"type": "org.owner-decided"}}}}}])
+
+    def alias(m):
+        m["workflows"]["improve-copy"] = {"path": "workflows/improve.json", "floors": []}
+
+    errs = check_manifest(root, alias)
+    assert len([e for e in errs if "is listened on by gate" in e]) == 1
+    assert has(errs, "manifest: workflows.improve-copy.path: document.name is 'improve', expected 'improve-copy'")
