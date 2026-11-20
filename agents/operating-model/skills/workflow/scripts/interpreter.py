@@ -97,6 +97,11 @@ CHECK_PRELUDE = (
 )
 
 
+def _within(path, root):
+    """path is root or below it (root may be the filesystem root)."""
+    return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+
+
 def drawn(h, sample):
     """The sampling draw, compared as integers: h / 2**64 < sample (6.1)."""
     try:
@@ -609,7 +614,7 @@ class ProcessHost:
         except (OSError, ValueError):
             os.close(fd)
             return "invalid", None, None
-        if not (path == self.root or path.startswith(self.root + os.sep)):
+        if not _within(path, self.root):
             os.close(fd)
             return "outside", None, path
         return "inside", fd, path
@@ -708,7 +713,7 @@ class ProcessHost:
 
     def run_check(self, name, key, evidence, rungs):
         tmp = os.path.realpath(tempfile.gettempdir())
-        if tmp == self.root or tmp.startswith(self.root + os.sep):
+        if _within(tmp, self.root):
             raise RuntimeError(f"temp directory '{tmp}' is inside the org root")
         state, fd, path = self._verified("checks", name, CHECK_NAME, ".py")
         if state == "outside":
@@ -958,7 +963,7 @@ class _Run:
             base = os.path.realpath(tempfile.gettempdir())
             if root:
                 r = os.path.realpath(root)
-                if base == r or base.startswith(r + os.sep):
+                if _within(base, r):
                     raise TaskError(key, E_RUNTIME, 500, f"input file directory '{base}' is inside the org root", fatal=True)
             self.tmp = tempfile.mkdtemp(prefix="org-run-")
         self.nfile += 1

@@ -2327,7 +2327,7 @@ def test_n1_a_planted_json_py_in_the_org_root_cannot_shadow_the_stdlib_in_a_chec
 
 def test_n1_a_python_bin_script_runs_isolated(org):
     _script(org / "bin" / "py", "x")
-    (org / "bin" / "py").write_text("#!/usr/bin/env python3\nimport sys\nprint(sys.flags.isolated)\n")
+    (org / "bin" / "py").write_text(f"#!{sys.executable}\nimport sys\nprint(sys.flags.isolated)\n")
     res = go(wf(("s", leaf("py"))), ProcessHost(str(org)))
     assert res.output == 1, res.errors
 
@@ -2545,6 +2545,8 @@ def test_p40_reasons_do_not_cross_a_call_boundary():
 
 
 def test_r37_the_input_file_directory_check_uses_a_root_that_really_contains_the_temp_dir():
-    host = ScriptedHost(root=os.path.dirname(os.path.realpath(tempfile.gettempdir())))
-    res = go(wf(("a", _agent())), host)
-    assert res.errors[0].startswith("a: input file directory ") and not any(c[0] == "step" for c in host.calls)
+    for root in (os.path.realpath(tempfile.gettempdir()), os.path.dirname(os.path.realpath(tempfile.gettempdir())), "/"):
+        host = ScriptedHost(root=root)  # the temp dir itself, its parent, and the filesystem root (the `//` edge)
+        res = go(wf(("a", _agent())), host)
+        assert res.errors[0].startswith("a: input file directory "), (root, res.errors)
+        assert not any(c[0] == "step" for c in host.calls)
