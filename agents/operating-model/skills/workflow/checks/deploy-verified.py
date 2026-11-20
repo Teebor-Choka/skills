@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Check deploy-verified. See README.md in this directory for the evidence it reads."""
+"""Check deploy-verified. See README.md in this directory for what it reads."""
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _lib  # noqa: E402
 
-def check(data):
+def check(ev):
+    data = ev.out()
     if not _lib.is_int(data["exit"]):
         return [f"deploy verification did not run to an exit status: {data.get('reason', 'no reason given')}"]
     if data["verified"] is not True:
@@ -16,4 +17,4 @@ def check(data):
     return []
 
 if __name__ == "__main__":
-    _lib.run(check, self_step=True, parse=True)
+    _lib.run(check)

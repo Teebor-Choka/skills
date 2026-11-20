@@ -2,7 +2,7 @@
 """merge-change --into <branch|policy>: fast-forward the change branch into <branch>, then run the suite.
 
 The runtime starts this only after the merge gate approved (the `merge` task has `if` on the gate). It
-prints one JSON object, `{"head", "ci": {"state", "head"}, "merged"}`, for the fact check
+prints one JSON object, `{"head", "ci": {"state", "head"}, "merged"}` (state `success`), for the fact check
 `checks-green-and-gate-approved`. When the suite is red the merge is undone and the exit status is 1.
 
   --into   a branch name, or a policy name such as vcs.default-branch, resolved from the environment
@@ -70,7 +70,7 @@ def main(argv):
         git(path, "reset", "--hard", before)
         sys.stderr.write("merge-change: the suite is red after the merge; merge undone\n")
         sys.exit(1)
-    sys.stdout.write(json.dumps({"head": head, "ci": {"state": "green", "head": head}, "merged": True}) + "\n")
+    sys.stdout.write(json.dumps({"head": head, "ci": {"state": "success", "head": head}, "merged": True}) + "\n")
 
 
 if __name__ == "__main__":

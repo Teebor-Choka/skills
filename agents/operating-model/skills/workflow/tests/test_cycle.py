@@ -207,6 +207,26 @@ def test_a_clean_feature_run_goes_through_every_stage_once_and_succeeds():
     assert n_starts(res, UNITS) == 2
 
 
+@needs_yaml
+def test_the_report_event_carries_the_report_the_agent_wrote():
+    text = "## Summary\nx"
+    res, _ = run("sw-development", Scn(outs={"write-report": {"report": text}}))
+    sent = emitted(res, "org.run-reported")
+    assert len(sent) == 1 and sent[0]["data"]["report"] == text and sent[0]["data"]["run"] == RID
+    o = order(res, "verify", "write-report", "report")
+    assert o == sorted(o)
+
+
+@needs_yaml
+def test_the_final_acceptance_run_follows_system_acceptance_and_gates_the_review():
+    res, _ = run("sw-development")
+    assert n_starts(res, "acceptance-run") == 1
+    o = order(res, SYSTEM, "acceptance-run", REVIEW)
+    assert o == sorted(o)
+    bad, _ = run("sw-development", Scn(acc={"acceptance-run": False}))
+    assert bad.status == "error" and n_starts(bad, "not-accepted") == 1 and n_starts(bad, re.escape(REVIEW)) == 0
+
+
 # ---------------------------------------------------------------- loop table, one test per row
 
 
@@ -460,6 +480,12 @@ def test_unit_refactor_has_the_green_shape(repo):
     assert set(out(tdd(repo, "unit", "refactor"))) >= {"suite", "tests_edited"}
 
 
+def test_acceptance_green_names_the_unit_as_the_layer_to_go_back_to_when_red(repo):
+    (repo / "test_acc.py").write_text("def test_a():\n    assert False\n")
+    assert out(tdd(repo, "acceptance", "green"))["layer_fault"] == "unit"
+    assert out(tdd(repo, "unit", "green")).get("layer_fault") is None
+
+
 def test_acceptance_green_carries_the_suite_size_recorded_at_red(repo):
     (repo / "test_acc.py").write_text("def test_a():\n    assert False\n")
     red = out(tdd(repo, "acceptance", "red"))
@@ -563,28 +589,100 @@ def test_missing_worktree_exits_two(tmp_path):
 # ---------------------------------------------------------------- real checks on the real evidence
 
 
-def run_check(name, key, rel, stdout, tmp_path, run_id=RID):
+def entry(stdout, exit_code=0):
+    return {"exit": exit_code, "stdout": stdout if isinstance(stdout, str) else json.dumps(stdout)}
+
+
+def run_check(name, key, stdout, tmp_path, steps=None, outputs=None, decisions=None, head="h0", run_id=RID):
+    """A check on the real output of a bin program, in the evidence file of spec 6.1."""
     ev = tmp_path / f"{name}.json"
-    ev.write_text(json.dumps({"run": run_id, "key": key, "steps": {rel: {"exit": 0, "stdout": stdout}}}))
-    env = {"PATH": os.environ["PATH"], "ORG_EVIDENCE": str(ev), "ORG_KEY": key, "ORG_RUN": run_id}
+    ev.write_text(json.dumps({"run": run_id, "key": key, "output": entry(stdout),
+                              "steps": {k: entry(v) for k, v in (steps or {}).items()},
+                              "outputs": {k: entry(v) for k, v in (outputs or {}).items()},
+                              "decisions": decisions or {}, "change": {"head": head, "worktree": "/nonexistent"}}))
+    env = {"PATH": os.environ["PATH"], "ORG_EVIDENCE": str(ev), "ORG_KEY": key, "ORG_RUN": run_id,
+           "ORG_ALLOWED_RUNGS": "free,ordinary"}
     return subprocess.run([sys.executable, str(ROOT / "checks" / f"{name}.py"), key], env=env, capture_output=True, text=True)
 
 
-def test_tdd_evidence_output_satisfies_the_real_green_and_red_checks(repo, tmp_path):
+def test_red_evidence_satisfies_the_real_red_check_and_a_green_run_does_not(repo, tmp_path):
     (repo / "test_new.py").write_text("from calc import add\n\ndef test_neg():\n    assert add(-1, -1) == -3\n")
     red = tdd(repo, "unit", "red").stdout
-    assert run_check("new-test-fails-on-an-assertion-not-a-compile-error", "red-evidence", "red-evidence", red,
-                     tmp_path).returncode == 0
+    assert run_check("new-test-fails-on-an-assertion-not-a-compile-error", "cycle/red-evidence", red, tmp_path).returncode == 0
     green = tdd(repo, "unit", "green").stdout  # the new test still fails: not green
-    assert run_check("suite-green-and-no-test-edited", "green-evidence", "green-evidence", green, tmp_path).returncode == 1
+    assert run_check("suite-green-and-no-test-edited", "cycle/green-evidence", green, tmp_path).returncode == 1
 
 
-def test_acceptance_green_evidence_satisfies_the_real_suite_check(repo, tmp_path):
+def test_acceptance_evidence_satisfies_the_real_red_and_suite_checks(repo, tmp_path):
     (repo / "test_acc.py").write_text("def test_a():\n    assert False\n")
-    tdd(repo, "acceptance", "red")
+    red = tdd(repo, "acceptance", "red")
+    claimed = {"tests": [{"id": "test_acc.py::test_a", "criteria": ["C1"], "path": "test_acc.py"}]}
+    assert run_check("every-acceptance-test-fails-on-an-assertion", "spec-cycle/acceptance-red", red.stdout, tmp_path,
+                     outputs={"spec-cycle/acceptance-tests": claimed}).returncode == 0  # found by its own name
     (repo / "test_acc.py").write_text("def test_a():\n    assert True\n")
     stdout = tdd(repo, "acceptance", "green").stdout
-    assert run_check("acceptance-suite-green", "acceptance-run", "acceptance-run", stdout, tmp_path).returncode == 0
+    cp = run_check("acceptance-suite-green", "acceptance-run", stdout, tmp_path, steps={"spec-cycle/acceptance-red": json.loads(red.stdout)})
+    assert cp.returncode == 0, cp.stderr
+    cp = run_check("phase-acceptance-green", "acceptance-run", stdout, tmp_path)
+    assert cp.returncode == 0, cp.stderr
+
+
+def test_layer_and_system_evidence_satisfy_the_phase_check_only_when_green(repo, tmp_path):
+    (repo / "test_l.py").write_text("def test_a():\n    assert False\n")
+    faults(repo, {"layer": {"test_l.py::test_a": "design", "test_old.py": "unit"}})
+    bad = tdd(repo, "layer", "run").stdout
+    cp = run_check("phase-acceptance-green", "spec-cycle/design-cycle/build-cycle/layer-run", bad, tmp_path)
+    assert cp.returncode == 1 and "layer_fault" in cp.stderr
+    (repo / "test_l.py").write_text("def test_a():\n    assert True\n")
+    good = tdd(repo, "layer", "run").stdout
+    assert run_check("phase-acceptance-green", "spec-cycle/design-cycle/build-cycle/layer-run", good, tmp_path).returncode == 0
+    faults(repo, {"system": {"test_l.py": "spec"}})
+    assert run_check("phase-acceptance-green", "spec-cycle/design-cycle/system-run", tdd(repo, "system", "run").stdout,
+                     tmp_path).returncode == 0
+
+
+def test_feasibility_and_deploy_evidence_satisfy_their_real_checks(repo, tmp_path):
+    ok = {"feasibility": {"interfaces": True, "modularity": True, "testability": True, "reasons": ["ok"]}}
+    key = "spec-cycle/design-cycle/feasibility"
+    assert run_check("feasibility-holds", key, tdd(repo, "feasibility", "check", stdin=json.dumps(ok)).stdout,
+                     tmp_path).returncode == 0
+    assert run_check("feasibility-holds", key, tdd(repo, "feasibility", "check", stdin="junk").stdout,
+                     tmp_path).returncode == 1
+    cmd = json.dumps([sys.executable, "-c", "pass"])
+    assert run_check("deploy-verified", "verify", tdd(repo, "deploy", "verify", TDD_VERIFY_CMD=cmd).stdout,
+                     tmp_path).returncode == 0
+    assert run_check("deploy-verified", "verify", tdd(repo, "deploy", "verify").stdout, tmp_path).returncode == 1
+
+
+def test_bug_red_evidence_satisfies_the_real_check_only_when_committed(repo, tmp_path):
+    base = git(repo, "rev-parse", "HEAD")
+    (repo / "test_bug.py").write_text("def test_bug():\n    assert False\n")
+    assert run_check("failing-test-committed", "reproduce-evidence", tdd(repo, "bug", "red", TDD_BASE=base).stdout,
+                     tmp_path).returncode == 1
+    git(repo, "add", "test_bug.py")
+    git(repo, "commit", "-q", "-m", "test")
+    assert run_check("failing-test-committed", "reproduce-evidence", tdd(repo, "bug", "red", TDD_BASE=base).stdout,
+                     tmp_path).returncode == 0
+
+
+def test_merge_change_output_satisfies_the_real_gate_check(repo, tmp_path):
+    git(repo, "branch", "change")
+    env = {"PATH": os.environ["PATH"], "TDD_WORKTREE": str(repo), "TDD_CHANGE_BRANCH": "change"}
+    out_ = subprocess.run([sys.executable, str(MERGE), "--into", "main"], capture_output=True, text=True, env=env).stdout
+    head = git(repo, "rev-parse", "HEAD")
+    gate = {"decision": "approve", "signer_role": "owner", "signature_verified": True, "run": RID, "task": "merge-gate",
+            "head": head}
+    cp = run_check("checks-green-and-gate-approved", "merge", out_, tmp_path, decisions={"merge-gate": gate}, head=head)
+    assert cp.returncode == 0, cp.stderr
+
+
+def test_a_check_finds_a_task_in_a_loop_by_its_own_name_and_refuses_two_matches(repo, tmp_path):
+    (repo / "test_acc.py").write_text("def test_a():\n    assert False\n")
+    red = tdd(repo, "acceptance", "red").stdout
+    claimed = {"tests": [{"id": "test_acc.py::test_a", "criteria": ["C1"], "path": "test_acc.py"}]}
+    cp = run_check("every-acceptance-test-fails-on-an-assertion", "acceptance-red", red, tmp_path,
+                   outputs={"a/acceptance-tests": claimed, "b/acceptance-tests": claimed})
+    assert cp.returncode == 2 and "several" in cp.stderr
 
 
 # ---------------------------------------------------------------- bin/merge-change
@@ -601,7 +699,7 @@ def test_merge_change_fast_forwards_green_work_into_the_branch(repo):
     assert cp.returncode == 0, cp.stderr
     ev = json.loads(cp.stdout)
     assert ev["merged"] is True and ev["head"] == git(repo, "rev-parse", "main") == git(repo, "rev-parse", "change")
-    assert ev["ci"] == {"state": "green", "head": ev["head"]}
+    assert ev["ci"] == {"state": "success", "head": ev["head"]}
 
 
 def test_merge_change_resolves_a_policy_name_from_the_environment(repo):

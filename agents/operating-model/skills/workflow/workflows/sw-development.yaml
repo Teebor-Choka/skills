@@ -157,7 +157,7 @@ do:
                             role: ci
                             metrics: [acceptance-rounds]
                             acceptance:
-                              - check: acceptance-suite-green
+                              - check: phase-acceptance-green
               - system-run:
                   if: ${ $accepted["spec-cycle/design-cycle/build-cycle/layer-run"] == true }
                   run:
@@ -170,9 +170,20 @@ do:
                       role: ci
                       metrics: [acceptance-rounds]
                       acceptance:
-                        - check: acceptance-suite-green
+                        - check: phase-acceptance-green
+  - acceptance-run:
+      if: ${ $accepted["spec-cycle/design-cycle/system-run"] == true }
+      run:
+        shell: { command: tdd-evidence, arguments: [acceptance, green] }
+      metadata:
+        org:
+          by: code
+          role: ci
+          metrics: [acceptance-rounds]
+          acceptance:
+            - check: acceptance-suite-green
   - not-accepted:
-      if: ${ $accepted["spec-cycle/spec"] != true or $accepted["spec-cycle/design-cycle/system-run"] != true }
+      if: ${ $accepted["spec-cycle/spec"] != true or $accepted["spec-cycle/design-cycle/system-run"] != true or $accepted["acceptance-run"] != true }
       raise:
         error:
           type: https://org.example/errors/acceptance-not-met
@@ -212,7 +223,7 @@ do:
                 role: ci
                 metrics: [acceptance-rounds]
                 acceptance:
-                  - check: acceptance-suite-green
+                  - check: phase-acceptance-green
         - review:
             run:
               shell: { command: agent-run, arguments: [--isolated] }
@@ -302,12 +313,25 @@ do:
           metrics: [escalations]
           acceptance:
             - check: event-names-its-subject
+  - write-report:
+      run:
+        shell: { command: agent-run, arguments: [] }
+      metadata:
+        org:
+          by: model
+          role: pm
+          brief: briefs/sw/report.md
+          metrics: [report-complete]
+          acceptance:
+            - rubric: criteria/sw/report.md
+              judge: lead
   - report:
       emit:
         event:
           with:
             type: org.run-reported
             source: sw-development
+            data: "${ . }"
       metadata:
         org:
           by: code

@@ -4,11 +4,11 @@ The judge passes the work only if every rule holds. Each rule names what it is j
 
 ## Pass conditions
 
-1. The reviewer's verdict is pass and no upheld defect is open. Judged against: the unit review verdict and findings list.
-2. Each new test would fail if the behaviour regressed. Judged against: the unit's test files.
+1. The reviewer's verdict is pass and no upheld defect is open. Judged against: output (the unit review verdict and findings list).
+2. Each new test would fail if the behaviour regressed. Judged against: output (the unit's test files).
 3. No test was edited or weakened after the red run. Judged against: the unit's diff and the green-evidence tests_edited field.
 4. The diff stays inside the unit's write-set. Judged against: the unit's diff and write_set.
-5. Each reported defect cites a file and a line. Judged against: the review findings.
+5. Each reported defect cites a file and a line. Judged against: output (the review findings).
 
 ## On a fail
 

@@ -4,10 +4,10 @@ The judge passes the work only if every rule holds. Each rule names what it is j
 
 ## Pass conditions
 
-1. The design names the modules and the public contract of each. Judged against: the design document's modules section.
-2. The design shows failure behaviour at every boundary. Judged against: the design document's failure section.
-3. The design reuses existing code where it can and names it. Judged against: the design document and the repository.
-4. The design is no larger than the acceptance tests need. Judged against: the design document and the acceptance tests.
+1. The design names the modules and the public contract of each. Judged against: output (the design document's modules section).
+2. The design shows failure behaviour at every boundary. Judged against: output (the design document's failure section).
+3. The design reuses existing code where it can and names it. Judged against: output (the design document and the repository).
+4. The design is no larger than the acceptance tests need. Judged against: output (the design document and the acceptance tests).
 
 ## On a fail
 

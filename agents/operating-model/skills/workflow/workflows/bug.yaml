@@ -60,7 +60,7 @@ do:
           role: ci
           metrics: [acceptance-rounds]
           acceptance:
-            - check: acceptance-suite-green
+            - check: phase-acceptance-green
   - review-cycle:
       for: { each: round, in: [1, 2] }
       while: ${ $accepted["review-cycle/review"] != true }

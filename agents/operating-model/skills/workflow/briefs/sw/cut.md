@@ -17,4 +17,4 @@ The write-sets-are-disjoint script runs on the output. A shared file means you m
 
 ## Order
 
-Units are built one after another in the order of `depends_on`, not in parallel. A unit may rely on an earlier unit's files only through `depends_on`. Do not give a unit the acceptance test files, `checks/`, `criteria/`, `bin/`, `collectors/`, `manifest.json` or `metrics.json` in its write-set.
+The build runs the units one after another, in the order of `depends_on` (a sequential `for`). Keep write-sets disjoint anyway, so a later parallel build stays safe. A unit may rely on an earlier unit's files only through `depends_on`. Do not give a unit the acceptance test files, `checks/`, `criteria/`, `bin/`, `collectors/`, `manifest.json` or `metrics.json` in its write-set.

@@ -245,7 +245,7 @@
                               "org": {
                                 "acceptance": [
                                   {
-                                    "check": "acceptance-suite-green"
+                                    "check": "phase-acceptance-green"
                                   }
                                 ],
                                 "by": "code",
@@ -280,7 +280,7 @@
                         "org": {
                           "acceptance": [
                             {
-                              "check": "acceptance-suite-green"
+                              "check": "phase-acceptance-green"
                             }
                           ],
                           "by": "code",
@@ -313,8 +313,31 @@
         }
       },
       {
+        "acceptance-run": {
+          "if": "${ $accepted[\"spec-cycle/design-cycle/system-run\"] == true }",
+          "metadata": {
+            "org": {
+              "acceptance": [
+                {
+                  "check": "acceptance-suite-green"
+                }
+              ],
+              "by": "code",
+              "metrics": ["acceptance-rounds"],
+              "role": "ci"
+            }
+          },
+          "run": {
+            "shell": {
+              "arguments": ["acceptance", "green"],
+              "command": "tdd-evidence"
+            }
+          }
+        }
+      },
+      {
         "not-accepted": {
-          "if": "${ $accepted[\"spec-cycle/spec\"] != true or $accepted[\"spec-cycle/design-cycle/system-run\"] != true }",
+          "if": "${ $accepted[\"spec-cycle/spec\"] != true or $accepted[\"spec-cycle/design-cycle/system-run\"] != true or $accepted[\"acceptance-run\"] != true }",
           "metadata": {
             "org": {
               "to": "lead"
@@ -376,7 +399,7 @@
                   "org": {
                     "acceptance": [
                       {
-                        "check": "acceptance-suite-green"
+                        "check": "phase-acceptance-green"
                       }
                     ],
                     "by": "code",
@@ -576,10 +599,35 @@
         }
       },
       {
+        "write-report": {
+          "metadata": {
+            "org": {
+              "acceptance": [
+                {
+                  "judge": "lead",
+                  "rubric": "criteria/sw/report.md"
+                }
+              ],
+              "brief": "briefs/sw/report.md",
+              "by": "model",
+              "metrics": ["report-complete"],
+              "role": "pm"
+            }
+          },
+          "run": {
+            "shell": {
+              "arguments": [],
+              "command": "agent-run"
+            }
+          }
+        }
+      },
+      {
         "report": {
           "emit": {
             "event": {
               "with": {
+                "data": "${ . }",
                 "source": "sw-development",
                 "type": "org.run-reported"
               }
@@ -693,7 +741,9 @@
                   "org": {
                     "acceptance": [
                       {
-                        "check": "red-evidence"
+                        "judge": "reviewer",
+                        "rubric": "criteria/sw/red.md",
+                        "sample": 0.2
                       }
                     ],
                     "brief": "briefs/sw/red.md",
@@ -715,6 +765,9 @@
                 "metadata": {
                   "org": {
                     "acceptance": [
+                      {
+                        "check": "red-evidence"
+                      },
                       {
                         "check": "new-test-fails-on-an-assertion-not-a-compile-error"
                       }
@@ -738,7 +791,9 @@
                   "org": {
                     "acceptance": [
                       {
-                        "check": "green-evidence"
+                        "judge": "reviewer",
+                        "rubric": "criteria/sw/green.md",
+                        "sample": 0.2
                       }
                     ],
                     "brief": "briefs/sw/green.md",
@@ -760,6 +815,9 @@
                 "metadata": {
                   "org": {
                     "acceptance": [
+                      {
+                        "check": "green-evidence"
+                      },
                       {
                         "check": "suite-green-and-no-test-edited"
                       }
@@ -783,7 +841,9 @@
                   "org": {
                     "acceptance": [
                       {
-                        "check": "suite-still-green-and-no-test-edited"
+                        "judge": "reviewer",
+                        "rubric": "criteria/sw/refactor.md",
+                        "sample": 0.2
                       }
                     ],
                     "brief": "briefs/sw/refactor.md",
@@ -796,6 +856,28 @@
                   "shell": {
                     "arguments": [],
                     "command": "agent-run"
+                  }
+                }
+              }
+            },
+            {
+              "refactor-evidence": {
+                "metadata": {
+                  "org": {
+                    "acceptance": [
+                      {
+                        "check": "suite-still-green-and-no-test-edited"
+                      }
+                    ],
+                    "by": "code",
+                    "metrics": ["diff-lines"],
+                    "role": "ci"
+                  }
+                },
+                "run": {
+                  "shell": {
+                    "arguments": ["unit", "refactor"],
+                    "command": "tdd-evidence"
                   }
                 }
               }

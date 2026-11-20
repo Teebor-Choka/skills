@@ -264,6 +264,7 @@ def main(argv):
         emit({"runs": runs, "expected_tests": [r["test"] for r in runs]})
     out = {"suite": suite(tree), "tests_edited": tree.edited_tests()}
     if scope == "acceptance":
+        out["layer_fault"] = "none" if out["suite"]["failed"] == 0 else "unit"  # a red acceptance run: back to the unit test
         try:
             with open(tree.state_file("acceptance.json"), encoding="utf-8") as f:
                 count = json.load(f)["count"]
