@@ -4,10 +4,10 @@ The judge passes the work only if every rule holds. Each rule names what it is j
 
 ## Pass conditions
 
-1. The brief names the user problem and who has it. Judged against: the brief's problem statement.
-2. Every assumption is listed and marked confirmed or unconfirmed. Judged against: the brief's assumptions list.
-3. Every open question has a recommended default. Judged against: the brief's open-questions list.
-4. Out-of-scope items are listed with a reason. Judged against: the brief's out-of-scope list.
+1. The brief names the user problem and who has it. Judged against: output (the brief's problem statement).
+2. Every assumption is listed and marked confirmed or unconfirmed. Judged against: output (the brief's assumptions list).
+3. Every open question has a recommended default. Judged against: output (the brief's open-questions list).
+4. Out-of-scope items are listed with a reason. Judged against: output (the brief's out-of-scope list).
 
 ## On a fail
 

@@ -1,9 +1,8 @@
-"""Shared helper for the check scripts (spec 6.1).
+"""Shared helper for the check scripts (spec 6.1, evidence file of update 6).
 
-The runtime runs `checks/<name>.py <full task key>` with ORG_EVIDENCE, ORG_KEY and ORG_RUN set. The evidence
-file is `{"run", "key", "steps": {<relative key>: {"exit", "stdout"}}}` and holds results of `by: code`
-steps only. A check reads one step: the task itself when the task is a code step (`self_step`), else the code
-step `<relative key>-evidence`. Its stdout is a JSON object that the check judges.
+The runtime runs `checks/<name>.py <full task key>` with ORG_EVIDENCE, ORG_KEY and ORG_RUN set (and
+ORG_ALLOWED_RUNGS for the rung check). The evidence file is
+`{"run", "key", "output", "steps", "outputs", "decisions", "change"}`; see README.md for what each check reads.
 
 Exit 0 pass, 1 fail (reasons on stderr), 2 evidence missing, unreadable, or for another key or run.
 """
@@ -25,13 +24,68 @@ def is_str(v):
     return isinstance(v, str) and bool(v.strip())
 
 
-def source_key(key, self_step):
-    rel = key.split(">")[-1]
-    return rel if self_step else rel + "-evidence"
+def _entry(e, label):
+    if not (isinstance(e, dict) and type(e.get("exit")) is int and isinstance(e.get("stdout"), str)):
+        die(2, f"{label} must be an entry with an integer exit and a string stdout")
+    return e
 
 
-def run(check, self_step=False, parse=True):
-    """Load and bind the evidence, call check(data) -> list of problems, and exit."""
+def _json(e, label):
+    try:
+        data = json.loads(_entry(e, label)["stdout"])
+    except ValueError as err:
+        die(2, f"stdout of {label} is not JSON: {err}")
+    if not isinstance(data, dict):
+        die(2, f"stdout of {label} must be a JSON object")
+    return data
+
+
+class Evidence:
+    def __init__(self, raw):
+        self.raw = raw
+        self.run = raw["run"]
+        self.key = raw["key"]
+        self.output = _entry(raw.get("output"), "output")
+
+    def _part(self, name):
+        part = self.raw.get(name)
+        if not isinstance(part, dict):
+            die(2, f"evidence has no map '{name}'")
+        return part
+
+    def out(self):
+        """The checked task's own output, parsed. A claim when the task is a model step, a fact when code."""
+        return _json(self.output, "output")
+
+    def claim(self, rel):
+        """The output of an earlier task: a claim to validate, never trusted."""
+        outputs = self._part("outputs")
+        if rel not in outputs:
+            die(2, f"evidence has no outputs entry for '{rel}'")
+        return _json(outputs[rel], f"outputs['{rel}']")
+
+    def fact(self, rel):
+        """The result of an earlier by: code step."""
+        steps = self._part("steps")
+        if rel not in steps:
+            die(2, f"evidence has no steps entry for '{rel}'")
+        return _json(steps[rel], f"steps['{rel}']")
+
+    def decision(self, rel):
+        decisions = self._part("decisions")
+        if not isinstance(decisions.get(rel), dict):
+            die(2, f"evidence has no decision for '{rel}'")
+        return decisions[rel]
+
+    def change(self):
+        c = self._part("change")
+        if not (is_str(c.get("head")) and is_str(c.get("worktree"))):
+            die(2, "change needs a head and a worktree")
+        return c
+
+
+def run(check, parse_output=True):
+    """Load and bind the evidence, call check(Evidence) -> list of problems, and exit."""
     if len(sys.argv) != 2:
         die(2, "usage: <check>.py <full task key>")
     key = sys.argv[1]
@@ -42,44 +96,31 @@ def run(check, self_step=False, parse=True):
         die(2, f"argv key {key!r} differs from ORG_KEY {org_key!r}")
     try:
         with open(path, encoding="utf-8") as f:
-            ev = json.load(f)
+            raw = json.load(f)
     except (OSError, ValueError) as e:
         die(2, f"cannot read evidence {path}: {e}")
-    if not isinstance(ev, dict):
+    if not isinstance(raw, dict):
         die(2, "evidence must be a JSON object")
-    if ev.get("key") != org_key:
-        die(2, f"evidence key {ev.get('key')!r} differs from ORG_KEY {org_key!r}")
-    if ev.get("run") != org_run:
-        die(2, f"evidence run {ev.get('run')!r} differs from ORG_RUN {org_run!r}")
-    steps = ev.get("steps")
-    src = source_key(key, self_step)
-    if not isinstance(steps, dict) or not isinstance(steps.get(src), dict):
-        die(2, f"evidence has no result for the code step {src!r}")
-    step = steps[src]
-    if type(step.get("exit")) is not int or not isinstance(step.get("stdout"), str):
-        die(2, f"step {src!r} must hold an integer exit and a string stdout")
-    if step["exit"] != 0:
-        die(1, f"evidence step {src!r} ended with exit {step['exit']}")
-    data = {}
-    if parse:
-        try:
-            data = json.loads(step["stdout"])
-        except ValueError as e:
-            die(2, f"stdout of step {src!r} is not JSON: {e}")
-        if not isinstance(data, dict):
-            die(2, f"stdout of step {src!r} must be a JSON object")
+    if raw.get("key") != org_key:
+        die(2, f"evidence key {raw.get('key')!r} differs from ORG_KEY {org_key!r}")
+    if raw.get("run") != org_run:
+        die(2, f"evidence run {raw.get('run')!r} differs from ORG_RUN {org_run!r}")
+    ev = Evidence(raw)
+    if ev.output["exit"] != 0:
+        die(1, f"the checked task ended with exit {ev.output['exit']}")
+    if parse_output:
+        ev.out()  # exit 2 now when the output is not a JSON object
     try:
-        problems = check(data)
-    except (KeyError, TypeError, AttributeError, ValueError) as e:
+        problems = check(ev)
+    except (KeyError, TypeError, AttributeError, ValueError, IndexError) as e:
         problems = [f"evidence has the wrong shape: {e!r}"]
     for p in problems:
         sys.stderr.write(p + "\n")
     sys.exit(1 if problems else 0)
 
 
-def assertion_failures(data, need_expected=False):
+def assertion_failures(runs, expected=None):
     """Problems unless every recorded run failed on an assertion, and there is at least one run."""
-    runs = data["runs"]
     if not isinstance(runs, list) or not runs:
         return ["no test run recorded"]
     problems = []
@@ -88,12 +129,11 @@ def assertion_failures(data, need_expected=False):
             return ["each run needs a test id and an outcome"]
         if r["outcome"] != "assertion":
             problems.append(f"{r['test']}: red run ended with '{r['outcome']}', not an assertion failure")
-    if need_expected:
-        expected = data["expected_tests"]
+    if expected is not None:
         if not (isinstance(expected, list) and expected and all(is_str(t) for t in expected)):
-            return ["expected_tests must be a non-empty list of test ids"]
+            return ["no claimed acceptance tests to compare the run with"]
         seen = {r["test"] for r in runs}
-        problems += [f"expected test {t} is absent from the run" for t in expected if t not in seen]
+        problems += [f"claimed test {t} is absent from the run" for t in expected if t not in seen]
     return problems
 
 

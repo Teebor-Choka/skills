@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check write-sets-are-disjoint. See README.md in this directory for the evidence it reads."""
+"""Check write-sets-are-disjoint. See README.md in this directory for what it reads."""
 import os
 import sys
 
@@ -10,17 +10,18 @@ import posixpath
 import re
 
 LOCKED_DIRS = {"checks", "criteria", "bin", "collectors"}
-LOCKED_FILES = {"manifest.json", "metrics.json"}
+LOCKED_STEMS = ("manifest", "metrics")  # manifest.* and metrics*.* catalogs, any case, json or yaml
+LOCKED_EXT = (".json", ".yaml", ".yml")
 
 
 def parts(path):
-    """Path components, or None when the path is not a plain relative path."""
+    """Lower-cased path components, or None when the path is not a plain relative path."""
     if not isinstance(path, str) or not path.strip() or path.startswith("/") or re.search(r"[*?\[\]{}\\]", path):
         return None
     if ".." in path.split("/"):
         return None
     norm = posixpath.normpath(path)
-    return None if norm == "." else tuple(norm.split("/"))
+    return None if norm == "." else tuple(norm.lower().split("/"))
 
 
 def overlap(a, b):
@@ -29,7 +30,8 @@ def overlap(a, b):
 
 
 def locked(p, tests):
-    return p[0] in LOCKED_DIRS or "/".join(p) in LOCKED_FILES or any(overlap(p, t) for t in tests)
+    top = len(p) == 1 and p[0].endswith(LOCKED_EXT) and p[0].startswith(LOCKED_STEMS)
+    return p[0] in LOCKED_DIRS or top or any(overlap(p, t) for t in tests)
 
 
 def has_cycle(deps):
@@ -49,14 +51,17 @@ def has_cycle(deps):
     return any(visit(u) for u in deps)
 
 
-def check(data):
-    units = data["units"]
+def check(ev):
+    units = ev.out()["units"]
     if not (isinstance(units, list) and units):
         return ["the cut has no units"]
-    tests = [parts(t) for t in data["acceptance_test_paths"]]
-    if not data["acceptance_test_paths"] or None in tests:
-        return ["acceptance_test_paths must be plain relative paths"]
-    criteria = set(data["item_criteria_ids"])
+    claimed = ev.claim("acceptance-tests")["tests"]
+    if not isinstance(claimed, list):
+        return ["the acceptance tests output must list tests"]
+    tests = [parts(t.get("path")) for t in claimed]
+    if not tests or None in tests:
+        return ["every acceptance test needs a plain relative path"]
+    criteria = {c["id"] for c in ev.claim("spec")["criteria"]}
     problems, owned, deps = [], [], {}
     ids = [u["id"] for u in units]
     if len(ids) != len(set(ids)):
@@ -95,4 +100,4 @@ def check(data):
 
 
 if __name__ == "__main__":
-    _lib.run(check, self_step=False, parse=True)
+    _lib.run(check)

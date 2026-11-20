@@ -26,7 +26,9 @@ do:
                 brief: briefs/sw/red.md
                 metrics: [tests-per-unit]
                 acceptance:
-                  - check: red-evidence
+                  - rubric: criteria/sw/red.md
+                    judge: reviewer
+                    sample: 0.2
         - red-evidence:
             run:
               shell: { command: tdd-evidence, arguments: [unit, red] }
@@ -36,6 +38,7 @@ do:
                 role: ci
                 metrics: [red-for-wrong-reason]
                 acceptance:
+                  - check: red-evidence
                   - check: new-test-fails-on-an-assertion-not-a-compile-error
         - green:
             run:
@@ -47,7 +50,9 @@ do:
                 brief: briefs/sw/green.md
                 metrics: [diff-lines]
                 acceptance:
-                  - check: green-evidence
+                  - rubric: criteria/sw/green.md
+                    judge: reviewer
+                    sample: 0.2
         - green-evidence:
             run:
               shell: { command: tdd-evidence, arguments: [unit, green] }
@@ -57,6 +62,7 @@ do:
                 role: ci
                 metrics: [green-rounds]
                 acceptance:
+                  - check: green-evidence
                   - check: suite-green-and-no-test-edited
         - refactor:
             run:
@@ -66,6 +72,18 @@ do:
                 by: model
                 role: worker
                 brief: briefs/sw/refactor.md
+                metrics: [diff-lines]
+                acceptance:
+                  - rubric: criteria/sw/refactor.md
+                    judge: reviewer
+                    sample: 0.2
+        - refactor-evidence:
+            run:
+              shell: { command: tdd-evidence, arguments: [unit, refactor] }
+            metadata:
+              org:
+                by: code
+                role: ci
                 metrics: [diff-lines]
                 acceptance:
                   - check: suite-still-green-and-no-test-edited

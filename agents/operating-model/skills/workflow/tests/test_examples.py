@@ -215,7 +215,7 @@ SPECS = {
     "report-has-every-required-section": dict(task="report", out={"report": REPORT_OK}),
 }
 RUNG = "every-proposal-is-within-its-rung"
-ALL_CHECKS = sorted(SPECS) + [RUNG]
+ALL_CHECKS = sorted([*SPECS, RUNG])
 FACT = {"every-acceptance-test-fails-on-an-assertion", "red-evidence",
         "new-test-fails-on-an-assertion-not-a-compile-error", "green-evidence", "suite-green-and-no-test-edited",
         "suite-still-green-and-no-test-edited", "acceptance-suite-green", "checks-green-and-gate-approved"}
@@ -610,7 +610,7 @@ def test_every_pass_fixture_matches_the_documented_reads(name):
         assert "change.head" in reads and "change.worktree" in reads and "ORG_ALLOWED_RUNGS" in reads
         return
     spec = SPECS[name]
-    assert f"`{spec['task']}`" in task or spec["task"] in task
+    assert f"`{spec['task'].split('#')[0]}`" in task
     for prefix, actual in (("output", set(spec.get("out", {}))), ("outputs", set(spec.get("outputs", {}))),
                            ("steps", set(spec.get("steps", {}))), ("decisions", set(spec.get("decisions", {})))):
         documented = set(re.findall(rf"(?<![a-z]){prefix}\.([A-Za-z0-9_/-]+)", reads))
@@ -708,6 +708,10 @@ def test_rubrics_have_numbered_rules_and_a_fail_report():
         m = re.search(r"(?m)^## On a fail\s*\n(.+)", text)
         assert m, f"{rel}: no '## On a fail' section"
         assert "report" in m.group(1).lower(), f"{rel}: the fail section does not say what the judge reports"
+
+
+def test_acceptance_tests_brief_scopes_edge_cases():
+    assert "where meaningful" in (ROOT / "briefs" / "sw" / "acceptance-tests.md").read_text()
 
 
 def test_briefs_are_not_empty():
@@ -830,7 +834,8 @@ def test_briefs_state_the_write_set(brief):
 
 def test_cut_brief_says_units_are_built_one_after_another():
     text = (ROOT / "briefs" / "sw" / "cut.md").read_text()
-    assert "one after another" in text and "not in parallel" in text
+    assert "one after another" in text and "disjoint" in text
+    assert "not in parallel" not in text
 
 
 def test_improve_brief_follows_the_rung_table_and_never_asks_for_a_rung():
@@ -838,7 +843,7 @@ def test_improve_brief_follows_the_rung_table_and_never_asks_for_a_rung():
     assert "state the rung" not in text.lower() and "rung each" not in text.lower()
     assert "you write files only" in text.lower()
     assert "base" not in text.lower().replace("baseline", "") and "worktree" not in text.lower()
-    for needle in ("ordinary", "frozen", "protected", "floor task", "do not state a rung"):
+    for needle in ("ordinary", "frozen", "protected", "floor task"):
         assert needle in text.lower(), needle
 
 
