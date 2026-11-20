@@ -11,6 +11,7 @@ validate the catalog or the manifest; a malformed one reads as empty, so every r
 Rules and messages follow the org-documents spec (sections 2 to 7).
 """
 import argparse
+import bisect
 import json
 import math
 import re
@@ -27,6 +28,8 @@ LEAF = ("step", "call", "gate", "emit")
 ROOT_KEYS = ("document", "input", "output", "timeout", "schedule", "evaluate", "do")
 MAX_LISTS = 16
 MAX_VALUE_DEPTH = 128
+MAX_VALUES = 1000000  # values visited by the document walk; bounds shared sub-values
+MAX_TASKS = 10000  # tasks per workflow; the spec's scale target is 1000
 WRAPPERS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "env", "exec", "eval", "command", "sudo", "nohup",
             "nice", "timeout", "xargs"}
 RESERVED_VARS = {"accepted", "authorization", "context", "input", "output", "runtime", "secrets", "task",
@@ -54,7 +57,22 @@ def _str_in(v, coll):
 
 
 def _num(v):
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+    # isfinite() converts to float, which overflows for a huge int: test floats only
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return False
+    return not isinstance(v, float) or math.isfinite(v)
+
+
+def _r(v):
+    """repr of an author value (spec 2.3 rule 4); a huge int has no repr, so it must not raise."""
+    try:
+        return repr(v)
+    except ValueError:
+        return "<integer longer than 4300 digits>"
+
+
+def _s(v):
+    return v if isinstance(v, str) else _r(v)
 
 
 def _int(v):
@@ -66,30 +84,50 @@ def _literal(v):
 
 
 def _relpath(p, prefix, suffix):
+    # An empty stem under a subdirectory (`briefs/sw/.md`) is accepted; only a bare `briefs/.md` is not.
     return (isinstance(p, str) and not CTRL.search(p) and p.startswith(prefix) and p.endswith(suffix)
             and len(p) > len(prefix) + len(suffix) and "\\" not in p and not p.startswith("/")
             and all(seg not in ("", ".", "..") for seg in p.split("/")))
 
 
 def _value_errors(root):
-    """Spec 2.1 rule 6: string keys, JSON values, finite numbers, depth cap. Iterative."""
-    errs, deep = [], False
+    """Spec 2.1 rule 6: string keys, JSON values, finite numbers, depth cap. Iterative.
+
+    A container that contains itself is an error, and a walk over more than MAX_VALUES values stops,
+    so a hand-built document cannot make the walk run for ever.
+    """
+    errs, deep, seen = [], False, 0
+    on_path = set()
     stack = [(root, "", 1)]
     while stack:
-        v, loc, lvl = stack.pop()
+        item = stack.pop()
+        if len(item) == 1:  # leaving a container
+            on_path.discard(item[0])
+            continue
+        v, loc, lvl = item
         where = loc or "(root)"
+        seen += 1
+        if seen > MAX_VALUES:
+            errs.append(f"(root): document has more than {MAX_VALUES} values")
+            break
         if lvl > MAX_VALUE_DEPTH:
             if not deep:
                 errs.append(f"{where}: value nested deeper than {MAX_VALUE_DEPTH} levels")
                 deep = True
             continue
+        if isinstance(v, (dict, list)):
+            if id(v) in on_path:
+                errs.append(f"{where}: value refers to itself")
+                continue
+            on_path.add(id(v))
+            stack.append((id(v),))
         if isinstance(v, dict):
             items = []
             for k, x in v.items():
                 if isinstance(k, str):
                     items.append((x, f"{loc}.{k}" if loc else k, lvl + 1))
                 else:
-                    errs.append(f"{where}: key {k!r} is not a string "
+                    errs.append(f"{where}: key {_r(k)} is not a string "
                                 "(YAML 1.1 reads on, off, yes and no as booleans; quote it)")
             stack.extend(reversed(items))
         elif isinstance(v, list):
@@ -133,6 +171,10 @@ def _child_lists(task):
     return out
 
 
+class _TooManyTasks(Exception):
+    pass
+
+
 def _walk(lst, prefix, depth, errs, nodes, parent):
     """Pre-order walk of one task list. Each node records its list id, index and parent for later rules."""
     if not isinstance(lst, list):
@@ -147,6 +189,8 @@ def _walk(lst, prefix, depth, errs, nodes, parent):
         if depth > MAX_LISTS:
             errs.append(f"{path}: nesting deeper than {MAX_LISTS} task lists")
             return
+        if len(nodes) >= MAX_TASKS:
+            raise _TooManyTasks(path)
         if not isinstance(task, dict):
             errs.append(f"{path}: task must be a map")
             continue
@@ -226,11 +270,13 @@ def _document_errors(doc, manifest, errs):
                     errs.append(f"document.metadata.org: unknown key '{k}'")
             pol = org.get("policy")
             if pol is not None:
-                if not isinstance(pol, list) or not all(isinstance(p, str) and POLICY.match(p) for p in pol):
+                if not isinstance(pol, list) or not all(isinstance(p, str) and POLICY.fullmatch(p) for p in pol):
                     errs.append("document.metadata.org.policy: must be a list of dotted names like vcs.remote")
                 elif len(set(pol)) != len(pol):
                     errs.append("document.metadata.org.policy: duplicate name")
     sch = doc.get("schedule")
+    if "schedule" in doc and not isinstance(sch, dict):
+        errs.append("schedule: must be a map")
     if isinstance(sch, dict):
         for k in ("every", "cron", "after"):
             if k in sch:
@@ -242,6 +288,8 @@ def _document_errors(doc, manifest, errs):
             if not _literal(_map(_map(f).get("with")).get("type")):
                 errs.append(f"schedule.on: event filter {i} needs a literal with.type")
     ev = doc.get("evaluate")
+    if "evaluate" in doc and not isinstance(ev, dict):
+        errs.append("evaluate: must be a map")
     if isinstance(ev, dict):
         if ev.get("language", "jq") != "jq":
             errs.append("evaluate.language: not in the accepted subset")
@@ -252,11 +300,13 @@ def _document_errors(doc, manifest, errs):
         errs.append("timeout: a named timeout needs 'use', which is refused; write it inline")
     elif isinstance(tm, dict):
         _duration(tm.get("after"), "", "timeout.after", errs)
+    elif "timeout" in doc:
+        errs.append("timeout: must be a map")
     name, ns = d.get("name"), d.get("namespace")
     if not (isinstance(name, str) and name in _map(manifest.get("workflows"))):
-        errs.append(f"document.name: workflow '{name}' is not in manifest.workflows")
+        errs.append(f"document.name: workflow {_r(name)} is not in manifest.workflows")
     if not (isinstance(ns, str) and ns == manifest.get("namespace")):
-        errs.append(f"document.namespace: '{ns}' differs from manifest namespace")
+        errs.append(f"document.namespace: {_r(ns)} differs from manifest namespace")
 
 
 def _acceptance_errors(items, p, kind, roles, errs):
@@ -279,7 +329,7 @@ def _acceptance_errors(items, p, kind, roles, errs):
             for k in ("judge", "sample"):
                 if k in it:
                     errs.append(f"{loc}: {k} needs rubric")
-        if form == "check" and not (isinstance(it["check"], str) and KEBAB.match(it["check"])):
+        if form == "check" and not (isinstance(it["check"], str) and KEBAB.fullmatch(it["check"])):
             errs.append(f"{loc}.check: must be a kebab-case check name")
         if form == "human" and not (isinstance(it["human"], str) and it["human"].strip()):
             errs.append(f"{loc}.human: must be a non-empty string")
@@ -289,7 +339,7 @@ def _acceptance_errors(items, p, kind, roles, errs):
             if "judge" not in it:
                 errs.append(f"{loc}: rubric needs judge")
             elif not _str_in(it["judge"], roles):
-                errs.append(f"{loc}.judge: unknown role {it['judge']!r}")
+                errs.append(f"{loc}.judge: unknown role {_r(it['judge'])}")
             if "sample" in it and not (_num(it["sample"]) and 0 < it["sample"] <= 1):
                 errs.append(f"{loc}.sample: must be a number in (0, 1]")
 
@@ -320,10 +370,10 @@ def _org_errors(task, p, kind, catalog, roles, errs):
         if k not in o:
             errs.append(f"{p}: metadata.org.{k}: required for kind {kind}")
     if "by" in o and o["by"] not in BY:
-        errs.append(f"{p}: metadata.org.by: {o['by']!r} is not one of code, human, model")
+        errs.append(f"{p}: metadata.org.by: {_r(o['by'])} is not one of code, human, model")
     for k in ("role", "to"):
         if k in o and not _str_in(o[k], roles):
-            errs.append(f"{p}: metadata.org.{k}: unknown role {o[k]!r}")
+            errs.append(f"{p}: metadata.org.{k}: unknown role {_r(o[k])}")
     if "metrics" in o:
         m = o["metrics"]
         if not isinstance(m, list) or not all(isinstance(x, str) for x in m):
@@ -356,7 +406,7 @@ def _org_errors(task, p, kind, catalog, roles, errs):
 def _step_errors(task, p, o, errs):
     sh = _map(_map(task["run"]).get("shell"))
     cmd = sh.get("command")
-    if not (isinstance(cmd, str) and COMMAND.match(cmd)):
+    if not (isinstance(cmd, str) and COMMAND.fullmatch(cmd)):
         errs.append(f"{p}: run.shell.command: must be a bare command name with no path, space or arguments")
         return
     if cmd in WRAPPERS:
@@ -372,7 +422,9 @@ def _step_errors(task, p, o, errs):
         if k in sh:
             errs.append(f"{p}: run.shell.{k}: not allowed on agent-run; the runtime sets it")
     args = sh.get("arguments", [])
-    args = args if isinstance(args, list) else [args]
+    if not isinstance(args, list):
+        errs.append(f"{p}: run.shell.arguments: must be a list")
+        args = []
     seen_isolated = skip = False
     for a in args:
         if skip:
@@ -388,7 +440,7 @@ def _step_errors(task, p, o, errs):
                 errs.append(f"{p}: run.shell.arguments: --isolated given more than once")
             seen_isolated = True
         else:
-            errs.append(f"{p}: run.shell.arguments: {a!r} is not an allowed agent-run flag (allowed: --isolated)")
+            errs.append(f"{p}: run.shell.arguments: {_r(a)} is not an allowed agent-run flag (allowed: --isolated)")
 
 
 def _retry_errors(task, p, errs):
@@ -406,6 +458,8 @@ def _retry_errors(task, p, errs):
         errs.append(f"{p}: catch.retry: needs limit.attempt.count, a positive integer")
     elif count > 100:
         errs.append(f"{p}: catch.retry: limit.attempt.count must be at most 100")
+    # Spec 7.1a lists the bounded durations: delay, limit.duration, limit.attempt.duration. `backoff` and
+    # `jitter` only scale or spread the delay and are not in that list, so they are not checked here.
     if "delay" in r:
         _duration(r["delay"], p, "catch.retry.delay", errs)
     if "duration" in limit:
@@ -420,7 +474,7 @@ def _call_errors(n, ctx, errs):
     name = w.get("name")
     known = isinstance(name, str) and name in ctx["wfs"]
     if not (known and w.get("namespace") == ctx["manifest"].get("namespace")):
-        errs.append(f"{p}: run.workflow: workflow '{w.get('namespace')}/{name}' is not in manifest.workflows")
+        errs.append(f"{p}: run.workflow: workflow '{_s(w.get('namespace'))}/{_s(name)}' is not in manifest.workflows")
     if name == ctx["wfname"]:
         errs.append(f"{p}: run.workflow: a workflow may not call itself")
     if known and _map(ctx["wfs"][name]).get("floors") not in (None, []) \
@@ -428,19 +482,15 @@ def _call_errors(n, ctx, errs):
         n["floorcall"] = True
 
 
-def _emit_errors(n, nodes, errs):
+def _emit_errors(n, ctx, errs):
     p = n["path"]
     et = _map(_map(_map(n["task"]["emit"]).get("event")).get("with")).get("type")
     if not _literal(et):
         errs.append(f"{p}: emit.event.with.type: must be a literal event type")
     elif et.startswith("org.owner-"):
         errs.append(f"{p}: emit.event.with.type: '{et}' uses the reserved prefix org.owner-")
-    else:
-        for g in nodes:
-            if g["kind"] == "gate" and _is_decision_gate(g["task"]) \
-                    and et in _event_types(_map(g["task"]["listen"]).get("to")):
-                errs.append(f"{p}: emit.event.with.type: '{et}' is listened on by gate '{g['path']}'")
-                break
+    elif et in ctx["decision_types"]:
+        errs.append(f"{p}: emit.event.with.type: '{et}' is listened on by gate '{ctx['decision_types'][et]}'")
 
 
 def _gate_errors(t, p, errs):
@@ -472,6 +522,14 @@ def _floor_rules(n, isfloor, ctx, errs):
             errs.append(f"{p}: {what} may not sit inside fork or try '{a['path']}'")
 
 
+def _schema_errors(owner, prefix, sides, errs):
+    for side in sides:
+        schema = _map(_map(owner.get(side)).get("schema"))
+        if "resource" in schema and not _relpath(_map(schema["resource"]).get("endpoint"), "schemas/", ".json"):
+            errs.append(f"{prefix + ': ' if prefix else ''}{side}.schema.resource.endpoint: "
+                        "must be a relative path under schemas/ ending .json")
+
+
 def _task_errors(n, nodes, ctx, errs):
     """All per-task rules except floors-by-manifest and `then`. Records floors on ctx."""
     p, t, kind = n["path"], n["task"], n["kind"]
@@ -492,6 +550,11 @@ def _task_errors(n, nodes, ctx, errs):
         errs.append(f"{p}: timeout: a named timeout needs 'use', which is refused; write it inline")
     elif isinstance(tm, dict):
         _duration(tm.get("after"), p, "timeout.after", errs)
+    elif "timeout" in t:
+        errs.append(f"{p}: timeout: must be a map")
+    for key in ("for", "fork"):
+        if key in t and not isinstance(t[key], dict):
+            errs.append(f"{p}: {key}: must be a map")
     if kind == "gate":
         _gate_errors(t, p, errs)
     if kind == "wait":
@@ -506,14 +569,11 @@ def _task_errors(n, nodes, ctx, errs):
         errs.append(f"{p}: for: unbounded loop: 'while' needs an inline 'in' array")
     if "try" in t:
         _retry_errors(t, p, errs)
-    for side in ("input", "output"):
-        res = _map(_map(_map(t.get(side)).get("schema")).get("resource"))
-        if res and not _relpath(res.get("endpoint"), "schemas/", ".json"):
-            errs.append(f"{p}: {side}.schema.resource.endpoint: must be a relative path under schemas/ ending .json")
+    _schema_errors(t, p, ("input", "output", "export"), errs)
     if kind == "call":
         _call_errors(n, ctx, errs)
     if kind == "emit":
-        _emit_errors(n, nodes, errs)
+        _emit_errors(n, ctx, errs)
     o = _org_errors(t, p, kind, ctx["catalog"], ctx["roles"], errs)
     if o is None:
         return
@@ -541,7 +601,7 @@ def _floor_list_errors(nodes, ctx, errs):
         byname.setdefault(n["name"], n)
     for f in listed:
         if not isinstance(f, str) or f not in byname:
-            errs.append(f"manifest: workflows.{wf}.floors: floor '{f}' is not a task in the workflow")
+            errs.append(f"manifest: workflows.{wf}.floors: floor {_r(f)} is not a task in the workflow")
         elif _org(byname[f]["task"]).get("floor") is not True:
             errs.append(f"{byname[f]['path']}: listed as a floor in the manifest but floor is not true")
     for n in ctx["realfloors"]:
@@ -566,42 +626,61 @@ def _directives(n):
 
 
 def _then_errors(nodes, floors, errs):
-    lists = {}
+    """Check every `then`. Linear: a subtree is a contiguous pre-order range, so "does it hold a floor" is a
+    range query over the sorted floor positions."""
+    lists, names, pos = {}, {}, {}
     for n in nodes:
-        lists.setdefault(n["list"], []).append(n)
+        pos[id(n)] = len(lists.setdefault(n["list"], []))  # position among the tasks that made it into the list
+        lists[n["list"]].append(n)
+        names.setdefault(n["list"], {}).setdefault(n["name"], n)
+    last = {id(n): n["order"] for n in nodes}  # pre-order position of the last node in each subtree
+    for n in reversed(nodes):
+        p = n["parent"]
+        if p is not None and last[id(n)] > last[id(p)]:
+            last[id(p)] = last[id(n)]
+    orders = sorted(f["order"] for f in floors)
+    by_order = {f["order"]: f for f in floors}
 
-    def holds_floor(n):
-        return any(f is n or _is_ancestor(n, f) for f in floors)
+    def first_floor(lo, hi):
+        """The first floor with pre-order position in lo..hi, or None."""
+        i = bisect.bisect_left(orders, lo)
+        return by_order[orders[i]] if i < len(orders) and orders[i] <= hi else None
+
+    def sibling_holding(f, list_id):
+        s = f
+        while s["list"] != list_id:
+            s = s["parent"]
+        return s
 
     for n in nodes:
         kind = n["kind"]
         if kind is None or kind in ("badrun", "escalation") or kind.startswith("refused:"):
             continue
-        sibs, p = lists[n["list"]], n["path"]
+        sibs, p, lid = lists[n["list"]], n["path"], n["list"]
         for where, v in _directives(n):
             if not isinstance(v, str):
                 errs.append(f"{p}: {where}: must be a string")
             elif v == "continue":
                 continue
             elif v == "end" or (v == "exit" and n["parent"] is None):
-                later = [f for f in floors if f["order"] > n["order"] and not _is_ancestor(n, f)]
+                later = first_floor(last[id(n)] + 1, len(nodes))
                 if later:
-                    errs.append(f"{p}: {where}: '{v}' skips floor '{later[0]['name']}'")
+                    errs.append(f"{p}: {where}: '{v}' skips floor '{later['name']}'")
             elif v == "exit":
-                later = [s for s in sibs if s["index"] > n["index"] and holds_floor(s)]
-                if later:
-                    errs.append(f"{p}: {where}: 'exit' skips floor in '{later[0]['path']}'")
+                f = first_floor(last[id(n)] + 1, last[id(sibs[-1])])
+                if f:
+                    errs.append(f"{p}: {where}: 'exit' skips floor in '{sibling_holding(f, lid)['path']}'")
             else:
-                target = next((s for s in sibs if s["name"] == v), None)
+                target = names[lid].get(v)
                 if target is None:
                     errs.append(f"{p}: {where}: '{v}' is not a task in the same list")
-                elif target["index"] <= n["index"]:
+                elif pos[id(target)] <= pos[id(n)]:
                     errs.append(f"{p}: {where}: '{v}' is not later in the same list; "
                                 "a backward jump is an unbounded loop")
-                else:
-                    between = [s for s in sibs if n["index"] < s["index"] < target["index"] and holds_floor(s)]
-                    if between:
-                        errs.append(f"{p}: {where}: '{v}' skips floor in '{between[0]['path']}'")
+                elif pos[id(target)] > pos[id(n)] + 1:
+                    f = first_floor(sibs[pos[id(n)] + 1]["order"], last[id(sibs[pos[id(target)] - 1])])
+                    if f:
+                        errs.append(f"{p}: {where}: '{v}' skips floor in '{sibling_holding(f, lid)['path']}'")
 
 
 def validate_org(doc, catalog, manifest):
@@ -618,22 +697,31 @@ def validate_org(doc, catalog, manifest):
         elif k not in ROOT_KEYS:
             errs.append(f"{k}: unknown top-level key")
     _document_errors(doc, manifest, errs)
+    _schema_errors(doc, "", ("input", "output"), errs)
     wfname = _map(doc.get("document")).get("name")
     wfs = _map(manifest.get("workflows"))
     entry = wfs.get(wfname) if isinstance(wfname, str) else None
-    ctx = {"catalog": catalog, "manifest": manifest, "wfs": wfs, "wfname": wfname, "floors": [], "realfloors": [],
+    ctx = {"catalog": catalog, "manifest": manifest, "wfs": wfs, "wfname": wfname, "floors": [], "realfloors": [], "decision_types": {},
            "roles": set(_map(manifest.get("roles"))) | {OWNER},
            "entry": _map(entry) if entry is not None else None}
     nodes = []
-    _walk(doc.get("do", []), "", 1, errs, nodes, None)
+    try:
+        _walk(doc.get("do", []), "", 1, errs, nodes, None)
+    except _TooManyTasks as e:
+        errs.append(f"{e}: more than {MAX_TASKS} tasks in the workflow")
+        return errs
     first = {}
     for n in nodes:
-        if not KEBAB.match(n["name"]):
+        if not KEBAB.fullmatch(n["name"]):
             errs.append(f"{n['path']}: task name must be kebab-case")
         if n["name"] in first:
             errs.append(f"{n['path']}: duplicate task name '{n['name']}' (first at {first[n['name']]})")
         else:
             first[n["name"]] = n["path"]
+    for g in nodes:  # event types that a decision gate listens on, to the first such gate
+        if g["kind"] == "gate" and _is_decision_gate(g["task"]):
+            for et in _event_types(_map(g["task"]["listen"]).get("to")):
+                ctx["decision_types"].setdefault(et, g["path"])
     for n in nodes:
         _task_errors(n, nodes, ctx, errs)
     _floor_list_errors(nodes, ctx, errs)
@@ -734,7 +822,7 @@ def load_file(path):
         raise LoadError(f"{path}: {e.strerror or type(e).__name__}") from None
     except Exception as e:  # json.JSONDecodeError, yaml.YAMLError, int() ValueError, bad UTF-8
         msg = str(e)
-        if isinstance(e, ValueError) and "4300" in msg:
+        if isinstance(e, ValueError) and "Exceeds the limit" in msg and "integer string conversion" in msg:
             raise LoadError(f"{path}: integer longer than 4300 digits") from None
         first = msg.splitlines()[0] if msg else type(e).__name__
         raise LoadError(f"{path}: parse error: {first}") from None
