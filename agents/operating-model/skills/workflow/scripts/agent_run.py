@@ -3,7 +3,8 @@
 
 U13a starts `agent-run` by argv exec and appends `--role <role> --brief <path>` from `metadata.org`,
 `--network <policy>` when the step has one (P19) and `--input <path>`, the runtime-owned task input file
-(P14). The only other argument is `--isolated`.
+(P14), and `--tools <csv>` and `--workdir <path>` from the stack (P49 to P51). The only other argument is
+`--isolated`, which keeps only the read tools (P50).
 
 The network policy is REQUESTED from the instance tool: it is enforced only by a real instance tool, and none
 exists yet. The call record says `enforced: false`. The model child runs with an allow-listed environment
@@ -64,6 +65,9 @@ CHILD_ENV_ALLOW = ("PATH", "LANG", "LC_ALL", "TERM", "HOME", "TMPDIR", "ANTHROPI
 # Flags read from `claude --help` (2.1.311); not run here. --safe-mode: no CLAUDE.md, skills, plugins, hooks, MCP
 # servers or custom commands, auth still works (--bare would drop OAuth and keychain).
 ISOLATION_FLAGS = ("--safe-mode", "--strict-mcp-config", "--disable-slash-commands")
+ALLOWED_TOOLS = ("Read", "Grep", "Glob", "Edit", "Write", "Bash")
+READ_TOOLS = ("Read", "Grep", "Glob")
+FROZEN_PARTS = ("checks/", "bin/", "collectors/", "criteria/", "workflows/", "schemas/")  # spec 7.8
 ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -132,22 +136,39 @@ def validate_harness_contract(doc):
 # ------------------------------------------------------------------ prompt and adapters
 
 
+def _strip_run(value):
+    """Drop every `run` key, at any depth."""
+    if isinstance(value, dict):
+        return {k: _strip_run(v) for k, v in value.items() if k != "run"}
+    if isinstance(value, list):
+        return [_strip_run(v) for v in value]
+    return value
+
+
 def build_prompt(brief, context, task, task_input=None, reasons=None):
     """The exact text sent to the model: brief, context, task, task input, reasons. Nothing else.
 
     Everything but the brief is JSON, so no value an author wrote can open a section or name another role.
+    The model never learns the run id (P37): no `run` field is handed over, and the id text is replaced by
+    `[run]` wherever it still appears in free text.
     """
     parts = [brief.rstrip()]
     if context:
         parts.append("## Context (JSON)\n" + json.dumps(context, sort_keys=True))
-    parts.append("## Task\n" + json.dumps(task, sort_keys=True))
+    parts.append("## Task\n" + json.dumps(_strip_run(task), sort_keys=True))
     if task_input:
+        try:
+            task_input = json.dumps(_strip_run(json.loads(task_input)), sort_keys=True)
+        except ValueError:
+            pass
         parts.append("## Input\n" + task_input)
     if reasons:
         parts.append("## Reasons (JSON)\n" + json.dumps(reasons, sort_keys=True))
     if "item" in task:
         parts.append("## Verdict\nEnd your answer with one line: VERDICT: pass or VERDICT: fail.")
-    return "\n\n".join(parts)
+    text = "\n\n".join(parts)
+    run = task.get("run")
+    return text.replace(run, "[run]") if isinstance(run, str) and run else text
 
 
 def prompt_for(req):
@@ -216,6 +237,13 @@ def _default_runner(argv, stdin, timeout, env, cwd):
     return proc.returncode, out, err
 
 
+def tool_flags(tools):
+    """The claude CLI flags for a tool list. `claude --help` (2.1.311), not run: `--tools` picks the built-in
+    tools the model has ("" for none), `--allowedTools` lets them run without a permission prompt."""
+    csv = ",".join(tools)
+    return ["--tools", csv, "--allowedTools", csv] if tools else ["--tools", ""]
+
+
 def child_env(environ, role):
     """The model child's environment: allow-listed names only, and ORG_PARENT_ROLE for its own launches."""
     extra = [n for n in (environ.get("ORG_CHILD_ENV_ALLOW") or "").split(",") if ENV_NAME.match(n)]
@@ -244,12 +272,12 @@ class ClaudeCodeAdapter(_Adapter):
     def call(self, op, inp):
         self._accept(op, inp)
         argv = [self.claude_bin, "-p", "--output-format", "json", "--no-session-persistence", *ISOLATION_FLAGS]
-        argv += ["--allowedTools", ",".join(inp["tools"])] if inp["tools"] else ["--tools", ""]
+        argv += tool_flags(inp["tools"])
         prompt = prompt_for(inp)
         try:
-            with tempfile.TemporaryDirectory(prefix="agent-run-") as cwd:
+            with tempfile.TemporaryDirectory(prefix="agent-run-") as tmp:
                 rc, stdout, stderr = self.runner(argv, prompt, inp.get("timeout_seconds", DEFAULT_TIMEOUT),
-                                                 child_env(self.environ, inp["role"]), cwd)
+                                                 child_env(self.environ, inp["role"]), inp.get("workdir", tmp))
         except subprocess.TimeoutExpired:
             raise PortError("timeout", "claude did not finish in time") from None
         except FileNotFoundError:
@@ -568,7 +596,8 @@ def _acquire(instances, request):
 
 def run_agent(adapter, store, *, role, brief, task, isolated, trust="trusted", tools=(), manifest=None,
               parent_role=None, signer=None, rubric=False, clock=time.monotonic, timeout_seconds=None,
-              task_input=None, reasons=None, network=None, instances=None, network_policies=None):
+              task_input=None, reasons=None, network=None, instances=None, network_policies=None, workdir=None,
+              org_root=None):
     """Run one agent call and return the outcome. Raises PortError on a refusal or a failure.
 
     `isolated` gives the adapter an empty context. Otherwise it gets the earlier results of the same run.
@@ -576,6 +605,13 @@ def run_agent(adapter, store, *, role, brief, task, isolated, trust="trusted", t
     a policy: it is requested from the instance tool and never reaches the adapter. Nothing here enforces it.
     """
     _check_role(role, manifest, parent_role)
+    if workdir is not None:  # the API does not trust its caller: the same containment rules as the command line
+        if org_root is None:
+            raise PortError("invalid-input", "a workdir needs org_root, to check it against the org root")
+        try:
+            workdir = check_workdir(workdir, org_root, getattr(store, "dir", None))
+        except _Refusal as e:
+            raise PortError("workdir-refused", str(e)) from None
     run = task["run"]
     if rubric and "item" not in task:
         raise PortError("invalid-input", "a rubric call needs an item index")
@@ -585,6 +621,8 @@ def run_agent(adapter, store, *, role, brief, task, isolated, trust="trusted", t
            "context": context, "task": dict(task)}
     if timeout_seconds is not None:
         req["timeout_seconds"] = timeout_seconds
+    if workdir is not None:
+        req["workdir"] = workdir
     if task_input is not None:
         req["task_input"] = json.dumps(task_input, sort_keys=True)
     if reasons:
@@ -659,6 +697,10 @@ class _BadArguments(Exception):
     pass
 
 
+class _Refusal(Exception):
+    """A refusal with its exact 7.8 message; printed as `agent-run: <message>`, exit 1."""
+
+
 DOTTED = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*(\.[a-z0-9]+(-[a-z0-9]+)*)+$")
 MAX_INPUT_BYTES = 1_000_000
 MAX_BRIEF_BYTES = 1_000_000
@@ -673,7 +715,7 @@ def _parse_args(argv):
                 raise _BadArguments("--isolated given more than once")
             seen["isolated"] = True
             i += 1
-        elif a in ("--role", "--brief", "--input", "--network"):
+        elif a in ("--role", "--brief", "--input", "--network", "--tools", "--workdir"):
             key = a[2:]
             if key in seen:
                 raise _BadArguments(f"{a} given more than once")
@@ -683,12 +725,51 @@ def _parse_args(argv):
                 raise _BadArguments("--network must be a dotted policy name like research.source-allowlist")
             seen[key] = argv[i + 1]
             i += 2
+            if key == "tools":
+                seen[key] = _parse_tools(seen[key])
         else:
-            raise _BadArguments(f"'{a}' is not allowed (allowed: --isolated, --role, --brief, --input, --network)")
+            raise _BadArguments(f"'{a}' is not allowed (allowed: --isolated, --role, --brief, --input, --network, "
+                                 f"--tools, --workdir)")
     for key in ("role", "brief"):
         if key not in seen:
             raise _BadArguments(f"--{key} is required")
-    return seen["role"], seen["brief"], bool(seen.get("isolated")), seen.get("input"), seen.get("network")
+    return (seen["role"], seen["brief"], bool(seen.get("isolated")), seen.get("input"), seen.get("network"),
+            seen.get("tools", []), seen.get("workdir"))
+
+
+def _parse_tools(csv):
+    tools = [] if csv == "" else csv.split(",")
+    for t in tools:
+        if t not in ALLOWED_TOOLS:
+            raise _Refusal(f"--tools: '{t}' is not an allowed tool")
+    return list(dict.fromkeys(tools))
+
+
+def check_workdir(path, org_root, session_dir):
+    """Refuse a working directory a tool-bearing child could use to reach frozen files or the run's history.
+
+    Refused: not a directory; equal to or containing the org root (it would hold every frozen file); inside a
+    frozen part (7.8); equal to, containing or inside the session directory (history and call records).
+    Spec 7.8 also lists "the manifest or a catalog file" among the frozen parts.
+    A file cannot contain a directory, so no workdir lies inside one.
+    The org-root rule already covers a directory above them.
+    Paths are resolved first, so a symlink gets no way round. Returns the absolute path.
+    """
+    real = os.path.realpath(path)
+    if not os.path.isdir(real):
+        raise _Refusal(f"--workdir: '{path}' is not a directory")
+    root = os.path.realpath(org_root)
+    if os.path.commonpath([real, root]) == real:
+        raise _Refusal(f"--workdir: '{path}' contains the org root")
+    for part in FROZEN_PARTS:
+        base = os.path.realpath(os.path.join(org_root, part))
+        if os.path.commonpath([base, real]) == base:
+            raise _Refusal(f"--workdir: '{path}' is inside the frozen part '{part}'")
+    if session_dir is not None:
+        session = os.path.realpath(session_dir)
+        if os.path.commonpath([real, session]) in (real, session):
+            raise _Refusal(f"--workdir: '{path}' overlaps the session directory")
+    return os.path.abspath(path)
 
 
 def _fd_path(fd):
@@ -826,7 +907,7 @@ def _session_dir(env):
     return session
 
 
-def _run(role, brief_path, isolated, input_path, network, env):
+def _run(role, brief_path, isolated, input_path, network, tools, workdir, env):
     for name in ("ORG_ROOT", "ORG_RUN", "ORG_KEY"):
         if not env.get(name):
             raise PortError("invalid-input", f"{name} is not set")
@@ -835,6 +916,10 @@ def _run(role, brief_path, isolated, input_path, network, env):
     trust = env.get("ORG_TRUST", "trusted")
     if trust not in ("trusted", "untrusted"):
         raise PortError("invalid-input", "ORG_TRUST must be trusted or untrusted")
+    if workdir is not None:
+        workdir = check_workdir(workdir, root, session)
+    if isolated:
+        tools = [t for t in tools if t in READ_TOOLS]  # P50: an isolated call keeps only the read tools
     brief = _read_brief(root, brief_path)
     rubric = brief_path.startswith("criteria/")
     task = {"run": env["ORG_RUN"], "task": env["ORG_KEY"]}
@@ -854,6 +939,7 @@ def _run(role, brief_path, isolated, input_path, network, env):
     adapter = _make_adapter(env)
     return run_agent(
         adapter, SessionStore(session), role=role, brief=brief, task=task, isolated=isolated, trust=trust,
+        tools=tools, workdir=workdir, org_root=root,
         manifest=_load_manifest(root), parent_role=env.get("ORG_PARENT_ROLE"), rubric=rubric,
         task_input=task_input, reasons=reasons, network=network,
         instances=_make_instances(env) if network else None,
@@ -864,15 +950,21 @@ def main(argv, env=None, stdout=None, stderr=None):
     env = os.environ if env is None else env
     stdout, stderr = stdout or sys.stdout, stderr or sys.stderr
     try:
-        role, brief_path, isolated, input_path, network = _parse_args(list(argv))
+        role, brief_path, isolated, input_path, network, tools, workdir = _parse_args(list(argv))
     except _BadArguments as e:
         print(f"agent-run: bad-arguments: {e}", file=stderr)
         return 2
+    except _Refusal as e:
+        print(f"agent-run: {e}", file=stderr)
+        return 1
     previous = None
     if threading.current_thread() is threading.main_thread():
         previous = signal.signal(signal.SIGTERM, _on_sigterm)
     try:
-        outcome = _run(role, brief_path, isolated, input_path, network, env)
+        outcome = _run(role, brief_path, isolated, input_path, network, tools, workdir, env)
+    except _Refusal as e:
+        print(f"agent-run: {e}", file=stderr)
+        return 1
     except Terminated:
         print("agent-run: terminated: terminated by signal", file=stderr)
         return 143

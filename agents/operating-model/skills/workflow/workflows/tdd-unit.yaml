@@ -41,7 +41,6 @@ do:
                   - check: red-evidence
                   - check: new-test-fails-on-an-assertion-not-a-compile-error
         - green:
-            if: ${ $accepted["cycle/red-evidence"] == true }
             run:
               shell: { command: agent-run, arguments: [] }
             metadata:
@@ -66,7 +65,6 @@ do:
                   - check: green-evidence
                   - check: suite-green-and-no-test-edited
         - refactor:
-            if: ${ $accepted["cycle/green-evidence"] == true }
             run:
               shell: { command: agent-run, arguments: [] }
             metadata:

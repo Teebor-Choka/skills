@@ -1492,3 +1492,251 @@ def test_the_interpreter_is_the_one_authority_on_ids_and_the_ledger_only_records
     res = runtime(tmp_path, root=gate_root(tmp_path), host=host).run("t", run_id=RID)
     assert res.status == "success"
     assert ids_in(tmp_path) == [{"id": "x", "key": "gate"}]  # only the accepted decision is recorded, once
+
+
+# ================================================================ stack document (P47, P49, P52, P53)
+
+ENV_SCRIPT = ("#!" + sys.executable + "\nimport json, os\nprint(json.dumps(dict(os.environ)))\n")
+ROLE_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "Bash"]
+
+
+def stack_root(tmp, stack=None, name="stack.json", wf=None, man=None):
+    root = make_root(tmp, wf=wf, man=man)
+    if stack is not None:
+        (root / name).write_text(json.dumps(stack))
+    return root
+
+
+def stack_run(tmp, root, **kw):
+    return runtime(tmp, root=root, **kw).run("t", run_id=RID)
+
+
+def test_a_run_with_no_stack_file_runs_with_an_empty_stack(tmp_path):
+    host = ort.OrgProcessHost(make_root(tmp_path), session_dir=tmp_path / "s")
+    res = runtime(tmp_path, root=tmp_path / "org", host=host).run("t", run_id=RID)
+    assert res.status == "success", res.errors
+    assert host.stack == {"bin-env": {}, "roles": {}}
+
+
+def test_a_valid_stack_is_given_to_the_host_as_a_plain_dict(tmp_path):
+    stack = {"bin-env": {"t": {"TDD_WORKTREE": "/w", "TDD_BASE": "main"}},
+             "roles": {"t": {"worker": {"tools": ["Read", "Edit"], "workdir": "TDD_WORKTREE"}}},
+             "models": {"worker": "whatever"}}  # a key outside the two defined ones is not checked
+    root = stack_root(tmp_path, stack)
+    host = ort.OrgProcessHost(root, session_dir=tmp_path / "s")
+    assert runtime(tmp_path, root=root, host=host).run("t", run_id=RID).status == "success"
+    assert host.stack == {"bin-env": stack["bin-env"], "roles": stack["roles"]}
+    assert type(host.stack) is dict
+
+
+@pytest.mark.parametrize("stack,where,reason", [
+    ({"roles": {"t": {"worker": {"tools": ["Browse"]}}}}, "roles.t.worker.tools",
+     "'Browse' is not one of Read, Grep, Glob, Edit, Write, Bash"),
+    ({"roles": {"t": {"worker": {"tools": ["Read", "Read"]}}}}, "roles.t.worker.tools", "'Read' is listed twice"),
+    ({"roles": {"t": {"worker": {"tools": "Read"}}}}, "roles.t.worker.tools", "must be a list"),
+    ({"roles": {"t": {"worker": {"shell": "yes"}}}}, "roles.t.worker.shell", "unknown key"),
+    ({"roles": {"t": {"ghost": {}}}}, "roles.t.ghost", "role is not listed in the manifest"),
+    ({"roles": {"nope": {"worker": {}}}}, "roles.nope", "workflow is not listed in the manifest"),
+    ({"roles": {"t": {"worker": {"workdir": "TDD_WORKTREE"}}}}, "roles.t.worker.workdir",
+     "'TDD_WORKTREE' is not a bin-env variable of this workflow"),
+    ({"bin-env": {"t": {"TDD_WORKTREE": "relative"}}, "roles": {"t": {"worker": {"workdir": "TDD_WORKTREE"}}}},
+     "roles.t.worker.workdir", "'TDD_WORKTREE' must be an absolute path"),
+    ({"bin-env": {"t": {"LD_PRELOAD": "x"}}}, "bin-env.t.LD_PRELOAD", "name is not allowed"),
+    ({"bin-env": {"t": {"DYLD_X": "x"}}}, "bin-env.t.DYLD_X", "name is not allowed"),
+    ({"bin-env": {"t": {"ORG_ROOT": "x"}}}, "bin-env.t.ORG_ROOT", "name is not allowed"),
+    ({"bin-env": {"t": {"PATH": "x"}}}, "bin-env.t.PATH", "name is not allowed"),
+    ({"bin-env": {"t": {"lower": "x"}}}, "bin-env.t.lower", "name is not allowed"),
+    ({"bin-env": {"t": {"TDD_BASE": 5}}}, "bin-env.t.TDD_BASE", "value must be a string"),
+    ({"bin-env": {"t": {"TDD_BASE": "a\u0000b"}}}, "bin-env.t.TDD_BASE", "value must be a string"),
+    ({"bin-env": {"nope": {"TDD_BASE": "x"}}}, "bin-env.nope", "workflow is not listed in the manifest"),
+    ({"bin-env": ["x"]}, "bin-env", "must be a map"),
+])
+def test_a_bad_stack_refuses_the_run_with_a_located_message(tmp_path, stack, where, reason):
+    host = ScriptedHost()
+    res = stack_run(tmp_path, stack_root(tmp_path, stack), host=host)
+    assert res.status == "refused" and host.calls == []
+    assert res.errors[0] == f"run refused: stack.json: {where}: {reason}"
+
+
+def test_a_stack_that_is_not_a_map_or_does_not_load_refuses_the_run(tmp_path):
+    root = stack_root(tmp_path)
+    (root / "stack.json").write_text("[1]")
+    assert stack_run(tmp_path, root).errors[0] == "run refused: stack.json: stack: must be a map"
+    (root / "stack.json").write_text('{"bin-env": {}, "bin-env": {}}')  # duplicate key: the 2.1 loader refuses it
+    res = stack_run(tmp_path, root)
+    assert res.status == "refused" and res.errors[0].startswith("run refused: stack.json: ")
+    (root / "stack.json").write_text('{"models": NaN}')
+    assert stack_run(tmp_path, root).status == "refused"
+
+
+def test_two_stack_files_refuse_the_run(tmp_path):
+    root = stack_root(tmp_path, {}, "stack.json")
+    (root / "stack.yaml").write_text("models: {}\n")
+    res = stack_run(tmp_path, root)
+    assert res.status == "refused" and "stack.json" in res.errors[0] and "stack.yaml" in res.errors[0]
+
+
+def test_a_yaml_stack_loads(tmp_path):
+    yaml = pytest.importorskip("yaml", reason="PyYAML is optional")
+    root = stack_root(tmp_path)
+    (root / "stack.yaml").write_text(yaml.safe_dump({"bin-env": {"t": {"TDD_BASE": "main"}}}))
+    host = ort.OrgProcessHost(root, session_dir=tmp_path / "s")
+    assert runtime(tmp_path, root=root, host=host).run("t", run_id=RID).status == "success"
+    assert host.stack["bin-env"] == {"t": {"TDD_BASE": "main"}}
+    (root / "stack.yaml").write_text("bin-env:\n  t:\n    LD_PRELOAD: x\n")
+    res = runtime(tmp_path / "x" if False else tmp_path, root=root, host=ScriptedHost()).run("t", run_id="b" * 32)
+    assert res.errors[0] == "run refused: stack.yaml: bin-env.t.LD_PRELOAD: name is not allowed"
+
+
+def test_the_stack_is_part_of_the_hashed_file_map_and_the_header(tmp_path):
+    root = stack_root(tmp_path, {"models": {}})
+    assert "stack.json" in ort.build_file_map(root)
+    runtime(tmp_path, root=root).run("t", run_id=RID)
+    header = LEDGER(tmp_path).read()[0]["body"]
+    assert header["stack_hash"] == ort.hashlib.sha256((root / "stack.json").read_bytes()).hexdigest()
+
+
+def test_r62_a_bin_program_sees_exactly_the_bin_env_names_and_the_runtime_variables(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", "/home/someone")
+    monkeypatch.setenv("TDD_TIMEOUT", "99")
+    monkeypatch.setenv("TDD_BASE", "from-the-runtime")
+    stack = {"bin-env": {"t": {"TDD_BASE": "main", "TDD_TEST_CMD": "pytest -q"}}}
+    root = stack_root(tmp_path, stack, wf=doc(("a", leaf())))
+    (root / "bin" / "work").write_text(ENV_SCRIPT)
+    host = ort.OrgProcessHost(root, session_dir=tmp_path / "s")
+    res = runtime(tmp_path, root=root, host=host).run("t", run_id=RID)
+    assert res.status == "success", res.errors
+    env = res.output
+    assert env["TDD_BASE"] == "main" and env["TDD_TEST_CMD"] == "pytest -q"
+    assert "HOME" not in env and "TDD_TIMEOUT" not in env
+    assert {"ORG_ROOT", "ORG_RUN", "ORG_KEY", "PATH"} <= set(env)
+    assert {k for k in env if k.startswith("TDD_")} == {"TDD_BASE", "TDD_TEST_CMD"}
+
+
+def test_a_step_cannot_add_environment_beyond_the_stack(tmp_path):
+    task = leaf()
+    task["run"]["shell"]["environment"] = {"EVIL": "1", "TDD_BASE": "step"}
+    root = stack_root(tmp_path, {"bin-env": {"t": {"TDD_BASE": "main"}}}, wf=doc(("a", task)))
+    (root / "bin" / "work").write_text(ENV_SCRIPT)
+    res = runtime(tmp_path, root=root, host=ort.OrgProcessHost(root, session_dir=tmp_path / "s")).run("t", run_id=RID)
+    assert res.status == "success" and res.output["TDD_BASE"] == "main" and "EVIL" not in res.output
+
+
+def test_names_that_break_the_rules_are_never_forwarded_even_if_a_host_was_handed_them(tmp_path):
+    host = ort.OrgProcessHost(make_root(tmp_path), session_dir=tmp_path / "s")
+    host.bind_stack({"bin-env": {"t": {"OK_NAME": "1", "LD_PRELOAD": "x", "ORG_RUN": "x", "PATH": "x", "bad": "x"}},
+                     "roles": {}}, lambda key: "t")
+    assert host._bin_env("a") == {"OK_NAME": "1"}
+
+
+def test_a_subflow_uses_its_own_workflows_bin_env(tmp_path):
+    call = {"run": {"workflow": {"namespace": "org", "name": "u", "version": "1.0.0"}},
+            "metadata": {"org": {"by": "code", "role": "worker", "metrics": ["m1"], "acceptance": [{"check": "c"}]}}}
+    man = manifest(workflows={"t": {"path": "workflows/t.json", "floors": []},
+                              "u": {"path": "workflows/u.json", "floors": []}})
+    stack = {"bin-env": {"t": {"TDD_BASE": "from-t"}, "u": {"TDD_VERIFY_CMD": "from-u"}}}
+    root = stack_root(tmp_path, stack, wf=doc(("call", call)), man=man)
+    (root / "workflows" / "u.json").write_text(json.dumps(doc(("inner", leaf()), name="u")))
+    (root / "bin" / "work").write_text(ENV_SCRIPT)
+    res = runtime(tmp_path, root=root, host=ort.OrgProcessHost(root, session_dir=tmp_path / "s")).run("t", run_id=RID)
+    assert res.status == "success", res.errors
+    assert res.output["TDD_VERIFY_CMD"] == "from-u" and "TDD_BASE" not in res.output
+
+
+# ---- P53: the rung of a stack change is per key
+
+
+def stack_store(tmp, root):
+    return snapshot(tmp, root)
+
+
+def edit_stack(root, fn, name="stack.json"):
+    doc_ = json.loads((root / name).read_text())
+    fn(doc_)
+    (root / name).write_text(json.dumps(doc_))
+
+
+BASE_STACK = {"models": {"worker": "m1"}, "bin-env": {"t": {"TDD_TEST_CMD": "pytest -q"}},
+              "roles": {"t": {"reviewer": {"tools": ["Read", "Grep", "Glob"]}}}}
+
+
+def test_a_change_to_a_free_stack_key_is_allowed(tmp_path):
+    root = stack_root(tmp_path, BASE_STACK)
+    store = stack_store(tmp_path, root)
+    edit_stack(root, lambda d: d["models"].update(worker="m2"))
+    res = rt_with(tmp_path, root, store, proposer_rungs=("free",)).run("t", run_id=RID)
+    assert res.status == "success", res.errors
+
+
+def test_a_change_to_roles_needs_the_protected_rung(tmp_path):
+    root = stack_root(tmp_path, BASE_STACK)
+    store = stack_store(tmp_path, root)
+    edit_stack(root, lambda d: d["roles"]["t"]["reviewer"]["tools"].append("Bash"))
+    res = rt_with(tmp_path, root, store).run("t", run_id=RID)
+    assert res.errors[0] == "run refused: stack.json: change needs rung 'protected' and has no owner signature"
+    ok = rt_with(tmp_path, root, store, proposer_rungs=("free", "ordinary", "protected")).run("t", run_id="c" * 32)
+    assert ok.status == "success", ok.errors
+
+
+def test_a_change_to_bin_env_needs_the_protected_rung(tmp_path):
+    root = stack_root(tmp_path, BASE_STACK)
+    store = stack_store(tmp_path, root)
+    edit_stack(root, lambda d: d["bin-env"]["t"].update(TDD_TEST_CMD="pytest -q -x"))
+    res = rt_with(tmp_path, root, store).run("t", run_id=RID)
+    assert res.errors[0] == "run refused: stack.json: change needs rung 'protected' and has no owner signature"
+
+
+def test_adding_removing_or_emptying_a_protected_key_is_a_protected_change(tmp_path):
+    root = stack_root(tmp_path, {"models": {}})
+    store = stack_store(tmp_path, root)
+    edit_stack(root, lambda d: d.update({"bin-env": {"t": {"TDD_BASE": "main"}}}))
+    assert rt_with(tmp_path, root, store).run("t", run_id=RID).status == "refused"
+    root2 = stack_root(tmp_path / "two", BASE_STACK) if (tmp_path / "two").mkdir() is None else None
+    store2 = snapshot(tmp_path / "two", root2)
+    edit_stack(root2, lambda d: d.pop("roles"))
+    assert rt_with(tmp_path / "two", root2, store2).run("t", run_id=RID).errors[0].startswith("run refused: stack.json")
+
+
+def test_deleting_or_adding_the_whole_stack_file_is_classified_by_its_keys(tmp_path):
+    root = stack_root(tmp_path, {"models": {}})
+    store = stack_store(tmp_path, root)
+    (root / "stack.json").unlink()
+    assert rt_with(tmp_path, root, store).run("t", run_id=RID).status == "success"  # only a free key was lost
+    root_b = stack_root(tmp_path / "b", BASE_STACK) if (tmp_path / "b").mkdir() is None else None
+    store_b = snapshot(tmp_path / "b", root_b)
+    (root_b / "stack.json").unlink()
+    assert rt_with(tmp_path / "b", root_b, store_b).run("t", run_id=RID).status == "refused"
+
+
+def test_an_unparseable_stack_change_is_frozen(tmp_path):
+    root = stack_root(tmp_path, BASE_STACK)
+    store = stack_store(tmp_path, root)
+    (root / "stack.json").write_text("{not json")
+    res = rt_with(tmp_path, root, store, proposer_rungs=("free", "ordinary", "protected")).run("t", run_id=RID)
+    assert res.errors[0] == "run refused: stack.json: change needs rung 'frozen' and has no owner signature"
+
+
+def test_an_unchanged_stack_runs_under_enforcement_and_other_files_still_use_check_change(tmp_path):
+    root = stack_root(tmp_path, BASE_STACK)
+    store = stack_store(tmp_path, root)
+    assert rt_with(tmp_path, root, store).run("t", run_id=RID).status == "success"
+    (root / "checks" / "c.py").write_text("import sys\nsys.exit(0)\n# edited\n")
+    res = rt_with(tmp_path, root, store).run("t", run_id="d" * 32)
+    assert res.errors[0] == "run refused: checks/c.py: change needs rung 'frozen' and has no owner signature"
+
+
+def test_the_same_stack_in_the_other_format_is_no_change(tmp_path):
+    yaml = pytest.importorskip("yaml", reason="PyYAML is optional")
+    root = stack_root(tmp_path, BASE_STACK)
+    store = stack_store(tmp_path, root)
+    (root / "stack.json").unlink()
+    (root / "stack.yaml").write_text(yaml.safe_dump(BASE_STACK))
+    assert rt_with(tmp_path, root, store, proposer_rungs=("free",)).run("t", run_id=RID).status == "success"
+
+
+def test_a_change_that_leaves_two_stack_files_is_frozen(tmp_path):
+    root = stack_root(tmp_path, BASE_STACK)
+    store = stack_store(tmp_path, root)
+    (root / "stack.yaml").write_text("models: {}\n")
+    res = rt_with(tmp_path, root, store, proposer_rungs=("free", "ordinary", "protected")).run("t", run_id=RID)
+    assert res.errors[0] == "run refused: stack.yaml: change needs rung 'frozen' and has no owner signature"

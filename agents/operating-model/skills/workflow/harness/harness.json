@@ -7,7 +7,9 @@
     "The adapter never signs. agent-run builds the event, hashes the evidence and attaches a signature only when a signer is injected.",
     "task_input is the JSON text of the task's transformed input and reasons lists the gate rejection reasons of the round just ended. Both are optional. The adapter puts them in the model input, after the task.",
     "agent-run reads task_input and reasons from the runtime-owned file given by --input (a path inside the session directory or the org root). For a judge the input holds the item index and the judged task's output.",
-    "The network policy never reaches the adapter or the model. agent-run resolves the --network policy name and REQUESTS it from the instance tool, whose request carries isolation, network, trust and lifetime only. The policy is enforced only by a real instance tool, and none exists yet: the call record says enforced false. agent-run compares the grant with the request and refuses (network-refused) when they differ."
+    "The network policy never reaches the adapter or the model. agent-run resolves the --network policy name and REQUESTS it from the instance tool, whose request carries isolation, network, trust and lifetime only. The policy is enforced only by a real instance tool, and none exists yet: the call record says enforced false. agent-run compares the grant with the request and refuses (network-refused) when they differ.",
+    "The model input never contains the run id (P37): the task is passed without its run field, every run key is removed from the task input, and the id text is replaced by [run] in free text. The adapter gets the run id only in task.run, to build and record the call.",
+    "tools is a subset of Read, Grep, Glob, Edit, Write, Bash. workdir, when given, is the model child's working directory; otherwise the child runs in an empty temporary directory. Neither reaches the model input."
   ],
   "operations": {
     "run": {
@@ -89,6 +91,9 @@
               "required": ["gate", "reason"],
               "additionalProperties": false
             }
+          },
+          "workdir": {
+            "type": "string"
           }
         },
         "required": [
