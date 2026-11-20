@@ -1,0 +1,212 @@
+{
+  "port": "Instances",
+  "operations": {
+    "acquire": {
+      "name": "acquire",
+      "input": {
+        "type": "object",
+        "properties": {
+          "isolation": {
+            "type": "string",
+            "enum": ["process", "vm"]
+          },
+          "network": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": ["none", "allow-list"]
+              },
+              "allow": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["mode"],
+            "additionalProperties": false
+          },
+          "trust": {
+            "type": "string",
+            "enum": ["trusted", "untrusted"]
+          },
+          "lifetime_seconds": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": ["isolation", "network", "trust", "lifetime_seconds"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          },
+          "granted": {
+            "type": "object",
+            "properties": {
+              "isolation": {
+                "type": "string",
+                "enum": ["process", "vm"]
+              },
+              "network": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["none", "allow-list"]
+                  },
+                  "allow": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": ["mode"],
+                "additionalProperties": false
+              },
+              "trust": {
+                "type": "string",
+                "enum": ["trusted", "untrusted"]
+              },
+              "lifetime_seconds": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": ["isolation", "network", "trust", "lifetime_seconds"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["instance_id", "granted"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "isolation": "as stated in the request",
+        "network": "as stated in the request",
+        "trust": "as stated in the request",
+        "lifetime": "as stated in the request"
+      },
+      "guarantees": ["requirements-honoured", "network-consistent"],
+      "errors": [
+        "invalid-input",
+        "unsatisfiable",
+        "capacity",
+        "refused-untrusted"
+      ],
+      "metrics": []
+    },
+    "release": {
+      "name": "release",
+      "input": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          }
+        },
+        "required": ["instance_id"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          },
+          "released": {
+            "type": "boolean"
+          }
+        },
+        "required": ["instance_id", "released"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["idempotent"],
+      "errors": ["invalid-input", "not-found"],
+      "metrics": []
+    },
+    "status": {
+      "name": "status",
+      "input": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          }
+        },
+        "required": ["instance_id"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["running", "released", "expired"]
+          },
+          "granted": {
+            "type": "object",
+            "properties": {
+              "isolation": {
+                "type": "string",
+                "enum": ["process", "vm"]
+              },
+              "network": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["none", "allow-list"]
+                  },
+                  "allow": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": ["mode"],
+                "additionalProperties": false
+              },
+              "trust": {
+                "type": "string",
+                "enum": ["trusted", "untrusted"]
+              },
+              "lifetime_seconds": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": ["isolation", "network", "trust", "lifetime_seconds"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["instance_id", "state", "granted"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["read-only"],
+      "errors": ["invalid-input", "not-found"],
+      "metrics": []
+    }
+  },
+  "notes": [
+    "An acquire request carries isolation, network, trust and lifetime only. It names no owner and no approver: the delegate is the only entity that reaches the owner.",
+    "granted must equal the request. An adapter that cannot grant a requirement refuses with unsatisfiable and never downgrades.",
+    "Known gap in the sandy backend: it documents trusted-only work on macOS but its code admits untrusted VM jobs there. The harness adapter refuses untrusted work on macOS itself (refused-untrusted). Not fixed upstream.",
+    "network.mode none with an allow list, or allow-list with an empty or missing allow list, is refused with invalid-input: the schema cannot express the pairing, the adapter enforces it.",
+    "No first-catalog metric (execution plan, Appendix A) is something these operations emit, so every metrics list is empty, and metrics emission is not tested."
+  ]
+}
