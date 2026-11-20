@@ -62,15 +62,12 @@ R_OTHER_FILE = "other file under the org root"
 R_NO_ROW = "no row names it"
 R_BRIEF = "brief content"
 R_STACK = "stack document"
-R_STACK_KEYS = "stack roles or bin-env"
 R_BAD = "unloadable document"
 R_BAD_PATH = "path is not a relative path under the org root"
 R_UNSURE = "depends on a document that did not load"
 R_WF_FILE = "workflow file added or removed"
 
 CATALOG_FILE = re.compile(r"^metrics[^/]*\.(yaml|yml|json)$")
-STACK_FILES = ("stack.yaml", "stack.yml", "stack.json")
-STACK_PROTECTED = ("roles", "bin-env")
 MANIFEST_FILES = ("manifest.yaml", "manifest.yml", "manifest.json")
 WORKFLOW_SUFFIXES = (".yaml", ".yml", ".json")
 CHILDREN = "<children>"
@@ -475,8 +472,8 @@ def check_change(base, new, rungs):
             continue
         if p in MANIFEST_FILES:
             emit(p, "", R_MANIFEST, FROZEN)
-        elif p in STACK_FILES:
-            pass  # classified per key below
+        elif p == "stack.yaml":
+            emit(p, "", R_STACK, FREE)
         elif CATALOG_FILE.match(p):
             if catalog_bad:
                 emit(p, "", R_BAD, FROZEN)
@@ -499,8 +496,6 @@ def check_change(base, new, rungs):
         else:
             emit(p, "", R_OTHER_FILE, PROTECTED)
 
-    _stack_entries(base, new, emit)
-
     if not catalog_bad and any(CATALOG_FILE.match(p) and base.get(p) != new.get(p) for p in paths):
         for name in sorted(set(catalogs["base"]) | set(catalogs["new"])):
             b, n = catalogs["base"].get(name, MISSING), catalogs["new"].get(name, MISSING)
@@ -515,32 +510,6 @@ def check_change(base, new, rungs):
                 emit(where, "", f"{R_CATALOG}: {name}", PROTECTED)
 
     return entries, [e for e in entries if e[3] not in rungs]
-
-
-def _stack_entries(base, new, emit):
-    """P53: `roles` and `bin-env` are protected, every other key is free, an unreadable stack is frozen."""
-    if not any(base.get(p) != new.get(p) for p in STACK_FILES):
-        return
-    docs, label = {}, {}
-    for ver, files in (("base", base), ("new", new)):
-        present = [p for p in STACK_FILES if files.get(p) is not None]
-        label[ver] = present[0] if present else None
-        if len(present) > 1:
-            emit(present[0], "", R_BAD, FROZEN)
-            return
-        docs[ver] = {}
-        if present:
-            doc, err = _load(present[0], files[present[0]])
-            if err or not isinstance(doc, dict):
-                emit(present[0], "", R_BAD, FROZEN)
-                return
-            docs[ver] = doc
-    path = label["new"] or label["base"]
-    for key in sorted(set(docs["base"]) | set(docs["new"])):
-        if _same(docs["base"].get(key, MISSING), docs["new"].get(key, MISSING)):
-            continue
-        protected = key in STACK_PROTECTED
-        emit(path, "", R_STACK_KEYS if protected else R_STACK, PROTECTED if protected else FREE)
 
 
 def _workflow_entries(p, docs, bad_docs, manifests, emit):
