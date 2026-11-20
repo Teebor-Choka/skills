@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Harness adapter contract and the `agent-run` program (spec 7.8, 8.2, 6.1). Standard library only.
 
-U13a starts `agent-run` by argv exec and appends `--role <role> --brief <path>` from `metadata.org`. The
-only other argument is `--isolated`. Everything else comes from the runtime environment:
+U13a starts `agent-run` by argv exec and appends `--role <role> --brief <path>` from `metadata.org`,
+`--network <policy>` when the step has one (P19) and `--input <path>`, the runtime-owned task input file
+(P14). The only other argument is `--isolated`. Everything else comes from the runtime environment:
 
     ORG_ROOT          org root directory (briefs/, criteria/, manifest.json or manifest.yaml)
     ORG_RUN           run id
@@ -10,10 +11,13 @@ only other argument is `--isolated`. Everything else comes from the runtime envi
     ORG_SESSION_DIR   directory for the per-run history and the call record (required)
     ORG_ITEM          rubric item index (required when the brief is under criteria/)
     ORG_PARENT_ROLE   role that starts this one (optional; enforces `may-spawn`)
+    ORG_INSTANCES     instance tool for --network; only `scripted` exists so far
+    ORG_NETWORK_POLICIES  JSON map of policy name to {mode, allow}, for --network
     ORG_HARNESS       claude-code (default) or scripted
     ORG_HARNESS_SCRIPT  JSON list of canned replies for the scripted harness
 
-ORG_SESSION_DIR, ORG_ITEM, ORG_PARENT_ROLE, ORG_HARNESS and ORG_HARNESS_SCRIPT are PROVISIONAL names: the
+ORG_SESSION_DIR, ORG_ITEM, ORG_PARENT_ROLE, ORG_HARNESS, ORG_HARNESS_SCRIPT, ORG_INSTANCES and
+ORG_NETWORK_POLICIES are PROVISIONAL names: the
 spec fixes the argv only.
 
 Output: one JSON outcome on stdout (`outcome` in contracts/harness.json). Exit 0 ok, 1 refused or failed
@@ -37,8 +41,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from op_conformance import PARTS, PortError, _probes, _shape, check_schema  # noqa: E402
 from validate_catalog import file_under_root, load_document, relative_path_ok  # noqa: E402
 
-CONTRACT_PATH = Path(__file__).resolve().parent.parent / "contracts" / "harness.json"
-HARNESS_GUARANTEES = ("context-only", "cost-reported", "refuses-untrusted-on-macos")
+CONTRACT_PATH = Path(__file__).resolve().parent.parent / "harness" / "harness.json"
+HARNESS_GUARANTEES = ("context-only", "cost-reported", "refuses-untrusted-on-macos", "task-input-in-prompt")
 RUN_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 VERDICT_LINE = re.compile(r"^\s*VERDICT:\s*(pass|fail)\s*$", re.IGNORECASE)
 DEFAULT_TIMEOUT = 3600
@@ -105,8 +109,8 @@ def validate_harness_contract(doc):
 # ------------------------------------------------------------------ prompt and adapters
 
 
-def build_prompt(brief, context, task):
-    """The exact text sent to the model: the brief, the context given, the task. Nothing else."""
+def build_prompt(brief, context, task, task_input=None, reasons=None):
+    """The exact text sent to the model: brief, context, task, task input, reasons. Nothing else."""
     parts = [brief.rstrip()]
     if context:
         parts.append("## Context\n" + "\n".join(f"{c['role']}: {c['text']}" for c in context))
@@ -114,9 +118,17 @@ def build_prompt(brief, context, task):
     if "item" in task:
         lines.append(f"item: {task['item']}")
     parts.append("## Task\n" + "\n".join(lines))
+    if task_input:
+        parts.append("## Input\n" + task_input)
+    if reasons:
+        parts.append("## Reasons\n" + "\n".join(f"{r['gate']}: {r['reason']}" for r in reasons))
     if "item" in task:
         parts.append("## Verdict\nEnd your answer with one line: VERDICT: pass or VERDICT: fail.")
     return "\n\n".join(parts)
+
+
+def prompt_for(req):
+    return build_prompt(req["brief"], req["context"], req["task"], req.get("task_input"), req.get("reasons"))
 
 
 class _Adapter:
@@ -153,7 +165,7 @@ class ScriptedAdapter(_Adapter):
         else:
             raise PortError("harness-error", "script exhausted")
         out = {
-            "prompt": build_prompt(inp["brief"], inp["context"], inp["task"]),
+            "prompt": prompt_for(inp),
             "result": "ok",
             "cost": {"usd": 0.0, "seconds": 0.0},
         }
@@ -182,7 +194,7 @@ class ClaudeCodeAdapter(_Adapter):
         self._accept(op, inp)
         argv = [self.claude_bin, "-p", "--output-format", "json", "--no-session-persistence"]
         argv += ["--allowedTools", ",".join(inp["tools"])] if inp["tools"] else ["--tools", ""]
-        prompt = build_prompt(inp["brief"], inp["context"], inp["task"])
+        prompt = prompt_for(inp)
         try:
             rc, stdout, stderr = self.runner(argv, prompt, inp.get("timeout_seconds", DEFAULT_TIMEOUT))
         except subprocess.TimeoutExpired:
@@ -274,10 +286,24 @@ def t_untrusted(c):
         assert e.code == "refused-untrusted", f"refused untrusted work with '{e.code}'"
 
 
+def t_task_input(c):
+    ti = json.dumps({"spec": "INPUT-MARKER-9054"})
+    reasons = [{"gate": "spec-gate", "reason": "REASON-MARKER-5513"}]
+    out = c.call("run", _req(task_input=ti, reasons=reasons))
+    assert "INPUT-MARKER-9054" in out["prompt"] and "REASON-MARKER-5513" in out["prompt"], \
+        "task input or reasons missing from the model input"
+    task = {"run": "conformance", "task": "review"}
+    assert out["prompt"] == build_prompt("Review the change.", [], task, ti, reasons), \
+        "model input holds more or less than the brief, task, input and reasons"
+    bare = c.call("run", _req())
+    assert "INPUT-MARKER-9054" not in bare["prompt"], "task input carried into a call that gave none"
+
+
 HARNESS_TESTS = {
     "context-only": t_context_only,
     "cost-reported": t_cost_reported,
     "refuses-untrusted-on-macos": t_untrusted,
+    "task-input-in-prompt": t_task_input,
 }
 
 
@@ -410,18 +436,53 @@ def _judge_output(out, req, rubric):
     bad = check_schema(out, load_contract()["operations"]["run"]["output"])
     if bad:
         return "harness-error", f"adapter output breaks the contract: {bad[0]}"
-    if out["prompt"] != build_prompt(req["brief"], req["context"], req["task"]):
-        return "harness-error", "model input differs from brief, context and task"
+    if out["prompt"] != prompt_for(req):
+        return "harness-error", "model input differs from brief, context, task, input and reasons"
     if rubric and "verdict" not in out:
         return "invalid-verdict", "judge returned no pass or fail verdict"
     return None, ""
 
 
+class ScriptedInstances:
+    """In-memory instance tool for tests and for ORG_INSTANCES=scripted: grants what is asked, records it."""
+
+    def __init__(self):
+        self.acquired, self.released = [], []
+
+    def call(self, op, inp):
+        if op == "acquire":
+            bad = check_schema(inp, _instances_schema())
+            if bad:
+                raise PortError("invalid-input", bad[0])
+            self.acquired.append(json.loads(json.dumps(inp)))
+            return {"instance_id": f"inst-{len(self.acquired)}", "granted": json.loads(json.dumps(inp))}
+        if op == "release":
+            self.released.append(inp["instance_id"])
+            return {"released": True}
+        raise PortError("invalid-input", f"unknown operation {op!r}")
+
+
+def _instances_schema():
+    path = CONTRACT_PATH.parent.parent / "contracts" / "instances.json"
+    return json.loads(path.read_text())["operations"]["acquire"]["input"]
+
+
+def _resolve_network(network, instances, policies):
+    if instances is None or policies is None:
+        raise PortError("network-refused", "a network policy needs an instance tool and a policy table")
+    if network not in policies:
+        raise PortError("network-refused", f"unknown network policy '{network}'")
+    return policies[network]
+
+
 def run_agent(adapter, store, *, role, brief, task, isolated, trust="trusted", tools=(), manifest=None,
-              parent_role=None, signer=None, rubric=False, clock=time.monotonic, timeout_seconds=None):
+              parent_role=None, signer=None, rubric=False, clock=time.monotonic, timeout_seconds=None,
+              task_input=None, reasons=None, network=None, instances=None, network_policies=None):
     """Run one agent call and return the outcome. Raises PortError on a refusal or a failure.
 
     `isolated` gives the adapter an empty context. Otherwise it gets the earlier results of the same run.
+    `task_input` (any JSON value) and `reasons` (gate key to reason) reach the model input. `network` names
+    a policy: it goes to the instance request, never to the adapter.
     """
     _check_role(role, manifest, parent_role)
     run = task["run"]
@@ -432,20 +493,37 @@ def run_agent(adapter, store, *, role, brief, task, isolated, trust="trusted", t
            "context": context, "task": dict(task)}
     if timeout_seconds is not None:
         req["timeout_seconds"] = timeout_seconds
+    if task_input is not None:
+        req["task_input"] = json.dumps(task_input, sort_keys=True)
+    if reasons:
+        req["reasons"] = [{"gate": k, "reason": v} for k, v in sorted(reasons.items())]
+    wanted = _resolve_network(network, instances, network_policies) if network else None
     started = clock()
-    out, code, message = None, None, ""
+    out, code, message, instance_id = None, None, "", None
     try:
+        if network:
+            instance_id = instances.call("acquire", {
+                "isolation": "process", "network": wanted, "trust": trust,
+                "lifetime_seconds": timeout_seconds or DEFAULT_TIMEOUT})["instance_id"]
         out = adapter.call("run", req)
     except PortError as e:
         code, message = e.code, str(e)
     except Exception as e:  # noqa: BLE001
         code, message = "harness-error", f"{type(e).__name__}: {e}"
+    finally:
+        if instance_id is not None:
+            try:
+                instances.call("release", {"instance_id": instance_id})
+            except Exception:  # noqa: BLE001
+                pass
     seconds = clock() - started
     if code is None:
         code, message = _judge_output(out, req, rubric)
     spent = isinstance(out, dict) and _cost_ok(out.get("cost"))
     record = {"run": run, "task": task["task"], "role": role, "isolated": bool(isolated), "ok": code is None,
               "seconds": seconds, "usd": out["cost"]["usd"] if spent else None}
+    if network:
+        record["network"], record["instance_id"] = network, instance_id
     if code is not None:
         record["error"] = code
     store.add_call(run, record)
@@ -474,6 +552,10 @@ class _BadArguments(Exception):
     pass
 
 
+DOTTED = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*(\.[a-z0-9]+(-[a-z0-9]+)*)+$")
+MAX_INPUT_BYTES = 1_000_000
+
+
 def _parse_args(argv):
     seen, i = {}, 0
     while i < len(argv):
@@ -483,20 +565,22 @@ def _parse_args(argv):
                 raise _BadArguments("--isolated given more than once")
             seen["isolated"] = True
             i += 1
-        elif a in ("--role", "--brief"):
+        elif a in ("--role", "--brief", "--input", "--network"):
             key = a[2:]
             if key in seen:
                 raise _BadArguments(f"{a} given more than once")
             if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
                 raise _BadArguments(f"{a} needs a value")
+            if key == "network" and not DOTTED.match(argv[i + 1]):
+                raise _BadArguments("--network must be a dotted policy name like research.source-allowlist")
             seen[key] = argv[i + 1]
             i += 2
         else:
-            raise _BadArguments(f"'{a}' is not allowed (allowed: --isolated, --role, --brief)")
+            raise _BadArguments(f"'{a}' is not allowed (allowed: --isolated, --role, --brief, --input, --network)")
     for key in ("role", "brief"):
         if key not in seen:
             raise _BadArguments(f"--{key} is required")
-    return seen["role"], seen["brief"], bool(seen.get("isolated"))
+    return seen["role"], seen["brief"], bool(seen.get("isolated")), seen.get("input"), seen.get("network")
 
 
 def _read_brief(root, rel):
@@ -505,6 +589,32 @@ def _read_brief(root, rel):
     if not file_under_root(root, rel):
         raise PortError("brief-refused", f"{rel}: not a file inside the org root")
     return Path(root, rel).read_text(encoding="utf-8")
+
+
+def _inside(real, base):
+    base = os.path.realpath(base)
+    return os.path.commonpath([base, real]) == base
+
+
+def _read_input(path, roots, run, key):
+    """Read the runtime-owned task input file. It must sit inside the session directory or the org root."""
+    real = os.path.realpath(path)
+    if not any(_inside(real, r) for r in roots):
+        raise PortError("input-refused", "input file is outside the session directory and the org root")
+    try:
+        if not os.path.isfile(real) or os.path.getsize(real) > MAX_INPUT_BYTES:
+            raise PortError("input-refused", "input file is missing, not a file, or over 1 MB")
+        doc = json.loads(Path(real).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise PortError("input-refused", "input file cannot be read as JSON") from None
+    if not isinstance(doc, dict) or set(doc) != {"run", "key", "input", "reasons"}:
+        raise PortError("input-refused", "input file must hold exactly run, key, input and reasons")
+    reasons = doc["reasons"]
+    if not isinstance(reasons, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in reasons.items()):
+        raise PortError("input-refused", "input file reasons must map a gate key to a reason string")
+    if doc["run"] != run or doc["key"] != key:
+        raise PortError("input-refused", "input file run or key does not match ORG_RUN or ORG_KEY")
+    return doc["input"], reasons
 
 
 def _load_manifest(root):
@@ -532,11 +642,33 @@ def _make_adapter(env):
     raise PortError("harness-unavailable", f"unknown harness '{name}'")
 
 
+def _make_instances(env):
+    name = env.get("ORG_INSTANCES")
+    if name is None:
+        return None
+    if name == "scripted":
+        return ScriptedInstances()
+    raise PortError("network-refused", f"unknown instance tool '{name}'")
+
+
+def _load_policies(env):
+    path = env.get("ORG_NETWORK_POLICIES")
+    if not path:
+        return None
+    try:
+        table = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        raise PortError("network-refused", "cannot read ORG_NETWORK_POLICIES") from None
+    if not isinstance(table, dict):
+        raise PortError("network-refused", "ORG_NETWORK_POLICIES must hold a map of policy names")
+    return table
+
+
 def main(argv, env=None, stdout=None, stderr=None):
     env = os.environ if env is None else env
     stdout, stderr = stdout or sys.stdout, stderr or sys.stderr
     try:
-        role, brief_path, isolated = _parse_args(list(argv))
+        role, brief_path, isolated, input_path, network = _parse_args(list(argv))
     except _BadArguments as e:
         print(f"agent-run: bad-arguments: {e}", file=stderr)
         return 2
@@ -550,15 +682,26 @@ def main(argv, env=None, stdout=None, stderr=None):
         brief = _read_brief(root, brief_path)
         rubric = brief_path.startswith("criteria/")
         task = {"run": env["ORG_RUN"], "task": env["ORG_KEY"]}
+        task_input, reasons = None, None
+        if input_path is not None:
+            task_input, reasons = _read_input(input_path, [env["ORG_SESSION_DIR"], root], task["run"], task["task"])
         if rubric:
             item = env.get("ORG_ITEM", "")
+            from_file = task_input.get("item") if isinstance(task_input, dict) else None
+            if isinstance(from_file, int) and not isinstance(from_file, bool) and from_file >= 0:
+                if item and item != str(from_file):
+                    raise PortError("invalid-input", "ORG_ITEM differs from the item in the input file")
+                item = str(from_file)
             if not item.isdigit():
-                raise PortError("invalid-input", "a rubric brief needs ORG_ITEM, the item index")
+                raise PortError("invalid-input", "a rubric brief needs the item index (input file or ORG_ITEM)")
             task["item"] = int(item)
         adapter = _make_adapter(env)
         outcome = run_agent(
             adapter, SessionStore(env["ORG_SESSION_DIR"]), role=role, brief=brief, task=task, isolated=isolated,
-            manifest=_load_manifest(root), parent_role=env.get("ORG_PARENT_ROLE") or None, rubric=rubric)
+            manifest=_load_manifest(root), parent_role=env.get("ORG_PARENT_ROLE") or None, rubric=rubric,
+            task_input=task_input, reasons=reasons, network=network,
+            instances=_make_instances(env) if network else None,
+            network_policies=_load_policies(env) if network else None)
     except PortError as e:
         print(f"agent-run: {e}", file=stderr)
         return 1

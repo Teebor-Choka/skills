@@ -980,6 +980,7 @@ def test_cli_refuses_a_malformed_or_mismatched_input_file(org, body):
 def test_cli_refuses_a_missing_or_oversized_input_file(org):
     root, env, _ = org
     sessions = Path(env["ORG_SESSION_DIR"])
+    sessions.mkdir(parents=True, exist_ok=True)
     code, _, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--input", str(sessions / "nope.json")], env)
     assert code == 1 and "input-refused" in err
     big = sessions / "big.json"
@@ -1037,7 +1038,7 @@ def test_network_policy_goes_to_the_instance_request_and_never_to_the_model():
 
 def test_instance_request_carries_only_the_four_keys():
     inst = ar.ScriptedInstances()
-    ar.run_agent(ar.ScriptedAdapter(), ar.SessionStore(), role="worker", brief="b", task=TASK, isolated=True,
+    ar.run_agent(ar.ScriptedAdapter(platform="linux"), ar.SessionStore(), role="worker", brief="b", task=TASK, isolated=True,
                  manifest=MANIFEST, network="research.source-allowlist", instances=inst, network_policies=POLICIES,
                  timeout_seconds=90, trust="untrusted")
     assert set(inst.acquired[0]) == {"isolation", "network", "trust", "lifetime_seconds"}
