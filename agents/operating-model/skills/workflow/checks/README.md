@@ -69,6 +69,8 @@ Field shapes:
   classifies the difference with `check_change` from `scripts/check_change.py`. An agent writes files only. An
   empty change, an unusable `change` or a missing `check_change` fails.
 
+No check or rubric reads the result of fanned-out work. The build runs units in a sequential `for`, and `unit-verdict-is-pass` reads only the call entry of its own unit. A future check on a join must read the join `output` (events carry the ended work's `output`, P41).
+
 ## Code steps
 
 `bin/tdd-evidence` and `bin/merge-change` are stubs that exit 3 until U14 implements them. The `by: code` steps that

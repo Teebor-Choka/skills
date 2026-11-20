@@ -9,6 +9,7 @@ The judge passes the work only if every rule holds. Each rule names what it is j
 3. Every failure path in item.failure_definition has a test. Judged against: item.failure_definition and the test files.
 4. Each test asserts the bad behaviour, so it cannot pass without the feature. Judged against: output (the test files).
 5. Each test also asserts the good behaviour it guards. Judged against: output (the test files).
+6. Every listed test id is a pytest node id such as `tests/test_x.py::test_y`. Judged against: output (the tests list).
 
 ## On a fail
 
