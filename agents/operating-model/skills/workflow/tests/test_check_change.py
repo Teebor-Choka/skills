@@ -292,7 +292,7 @@ def test_K11_set_inside_rework_loop_with_floor_is_frozen():
     edit(new, SW, lambda d: find(d, "rework")["do"].append({"note": {"set": {"x": 1}}}))
     entries, _ = check(base, new)
     assert top(entries) == "frozen"
-    assert any(e[1] == "rework" and e[2].startswith("floor") for e in entries)
+    assert any(e[1] == "rework" and e[2] == "floor position" or e[1] == "rework/spec" and e[2] == "floor position" for e in entries)
 
 
 def test_K12_adding_sample_to_a_rubric_item_is_frozen():
@@ -348,7 +348,7 @@ def test_K16_floor_call_status_comes_from_either_manifest_version():
     base = _root()
     new = dict(base)
     edit(new, MANIFEST, lambda m: m["workflows"]["tdd-unit"].update(floors=["red"]))
-    edit(new, SW, lambda d: find(d, "tdd")["run"]["workflow"].update(name="improve"))
+    edit(new, SW, lambda d: org(d, "tdd").update(role="ci"))
     entries, _ = check(base, new)
     assert any(e[1] == "build/units/tdd" and e[3] == "frozen" for e in entries)
 
