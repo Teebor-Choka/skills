@@ -1854,9 +1854,13 @@ def test_b5_check_script_runs_the_verified_file_not_a_path_swapped_after_the_che
     (tmp_path / "evil.py").write_text("import sys\nsys.exit(1)\n")
     host = ProcessHost(str(org))
 
+    hits = []
+
     def swap():
-        (org / "checks" / "x.py").unlink()
-        (org / "checks" / "x.py").symlink_to(tmp_path / "evil.py")
+        hits.append(1)
+        if len(hits) == 2:  # the first call is the step's verification, the second the check's
+            (org / "checks" / "x.py").unlink()
+            (org / "checks" / "x.py").symlink_to(tmp_path / "evil.py")
     host.after_verify = swap
     assert go(wf(("s", leaf("w", [chk("x")], by="code"))), host).status == "success"
 
@@ -2246,7 +2250,7 @@ def test_p35_a_call_is_a_floor_call_when_a_workflow_it_calls_has_floors():
 
 def test_p36_a_rework_loop_may_name_a_callee_floor_by_its_full_key():
     child = wf(("fl", leaf("fl", [chk("sc")], floor=True)), name="child")
-    root = wf(("rework", {"for": {"in": [1, 2]}, "while": '${ $accepted["c>fl"] != true }', "do": [{"c": _call("child")}]}), name="root")
+    root = wf(("rework", {"for": {"in": [1, 2]}, "while": '${ $accepted["rework/c>fl"] != true }', "do": [{"c": _call("child")}]}), name="root")
     res = go({"root": root, "child": child}, ScriptedHost(checks={"sc": [False, True]}), name="root")
     assert res.status == "success", res.errors
     assert len(starts(res, "rework/c>fl")) == 2
@@ -2255,3 +2259,49 @@ def test_p36_a_rework_loop_may_name_a_callee_floor_by_its_full_key():
 def test_the_fixture_tdd_unit_runs_to_success_whatever_its_check_layout():
     res = go({"tdd-unit": tdd_doc()}, ScriptedHost(), catalog=CAT, manifest=MAN)
     assert res.status == "success", res.errors
+
+
+# ---- tests added after the mutation check of review 1
+
+
+def test_b2_a_new_round_still_discards_its_own_iterations_earlier_round_and_only_that():
+    seen = []
+    inner = {"rework": {"for": {"in": [1, 2]}, "while": "${ true }", "do": [{"x": leaf("w")}]}}
+    doc = wf(("outer", {"for": {"each": "i", "in": [0, 1]}, "do": [{"body": {"do": [inner]}}]}))
+    host = ScriptedHost(steps={"outer/body/rework/x": lambda req: seen.append((req.key, sorted(req.accepted))) or StepOutcome()})
+    go(doc, host)
+    key, acc = seen[3]  # iteration 1, round 2
+    assert key == "outer/body#1/rework/x"
+    assert acc == ["outer/body#0/rework/x"]  # round 1 of this iteration discarded, the other iteration kept
+
+
+def test_b4_a_verifier_that_raises_is_charged_to_the_decision_gate():
+    def boom(event, signer):
+        raise RuntimeError("key ring down")
+    host = ScriptedHost(events=[(1, decision("gate"))], signed=boom)
+    res = go(wf(("gate", gate())), host)
+    assert res.errors[0].startswith("gate: event filter failed: RuntimeError")
+
+
+def test_b5_a_symlinked_bin_command_is_refused_even_inside_the_root(org):
+    _script(org / "bin" / "real", "echo hi\n")
+    (org / "bin" / "alias").symlink_to(org / "bin" / "real")
+    res = go(wf(("s", leaf("alias"))), ProcessHost(str(org)))
+    assert res.errors[0] == "s: run.shell.command: 'alias' is not agent-run or a file in bin/"
+
+
+def test_evidence_holds_only_work_that_ended_before_the_checked_task_started():
+    seen = []
+    doc = wf(("par", {"fork": {"branches": [{"a": leaf("a", by="code")}, {"b": leaf("b", [chk("probe")], by="model")}]}}))
+    host = ScriptedHost(steps={"par/a": StepOutcome(duration=5), "par/b": StepOutcome(duration=10)},
+                        checks={"probe": lambda n, k, e: seen.append(sorted(e["steps"])) or True})
+    go(doc, host)
+    assert seen == [[]]  # `a` ended at 5, after `b` started at 0
+
+
+def test_a_deadlock_records_cancelled_for_the_stuck_gate_before_the_run_ends():
+    doc = wf(("g", {"listen": {"to": {"one": {"with": {"type": "org.never"}}}},
+                    "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}))
+    res = go(doc)
+    assert res.statuses.get("g") == "cancelled"
+    assert [e["kind"] for e in res.events][-2:] == ["accept", "run-end"]
