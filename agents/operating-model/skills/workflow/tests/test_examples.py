@@ -748,6 +748,18 @@ def test_rubrics_have_numbered_rules_and_a_fail_report():
         assert "report" in m.group(1).lower(), f"{rel}: the fail section does not say what the judge reports"
 
 
+def test_acceptance_test_ids_are_pytest_node_ids():
+    brief = (ROOT / "briefs" / "sw" / "acceptance-tests.md").read_text()
+    rubric = (ROOT / "criteria" / "sw" / "acceptance-tests.md").read_text()
+    for text in (brief, rubric):
+        assert "pytest node id" in text and "tests/test_x.py::test_y" in text
+
+
+def test_readme_says_no_check_reads_fanned_out_work():
+    text = (ROOT / "checks" / "README.md").read_text()
+    assert "No check or rubric reads the result of fanned-out work" in text
+
+
 def test_acceptance_tests_brief_scopes_edge_cases():
     assert "where meaningful" in (ROOT / "briefs" / "sw" / "acceptance-tests.md").read_text()
 
