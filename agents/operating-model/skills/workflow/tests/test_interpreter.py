@@ -2724,3 +2724,76 @@ def test_bin_env_is_not_passed_to_agent_run(org):
     doc = wf(("a", _agent()))
     res = Interpreter({"t": doc}, ProcessHost(str(org), agent_run=str(stub)), stack=stack).run("t", run_id=RID)
     assert res.output == "TDD=unset"
+
+
+# ================================================================= spec update 11: skipped tasks and R64 (12.6 changes 13 and 14)
+
+
+def _guarded_cycle():
+    """tdd-unit's cycle with the update 11 guards, built inline so the test does not depend on a fixture."""
+    def step(by, acc=None, **extra):
+        return leaf("w", acc, by=by, role="worker" if by == "model" else "ci", **extra)
+    body = [
+        {"red": step("model")},
+        {"red-evidence": step("code", [chk("red-evidence")])},
+        {"green": step("model", **{"if": '${ $accepted["cycle/red-evidence"] == true }'})},
+        {"green-evidence": step("code", [chk("green-evidence")])},
+        {"refactor": step("model", **{"if": '${ $accepted["cycle/green-evidence"] == true }'})},
+        {"refactor-evidence": step("code", [chk("refactor-evidence")])},
+        {"unit-review": step("model", [{"rubric": "criteria/unit-review.md", "judge": "lead"}])},
+    ]
+    return wf(("cycle", {"for": {"each": "attempt", "in": [1, 2, 3]}, "while": '${ $accepted["cycle/unit-review"] != true }', "do": body}),
+              ("exhausted", {"if": '${ $accepted["cycle/unit-review"] != true }',
+                             "raise": {"error": {"type": "https://x/unit-not-accepted", "status": 409, "title": "not accepted"}},
+                             "metadata": {"org": {"to": "lead"}}}))
+
+
+def test_r64_a_failed_red_skips_green_and_refactor_but_the_evidence_steps_and_the_review_run():
+    # with green skipped, the real green-evidence fact fails too (it finds no change); that is what guards refactor
+    host = ScriptedHost(checks={"red-evidence": [False, True], "green-evidence": [False, True], "refactor-evidence": [False, True]},
+                        judges={"cycle/unit-review": ["fail", "pass"]})
+    res = go(_guarded_cycle(), host)
+    assert res.status == "success", res.errors  # round 2 passed everything; round 1's results were discarded
+    first_round = []
+    for e in kinds(res, "task-start"):
+        if e["key"] == "cycle":
+            continue
+        first_round.append(e["key"])
+        if e["key"] == "cycle/unit-review":
+            break
+    assert first_round == ["cycle/red", "cycle/red-evidence", "cycle/green-evidence", "cycle/refactor-evidence", "cycle/unit-review"]
+    assert len(starts(res, "cycle/green")) == 1 and len(starts(res, "cycle/refactor")) == 1  # only round 2 ran them
+    assert len(starts(res, "cycle/unit-review")) == 2
+
+
+def test_r64_the_loop_while_reads_unit_review_and_a_pass_ends_the_run_with_the_red_evidence_failure():
+    host = ScriptedHost(checks={"red-evidence": False, "green-evidence": False, "refactor-evidence": True})
+    res = go(_guarded_cycle(), host)  # unit-review passes (the default)
+    assert "cycle/red-evidence: acceptance failed" in res.errors and "cycle/green-evidence: acceptance failed" in res.errors
+    assert starts(res, "cycle/green") == [] and starts(res, "cycle/refactor") == []
+    assert len(starts(res, "cycle/red")) == 1  # unit-review passed in round 1, so no round 2
+    assert {"cycle/green-evidence", "cycle/refactor-evidence", "cycle/unit-review"} <= set(res.accepted)
+
+
+def test_a_skipped_task_has_no_key_no_record_no_accepted_entry_and_cannot_fail_the_run():
+    res = go(_guarded_cycle(), ScriptedHost(checks={"red-evidence": False, "green-evidence": False}))
+    for key in ("cycle/green", "cycle/refactor"):
+        assert key not in res.accepted and key not in res.records and key not in res.statuses
+        assert not any(e["kind"] == "accept" and e["key"] == key for e in res.events)
+    assert [e["key"] for e in kinds(res, "task-skip")] == ["cycle/green", "cycle/refactor", "exhausted"]
+    assert not any("cycle/green:" in e or "cycle/refactor:" in e for e in res.errors)
+
+
+def test_a_skipped_detached_unit_starts_no_work_and_emits_no_task_ended():
+    unit = dict(_detached(), **{"if": "${ false }"})
+    host = ScriptedHost()
+    res = go(wf(("bg", unit)), host)
+    assert res.status == "success" and _ended(res) == [] and not any(c[0] == "step" for c in host.calls)
+
+
+def test_a_skipped_task_does_not_count_for_a_join_that_waits_on_task_ended():
+    doc = wf(("fan", {"do": [
+        {"a": _detached()}, {"b": dict(_detached(), **{"if": "${ false }"})},
+        {"join": _plain_gate("${ ($events | length) == 1 }", after={"seconds": 30})}]}))
+    res = go(doc)
+    assert res.status == "success", res.errors
