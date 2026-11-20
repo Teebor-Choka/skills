@@ -63,7 +63,8 @@ do:
                   brief: briefs/research/web-search.md
                   metrics: [sources-consulted]
                   acceptance:
-                    - check: sources-recorded
+                    - rubric: criteria/research/sources.md
+                      judge: lead
           - literature-search:
               run:
                 shell: { command: agent-run, arguments: [] }
@@ -74,7 +75,8 @@ do:
                   brief: briefs/research/literature-search.md
                   metrics: [sources-consulted]
                   acceptance:
-                    - check: sources-recorded
+                    - rubric: criteria/research/sources.md
+                      judge: lead
           - prior-notes:
               run:
                 shell: { command: notes-search, arguments: [] }
@@ -96,7 +98,8 @@ do:
           brief: briefs/research/lookup.md
           metrics: [sources-consulted]
           acceptance:
-            - check: sources-recorded
+            - rubric: criteria/research/sources.md
+              judge: lead
   - extract:
       run:
         shell: { command: agent-run, arguments: [] }
@@ -113,6 +116,17 @@ do:
           by: model
           role: researcher
           brief: briefs/research/extract.md
+          metrics: [uncited-claims]
+          acceptance:
+            - rubric: criteria/research/extract.md
+              judge: lead
+  - claims-cited:
+      run:
+        shell: { command: claim-cites, arguments: [claims] }
+      metadata:
+        org:
+          by: code
+          role: ci
           metrics: [uncited-claims]
           acceptance:
             - check: every-claim-cites-a-source
@@ -165,10 +179,11 @@ do:
                 brief: briefs/research/draft.md
                 metrics: [claim-review-rounds]
                 acceptance:
-                  - check: note-has-required-sections
+                  - rubric: criteria/research/draft.md
+                    judge: lead
         - cite-check:
             run:
-              shell: { command: claim-cites, arguments: [] }
+              shell: { command: claim-cites, arguments: [note] }
             metadata:
               org:
                 by: code
