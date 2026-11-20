@@ -201,6 +201,15 @@ def test_claim_review_and_cite_check_are_floors(flow):
     assert find(flow, "cite-check")["metadata"]["org"]["acceptance"] == [{"check": CITE_CHECK}]
 
 
+def test_check_items_sit_only_on_code_tasks(flow):
+    # Spec 6.1: a check reads evidence built only from `by: code` step results, never agent output,
+    # so a check on a model task could not see what that task produced.
+    for path, _, t in tasks(flow):
+        o = t.get("metadata", {}).get("org", {})
+        if any("check" in i for i in o.get("acceptance", [])):
+            assert o.get("by") == "code", f"{path}: check item on a by: {o.get('by')} task"
+
+
 def test_rework_loop_reads_both_floor_results(flow):
     # Spec 7.4 runtime rule 1: a floor in a rework loop is exempt from the immediate raise only
     # when the loop's while names its key.
@@ -293,5 +302,5 @@ def test_no_local_paths_in_unit_files():
         files += [os.path.join(base, f) for f in sorted(os.listdir(base))] if os.path.isdir(base) else []
     for path in files:
         text = open(path, encoding="utf-8").read()
-        for bad in ("claude-501", "/Users/", "~/Fun/plans", "/private/tmp"):
+        for bad in ("claude-" + "501", "/Users" + "/", "~/Fun" + "/plans", "/private" + "/tmp"):
             assert bad not in text, f"{path} holds {bad}"
