@@ -1,0 +1,146 @@
+{
+  "port": "Documents",
+  "operations": {
+    "read": {
+      "name": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": ["path"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": ["path", "content"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["read-only"],
+      "errors": ["invalid-input", "not-found"],
+      "metrics": []
+    },
+    "write": {
+      "name": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": ["path", "content"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          }
+        },
+        "required": ["path", "bytes"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["idempotent", "durable"],
+      "errors": ["invalid-input", "write-refused"],
+      "metrics": []
+    },
+    "search": {
+      "name": "search",
+      "input": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": ["text"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["paths"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["read-only"],
+      "errors": ["invalid-input"],
+      "metrics": []
+    },
+    "share": {
+      "name": "share",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "with": {
+            "type": "string"
+          }
+        },
+        "required": ["path", "with"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "shared_with": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["path", "shared_with"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "network": "reaches the adapter's backing service",
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["idempotent"],
+      "errors": ["invalid-input", "not-found"],
+      "metrics": []
+    }
+  },
+  "notes": [
+    "No first-catalog metric (execution plan, Appendix A) is something these operations emit, so every metrics list is empty, and metrics emission is not tested."
+  ]
+}
