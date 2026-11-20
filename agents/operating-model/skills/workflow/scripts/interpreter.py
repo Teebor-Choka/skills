@@ -14,10 +14,12 @@ Execution model: one thread, a virtual clock, generators as processes. Parallel 
 and the same scripted host give the same event list.
 
 Decisions the spec leaves open (all PROVISIONAL, listed in the unit report):
-  D1 a finished `await: false` unit appends {task, ok} to `$context.results` (one entry
-     per full key, replaced on a re-run) and emits `org.unit-done`, with `data.run` and
-     `data.task`, so a counted join cannot double-count.
+  D1 (retired by spec update 4) a finished `await: false` unit emits `org.task-ended`
+     with data {run, task, accepted}; a join counts them through `$events`.
   D2 a gate with `to.any` and `until` evaluates `until` on entry and after each event.
+  D11 a plain gate on `org.task-ended` first replays the matching events (same execution,
+     iteration and round) that were emitted before it started listening. Without this a
+     unit that ends at once is never counted and the join waits for its timeout.
   D3 `emit` stamps `data.run` with the run id.
   D4 `limit.attempt.count` counts retries after the first try (count 2 = 3 tries).
   D5 every `for` iteration gets the `for` task's own input.
@@ -36,6 +38,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -58,7 +61,8 @@ STEP_LIMIT = 3600  # 7.10
 MAX_FOR = 1000  # 7.1
 MAX_CALLS = 8  # 7.7
 MAX_LISTS = 16
-UNIT_DONE = "org.unit-done"
+TASK_ENDED = "org.task-ended"
+RESERVED_PREFIXES = ("org.owner-", "org.task-")
 DURATION_UNITS = {"days": 86400, "hours": 3600, "minutes": 60, "seconds": 1, "milliseconds": 0.001}
 
 
@@ -78,6 +82,8 @@ class StepRequest:
     run_id: str = ""
     accepted: dict = field(default_factory=dict)
     shell: dict = field(default_factory=dict)
+    network: object = None
+    input_file: str = ""
 
 
 @dataclass
@@ -98,6 +104,8 @@ class JudgeRequest:
     rubric: str = ""
     run_id: str = ""
     invocation: str = ""
+    input_file: str = ""
+    argv: list = field(default_factory=list)
 
 
 @dataclass
@@ -108,6 +116,7 @@ class RunResult:
     events: list = field(default_factory=list)
     accepted: dict = field(default_factory=dict)
     records: dict = field(default_factory=dict)
+    statuses: dict = field(default_factory=dict)
     run_id: str = ""
     output: object = None
     context: object = None
@@ -124,6 +133,7 @@ class TaskError(Exception):
         self.key, self.type, self.status, self.fatal = key, type_, status, fatal
         self.text = f"{key}: {text}"
         self.title, self.detail = title, detail
+        self.failed = []  # (key, record) pairs this error turned into fail (for `handled`)
 
     def obj(self):
         return {"type": self.type, "status": self.status, "title": self.title, "detail": self.detail, "instance": self.key}
@@ -282,9 +292,10 @@ class _Scheduler:
         self.on_event = None
 
     def spawn(self, gen):
+        """Start a process now: it runs to its first wait before the spawner continues."""
         p = _Proc(gen)
         self.live += 1
-        self.ready.append((p, None, None))
+        self._step(p, None, None)
         return p
 
     def publish(self, event):
@@ -424,7 +435,7 @@ class ScriptedHost:
     def __init__(self, steps=None, checks=None, judges=None, events=None, signed=None, outside=()):
         self.steps, self.checks, self.judges = dict(steps or {}), dict(checks or {}), dict(judges or {})
         self.events = list(events or [])
-        self.signed = signed or (lambda e: e.get("signature") == "owner")
+        self.signed = signed or (lambda e, signer: e.get("signature") == signer)
         self.outside = set(outside)
         self.calls = []
         self._n = {}
@@ -442,8 +453,8 @@ class ScriptedHost:
     def scheduled_events(self):
         return list(self.events)
 
-    def verify_owner(self, event):
-        return bool(self.signed(event))
+    def verify_signed(self, event, signer):
+        return bool(self.signed(event, signer))
 
     def confined(self, rel):
         return rel not in self.outside
@@ -494,8 +505,8 @@ class ProcessHost:
     def scheduled_events(self):
         return list(self.events)
 
-    def verify_owner(self, event):
-        return bool(self.verify(event)) if self.verify else False
+    def verify_signed(self, event, signer):
+        return bool(self.verify(event, signer)) if self.verify else False  # default refuses
 
     def _where(self, rel):
         """inside | outside | missing, from the opened descriptor's own path."""
@@ -607,8 +618,22 @@ class _T:
 
 
 class _Rec:
-    def __init__(self, ok, sort, base):
-        self.ok, self.sort, self.base = ok, sort, base
+    """Last result of one key. status: pass | fail | handled | cancelled (6.1)."""
+
+    def __init__(self, status, sort, base):
+        self.status, self.sort, self.base = status, sort, base
+
+    @property
+    def ok(self):
+        return self.status == "pass"
+
+
+class _Loop:
+    """A rework loop (`for` with `while`): its round, its unfinished detached work, its reject reasons."""
+
+    def __init__(self, src, path):
+        self.src, self.path, self.round = src, path, 0
+        self.procs, self.reasons, self.next = [], {}, {}
 
 
 class _Ex:
@@ -627,6 +652,7 @@ class _Run:
         self.interp, self.host, self.rid = interp, interp.host, rid
         self.events, self.records, self.execs = [], {}, []
         self.detached_errors, self.inv = [], 0
+        self.scopes, self.tmp, self.nfile, self.ended = {}, None, 0, []
         self.sched = _Scheduler(list(getattr(self.host, "scheduled_events", lambda: [])()))
         self.sched.on_event = lambda e: self.log("event", type=e.get("type"), event=json.loads(json.dumps(e)))
 
@@ -666,10 +692,29 @@ class _Run:
         except expr.ExprError as e:
             raise TaskError(key, E_EXPR, 400, str(e)) from None
 
-    def record(self, ex, t, ok):
-        ex.accepted[t.rel] = ok
-        self.records[t.full] = _Rec(ok, t.sort, ex.prefix + t.path)
-        self.log("accept", key=t.full, ok=ok)
+    def record(self, ex, t, status):
+        ex.accepted[t.rel] = status == "pass"
+        rec = self.records[t.full] = _Rec(status, t.sort, ex.prefix + t.path)
+        self.log("accept", key=t.full, ok=status == "pass", status=status)
+        return rec
+
+    def input_file(self, key, inp, reasons):
+        """Runtime-owned task input file (7.8): outside the org root, read-only."""
+        if self.tmp is None:
+            self.tmp = tempfile.mkdtemp(prefix="org-run-")
+        self.nfile += 1
+        path = os.path.join(self.tmp, f"input-{self.nfile}.json")
+        with open(path, "w") as f:
+            json.dump({"run": self.rid, "key": key, "input": inp, "reasons": reasons}, f, default=str)
+        os.chmod(path, 0o444)
+        return path
+
+    @staticmethod
+    def reasons_of(sc):
+        out = {}
+        for loop in sc.loops:
+            out.update(loop.reasons)
+        return out
 
     def discard(self, ex, path):
         pre = path + "/"
@@ -768,7 +813,10 @@ class _Run:
         if len(items) > MAX_FOR:
             raise TaskError(t.full, E_RUNTIME, 400, f"for.in: {len(items)} items exceeds the cap of {MAX_FOR}")
         cond = task.get("while")
-        loops = sc.loops + (expr.unwrap(cond),) if isinstance(cond, str) and expr.is_expression(cond) else sc.loops
+        loop = None
+        if cond is not None:
+            loop = _Loop(expr.unwrap(cond) if isinstance(cond, str) and expr.is_expression(cond) else None, t.path)
+        loops = sc.loops + (loop,) if loop else sc.loops
         out = data
         for i, item in enumerate(items):
             lv = dict(sc.lv)
@@ -778,12 +826,21 @@ class _Run:
                 if not _truthy(self.x(ex, t.full, cond, data, _Sc(sc.iters, loops, lv), input=data)):
                     break
                 if i > 0:
-                    self.discard(ex, t.path)
+                    self.new_round(ex, t, loop)
+                loop.round = i
             isc = _Sc(sc.iters if cond is not None else sc.iters + (i,), loops, lv)
             out, sig = yield from self.tasks(ex, task["do"], t.path + "/", isc, data)
             if sig == "end":
                 return out, "end"
         return out, None
+
+    def new_round(self, ex, t, loop):
+        """7.4 rule 2: cancel earlier detached work, discard earlier results, keep reject reasons."""
+        for p in loop.procs:
+            self.sched.cancel(p)  # its keys record `cancelled`, it emits nothing
+        loop.procs.clear()
+        loop.reasons, loop.next = loop.next, {}
+        self.discard(ex, t.path)
 
     def fork(self, ex, t, data):
         fk = t.task["fork"]
@@ -821,6 +878,9 @@ class _Run:
                     lv = dict(sc.lv)
                     lv[as_name] = e.obj()
                     out, sig = yield from self.tasks(ex, c["do"], t.path + "/", _Sc(sc.iters, sc.loops, lv), data)
+                for key, rec in e.failed:  # the catch completed: `handled` (6.1)
+                    if self.records.get(key) is rec:
+                        rec.status = "handled"
                 return out, sig, c.get("then") or task.get("then")
 
     def catches(self, ex, t, c, as_name, e, data):
@@ -866,25 +926,26 @@ class _Run:
     def leaf(self, ex, t, data):
         run = t.task.get("run")
         if t.kind == "run" and isinstance(run, dict) and run.get("await", True) is False:
-            self.sched.spawn(self.detached(ex, t, data))  # 7.11: completes at once
+            proc = self.sched.spawn(self.detached(ex, t, data))  # 7.11: completes at once
+            for loop in t.sc.loops:
+                loop.procs.append(proc)
             return data
         return (yield from self.body(ex, t, data))
 
     def detached(self, ex, t, data):
-        ok = True
         try:
             yield from self.body(ex, t, data)
-            ok = ex.accepted.get(t.rel) is not False
         except TaskError as e:
-            ok = False
             self.detached_errors.append(e)
-        ctx = dict(ex.context) if isinstance(ex.context, dict) else {}
-        ctx["results"] = [r for r in ctx.get("results", []) if r["task"] != t.full] + [{"task": t.full, "ok": ok}]  # D1
-        ex.context = ctx
-        self.sched.publish({"type": UNIT_DONE, "data": {"run": self.rid, "task": t.full, "ok": ok}})
+        rec = self.records.get(t.full)
+        ev = {"type": TASK_ENDED, "data": {"run": self.rid, "task": t.full, "accepted": bool(rec and rec.ok)}}
+        self.scopes[id(ev)] = (ev, (id(ex), t.sc.iters, tuple(loop.round for loop in t.sc.loops)))
+        self.ended.append(ev)
+        self.sched.publish(ev)
 
     def body(self, ex, t, data):
         deadline = self.limit(ex, t)
+        evidence = json.loads(json.dumps(ex.code))  # only steps that completed before this task started (6.1)
         try:
             decision = None
             if t.kind == "listen":
@@ -895,18 +956,21 @@ class _Run:
                 out = yield from self.step(ex, t, data, deadline)
             else:
                 out = yield from self.call(ex, t, data)
-            results = yield from self.items(ex, t, deadline, decision)
-        except TaskError:
-            self.record(ex, t, False)  # a raised error records fail (6.1)
+            results = yield from self.items(ex, t, deadline, decision, evidence, out)
+        except TaskError as e:
+            e.failed.append((t.full, self.record(ex, t, "fail")))  # a raised error records fail (6.1)
+            raise
+        except GeneratorExit:
+            self.record(ex, t, "cancelled")
             raise
         ok = "fail" not in results
-        self.record(ex, t, ok)
+        self.record(ex, t, "pass" if ok else "fail")
         if not ok and t.floor and not self.exempt(t):
             raise TaskError(t.full, E_RUNTIME, 500, "acceptance failed")  # 7.4 rule 1
         return out
 
     def exempt(self, t):
-        return any(t.rel in expr.accepted_keys(w) for w in t.sc.loops)
+        return any(t.rel in expr.accepted_keys(loop.src) for loop in t.sc.loops if loop.src)
 
     def timeout(self, t):
         return TaskError(t.full, E_TIMEOUT, 408, "timeout")
@@ -918,14 +982,14 @@ class _Run:
         org = t.org
         argv = [cmd] + args
         role = brief = ""
+        network = None
         if cmd == "agent-run":
             role, brief = org.get("role"), org.get("brief")
             if role == "owner":
                 raise TaskError(t.full, E_RUNTIME, 500, "metadata.org.role: agent-run may not run as owner", fatal=True)
-            for a in args:
-                if a != "--isolated":
-                    raise TaskError(t.full, E_RUNTIME, 500,
-                                    f"run.shell.arguments: '{a}' is not an allowed agent-run flag (allowed: --isolated)", fatal=True)
+            bad = self.flag_error(args)
+            if bad:
+                raise TaskError(t.full, E_RUNTIME, 500, bad, fatal=True)
             for k in ("environment", "stdin", "directory"):
                 if k in shell:
                     raise TaskError(t.full, E_RUNTIME, 500, f"run.shell.{k}: not allowed on agent-run; the runtime sets it", fatal=True)
@@ -934,11 +998,20 @@ class _Run:
             if not self.host.confined(brief):
                 raise TaskError(t.full, E_RUNTIME, 500, f"metadata.org.brief: '{brief}' resolves outside the org root", fatal=True)
             argv += ["--role", role, "--brief", brief]
+            network = org.get("network")
+            if network is not None:
+                if not isinstance(network, str):
+                    raise TaskError(t.full, E_RUNTIME, 500, "metadata.org.network: must be a string", fatal=True)
+                argv += ["--network", network]
+        input_file = ""
+        if cmd == "agent-run":
+            input_file = self.input_file(t.full, data, self.reasons_of(t.sc))
+            argv += ["--input", input_file]
         now = self.sched.now
         req = StepRequest(key=t.full, rel=t.rel, path=t.path, command=cmd, arguments=args, argv=argv, role=role or org.get("role", ""),
                           brief=brief or org.get("brief", ""), by=org.get("by", ""), input=data,
                           limit=None if deadline is None else max(deadline - now, 0), run_id=self.rid,
-                          accepted=dict(ex.accepted), shell=shell)
+                          accepted=dict(ex.accepted), shell=shell, network=network, input_file=input_file)
         self.log("step", key=t.full, command=cmd)
         o = self.host.run_step(req)
         dur = o.duration or 0
@@ -955,6 +1028,24 @@ class _Run:
         if o.exit_code != 0 or o.error:
             raise TaskError(t.full, E_RUNTIME, 500, str(o.error) if o.error else f"command exited {o.exit_code}")
         return o.output
+
+    @staticmethod
+    def flag_error(args):
+        """7.8: an agent-run step may carry only --isolated, once."""
+        seen = 0
+        for a in args:
+            flag = a.split("=", 1)[0] if a.startswith("--") else None
+            if a == "--isolated":
+                seen += 1
+                if seen > 1:
+                    return "run.shell.arguments: --isolated given more than once"
+            elif flag in ("--role", "--brief", "--network"):
+                return f"run.shell.arguments: {flag} is set by the runtime from metadata.org; remove it"
+            elif flag == "--input":
+                return "run.shell.arguments: --input is set by the runtime from the task input; remove it"
+            else:
+                return f"run.shell.arguments: '{a}' is not an allowed agent-run flag (allowed: --isolated)"
+        return None
 
     def call(self, ex, t, data):
         w = t.task["run"]["workflow"]
@@ -974,6 +1065,10 @@ class _Run:
     def emit(self, ex, t, data):
         ev = self.x(ex, t.full, t.task["emit"]["event"]["with"], data, t.sc, input=data)
         ev = dict(ev)
+        for prefix in RESERVED_PREFIXES:
+            if str(ev.get("type")).startswith(prefix):
+                raise TaskError(t.full, E_RUNTIME, 500,
+                                f"emit.event.with.type: '{ev['type']}' uses the reserved prefix {prefix}", fatal=True)
         d = ev.get("data")
         d = dict(d) if isinstance(d, dict) else ({} if d is None else {"value": d})
         d["run"] = self.rid  # D3
@@ -984,9 +1079,9 @@ class _Run:
 
     # -- gates and decision events
 
-    def decision_test(self, event, full, item=None):
-        if not self.host.verify_owner(event):
-            return None, "not signed by the owner"
+    def decision_test(self, event, full, item=None, signer="owner"):
+        if not self.host.verify_signed(event, signer):
+            return None, f"not signed by the {signer}"
         d = event.get("data") if isinstance(event.get("data"), dict) else {}
         if d.get("run") != self.rid:
             return None, "data.run is not this run"
@@ -1016,7 +1111,9 @@ class _Run:
     def listen(self, ex, t, data, deadline):
         to = t.task["listen"]["to"]
         items = t.org.get("acceptance") or []
-        decision_gate = t.org.get("role") == "owner" or any(isinstance(i, dict) and "human" in i for i in items)
+        decision_gate = (t.org.get("role") == "owner" or "signer" in t.org
+                         or any(isinstance(i, dict) and "human" in i for i in items))
+        signer = t.org.get("signer", "owner")  # 7.5, P18
         mode = "one" if "one" in to else "any" if "any" in to else "all"
         raw = [to["one"]] if mode == "one" else list(to[mode])
         flts = [(self.x(ex, t.full, f.get("with") or {}, data, t.sc, input=data), f.get("correlate")) for f in raw]
@@ -1030,7 +1127,7 @@ class _Run:
             def matcher(event):
                 if not any(self.flt_match(w, event) for w, _ in flts):
                     return None
-                dec, why = self.decision_test(event, full)
+                dec, why = self.decision_test(event, full, signer=signer)
                 if why:
                     self.ignore(full, event, why)
                     return None
@@ -1039,6 +1136,8 @@ class _Run:
             def matcher(event):
                 for idx, (w, corr) in enumerate(flts):
                     if not self.flt_match(w, event):
+                        continue
+                    if event.get("type") == TASK_ENDED and not self.in_scope(event, ex, t):
                         continue
                     if corr:
                         if not self.correlated(ex, t, corr, event, expect, data):
@@ -1055,12 +1154,19 @@ class _Run:
                             return done((list(got), None))
                     elif until is None:
                         return done((list(got), None))
-                    elif _truthy(self.x(ex, full, until, list(got), t.sc, input=data)):  # D2
+                    elif self.until_holds(ex, t, until, got, data):  # D2
                         return done((list(got), None))
                 return None
 
-            if until is not None and _truthy(self.x(ex, full, until, [], t.sc, input=data)):
+            if until is not None and self.until_holds(ex, t, until, [], data):  # 7.5: once, before the first event
                 return [], None
+            if any(w.get("type") == TASK_ENDED for w, _ in flts):
+                # D11: work that ended before the gate listened still counts (scope permitting), else a
+                # unit that finishes at once would leave the join waiting for its timeout.
+                for ev in list(self.ended):
+                    r = matcher(ev)
+                    if r is not None:
+                        return r[0]
         try:
             value = yield WaitEvent(matcher, deadline)
         except WaitTimeout:
@@ -1068,10 +1174,30 @@ class _Run:
         if decision_gate:
             verdict, event = value
             if verdict == "reject":
-                raise TaskError(full, E_RUNTIME, 500, "decision rejected")
+                reason = (event.get("data") or {}).get("reason")
+                if reason is not None:
+                    for loop in t.sc.loops:
+                        loop.next[t.rel] = reason  # for the next round's input file (7.4 rule 2)
+                if not self.exempt(t):
+                    raise TaskError(full, E_RUNTIME, 500, "decision rejected")
+                return event, "reject"  # P21: a rework loop reads the gate; the fail is recorded, the loop decides
             return event, "approve"
         return value[0], None
 
+    def until_holds(self, ex, t, until, got, data):
+        """Evaluate a counted `until` with `$events` bound to what the gate has consumed (7.5)."""
+        ok = _truthy(self.x(ex, t.full, until, list(got), t.sc, input=data, events=list(got)))
+        self.log("until", key=t.full, events=len(got), result=ok)
+        return ok
+
+    def in_scope(self, event, ex, t):
+        """A join consumes task-ended events of its own workflow execution, `for` iteration and rework round."""
+        entry = self.scopes.get(id(event))
+        if entry is None or entry[0] is not event:
+            return False
+        exid, iters, rounds = entry[1]
+        gate_iters, gate_rounds = t.sc.iters, tuple(loop.round for loop in t.sc.loops)
+        return exid == id(ex) and iters[:len(gate_iters)] == gate_iters and rounds[:len(gate_rounds)] == gate_rounds
     def correlated(self, ex, t, corr, event, expect, data):
         for key, spec in corr.items():
             val = self.x(ex, t.full, spec["from"], event, t.sc, input=data)
@@ -1085,12 +1211,12 @@ class _Run:
 
     # -- acceptance items (6.1)
 
-    def items(self, ex, t, deadline, decision):
+    def items(self, ex, t, deadline, decision, evidence_steps, out):
         results = []
         for idx, item in enumerate(t.org.get("acceptance") or []):
             if "check" in item:
                 kind = "check"
-                evidence = {"run": self.rid, "key": t.full, "steps": json.loads(json.dumps(ex.code))}
+                evidence = {"run": self.rid, "key": t.full, "steps": evidence_steps}
                 try:
                     r = "pass" if self.host.run_check(item["check"], t.full, evidence) else "fail"
                 except OutsideRoot as e:
@@ -1098,7 +1224,7 @@ class _Run:
                                     f"metadata.org.acceptance[{idx}].check: '{e}' resolves outside the org root", fatal=True)
             elif "rubric" in item:
                 kind = "rubric"
-                r = yield from self.rubric(ex, t, idx, item, deadline)
+                r = yield from self.rubric(ex, t, idx, item, deadline, out)
             else:
                 kind = "human"
                 r = "pass" if decision == "approve" else "fail"
@@ -1106,7 +1232,7 @@ class _Run:
             results.append(r)
         return results
 
-    def rubric(self, ex, t, idx, item, deadline):
+    def rubric(self, ex, t, idx, item, deadline, out):
         sample = item.get("sample", 1)
         h = int.from_bytes(hashlib.sha256(f"{self.rid}\n{t.full}\n{idx}".encode()).digest()[:8], "big")
         if not h / 2**64 < sample:
@@ -1132,8 +1258,10 @@ class _Run:
             raise TaskError(t.full, E_RUNTIME, 500,
                             f"metadata.org.acceptance[{idx}].rubric: '{item['rubric']}' resolves outside the org root", fatal=True)
         self.inv += 1
+        path = self.input_file(t.full, {"item": idx, "output": out}, {})
         req = JudgeRequest(key=t.full, item=idx, role=item["judge"], rubric=item["rubric"], run_id=self.rid,
-                           invocation=f"{self.rid}:{self.inv}")
+                           invocation=f"{self.rid}:{self.inv}", input_file=path,
+                           argv=["agent-run", "--role", item["judge"], "--brief", item["rubric"], "--input", path])
         reply = self.host.run_judge(req)
         if not isinstance(reply, dict):
             return "fail"
@@ -1158,7 +1286,7 @@ class _Run:
                 if not any(r.base == base for r in self.records.values()):
                     errs.append((ex.sortbase + (ex.pre.get(path, 0),), f"{base}: floor-not-run"))
         for key, r in self.records.items():
-            if not r.ok:
+            if r.status == "fail":  # handled and cancelled keys are skipped (7.4 rule 3)
                 errs.append((r.sort, f"{key}: acceptance failed"))
         seen, out = set(), []
         for _, text in sorted(errs, key=lambda e: e[0]):
@@ -1176,7 +1304,11 @@ class _Run:
         root = _Ex(self, name, doc, "", (), (name,))
         self.log("run-start", workflow=name, run=self.rid)
         main = self.sched.spawn(self.main(root, inp))
-        finished = self.sched.run()
+        try:
+            finished = self.sched.run()
+        finally:
+            if self.tmp:
+                shutil.rmtree(self.tmp, ignore_errors=True)
         errors, objects = [], []
         if main.error is not None:
             errors.append(main.error.text)
@@ -1195,6 +1327,7 @@ class _Run:
         self.log("run-end", status=status)
         return RunResult(status=status, errors=errors, error_objects=objects, events=self.events,
                          accepted=dict(root.accepted), records={k: r.ok for k, r in self.records.items()},
+                         statuses={k: r.status for k, r in self.records.items()},
                          run_id=self.rid, output=main.result, context=root.context, now=self.sched.now)
 
 

@@ -247,7 +247,8 @@ def test_retry_attempt_count_is_the_number_of_retries_after_the_first_try():
     res = go(doc, host)
     assert len(starts(res, "guarded/flaky")) == 3  # 1 try + 2 retries, never a fourth
     assert res.now == 10.0  # two delays of five seconds on the virtual clock
-    assert res.status == "error"  # the failed step's last result is fail
+    assert res.status == "success"  # the catch completed, so the failed step records `handled`
+    assert res.statuses["guarded/flaky"] == "handled"
 
 
 def test_try_catches_a_matching_error_and_runs_the_catch_tasks():
@@ -463,7 +464,8 @@ def test_forged_event_emitted_by_a_task_cannot_complete_a_decision_gate():
                         "metadata": {"org": {"by": "code", "role": "ci", "acceptance": [chk()]}}}),
              ("merge-gate", gate(floor=True)))
     res = go(doc)
-    assert res.errors[0] == "merge-gate: timeout"
+    assert res.errors[0] == "forge: emit.event.with.type: 'org.owner-decided' uses the reserved prefix org.owner-"
+    assert starts(res, "merge-gate") == []
 
 
 def test_owner_reject_raises_decision_rejected_and_records_fail():  # R7 and R15
@@ -796,7 +798,7 @@ def test_step_request_carries_role_and_brief_from_metadata_and_appends_them_to_a
     seen = []
     host = ScriptedHost(steps={"a": lambda req: seen.append(req) or StepOutcome()})
     go(doc, host)
-    assert seen[0].argv == ["agent-run", "--isolated", "--role", "pm", "--brief", "briefs/a.md"]
+    assert seen[0].argv[:-1] == ["agent-run", "--isolated", "--role", "pm", "--brief", "briefs/a.md", "--input"]
 
 
 def test_agent_run_as_owner_is_refused_at_run_time_even_without_static_validation():
@@ -1295,7 +1297,7 @@ def test_process_host_agent_run_gets_role_and_brief_after_the_checks(org):
     doc = wf(("a", {"run": {"shell": {"command": "agent-run", "arguments": ["--isolated"]}},
                     "metadata": {"org": {"by": "model", "role": "pm", "brief": "briefs/a.md"}}}))
     res = go(doc, ProcessHost(str(org), agent_run=str(stub)))
-    assert res.output == "--isolated --role pm --brief briefs/a.md"
+    assert res.output.startswith("--isolated --role pm --brief briefs/a.md --input ")
 
 
 def test_process_host_check_script_exit_code_is_the_verdict_and_gets_the_full_key(org):
@@ -1614,12 +1616,17 @@ def test_r33_round_two_join_never_sees_round_one_work():
     join = {"listen": {"to": {"any": [{"with": {"type": "org.task-ended"}}], "until": "${ ($events | length) == 1 }"}},
             "timeout": {"after": {"hours": 1}}, "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}
     bg = dict(leaf("work"), run={"shell": {"command": "work", "arguments": []}, "await": False})
-    doc = _rework([{"bg": bg}, {"join": join}], n=2, cond='${ $accepted["rework/join"] != true }')
-    host = ScriptedHost(steps={"rework/bg": [StepOutcome(duration=0), StepOutcome(duration=7)]}, checks={})
+    doc = _rework([{"bg": bg}, {"pause": {"wait": {"seconds": 5}}}, {"join": join}], n=2)
+    host = ScriptedHost(steps={"rework/bg": [StepOutcome(duration=2), StepOutcome(duration=3)]})
     res = go(doc, host)
+    assert res.status == "success", res.errors  # a round-2 join that counted round 1's event would see 2 and time out
+    assert [(e["events"], e["result"]) for e in kinds(res, "until") if e["t"] >= 5] == [(0, False), (1, True), (0, False), (1, True)]
+
+
+def test_a_join_counts_work_that_ended_before_it_started_listening():
+    res = _fanout_run(3)  # default scripted units end at once, before the join exists
     assert res.status == "success", res.errors
-    ends = [e["t"] for e in res.events if e["kind"] == "task-end" and e["key"] == "rework/join"]
-    assert ends == [0.0]  # round 1's join completed on round 1's own event; the loop then stopped
+    assert [e["t"] for e in res.events if e["kind"] == "task-end" and e["key"] == "fan/join"] == [0.0]
 
 
 def test_r34_reject_in_a_rework_loop_whose_while_names_the_gate_records_fail_without_raising():
@@ -1667,7 +1674,7 @@ def sw_w89_doc():
 def test_sw_development_w89_fan_out_with_the_join_runs_to_success_on_the_final_examples():
     wfs = fixture_workflows()
     wfs["sw-development"] = sw_w89_doc()
-    host = sw_host(sw_events([(20, decision("merge-gate"))]),
+    host = sw_host(sw_events([(120, decision("merge-gate"))], review_at=100),
                    steps={"build/units/tdd#0>cycle/red": StepOutcome(duration=30), "build/units/tdd#1>cycle/red": StepOutcome(duration=10)})
     res = go(wfs, host, name="sw-development", catalog=CAT, manifest=MAN)
     assert res.status == "success", res.errors
