@@ -596,7 +596,8 @@ def _acquire(instances, request):
 
 def run_agent(adapter, store, *, role, brief, task, isolated, trust="trusted", tools=(), manifest=None,
               parent_role=None, signer=None, rubric=False, clock=time.monotonic, timeout_seconds=None,
-              task_input=None, reasons=None, network=None, instances=None, network_policies=None, workdir=None):
+              task_input=None, reasons=None, network=None, instances=None, network_policies=None, workdir=None,
+              org_root=None):
     """Run one agent call and return the outcome. Raises PortError on a refusal or a failure.
 
     `isolated` gives the adapter an empty context. Otherwise it gets the earlier results of the same run.
@@ -604,6 +605,13 @@ def run_agent(adapter, store, *, role, brief, task, isolated, trust="trusted", t
     a policy: it is requested from the instance tool and never reaches the adapter. Nothing here enforces it.
     """
     _check_role(role, manifest, parent_role)
+    if workdir is not None:  # the API does not trust its caller: the same containment rules as the command line
+        if org_root is None:
+            raise PortError("invalid-input", "a workdir needs org_root, to check it against the org root")
+        try:
+            workdir = check_workdir(workdir, org_root, getattr(store, "dir", None))
+        except _Refusal as e:
+            raise PortError("workdir-refused", str(e)) from None
     run = task["run"]
     if rubric and "item" not in task:
         raise PortError("invalid-input", "a rubric call needs an item index")
@@ -737,14 +745,30 @@ def _parse_tools(csv):
     return list(dict.fromkeys(tools))
 
 
-def _check_workdir(root, path):
+def check_workdir(path, org_root, session_dir):
+    """Refuse a working directory a tool-bearing child could use to reach frozen files or the run's history.
+
+    Refused: not a directory; equal to or containing the org root (it would hold every frozen file); inside a
+    frozen part (7.8); equal to, containing or inside the session directory (history and call records).
+    Spec 7.8 also lists "the manifest or a catalog file" among the frozen parts.
+    A file cannot contain a directory, so no workdir lies inside one.
+    The org-root rule already covers a directory above them.
+    Paths are resolved first, so a symlink gets no way round. Returns the absolute path.
+    """
     real = os.path.realpath(path)
     if not os.path.isdir(real):
         raise _Refusal(f"--workdir: '{path}' is not a directory")
+    root = os.path.realpath(org_root)
+    if os.path.commonpath([real, root]) == real:
+        raise _Refusal(f"--workdir: '{path}' contains the org root")
     for part in FROZEN_PARTS:
-        base = os.path.realpath(os.path.join(root, part))
+        base = os.path.realpath(os.path.join(org_root, part))
         if os.path.commonpath([base, real]) == base:
             raise _Refusal(f"--workdir: '{path}' is inside the frozen part '{part}'")
+    if session_dir is not None:
+        session = os.path.realpath(session_dir)
+        if os.path.commonpath([real, session]) in (real, session):
+            raise _Refusal(f"--workdir: '{path}' overlaps the session directory")
     return os.path.abspath(path)
 
 
@@ -893,7 +917,7 @@ def _run(role, brief_path, isolated, input_path, network, tools, workdir, env):
     if trust not in ("trusted", "untrusted"):
         raise PortError("invalid-input", "ORG_TRUST must be trusted or untrusted")
     if workdir is not None:
-        workdir = _check_workdir(root, workdir)
+        workdir = check_workdir(workdir, root, session)
     if isolated:
         tools = [t for t in tools if t in READ_TOOLS]  # P50: an isolated call keeps only the read tools
     brief = _read_brief(root, brief_path)
@@ -915,7 +939,7 @@ def _run(role, brief_path, isolated, input_path, network, tools, workdir, env):
     adapter = _make_adapter(env)
     return run_agent(
         adapter, SessionStore(session), role=role, brief=brief, task=task, isolated=isolated, trust=trust,
-        tools=tools, workdir=workdir,
+        tools=tools, workdir=workdir, org_root=root,
         manifest=_load_manifest(root), parent_role=env.get("ORG_PARENT_ROLE"), rubric=rubric,
         task_input=task_input, reasons=reasons, network=network,
         instances=_make_instances(env) if network else None,
