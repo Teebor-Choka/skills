@@ -250,6 +250,8 @@ class _Parser:
         raise ExprError(f"unexpected {value!r}")
 
     def ident(self, name):
+        if name in ("and", "or"):
+            raise ExprError(f"unexpected {name!r}")
         if name in KEYWORDS:
             _refuse(f"keyword '{name}'")
         _refuse(f"function '{name}'")
@@ -267,6 +269,9 @@ class _Parser:
                 _refuse("pipe '|' (only 'X | not' is accepted)")
             self.take()
             node = ("not", node)
+            # jq reads `X | not and Y` as `X | (not and Y)`: a pipe into more than `not`.
+            if not (self.at("end") or self.at("op", "|") or self.at("op", ")") or self.at("op", "]")):
+                _refuse("pipe '|' (only 'X | not' is accepted)")
         return node
 
     def disjunction(self):
