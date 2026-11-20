@@ -9,5 +9,4 @@ Turn the recorded sources into a list of claims.
 4. When two sources disagree, write one claim per position and cite each position's source.
 
 Return JSON: `{"claims": [{"id", "text", "sources": [{"url", "accessed", "quote"}]}]}`.
-The check `every-claim-cites-a-source` fails the task when any claim has no source with both a URL and an
-access date.
+The next code step, `claims-cited`, fails when any claim has no source with both a URL and an access date.
