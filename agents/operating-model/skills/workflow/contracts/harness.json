@@ -1,0 +1,160 @@
+{
+  "port": "Harness",
+  "notes": [
+    "A harness adapter runs one model call for a role and returns its result and cost. The program agent-run wraps an adapter: it builds the input, refuses a call with no cost metric, records every call, and returns the outcome below.",
+    "The input carries the role, the brief text, the tools, the isolation flag and the context. The adapter sends the brief and the context to the model and nothing else. isolated true means the context list is empty.",
+    "The adapter refuses untrusted work on macOS with refused-untrusted. A request to the instance tool carries isolation, network, trust and lifetime only.",
+    "The adapter never signs. agent-run builds the event, hashes the evidence and attaches a signature only when a signer is injected."
+  ],
+  "operations": {
+    "run": {
+      "name": "run",
+      "input": {
+        "type": "object",
+        "properties": {
+          "role": { "type": "string" },
+          "brief": { "type": "string" },
+          "tools": { "type": "array", "items": { "type": "string" } },
+          "isolated": { "type": "boolean" },
+          "trust": { "type": "string", "enum": ["trusted", "untrusted"] },
+          "context": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": { "type": "string" },
+                "text": { "type": "string" }
+              },
+              "required": ["role", "text"],
+              "additionalProperties": false
+            }
+          },
+          "task": {
+            "type": "object",
+            "properties": {
+              "run": { "type": "string" },
+              "task": { "type": "string" },
+              "item": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["run", "task"],
+            "additionalProperties": false
+          },
+          "timeout_seconds": { "type": "integer", "minimum": 1 }
+        },
+        "required": [
+          "role",
+          "brief",
+          "tools",
+          "isolated",
+          "trust",
+          "context",
+          "task"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "prompt": { "type": "string" },
+          "result": { "type": "string" },
+          "verdict": { "type": "string", "enum": ["pass", "fail"] },
+          "cost": {
+            "type": "object",
+            "properties": {
+              "usd": { "type": "number", "minimum": 0 },
+              "seconds": { "type": "number", "minimum": 0 },
+              "input_tokens": { "type": "integer", "minimum": 0 },
+              "output_tokens": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["usd", "seconds"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["prompt", "result", "cost"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "isolation": "isolated true: the model input holds the brief and the task only",
+        "trust": "untrusted work is refused on macOS",
+        "lifetime": "returns within timeout_seconds or fails with timeout"
+      },
+      "guarantees": [
+        "context-only",
+        "cost-reported",
+        "refuses-untrusted-on-macos"
+      ],
+      "errors": [
+        "invalid-input",
+        "refused-untrusted",
+        "harness-unavailable",
+        "timeout",
+        "harness-error"
+      ],
+      "metrics": []
+    }
+  },
+  "outcome": {
+    "type": "object",
+    "properties": {
+      "event": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["org.agent-result", "org.rubric-verdict"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "run": { "type": "string" },
+              "task": { "type": "string" },
+              "item": { "type": "integer", "minimum": 0 },
+              "role": { "type": "string" },
+              "verdict": { "type": "string", "enum": ["pass", "fail"] },
+              "result": { "type": "string" }
+            },
+            "required": ["run", "task", "role"],
+            "additionalProperties": false
+          },
+          "signature": { "type": "string" }
+        },
+        "required": ["type", "data"],
+        "additionalProperties": false
+      },
+      "evidence": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "sha256": { "type": "string" }
+          },
+          "required": ["name", "sha256"],
+          "additionalProperties": false
+        }
+      },
+      "cost": {
+        "type": "object",
+        "properties": {
+          "usd": { "type": "number", "minimum": 0 },
+          "seconds": { "type": "number", "minimum": 0 },
+          "input_tokens": { "type": "integer", "minimum": 0 },
+          "output_tokens": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["usd", "seconds"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["event", "evidence", "cost"],
+    "additionalProperties": false
+  },
+  "program_errors": [
+    "role-refused",
+    "brief-refused",
+    "spawn-refused",
+    "no-metric",
+    "invalid-verdict",
+    "bad-arguments",
+    "no-record-dir"
+  ]
+}
