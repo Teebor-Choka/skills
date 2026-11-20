@@ -242,6 +242,7 @@
                   pkgs.git
                   pkgs.jq
                   pkgs.openssh # org runtime tests verify real ssh-keygen -Y signatures
+                  pkgs.nodejs # status skill: render.test.js renders every route of the generated site
                   codeQualityTools.cargo-crap
                   codeQualityTools.cargo-iceberg4rust
                   codeQualityTools.cargo-anatomy

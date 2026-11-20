@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Generate site/data/*.json and site/data/data.js from the sources status.py reads.
+"""Generate <data-dir>/data/*.json and data.js for the site. Needs PyYAML (the workflows are YAML).
 
-Run:  uv run -q --with pyyaml python site/gen.py
-      uv run -q --with pyyaml python site/gen.py --simulate-active U19,U3 --fail-pr 175 --needs-seg platform --out DIR
-Reads: the org root (ORG_ROOT in work-package/status.py), work-package/status-units.json, run-log.md,
-owner-decisions.md, agent-plans/, findings/, ../process-language.html, two `gh pr list` calls (open, merged),
-site/ingest/events.jsonl (the reported unit states, see ingest.py) and the runtime ledgers named in live-sources.json. Writes only into the output directory, each file by an
-atomic replace. Uses status.py's readers; status.py itself is not changed and not run.
+Run:  python3 scripts/gen.py [source options, see config.py]
+      python3 scripts/gen.py --simulate-active U19,U3 --fail-pr 175 --needs-seg platform --out DIR
+Reads: the org root, the layout, the optional work package (status-units.json, run-log.md, owner-decisions.md,
+agent-plans/, findings/, site.json), the optional language page, two `gh pr list` calls (open, merged; skipped
+with --no-gh), the ingest log (see ingest.py) and the run ledgers and state folders given. Writes only into the
+output directory, each file by an atomic replace.
 """
+import argparse
 import copy
 import datetime
 import hashlib
@@ -19,15 +20,12 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-WP = HERE.parent / "work-package"
-sys.path.insert(0, str(WP))
 sys.path.insert(0, str(HERE))
-import status as S  # noqa: E402
+import config  # noqa: E402
+import orgdata as S  # noqa: E402
 import live  # noqa: E402
 import ingest  # noqa: E402
 
-OUT = HERE / "data"
-LANG_PAGE = HERE.parent / "process-language.html"
 LANG_KEEP = ["An organization is a set of workflows", "One workflow, written in it",
              "What the organization may do to a workflow", "How workflows relate", "Reusing an existing format",
              "Settled", "A full example: software development in OWS"]
@@ -106,7 +104,7 @@ def node_json(n, org, floors, wf):
             acc.append({"type": "check", "id": a["check"], "cls": checks.get(a["check"]),
                         "reads": S.md_inline(org["check_reads"][a["check"]]) if a["check"] in org["check_reads"] else None})
         elif "rubric" in a:
-            title, rules = S.rubric(a["rubric"])
+            title, rules = S.rubric(org["root"], a["rubric"])
             acc.append({"type": "rubric", "path": a["rubric"], "judge": a.get("judge"), "sample": a.get("sample"),
                         "title": title, "rules": [S.md_inline(r) for r in rules]})
         elif "human" in a:
@@ -122,7 +120,7 @@ def node_json(n, org, floors, wf):
     if ms:
         d["metrics"] = ms
     if o.get("brief"):
-        p = S.ORG_ROOT / o["brief"]
+        p = org["root"] / o["brief"]
         d["brief"] = {"path": o["brief"], "html": S.md(p.read_text()) if p.exists() else None}
         if not p.exists():
             warn("brief missing: %s" % o["brief"])
@@ -165,7 +163,7 @@ def workflow_json(name, w, org, called_by, starts, no_listener):
     mf = man["workflows"].get(name, {}).get("floors")
     yaml_floors = [n["name"] for n in S.walk(w["tree"]) if n["org"].get("floor")]
     return {"id": name, "path": w["path"], "title": doc.get("title", ""), "summary": doc.get("summary", ""),
-            "version": str(doc.get("version", "")), "describe": S.DESCRIBE.get(name), "start": starts.get(name),
+            "version": str(doc.get("version", "")), "describe": org["describe"].get(name), "start": starts.get(name),
             "called_by": called_by.get(name, []), "registered": name in man["workflows"],
             "policy": ((doc.get("metadata") or {}).get("org") or {}).get("policy") or [],
             "floors": mf if mf is not None else yaml_floors, "floors_src": "manifest" if mf is not None else "YAML",
@@ -228,14 +226,16 @@ def language(org):
     for cid, cls in org["manifest"].get("checks", {}).items():
         checks.append({"id": cid, "cls": cls, "reads": S.md_inline(org["check_reads"][cid]) if cid in org["check_reads"] else None,
                        "used_by": used.get(cid, [])})
-    return {"kinds": kinds, "connections": connections, "checks": checks, "sections": lang_sections()}
+    return {"kinds": kinds, "connections": connections, "checks": checks, "sections": lang_sections(org["language_page"])}
 
 
-def lang_sections():
-    if not LANG_PAGE.exists():
-        warn("process-language.html missing; the language view shows only the generated part")
+def lang_sections(page):
+    if not page:
         return []
-    t = LANG_PAGE.read_text()
+    t = page.read_text()
+    if "<main>" not in t or "</main>" not in t:
+        warn("%s has no <main>; the language view shows only the generated part" % page.name)
+        return []
     main = t[t.index("<main>") + 6:t.index("</main>")]
     main = re.sub(r'<nav class="pages".*?</nav>', "", main, flags=re.S)
     parts = re.split(r"<h2>(.*?)</h2>", main)
@@ -257,9 +257,11 @@ def lang_sections():
 
 
 # ---------------------------------------------------------------- assemble
-def gh_list(state, fields):
-    """One gh pr list call (status.py's gh_prs lacks updatedAt and merged pull requests)."""
-    cmd = ["gh", "pr", "list", "--repo", S.REPO, "--state", state, "--limit", "200", "--json", fields]
+def gh_list(repo, state, fields):
+    """One gh pr list call. No repo (--no-gh): (None, "off")."""
+    if not repo:
+        return None, "off"
+    cmd = ["gh", "pr", "list", "--repo", repo, "--state", state, "--limit", "200", "--json", fields]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=40)
         if p.returncode:
@@ -269,18 +271,22 @@ def gh_list(state, fields):
         return None, str(e)
 
 
-def build(simulate=(), fail_prs=(), needs_seg=(), ing_path=None):
-    rows = S.log_rows()
-    units = S.load_units(rows)
+def build(cfg, simulate=(), fail_prs=(), needs_seg=()):
+    wp = cfg.work_package
+    lay = S.load_layout(cfg.layout)
+    site = S.load_site(wp)
+    components = [(c["id"], c["name"], site["component_units"].get(c["id"], []), c.get("files", [])) for c in lay["components"]]
+    rows = S.log_rows(wp)
+    units = S.load_units(wp, rows)
     by = {u["id"]: u for u in units}
-    inflight = S.followups(rows)
+    inflight = S.followups(wp, rows)
     for uid in inflight:
         if uid in by and by[uid]["st"] == "done":
             by[uid]["st"], by[uid]["note"] = "active", "%s in flight" % inflight[uid]["label"]
-    br = S.branches()
-    prs_raw, gh_err = gh_list("open", "number,title,isDraft,headRefName,statusCheckRollup,updatedAt")
-    merged_raw, merged_err = gh_list("merged", "number,headRefName,mergedAt")
-    if merged_raw is None:
+    br = S.branches(wp)
+    prs_raw, gh_err = gh_list(cfg.repo, "open", "number,title,isDraft,headRefName,statusCheckRollup,updatedAt")
+    merged_raw, merged_err = gh_list(cfg.repo, "merged", "number,headRefName,mergedAt")
+    if merged_raw is None and cfg.repo:
         warn("gh merged pull requests: %s" % merged_err)
     merged = [{"n": p["number"], "head": p["headRefName"], "merged_at": p["mergedAt"]} for p in merged_raw or []]
     prs = {}
@@ -292,8 +298,9 @@ def build(simulate=(), fail_prs=(), needs_seg=(), ing_path=None):
         prs.setdefault(n, {"n": n, "title": "simulated pull request", "draft": False, "head": "sim"})["ci"] = "failing"
         gh_err = None if prs_raw is not None or fail_prs else gh_err
     head2pr = {v["head"]: k for k, v in prs.items()}
-    findings = sorted(f.name for f in (WP / "findings").glob("*.md"))
-    org = S.load_org()
+    findings = S.findings(wp)
+    org = S.load_org(cfg.org_root)
+    org.update(root=cfg.org_root, describe=lay["describe"], language_page=cfg.language_page)
     calls, emits, called_by = [], [], {}
     for name, w in org["wf"].items():
         for n in S.walk(w["tree"]):
@@ -307,12 +314,18 @@ def build(simulate=(), fail_prs=(), needs_seg=(), ing_path=None):
             if n["kind"] == "emit":
                 emits.append((name, S.event_of(n["t"], "emit")))
     starts = {name: S.start_type(w["doc"]) for name, w in org["wf"].items()}
-    seg_of = {i: s["id"] for s in S.SEGMENTS for i in s["items"]}
+    segments = [dict(s, items=list(s["items"])) for s in lay["segments"]]
+    seg_of = {i: s["id"] for s in segments for i in s["items"]}
+    loose = [name for name in org["wf"] if name not in seg_of]
+    if loose:  # a workflow the layout does not place still gets a segment, so every route has its data
+        segments.append({"id": "other", "name": "Other workflows", "items": loose,
+                         "about": "Workflows in the org root that no segment of the layout names."})
+        seg_of.update({name: "other" for name in loose})
     item_of_unit = {}
-    for wf, us in S.UNIT_MAP.items():
+    for wf, us in site["unit_map"].items():
         for u in us:
             item_of_unit.setdefault(u, []).append(wf)
-    for cid, _, cu, _ in S.COMPONENTS:
+    for cid, _, cu, _ in components:
         for u in cu:
             item_of_unit.setdefault(u, []).append(cid)
     for u in units:
@@ -325,7 +338,7 @@ def build(simulate=(), fail_prs=(), needs_seg=(), ing_path=None):
         u["followup"] = inflight.get(u["id"])
         u["items"] = item_of_unit.get(u["id"], [])
         u.pop("log_pr", None)
-    ing = ingest.read(ing_path)
+    ing = ingest.read(cfg.ingest_log)
     if ing["broken"]:
         warn("ingest log: %s; %d lines ignored" % (ing["broken"], ing["ignored"]))
     units = ingest.project_units(units, ingest.latest(ing["events"]), merged, prs, warn)
@@ -333,11 +346,11 @@ def build(simulate=(), fail_prs=(), needs_seg=(), ing_path=None):
     for uid in simulate:  # after the projection, so a simulated state is what the fixture shows
         by[uid].update(st="active", state="building", note="simulated for a check")
 
-    decisions = copy.deepcopy(S.DECISIONS)
+    decisions = copy.deepcopy(site["decisions"])
     open_dec = []
     for d in decisions:
-        src = WP / d["src"]
-        d["found"] = src.exists() and d["quote"] in src.read_text()
+        d.setdefault("seg", [])
+        d["found"] = bool(d.get("quote")) and d["quote"] in S._read(wp, d.get("src", ""))
         if not d["found"]:
             warn("decision source text not found: %r in %s" % (d["quote"], d["src"]))
         best = -1
@@ -346,7 +359,7 @@ def build(simulate=(), fail_prs=(), needs_seg=(), ing_path=None):
                 if re.search(pat, r) and i >= best:
                     best, d["state"], d["text"], d["src"] = i, state, text, "run-log.md"
         for sid in needs_seg:
-            if sid not in d["seg"] and d["title"] == "Merge grant":
+            if sid not in d["seg"] and d["state"] in S.OPEN_STATES and d is decisions[0]:
                 d["seg"] = d["seg"] + [sid]
         d["open"] = d["state"] in S.OPEN_STATES
         d["id"] = slug(d["title"])
@@ -357,10 +370,10 @@ def build(simulate=(), fail_prs=(), needs_seg=(), ing_path=None):
     for name in org["wf"]:
         us = [u["id"] for u in units if name in u["items"]]
         items[name] = {"id": name, "name": name, "kind": "workflow", "seg": seg_of.get(name), "units": us}
-    for cid, cname, cu, files in S.COMPONENTS:
+    for cid, cname, cu, files in components:
         fl = []
         for f in files:
-            p = S.ORG_ROOT / f
+            p = cfg.org_root / f
             fl.append({"path": f, "size": ("%d files" % len(list(p.iterdir()))) if p.is_dir() else
                        ("%d lines" % len(p.read_text().splitlines())) if p.exists() else None})
         items[cid] = {"id": cid, "name": cname, "kind": "component", "seg": "platform", "units": [u for u in cu if u in by], "files": fl}
@@ -377,7 +390,7 @@ def build(simulate=(), fail_prs=(), needs_seg=(), ing_path=None):
         else:
             it["summary"] = " ".join(by[u]["what"] for u in it["units"][:1])
     segs = []
-    for s in S.SEGMENTS:
+    for s in segments:
         its = [i for i in s["items"] if i in items]
         ist = [items[i]["st"] for i in its]
         st = ("active" if "active" in ist else "failed" if "failed" in ist else
@@ -410,7 +423,10 @@ def build(simulate=(), fail_prs=(), needs_seg=(), ing_path=None):
                 cross.setdefault((seg_of[a], seg_of[b]), []).append(typ)
     for (a, b), labs in cross.items():
         edges.append({"from": a, "to": b, "label": labs, "kind": "flow"})
-    for a, b, lab, why in S.INFERRED_EDGES:
+    for x in lay["inferred_edges"]:
+        a, b, lab, why = x["from"], x["to"], x["label"], x.get("why")
+        if a not in seg_of.values() or b not in seg_of.values():
+            continue
         edges.append({"from": a, "to": b, "label": [lab], "why": why, "kind": "inferred", "inferred": True})
     no_listener = sorted({(a, t) for a, t in emits if not any(st == t for st in starts.values())})
 
@@ -420,9 +436,9 @@ def build(simulate=(), fail_prs=(), needs_seg=(), ing_path=None):
         ids = list(s["items"])
         e2 = []
         if s["id"] == "platform":
-            comp_of = {u: c[0] for c in S.COMPONENTS for u in c[2]}
+            comp_of = {u: c[0] for c in components for u in c[2]}
             raw = set()
-            for c in S.COMPONENTS:
+            for c in components:
                 for u in c[2]:
                     for d in by.get(u, {"dep": []})["dep"]:
                         if d in comp_of and comp_of[d] != c[0]:
@@ -454,7 +470,7 @@ def build(simulate=(), fail_prs=(), needs_seg=(), ing_path=None):
     gh_ok = prs_raw is not None or bool(fail_prs)
     critical = {"building": building, "needs_owner": [d["id"] for d in open_dec], "failing": failing,
                 "owner_units": ulist("gate"), "failing_units": ulist("failed"),
-                "gh_error": None if gh_ok else gh_err, "ci": cis, "open_prs": len(prs),
+                "gh_error": None if gh_ok or not cfg.repo else gh_err, "ci": cis, "open_prs": len(prs),
                 "ready_prs": sorted(n for n, p in prs.items() if not p["draft"])}
 
     workflows = {name: workflow_json(name, w, org, called_by, starts, no_listener) for name, w in org["wf"].items()}
@@ -464,17 +480,17 @@ def build(simulate=(), fail_prs=(), needs_seg=(), ing_path=None):
         m = re.match(r"^\|\s*([^|]+?)\s*\|\s*(.*?)\s*\|\s*$", r)
         if m:
             log.append({"date": m.group(1), "html": S.md_inline(m.group(2))})
-    owner = (WP / "owner-decisions.md").read_text() if (WP / "owner-decisions.md").exists() else ""
+    owner = S._read(wp, "owner-decisions.md")
     data = {
         "org": {"segments": segs, "items": items, "edges": edges, "seg_graphs": seg_graphs,
                 "no_listener": [{"wf": a, "event": t} for a, t in no_listener], "critical": critical,
                 "totals": {"done": sum(1 for u in units if u["st"] == "done"), "units": len(units)}},
         "workflows": workflows,
-        "build": {"units": units, "waves": max(u["w"] for u in units), "prs": {str(k): v for k, v in prs.items()},
+        "build": {"units": units, "waves": max((u["w"] for u in units), default=0), "prs": {str(k): v for k, v in prs.items()},
                   "ingest": {"seq": ing["seq"], "events": len(ing["events"]), "broken": ing["broken"], "ignored": ing["ignored"],
-                             "path": str(ing_path or ingest.log_path()).replace(str(Path.home()), "~")},
+                             "path": tilde(cfg.ingest_log)},
                   "merged_prs": len(merged)},
-        "decisions": {"items": decisions, "owner_html": S.md(owner), "log": log[::-1][:80], "log_rows": len(log)},
+        "decisions": {"items": decisions, "owner_html": S.md(owner) if owner else "", "log": log[::-1][:80], "log_rows": len(log)},
         "language": lang,
     }
     return data, gh_ok, gh_err, ing["seq"]
@@ -486,48 +502,57 @@ def atomic_write(path, text):
     os.replace(tmp, path)
 
 
-def main(argv):
-    sim, fails, needs, out, ing = [], [], [], OUT, None
-    while argv:
-        a = argv.pop(0)
-        if a == "--simulate-active":
-            sim = argv.pop(0).split(",")
-        elif a == "--fail-pr":
-            fails = [int(x) for x in argv.pop(0).split(",")]
-        elif a == "--needs-seg":
-            needs = argv.pop(0).split(",")
-        elif a == "--out":
-            out = Path(argv.pop(0)).resolve()
-        elif a == "--ingest":
-            ing = Path(argv.pop(0)).resolve()
-        else:
-            sys.exit("usage: gen.py [--simulate-active U19,U3] [--fail-pr 175] [--needs-seg platform] [--ingest FILE] [--out DIR]")
-    if (sim or fails or needs) and out == OUT:
-        sys.exit("gen.py: simulated states need --out DIR (site/data never holds simulated states)")
+def tilde(p):
+    """A path for display: the home folder as ~, so generated data does not spell out the user's home."""
+    s, home = str(p), str(Path.home())
+    return "~" + s[len(home):] if home != "/" and (s == home or s.startswith(home + "/")) else s
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="Generate the organization site data.")
+    config.add_args(ap)
+    ap.add_argument("--simulate-active", default="", help="unit ids shown as building (needs --out)")
+    ap.add_argument("--fail-pr", default="", help="pull request numbers shown as failing (needs --out)")
+    ap.add_argument("--needs-seg", default="", help="segments the first open decision locks (needs --out)")
+    ap.add_argument("--out", help="output folder (default: <data-dir>/data)")
+    a = ap.parse_args(argv)
+    try:
+        cfg = config.resolve(a)
+    except config.ConfigError as e:
+        ap.error(str(e))
+    sim = [x for x in a.simulate_active.split(",") if x]
+    fails = [int(x) for x in a.fail_pr.split(",") if x]
+    needs = [x for x in a.needs_seg.split(",") if x]
+    out = Path(a.out).resolve() if a.out else cfg.out_dir
+    if (sim or fails or needs or cfg.ingest) and out == cfg.out_dir:
+        ap.error("simulated states and another ingest log need --out DIR (the served data never holds them)")
     out.mkdir(parents=True, exist_ok=True)
-    if ing and out == OUT:
-        sys.exit("gen.py: another ingest log needs --out DIR")
-    data, gh_ok, gh_err, ing_seq = build(sim, fails, needs, ing)
-    lv = live.Live()
+    del S.WARN[:]
+    del WARN[:]
+    data, gh_ok, gh_err, ing_seq = build(cfg, sim, fails, needs)
+    lv = live.Live({"state_dirs": cfg.state_dirs, "ledgers": cfg.ledgers, "org_root": str(cfg.org_root)})
     lv.poll()
     snap = lv.snapshot()
     body = json.dumps(data, sort_keys=True, default=str)
     now = datetime.datetime.now()
+    wp = cfg.work_package
     meta = {"generated": now.timestamp(), "generated_text": now.strftime("%Y-%m-%d %H:%M"),
             "hash": hashlib.sha256(body.encode()).hexdigest()[:16],
-            "gh": "live" if gh_ok else "failed: %s" % gh_err, "simulated": bool(sim or fails or needs or ing), "ingest_seq": ing_seq,
-            "sources": {"org_root": str(S.ORG_ROOT).replace(str(Path.home()), "~"), "units": "work-package/status-units.json",
-                        "log": "work-package/run-log.md", "decisions": "work-package/owner-decisions.md",
-                        "prs": "gh pr list --repo %s (open and merged)" % S.REPO, "language": "process-language.html",
-                        "ingest": "site/ingest/events.jsonl",
-                        "live": "site/live-sources.json"},
+            "gh": "off" if not cfg.repo else "live" if gh_ok else "failed: %s" % gh_err,
+            "simulated": bool(sim or fails or needs or cfg.ingest), "ingest_seq": ing_seq,
+            "sources": {"org_root": tilde(cfg.org_root), "work_package": tilde(wp) if wp else None,
+                        "prs": "gh pr list --repo %s (open and merged)" % cfg.repo if cfg.repo else None,
+                        "language": tilde(cfg.language_page) if cfg.language_page else None,
+                        "ingest": tilde(cfg.ingest_log), "ledgers": [tilde(x) for x in cfg.ledgers],
+                        "state_dirs": [tilde(x) for x in cfg.state_dirs]},
             "warnings": S.WARN + WARN}
     for name, part in list(data.items()) + [("live", snap), ("meta", meta)]:
         atomic_write(out / ("%s.json" % name), json.dumps(part, indent=1, default=str))
     full = dict(data, live=snap, meta=meta)
     atomic_write(out / "data.js", "window.ORG_DATA = %s;\n" % json.dumps(full, default=str).replace("</", "<\\/"))
     print("ok %s (hash %s, gh %s, %d warnings)" % (out, meta["hash"], meta["gh"], len(meta["warnings"])))
+    return 0
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    sys.exit(main())

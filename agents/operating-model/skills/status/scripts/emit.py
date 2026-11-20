@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Report the state of a build unit to the organization site. Standard library only.
 
-  python3 site/emit.py --unit U20 --state building --title 'Metric collectors' --pr 176
-  python3 site/emit.py --unit U22 --state review --deps U21,U19 --wave 7 --branch kauki/feat/x
+  python3 scripts/emit.py --unit U20 --state building --title 'Metric collectors' --pr 176
+  python3 scripts/emit.py --unit U22 --state review --deps U21,U19 --wave 7 --branch kauki/feat/x
   ... --hook < hook.json      read a Claude Code hook payload on stdin; the unit comes from --unit or from the
                               first unit id (U20, U13a) in its agent_type, description or prompt; no unit: exit 0
 
-Posts to http://127.0.0.1:8765/api/ingest (ORG_SITE overrides). When nothing listens there it appends to
-site/ingest/events.jsonl itself, with the same validation and lock (ingest.py). A refused report (400, 409,
+Posts to http://127.0.0.1:8765/api/ingest (--url or ORG_SITE overrides). When nothing listens there it appends
+to <data-dir>/ingest/events.jsonl itself (--data-dir, else $XDG_STATE_HOME/org-status, else
+~/.local/state/org-status; ORG_INGEST names the file), with the same validation and lock (ingest.py). A refused report (400, 409,
 429) is never written to the file: it exits 1 with the server's reason.
 States: queued building review ci merged done blocked failed needs-owner.
 """
@@ -21,6 +22,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import config  # noqa: E402
 import ingest  # noqa: E402
 
 URL = os.environ.get("ORG_SITE", "http://127.0.0.1:8765") + "/api/ingest"
@@ -76,8 +78,13 @@ def main(argv=None):
     ap.add_argument("--wave", type=int)
     ap.add_argument("--deps", help="comma separated unit ids")
     ap.add_argument("--hook", action="store_true", help="read a Claude Code hook payload on stdin")
-    ap.add_argument("--url", default=URL)
+    ap.add_argument("--url", default=URL.rsplit("/api/ingest", 1)[0], help="the site (default: http://127.0.0.1:8765)")
+    ap.add_argument("--data-dir", help="fallback log folder when the server is down (default: $XDG_STATE_HOME/org-status)")
     a = ap.parse_args(argv)
+    if os.environ.get("ORG_INGEST"):
+        path = Path(os.environ["ORG_INGEST"])
+    else:
+        path = (Path(a.data_dir).expanduser() if a.data_dir else config.default_data_dir(os.environ)) / "ingest" / "events.jsonl"
     extra = {}
     if a.hook:
         unit, extra = from_hook(sys.stdin)
@@ -94,7 +101,7 @@ def main(argv=None):
         rec["deps"] = [d.strip() for d in a.deps.split(",") if d.strip()]
     if extra.get("agent") and "agent" not in rec:
         rec["agent"] = extra["agent"]
-    rc, msg = emit(rec, a.url)
+    rc, msg = emit(rec, a.url.rstrip("/") + "/api/ingest", path)
     print("emit %s %s: %s" % (a.unit, a.state, msg), file=sys.stderr if rc else sys.stdout)
     return 0 if a.hook else rc
 

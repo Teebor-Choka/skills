@@ -2,14 +2,14 @@
 """Live view of the org runtime: tail run ledgers and dispatcher state, turn entries into run state.
 
 Standard library only (PyYAML, when importable, lets rungs of an org-root change be classified).
-Sources come from live-sources.json next to this file: `state_dirs` (org.py state directories, holding
-dispatcher.json and ledgers/*.ledger) and `ledgers` (globs of single ledger files).
+Sources come from the --state-dir and --ledger options (see config.py): `state_dirs` (org.py state
+directories, holding dispatcher.json and ledgers/*.ledger) and `ledgers` (globs of single ledger files).
 
 The ledger MAC is not verified here: the ledger key is the runtime's own secret (mode 0600) and this
 viewer never reads it. The seq/prev chain is checked, and a break is reported on the run.
 
-  python3 site/live.py snapshot              print the current snapshot as JSON
-  python3 site/live.py replay SRC DST [--rate N]
+  python3 scripts/live.py snapshot [source options]   print the current snapshot as JSON
+  python3 scripts/live.py replay SRC DST [--rate N]
                                              copy a finished ledger into DST entry by entry, with
                                              its own pacing divided by N, to exercise the live view
 """
@@ -22,20 +22,8 @@ import sys
 import time
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-CONFIG = HERE / "live-sources.json"
-ORG_ROOT = Path.home() / "Fun/my.fun/skills/.claude/worktrees/w3base/agents/operating-model/skills/workflow"
 KEEP_EVENTS = 300
 GIT_EVERY = 2.0
-
-
-def load_config():
-    try:
-        cfg = json.loads(CONFIG.read_text())
-    except (OSError, ValueError):
-        cfg = {}
-    ex = lambda xs: [os.path.expanduser(x) for x in xs or []]  # noqa: E731
-    return {"state_dirs": ex(cfg.get("state_dirs")), "ledgers": ex(cfg.get("ledgers"))}
 
 
 def org_metric(e):
@@ -60,8 +48,9 @@ def fmt_usd(x):
 class Run:
     """State of one ledger, built entry by entry."""
 
-    def __init__(self, path):
+    def __init__(self, path, org_root=None):
         self.path = str(path)
+        self.org_root = org_root
         self.id = run_id_of(path)
         self.reset()
 
@@ -314,7 +303,7 @@ class Run:
             return
         self._git_key = key
         c.update(files=files, note=None)
-        c["rungs"] = classify(wt, files) if (Path(wt) / "manifest.json").exists() else None
+        c["rungs"] = classify(wt, files, self.org_root) if self.org_root and (Path(wt) / "manifest.json").exists() else None
 
     def journal(self):
         """The runtime's per-call cost journal, sessions/<run_id>.calls.jsonl beside the ledger.
@@ -379,13 +368,13 @@ class Run:
                 "pair": self.pair, "problems": self.problems[-5:], "events": self.events[-events:], "entries": self.last_seq}
 
 
-def classify(worktree, files):
+def classify(worktree, files, org_root):
     """Rung of each changed path of an org-root worktree, with check_change against the git HEAD."""
     try:
         import yaml  # noqa: F401  workflows are YAML; without it check_change would call every file frozen
     except ImportError:
         return {"note": "rung unknown: PyYAML is missing (start serve.py with uv run --with pyyaml)"}
-    sys.path.insert(0, str(ORG_ROOT / "scripts"))
+    sys.path.insert(0, str(Path(org_root) / "scripts"))
     try:
         import check_change as cc
     except ImportError as e:
@@ -418,8 +407,10 @@ def classify(worktree, files):
 class Live:
     """Every source, polled together. `poll()` returns new events across runs."""
 
-    def __init__(self, cfg=None):
-        self.cfg = cfg or load_config()
+    def __init__(self, cfg):
+        """cfg: {"state_dirs": [...], "ledgers": [globs], "org_root": path or None}."""
+        self.cfg = {"state_dirs": list(cfg.get("state_dirs") or []), "ledgers": list(cfg.get("ledgers") or []),
+                    "org_root": cfg.get("org_root")}
         self.runs = {}
         self.sources = []
 
@@ -449,7 +440,7 @@ class Live:
         self.sources = sources
         for p in dict.fromkeys(os.path.abspath(x) for x in found):
             if p not in self.runs:
-                self.runs[p] = Run(p)
+                self.runs[p] = Run(p, self.cfg["org_root"])
             self.runs[p].pair = pairs.get(p)
 
     def metrics(self):
@@ -500,7 +491,17 @@ def replay(src, dst, rate=1.0):
 
 def main(argv):
     if argv[:1] == ["snapshot"]:
-        lv = Live()
+        import argparse
+
+        import config
+
+        ap = argparse.ArgumentParser(prog="live.py snapshot")
+        config.add_args(ap)
+        try:
+            cfg = config.resolve(ap.parse_args(argv[1:]))
+        except config.ConfigError as e:
+            ap.error(str(e))
+        lv = Live({"state_dirs": cfg.state_dirs, "ledgers": cfg.ledgers, "org_root": str(cfg.org_root)})
         lv.poll()
         print(json.dumps(lv.snapshot(), indent=1, default=str))
     elif argv[:1] == ["replay"] and len(argv) >= 3:

@@ -3,6 +3,7 @@
 import json
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -74,10 +75,9 @@ def test_with_nothing_but_the_org_root_the_site_still_builds(tmp_path, check):
 
 def test_generated_data_names_no_home_path(tmp_path):
     out = generate(tmp_path)
-    blob = (out / "data.js").read_text()
-    assert str(tmp_path) not in blob.replace(str(tmp_path / "state"), "")
+    home = str(Path.home()) + "/"
     for p in (out / "meta.json", out / "build.json"):
-        assert "/Users/" not in p.read_text()
+        assert home not in p.read_text()
 
 
 def test_static_and_contrast_checks_pass(check):

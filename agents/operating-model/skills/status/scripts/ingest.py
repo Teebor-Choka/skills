@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build-state ingest: the append-only log clients report unit state into, and the projection of it. Stdlib only.
 
-The log is site/ingest/events.jsonl (ORG_INGEST overrides the path). One JSON object per line:
+The log is <data-dir>/ingest/events.jsonl (see config.py; ORG_INGEST overrides the path). One JSON object per line:
 
   {"seq": 3, "prev": "<hash of line 2>", "at": 1795180000.1, "src": "http", "unit": "U20",
    "state": "building", "title": "...", "text": "...", "pr": 176, "branch": "...", "agent": "...",
@@ -12,7 +12,7 @@ The chain is a hash chain without a key: it catches a hand edit, a torn write or
 forger who rewrites the whole file. A broken chain is flagged; lines after the first break are ignored and
 new appends are refused until someone moves the file aside. The file is never rewritten.
 
-  python3 site/ingest.py verify [FILE]     check the chain, print the latest state per unit
+  python3 scripts/ingest.py verify [FILE]     check the chain, print the latest state per unit
 """
 import calendar
 import fcntl
@@ -24,7 +24,6 @@ import sys
 import time
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
 STATES = ("queued", "building", "review", "ci", "merged", "done", "blocked", "failed", "needs-owner")
 # view state of each unit state: one table the projection and every count read
 VIEW = {"queued": "queued", "building": "active", "review": "active", "ci": "active", "merged": "done", "done": "done",
@@ -36,7 +35,11 @@ FIELDS = {"unit", "state", "title", "text", "pr", "branch", "agent", "wave", "de
 
 
 def log_path():
-    return Path(os.environ.get("ORG_INGEST") or HERE / "ingest" / "events.jsonl")
+    if os.environ.get("ORG_INGEST"):
+        return Path(os.environ["ORG_INGEST"])
+    import config
+
+    return config.default_data_dir(os.environ) / "ingest" / "events.jsonl"
 
 
 def _printable(s, n):
@@ -130,7 +133,7 @@ def append(rec, src, path=None, now=None):
         raise ValueError(err)
     path = Path(path or log_path())
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o644)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         st = read(path)

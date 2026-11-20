@@ -968,7 +968,9 @@
       head(
         [["Organization", "#/"]],
         "Organization",
-        "Four segments, each a set of workflows. Select a segment to go in, or press / to jump anywhere.",
+        D.org.segments.length +
+          (D.org.segments.length === 1 ? " segment" : " segments") +
+          ", each a set of workflows. Select a segment to go in, or press / to jump anywhere.",
       ) +
       band +
       stage(
@@ -987,7 +989,7 @@
       "</span></summary>" +
       (recent
         ? '<ul class="runs">' + recent + "</ul>"
-        : '<p class="empty">No runtime ledger found. Name ledgers or state directories in <code>site/live-sources.json</code>.</p>') +
+        : '<p class="empty">No runtime ledger found. Pass <code>--ledger</code> or <code>--state-dir</code> to <code>serve.py</code>.</p>') +
       '<p class="note">From the runtime ledgers: ' +
       esc(D.live.verified || "") +
       ". Earlier runs are listed in each run's own box.</p></details>" +

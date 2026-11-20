@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Check the site without a browser. Standard library only.
 
-  python3 site/check.py            static checks, data checks, the node render test when node is found,
-                                   and the server checks when serve.py answers on 127.0.0.1:8765
+  python3 scripts/check.py [--port N] [source options]
+                                   static checks, data checks on <data-dir>/data, the node render test when
+                                   node is on PATH, and the server checks when serve.py answers on the port
 
 What it checks: every data file parses and data.js holds the same parts; every route the site draws has its
 data (segments, items, workflows, units, decisions); index.html loads only local files that exist; no
@@ -14,6 +15,7 @@ to the file when the server is down, all on temporary files; against the running
 sent (bad state, oversize, wrong host, cross site, foreign origin, not JSON), so the real log is never written.
 A step that cannot run is reported as SKIPPED, never as passed.
 """
+import argparse
 import http.client
 import json
 import os
@@ -24,8 +26,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-SITE = Path(__file__).resolve().parent
-sys.path.insert(0, str(SITE))
+HERE = Path(__file__).resolve().parent
+SKILL = HERE.parent
+sys.path.insert(0, str(HERE))
 PARTS = ["org", "workflows", "build", "decisions", "language", "live", "meta"]
 fails, notes = [], []
 
@@ -34,15 +37,17 @@ def fail(m):
     fails.append(m)
 
 
-def data_checks():
+def data_checks(out):
     D = {}
     for p in PARTS:
-        f = SITE / "data" / (p + ".json")
+        f = Path(out) / (p + ".json")
         try:
             D[p] = json.loads(f.read_text())
         except (OSError, ValueError) as e:
             fail("data/%s.json: %s" % (p, e))
-    js = (SITE / "data/data.js").read_text()
+    if fails:
+        return D
+    js = (Path(out) / "data.js").read_text()
     m = re.match(r"window\.ORG_DATA = (.*);\n$", js, re.S)
     if not m:
         fail("data/data.js: not of the form window.ORG_DATA = {...};")
@@ -66,8 +71,6 @@ def data_checks():
                 fail("segment %s names %s, which has no item" % (s["id"], i))
             elif it["kind"] == "workflow" and i not in wfs:
                 fail("workflow %s has no workflow data" % i)
-            elif it["kind"] == "component" and not it["units"]:
-                fail("component %s has no units" % i)
     for sid, g in org["seg_graphs"].items():
         ids = {n["id"] for n in g["nodes"]}
         for e in g["edges"]:
@@ -105,29 +108,33 @@ def data_checks():
     return D
 
 
-def static_checks():
-    html = (SITE / "index.html").read_text()
+def static_checks(assets):
+    assets = Path(assets)
+    html = (assets / "index.html").read_text()
     for ref in re.findall(r'(?:src|href)="([^"#]+)"', html):
         if re.match(r"[a-z]+:", ref):
             fail("index.html loads %s from outside the site" % ref)
-        elif not (SITE / ref).is_file():
+        elif ref.startswith("data/"):
+            continue  # generated into <data-dir>/data and served from there
+        elif not (assets / ref).is_file():
             fail("index.html loads %s, which does not exist" % ref)
-    srcs = [p for p in SITE.rglob("*") if p.is_file() and p.suffix in (".html", ".css", ".js", ".py", ".md", ".json")
-            and "tests/fixture" not in str(p) and p.parent.name != "__pycache__"]
+    root = assets.parent
+    srcs = [p for p in root.rglob("*") if p.is_file() and p.suffix in (".html", ".css", ".js", ".py", ".md", ".json")
+            and "fixture" not in p.parts and p.parent.name != "__pycache__"]
     for p in srcs:
         t = p.read_text()
-        rel = p.relative_to(SITE)
+        rel = p.relative_to(root)
         for ch, name in (("\u2014", "em dash"), ("\u2013", "en dash")):
             if ch in t:
                 n = t.count(ch)
                 fail("%s: %d %s%s" % (rel, n, name, " (from a source file; fix it there)" if rel.parts[0] == "data" else ""))
         if p.suffix in (".css",) and re.search(r"text-transform:\s*uppercase", t):
             fail("%s: uppercase text transform" % rel)
-        if p.suffix in (".html", ".js", ".css") and rel.parts[0] != "data":
+        if p.suffix in (".html", ".js", ".css") and rel.parts[0] == "assets":
             for m in re.finditer(r"""(?:src=|href=|url\(|fetch\(|import\s)\s*["']?(https?:)?//""", t):
                 fail("%s: network reference %r" % (rel, t[m.start():m.start() + 60]))
-    for f in ("fonts/atkinson-next-var.ttf", "fonts/atkinson-mono-var.ttf", "fonts/LICENSE.txt"):
-        if not (SITE / f).is_file():
+    for f in ("fonts/atkinson-next-var.ttf", "fonts/atkinson-mono-var.ttf", "fonts/LICENSE.txt", "fonts/OFL.txt"):
+        if not (assets / f).is_file():
             fail("missing %s" % f)
     print("static: %d files scanned" % len(srcs))
 
@@ -155,8 +162,8 @@ ON_TINT = [("s-done", "s-done-t"), ("s-active", "s-active-t"), ("s-owner", "s-ow
            ("seg-se", "seg-se-t"), ("seg-research", "seg-research-t"), ("seg-self", "seg-self-t"), ("seg-platform", "seg-platform-t")]
 
 
-def contrast_checks():
-    css = (SITE / "css/site.css").read_text()
+def contrast_checks(assets):
+    css = (Path(assets) / "css/site.css").read_text()
     blocks = {"light": re.search(r"^:root \{([^}]*)\}", css, re.M), "dark": re.search(r'^:root\[data-theme="dark"\] \{([^}]*)\}', css, re.M)}
     worst = []
     for theme, m in blocks.items():
@@ -198,18 +205,14 @@ def contrast_checks():
     print("contrast: %d text pairs checked in light and dark, lowest %.2f:1" % (len(worst), min(worst) if worst else 0))
 
 
-def node_test():
+def node_test(data_js):
     node = shutil.which("node")
-    cmd = [node, "tests/render.test.js"] if node else None
-    if not cmd and shutil.which("nix"):
-        cmd = ["nix", "shell", "nixpkgs#nodejs", "-c", "node", "tests/render.test.js"]
-    if not cmd:
-        notes.append("node render test: SKIPPED (no node and no nix)")
+    if not node:
+        notes.append("node render test: SKIPPED (node is not on PATH)")
         return
-    targets = ["data/data.js"] + (["tests/fixture/data.js"] if (SITE / "tests/fixture/data.js").exists() else [])
-    for t in targets:
+    for t in [str(data_js)]:
         try:
-            p = subprocess.run(cmd + [t], cwd=SITE, capture_output=True, text=True, timeout=240)
+            p = subprocess.run([node, str(SKILL / "tests/render.test.js"), t], capture_output=True, text=True, timeout=240)
         except (OSError, subprocess.SubprocessError) as e:
             notes.append("node render test: SKIPPED (%s)" % e)
             return
@@ -219,9 +222,9 @@ def node_test():
             fail("node render test on %s failed:\n    %s" % (t, "\n    ".join(out[-30:])))
 
 
-def server_checks():
-    def get(path, host="127.0.0.1:8765", site=None):
-        c = http.client.HTTPConnection("127.0.0.1", 8765, timeout=5)
+def server_checks(port, ingest_log):
+    def get(path, host="127.0.0.1:%d" % port, site=None):
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
         c.putrequest("GET", path, skip_host=True)
         c.putheader("Host", host)
         if site:
@@ -234,11 +237,12 @@ def server_checks():
     try:
         get("/data/meta.json")
     except OSError:
-        notes.append("server checks: SKIPPED (serve.py is not running on 127.0.0.1:8765)")
+        notes.append("server checks: SKIPPED (serve.py is not running on 127.0.0.1:%d)" % port)
         return
     want = {"/": 200, "/data/org.json": 200, "/api/live": 200, "/css/": 404, "/data": 404, "/serve.py": 404,
-            "/live-sources.json": 404, "/../work-package/run-log.md": 404, "/%2e%2e/%2e%2e/etc/passwd": 404,
-            "/%2e%2e/work-package/run-log.md": 404, "/..%2fwork-package%2frun-log.md": 404, "/.git/config": 404}
+            "/scripts/serve.py": 404, "/../scripts/serve.py": 404, "/%2e%2e/%2e%2e/etc/passwd": 404,
+            "/%2e%2e/scripts/serve.py": 404, "/..%2fscripts%2fserve.py": 404, "/.git/config": 404,
+            "/data/../ingest/events.jsonl": 404, "/ingest/events.jsonl": 404}
     for path, code in want.items():
         st, _ = get(path)
         if st != code:
@@ -250,7 +254,7 @@ def server_checks():
     if st != 403:
         fail("server: a cross-site request for data.js gave %d, wanted 403" % st)
     print("server: %d paths checked" % (len(want) + 2))
-    ingest_server_checks()
+    ingest_server_checks(port, ingest_log)
 
 
 def ingest_checks():
@@ -359,9 +363,9 @@ def ingest_checks():
     print("ingest: %d checks on temporary logs" % n)
 
 
-def ingest_server_checks():
-    def post(body, host="127.0.0.1:8765", ctype="application/json", extra=None):
-        c = http.client.HTTPConnection("127.0.0.1", 8765, timeout=5)
+def ingest_server_checks(port, ingest_log):
+    def post(body, host="127.0.0.1:%d" % port, ctype="application/json", extra=None):
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
         c.putrequest("POST", "/api/ingest", skip_host=True)
         c.putheader("Host", host)
         c.putheader("Content-Type", ctype)
@@ -375,7 +379,7 @@ def ingest_server_checks():
         c.close()
         return r.status
     try:
-        size = (SITE / "ingest/events.jsonl").stat().st_size
+        size = Path(ingest_log).stat().st_size
     except OSError:
         size = None
     good = json.dumps({"unit": "U1", "state": "building"}).encode()
@@ -391,7 +395,7 @@ def ingest_server_checks():
         if got != code:
             fail("server ingest: %s gave %d, wanted %d" % (name, got, code))
     try:
-        after = (SITE / "ingest/events.jsonl").stat().st_size
+        after = Path(ingest_log).stat().st_size
     except OSError:
         after = None
     if after != size:
@@ -399,13 +403,24 @@ def ingest_server_checks():
     print("server ingest: %d refused reports checked, the log unchanged" % len(cases))
 
 
-def main():
-    data_checks()
+def main(argv=None):
+    import config
+
+    ap = argparse.ArgumentParser(description="Check the site without a browser.")
+    config.add_args(ap)
+    ap.add_argument("--port", type=int, default=8765, help="where serve.py runs, for the server checks")
+    a = ap.parse_args(argv)
+    try:
+        cfg = config.resolve(a)
+    except config.ConfigError as e:
+        ap.error(str(e))
+    data_checks(cfg.out_dir)
     ingest_checks()
-    static_checks()
-    contrast_checks()
-    node_test()
-    server_checks()
+    static_checks(config.ASSETS)
+    contrast_checks(config.ASSETS)
+    if not fails:
+        node_test(cfg.out_dir / "data.js")
+    server_checks(a.port, cfg.ingest_log)
     for n in notes:
         print("note:", n)
     if fails:

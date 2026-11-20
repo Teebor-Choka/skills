@@ -1,17 +1,21 @@
 // Render every route and every selection from a data.js, check output, links and live feedback targets.
-// Run: node site/tests/render.test.js [path/to/data.js] [--svg OUTDIR]
+// Run: node tests/render.test.js <data-dir>/data/data.js [--svg OUTDIR]
 "use strict";
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
-const G = require("../js/graph.js");
+const G = require("../assets/js/graph.js");
 global.G = G;
-const V = require("../js/views.js");
+const V = require("../assets/js/views.js");
 
 const args = process.argv.slice(2);
-const dataPath =
-  args.find((a) => a.endsWith(".js")) ||
-  path.join(__dirname, "../data/data.js");
+const dataPath = args.find((a) => a.endsWith(".js"));
+if (!dataPath) {
+  console.log(
+    "usage: node tests/render.test.js <data-dir>/data/data.js [--svg OUTDIR]",
+  );
+  process.exit(2);
+}
 const svgOut = args.includes("--svg") ? args[args.indexOf("--svg") + 1] : null;
 const sandbox = { window: {} };
 vm.runInNewContext(fs.readFileSync(dataPath, "utf8"), sandbox);
@@ -539,7 +543,10 @@ if (lay.pos.b.layer !== 1 || lay.pos.d.layer !== 2)
 
 function writeSvg(h, s) {
   fs.mkdirSync(svgOut, { recursive: true });
-  const css = fs.readFileSync(path.join(__dirname, "../css/site.css"), "utf8");
+  const css = fs.readFileSync(
+    path.join(__dirname, "../assets/css/site.css"),
+    "utf8",
+  );
   const vars = {};
   const rootBlock = css.match(/:root \{([\s\S]*?)\}/)[1];
   for (const m of rootBlock.matchAll(/--([a-z0-9-]+):\s*([^;]+);/g))

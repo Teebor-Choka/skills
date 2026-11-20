@@ -201,7 +201,7 @@
       txt =
         "Read-only copy from " +
         m.generated_text +
-        ". For live data run python3 site/serve.py and open http://127.0.0.1:8765/.";
+        ". For live data start scripts/serve.py of the status skill and open http://127.0.0.1:8765/.";
     else
       txt =
         "Data from " +
@@ -788,7 +788,7 @@
 
   if (!D) {
     main.innerHTML =
-      "<h1>No data</h1><p>data/data.js is missing. Run <code>uv run -q --with pyyaml python site/gen.py</code>, or start <code>python3 site/serve.py</code>.</p>";
+      "<h1>No data</h1><p>data/data.js is missing. Start <code>scripts/serve.py</code> of the status skill, which generates it, and open the page it serves.</p>";
     return;
   }
   render(true);

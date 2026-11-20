@@ -1,4 +1,4 @@
-"""The old procedure format is gone: no file in the tree names it, and the plugin carries its 2.0.0 name."""
+"""The old procedure format is gone: no file in the tree names it, and the plugin carries its 2.x name."""
 
 import json
 import os
@@ -39,11 +39,12 @@ def test_old_skills_are_deleted():
     assert not (skills / "agents-dir").exists()
 
 
-def test_plugin_is_renamed_at_2_0_0_everywhere():
+def test_plugin_is_renamed_at_2_x_everywhere():
     plugin = json.loads((PLUGIN_DIR / ".claude-plugin" / "plugin.json").read_text())
     market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
     entry = next(p for p in market["plugins"] if p["source"] == "./agents/operating-model")
-    assert (plugin["name"], plugin["version"]) == (NEW_NAME, "2.0.0")
-    assert (entry["name"], entry["metadata"]["version"]) == (NEW_NAME, "2.0.0")
+    assert plugin["name"] == entry["name"] == NEW_NAME
+    assert plugin["version"] == entry["metadata"]["version"]
+    assert plugin["version"].split(".")[0] == "2"
     readme = (ROOT / "README.md").read_text()
     assert f"| `{NEW_NAME}`" in readme and "| `operating-model`" not in readme
