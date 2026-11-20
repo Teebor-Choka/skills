@@ -1,7 +1,7 @@
-"""The old procedure format is gone: no tracked file names it, and the plugin carries its 2.0.0 name."""
+"""The old procedure format is gone: no file in the tree names it, and the plugin carries its 2.0.0 name."""
 
 import json
-import subprocess
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -11,19 +11,25 @@ PLUGIN_DIR = ROOT / "agents" / "operating-model"
 NEW_NAME = "organization"
 
 
-def tracked_text_files():
-    out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, check=True).stdout
-    for rel in out.decode().split("\0"):
-        path = ROOT / rel
-        if rel and path.is_file() and not path.is_symlink():
+SKIP_DIRS = {".git", ".direnv", ".claude", "node_modules", "__pycache__", ".pytest_cache"}
+
+
+def text_files():
+    """Every text file in the repo tree. Walks the disk because the Nix sandbox copy has no .git."""
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for name in filenames:
+            path = Path(dirpath, name)
+            if path.is_symlink():
+                continue
             try:
-                yield rel, path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
+                yield path.relative_to(ROOT).as_posix(), path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
                 continue
 
 
-def test_no_tracked_file_refers_to_the_old_format():
-    hits = [f"{rel}: {term}" for rel, text in tracked_text_files() for term in OLD_TERMS if term in text]
+def test_no_file_refers_to_the_old_format():
+    hits = [f"{rel}: {term}" for rel, text in text_files() for term in OLD_TERMS if term in text]
     assert hits == []
 
 
