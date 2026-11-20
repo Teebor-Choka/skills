@@ -52,7 +52,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from op_conformance import PARTS, PortError, _probes, _shape, check_schema  # noqa: E402
-from validate_catalog import load_document, relative_path_ok  # noqa: E402
+from validate_catalog import LoadError, _check_json_nesting, load_document, relative_path_ok  # noqa: E402
 
 CONTRACT_PATH = Path(__file__).resolve().parent.parent / "harness" / "harness.json"
 HARNESS_GUARANTEES = ("context-only", "cost-reported", "refuses-untrusted-on-macos", "task-input-in-prompt")
@@ -746,7 +746,10 @@ def _read_input(path, bases, run, key):
     """Read the runtime-owned task input file. It must sit inside the session directory."""
     text = _read_file_under(path, bases, MAX_INPUT_BYTES, lambda m: PortError("input-refused", m))
     try:
+        _check_json_nesting("input file", text)  # a text cap: the same answer on every interpreter and stack
         doc = json.loads(text)
+    except LoadError as e:
+        raise PortError("input-refused", f"input file: {e.msg}") from None
     except (ValueError, RecursionError):
         raise PortError("input-refused", "input file cannot be read as JSON") from None
     if not isinstance(doc, dict) or set(doc) != {"run", "key", "input", "reasons"}:
