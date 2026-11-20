@@ -148,13 +148,24 @@ def w88(kind):
     return f
 
 
-def join_gate(type_, correlate=None):
+def join_gate(type_, correlate=None, name="join"):
     one = {"with": {"type": type_}}
     if correlate:
         one["correlate"] = correlate
-    return {"join": {"listen": {"to": {"one": one}}, "timeout": {"after": {"hours": 1}},
+    return {name: {"listen": {"to": {"one": one}}, "timeout": {"after": {"hours": 1}},
                      "metadata": {"org": {"by": "code", "role": "lead", "metrics": ["escalations"],
                                           "acceptance": [{"check": "workers-done"}]}}}}
+
+
+def w89(d):
+    """Parallel units (7.11): `tdd` does not wait, and a counted plain gate joins them."""
+    find(d, "tdd")["run"]["await"] = False
+    join = join_gate("org.unit-done")
+    gate = join["join"]
+    del gate["listen"]["to"]["one"]
+    gate["listen"]["to"]["any"] = [{"with": {"type": "org.unit-done"}}]
+    gate["listen"]["to"]["until"] = "${ ($context.results | length) == ($context.units | length) }"
+    find(d, "build")["do"].insert(1, join)
 
 
 def w100(d):
@@ -294,7 +305,7 @@ CASES = [
     ("W87", SW, lambda d: find(d, "spec").__setitem__("timeout", {"after": {"minutes": -1}}), "spec: timeout.after: duration must be a literal map", MAN),
     ("W88-fork", SW, w88("fork"), None, MAN),
     ("W88-try", SW, w88("try"), None, MAN),
-    ("W89", SW, lambda d: d["do"].append(join_gate("org.run-reported")), None, MAN),
+    ("W89", SW, w89, None, MAN),
     ("W90", SW, lambda d: find(d, "units")["for"].__setitem__("each", "accepted"), "build/units: for.each: 'accepted' is a reserved variable name", MAN),
     ("W91", SW, lambda d: org(d, "align").update({"role": "owner", "by": "human"}), "align: metadata.org.role: agent-run may not run as owner", MAN),
     ("W92", SW, lambda d: org(d, "align").pop("brief"), "align: metadata.org.brief: required for agent-run", MAN),
@@ -309,7 +320,7 @@ CASES = [
     ("W101", SW, lambda d: find(d, "tdd")["run"].__setitem__("await", False), "build/units/tdd: a call to a workflow with floors may not have run.await: false", MAN_TF),
     ("W102", SW, lambda d: append_try(d, {"limit": {"attempt": {"count": 101}}}), "retrying: catch.retry: limit.attempt.count must be at most 100", MAN),
     ("W103", SW, lambda d: find(d, "merge-gate")["timeout"].__setitem__("after", {"days": 31}), "merge-gate: timeout.after: duration must be at most 30 days", MAN),
-    ("W104", SW, lambda d: d["do"].append(join_gate("org.unit-done", {"unit": {"from": "${ .unit }"}})), None, MAN),
+    ("W104", SW, lambda d: d["do"].append(join_gate("org.unit-done", {"unit": {"from": "${ .unit }"}}, name="join2")), None, MAN),
     ("W105", SW, lambda d: None, "manifest: workflows.sw-development.floors: floor 'ghost' is not a task in the workflow",
      manifest_with(lambda m: m["workflows"]["sw-development"]["floors"].append("ghost"))),
     ("W106", SW, lambda d: find(d, "merge-gate")["timeout"].__setitem__("after", {"days": 30}), None, MAN),
@@ -899,3 +910,24 @@ NIT_CASES = [
 @pytest.mark.parametrize("case", NIT_CASES, ids=[c[0] for c in NIT_CASES])
 def test_wrong_container_types_are_reported(case):
     check_cases([case])
+
+
+# update 2: the examples carry 12.6 changes 7 to 9
+def test_fixtures_carry_spec_12_6_changes_7_to_9():
+    assert find(SW, "tdd")["run"]["workflow"]["input"] == {"unit": "${ $unit }"}
+    assert find(SW, "cut")["export"] == {"as": "${ $context + . }"}
+    assert find(SW, "units")["for"]["in"] == "${ $context.units }"
+    assert find(SW, "review")["timeout"] == {"after": {"days": 7}}
+    assert "await" not in find(SW, "tdd")["run"]
+
+
+def test_join_is_a_plain_gate_so_it_needs_the_gate_keys():
+    d = copy.deepcopy(SW)
+    w89(d)
+    org(d, "join").pop("acceptance")
+    assert any(e.startswith("build/join: metadata.org.acceptance: required for kind gate")
+               for e in vo.validate_org(d, CAT, MAN))
+    d = copy.deepcopy(SW)
+    w89(d)
+    find(d, "join").pop("timeout")
+    assert "build/join: kind gate needs an inline timeout" in vo.validate_org(d, CAT, MAN)
