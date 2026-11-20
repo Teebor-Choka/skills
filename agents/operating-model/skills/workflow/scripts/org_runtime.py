@@ -87,7 +87,7 @@ DEFAULT_FROZEN_OUTSIDE = (
 )
 
 
-class LedgerError(Exception):
+class LedgerError(it.ControlFlow):
     """The ledger does not verify, or a run cannot be recovered from it."""
 
 
@@ -1019,22 +1019,20 @@ class _Tee(list):
 
 
 class _OrgRun(it._Run):
-    """`_Run` plus P33: a decision event needs an `id`, and each id is consumed once per run."""
+    """`_Run` plus a ledger row for each decision id the interpreter accepted (P33).
+
+    The interpreter is the one authority: it ignores an event with no string id and an id it already consumed.
+    Replay re-consumes the ids of a resumed run, so nothing here needs to remember them across a resume."""
 
     def __init__(self, interp, rid, ledger, recorded):
         super().__init__(interp, rid)
-        self._ledger, self._recorded, self._ids = ledger, set(recorded), set()
+        self._ledger, self._recorded = ledger, set(recorded)
 
     def decision_test(self, event, full, item=None, signer="owner"):
         dec, why = super().decision_test(event, full, item, signer)
         if why:
             return dec, why
-        eid = event.get("id") if isinstance(event, dict) else None
-        if not isinstance(eid, str) or not eid:
-            return None, "decision event has no id"
-        if eid in self._ids:
-            return None, "decision event id already consumed"
-        self._ids.add(eid)
+        eid = event["id"]  # the interpreter has checked it is a non-empty string
         if eid not in self._recorded:
             self._ledger.append("decision-id", {"id": eid, "key": full})
             self._recorded.add(eid)
