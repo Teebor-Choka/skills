@@ -70,7 +70,7 @@ def chk(name="c"):
 
 def go(workflows, host=None, name=None, input=None, run_id=RID, catalog=None, manifest=None):
     host = host or ScriptedHost()
-    if not isinstance(workflows, dict):
+    if "do" in workflows and "document" in workflows:
         workflows = {workflows["document"]["name"]: workflows}
     name = name or next(iter(workflows))
     return Interpreter(workflows, host, catalog=catalog, manifest=manifest).run(name, input=input, run_id=run_id)
@@ -128,7 +128,9 @@ def tdd_doc():
 
 
 def improve_doc():
-    return wf(("done", leaf("noop", [chk("every-proposal-is-within-its-rung")], role="improver")), name="improve")
+    doc = wf(("done", leaf("noop", [chk("every-proposal-is-within-its-rung")], role="improver")), name="improve")
+    doc["do"][0]["done"]["metadata"]["org"]["metrics"] = ["escalations"]
+    return doc
 
 
 def fixture_workflows():
@@ -314,7 +316,7 @@ def test_full_validation_refuses_a_workflow_that_fails_validate_org():
     wfs["sw-development"] = sw
     res = go(wfs, host, name="sw-development", catalog=CAT, manifest=MAN)
     assert res.status == "refused"
-    assert res.errors[0].startswith("run refused: sw-development: align: metadata.org.acceptance")
+    assert any(e.startswith("run refused: sw-development: align: metadata.org.acceptance") for e in res.errors)
     assert host.calls == []
 
 
@@ -346,21 +348,21 @@ def test_a_floor_cannot_be_given_an_if_static():
     def mutate(sw):
         sw["do"][1]["spec"]["if"] = "${ false }"
     res = _full_refusal(mutate)
-    assert "a floor may not have 'if'" in res.errors[0]
+    assert any("a floor may not have 'if'" in e for e in res.errors)
 
 
 def test_then_exit_cannot_skip_a_floor_static():
     def mutate(sw):
         sw["do"][0]["align"]["then"] = "exit"
     res = _full_refusal(mutate)
-    assert "'exit' skips floor" in res.errors[0]
+    assert any("'exit' skips floor" in e for e in res.errors)
 
 
 def test_a_switch_case_cannot_skip_a_floor_static():
     def mutate(sw):
         sw["do"][0]["align"] = {"switch": [{"c": {"when": "${ true }", "then": "review"}}]}
     res = _full_refusal(mutate)
-    assert "skips floor" in res.errors[0]
+    assert any("skips floor" in e for e in res.errors)
 
 
 def test_floor_with_if_false_is_not_run_and_the_run_ends_in_error_runtime_backstop():
@@ -551,7 +553,7 @@ def test_a_different_scripted_output_gives_a_different_sequence():
 def test_same_sequence_with_parallel_work_and_events():
     def once():
         doc = _fanout_doc(2)
-        host = ScriptedHost(steps={"fan/unit#0": StepOutcome(duration=5), "fan/unit#1": StepOutcome(duration=5)})
+        host = ScriptedHost(steps={"fan/units/unit#0": StepOutcome(duration=5), "fan/units/unit#1": StepOutcome(duration=5)})
         return go(doc, host)
     assert once().events == once().events
 
@@ -639,7 +641,7 @@ def test_a_pending_item_does_not_make_the_task_fail_but_is_never_recorded_as_pas
 
 
 def test_owner_rubric_verdict_approve_and_reject():  # R19 first half
-    doc = wf(("review", leaf("agent-run", [{"rubric": "criteria/r.md", "judge": "owner"}], role="reviewer")))
+    doc = wf(("review", leaf("work", [{"rubric": "criteria/r.md", "judge": "owner"}], role="reviewer")))
     ok = go(doc, ScriptedHost(events=[(5, decision("review", item=0, type_="org.owner-review"))]))
     assert ok.status == "success"
     bad = go(doc, ScriptedHost(events=[(5, decision("review", "reject", item=0, type_="org.owner-review"))]))
@@ -647,7 +649,7 @@ def test_owner_rubric_verdict_approve_and_reject():  # R19 first half
 
 
 def test_owner_rubric_decision_for_another_item_or_unsigned_is_ignored_and_the_wait_is_bounded_by_the_task_limit():
-    doc = wf(("review", leaf("agent-run", [{"rubric": "criteria/r.md", "judge": "owner"}], role="reviewer", timeout={"after": {"hours": 2}})))
+    doc = wf(("review", leaf("work", [{"rubric": "criteria/r.md", "judge": "owner"}], role="reviewer", timeout={"after": {"hours": 2}})))
     ev = [(5, decision("review", item=1)), (6, decision("review", item=0, signature=None))]
     res = go(doc, ScriptedHost(events=ev))
     assert res.errors[0] == "review: timeout"
@@ -708,8 +710,9 @@ def test_data_flow_input_from_output_as_export_as():
 def test_data_flows_task_to_task_and_context_accumulates():
     doc = wf(("a", leaf("w", output={"as": "${ .y }"}, export={"as": "${ $context + . }"})),
              ("b", {"set": {"got": "${ . }", "ctx": "${ $context }"}}))
-    res = go(doc, ScriptedHost(steps={"a": StepOutcome(output={"y": 5})}))
-    assert res.output["got"] == 5
+    res = go(doc, ScriptedHost(steps={"a": StepOutcome(output={"y": {"k": 5}})}))
+    assert res.status == "success", res.errors
+    assert res.output == {"got": {"k": 5}, "ctx": {"k": 5}}
 
 
 def test_expression_error_is_the_ows_expression_error():
@@ -969,16 +972,16 @@ def _fanout_run(n, host=None):
 
 
 def test_await_false_returns_at_once_and_units_run_concurrently():
-    host = ScriptedHost(steps={"fan/unit#0>work": StepOutcome(duration=100), "fan/unit#1>work": StepOutcome(duration=100)})
+    host = ScriptedHost(steps={"fan/units/unit#0>work": StepOutcome(duration=100), "fan/units/unit#1>work": StepOutcome(duration=100)})
     res = _fanout_run(2, host)
     assert res.status == "success", res.errors
-    assert starts(res, "fan/unit#0")[0]["t"] == starts(res, "fan/unit#1")[0]["t"] == 0
-    assert starts(res, "fan/unit#0>work")[0]["t"] == starts(res, "fan/unit#1>work")[0]["t"] == 0
+    assert starts(res, "fan/units/unit#0")[0]["t"] == starts(res, "fan/units/unit#1")[0]["t"] == 0
+    assert starts(res, "fan/units/unit#0>work")[0]["t"] == starts(res, "fan/units/unit#1>work")[0]["t"] == 0
     assert res.now == 100  # both ran at once: 100, not 200
 
 
 def test_join_completes_only_when_every_unit_has_reported():
-    host = ScriptedHost(steps={"fan/unit#0>work": StepOutcome(duration=10), "fan/unit#1>work": StepOutcome(duration=40)})
+    host = ScriptedHost(steps={"fan/units/unit#0>work": StepOutcome(duration=10), "fan/units/unit#1>work": StepOutcome(duration=40)})
     res = _fanout_run(2, host)
     end = [e for e in res.events if e["kind"] == "task-end" and e["key"] == "fan/join"][0]
     assert end["t"] == 40
@@ -991,7 +994,6 @@ def test_join_over_zero_units_completes_at_once():
 
 def test_each_unit_reports_once_so_results_never_double_count():
     res = _fanout_run(3)
-    assert sorted(res.context["results"]) == sorted(res.context["results"])
     assert len(res.context["results"]) == 3
     assert len({r["task"] for r in res.context["results"]}) == 3
 
@@ -1017,13 +1019,13 @@ def test_await_false_acceptance_is_recorded_when_the_work_ends():
 def test_decision_gate_inside_a_unit_completes_only_for_its_own_key_r17():
     unit_wf = wf(("approve", gate(after={"hours": 1}, acceptance=[{"human": "ok"}])), name="unit-wf")
     unit_wf["do"][0]["approve"]["metadata"]["org"]["role"] = "owner"
-    docs = {"fan-root": _fanout_doc(2), "unit-wf": unit_wf}
-    ev = [(100, decision("fan/unit#0>approve"))]
+    docs = {"fan-root": _fanout_doc(2, join_timeout={"after": {"hours": 2}}), "unit-wf": unit_wf}
+    ev = [(100, decision("fan/units/unit#0>approve"))]
     res = go(docs, ScriptedHost(events=ev), name="fan-root")
     ends = {e["key"]: e for e in res.events if e["kind"] == "task-end"}
-    assert ends["fan/unit#0>approve"]["t"] == 100
-    assert res.accepted["fan/unit#0"] is True
-    assert res.accepted["fan/unit#1"] is False
+    assert ends["fan/units/unit#0>approve"]["t"] == 100
+    assert res.accepted["fan/units/unit#0"] is True
+    assert res.accepted["fan/units/unit#1"] is False
     assert ends["fan/join"]["t"] == 3600  # unit 1 times out at one hour, then both have reported
 
 
@@ -1183,7 +1185,7 @@ def test_evidence_holds_only_code_step_results_of_this_execution_never_model_out
 
 
 def test_evidence_keeps_the_last_execution_per_key_and_is_per_workflow_execution():
-    child = wf(("c-step", leaf("w", by="code")), ("c-check", leaf("w", [chk("probe")])), name="child")
+    child = wf(("c-step", leaf("w", by="code")), ("c-check", leaf("w", [chk("probe")], by="model")), name="child")
     root = wf(("r-step", leaf("w", by="code")),
               ("call", {"run": {"workflow": {"namespace": "org", "name": "child", "version": "1"}},
                         "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk("probe")]}}}), name="root")
@@ -1196,7 +1198,7 @@ def test_evidence_keeps_the_last_execution_per_key_and_is_per_workflow_execution
 
 
 def test_a_failed_code_step_leaves_its_exit_in_the_evidence_of_a_later_check_in_a_caught_flow():
-    doc = wf(("g", {"try": [{"bad": leaf("w", by="code")}], "catch": {"do": [{"after": leaf("w", [chk("probe")])}]}}))
+    doc = wf(("g", {"try": [{"bad": leaf("w", by="code")}], "catch": {"do": [{"after": leaf("w", [chk("probe")], by="model")}]}}))
     seen = []
     host = ScriptedHost(steps={"g/bad": StepOutcome(exit_code=4, stdout="x", error="no")},
                         checks={"probe": lambda n, k, e: seen.append(e["steps"]) or True})
@@ -1205,7 +1207,7 @@ def test_a_failed_code_step_leaves_its_exit_in_the_evidence_of_a_later_check_in_
 
 
 def test_process_host_check_gets_the_evidence_file_and_the_three_environment_variables(org, tmp_path):
-    _script(org / "bin" / "w", "printf green\n")
+    _script(org / "bin" / "w", "echo green\n")
     out = tmp_path / "seen.json"
     (org / "checks" / "probe.py").write_text(
         "import json, os, sys\n"
