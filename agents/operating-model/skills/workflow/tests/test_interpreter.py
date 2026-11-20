@@ -1462,8 +1462,7 @@ def test_r28_agent_run_gets_input_file_role_brief_network_in_that_order():
     host = ScriptedHost(steps={"design": _capture(seen)})
     go(doc, host, input={"spec": "s"})
     req, body = seen[0]
-    assert req.argv == ["agent-run", "--role", "pm", "--brief", "briefs/a.md", "--network", "none", "--input", req.input_file,
-                        "--tools", ""]
+    assert req.argv == ["agent-run", "--role", "pm", "--brief", "briefs/a.md", "--network", "none", "--input", req.input_file]
     assert body == {"run": RID, "key": "design", "input": {"spec": "s"}, "reasons": {}}
 
 
@@ -2659,14 +2658,10 @@ def test_r59_an_isolated_call_gets_only_the_read_tools_and_the_same_workdir():
     assert _flags(seen[0].argv)["--tools"] == ""  # no read tool listed: none passed
 
 
-def test_no_stack_means_no_tools_and_no_workdir_flag():
-    res, seen = _run_agent(None)
-    assert _flags(seen[0].argv)["--tools"] == "" and "--workdir" not in seen[0].argv
-
-
-def test_a_role_the_stack_does_not_list_gets_no_tools():
-    res, seen = _run_agent(_stack(role="someone-else"))
-    assert _flags(seen[0].argv)["--tools"] == "" and "--workdir" not in seen[0].argv
+def test_no_stack_entry_means_no_tools_or_workdir_flag_so_an_older_agent_run_keeps_working():
+    for stack in (None, _stack(role="someone-else")):
+        res, seen = _run_agent(stack)
+        assert "--tools" not in seen[0].argv and "--workdir" not in seen[0].argv and seen[0].tools == []
 
 
 def test_a_subflow_uses_its_own_workflows_roles_and_bin_env():

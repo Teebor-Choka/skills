@@ -1410,8 +1410,9 @@ class _Run:
                 argv += ["--network", network]
             input_file = self.input_file(t.full, data, self.reasons_of(t.sc))
             argv += ["--input", input_file]
-            tools, workdir = self.stack_tools(ex, t, "--isolated" in args)
-            argv += ["--tools", ",".join(tools)]
+            tools, workdir, listed = self.stack_tools(ex, t, "--isolated" in args)
+            if listed:  # no stack entry for this workflow and role: no flag, so the child has no tools (and an older agent-run works)
+                argv += ["--tools", ",".join(tools)]
             if workdir:
                 argv += ["--workdir", workdir]
         else:
@@ -1471,7 +1472,7 @@ class _Run:
                 raise TaskError(t.full, E_RUNTIME, 500,
                                 f"stack: roles.{ex.name}.{t.org.get('role')}.workdir: '{name}' is not a bin-env variable of {ex.name}", fatal=True)
             workdir = env[name]
-        return tools, workdir
+        return tools, workdir, bool(entry)
 
     @staticmethod
     def flag_error(args):
