@@ -1,0 +1,165 @@
+document:
+  dsl: 1.1.0
+  namespace: org
+  name: bug
+  version: 0.1.0
+  title: Bug fix, from a committed failing test to a verified deploy
+  summary: A bug report starts with a failing acceptance test in a commit. No review starts without it. A failed verification after the deploy raises, it does not start another bug.
+  metadata:
+    org:
+      policy: [work.tracker, vcs.remote, vcs.default-branch, comms.channel]
+schedule:
+  on:
+    one:
+      with:
+        type: org.bug-reported
+do:
+  - reproduce:
+      run:
+        shell: { command: agent-run, arguments: [] }
+      metadata:
+        org:
+          by: model
+          role: tester
+          brief: briefs/sw/reproduce.md
+          metrics: [tests-per-unit]
+          acceptance:
+            - rubric: criteria/sw/reproduce.md
+              judge: reviewer
+  - reproduce-evidence:
+      run:
+        shell: { command: tdd-evidence, arguments: [bug, red] }
+      metadata:
+        org:
+          by: code
+          role: ci
+          floor: true
+          metrics: [red-for-wrong-reason]
+          acceptance:
+            - check: failing-test-committed
+  - fix:
+      run:
+        workflow:
+          namespace: org
+          name: tdd-unit
+          version: 0.2.0
+          input: { unit: { id: bug-fix } }
+      metadata:
+        org:
+          by: code
+          role: lead
+          metrics: [escalations]
+          acceptance:
+            - check: unit-verdict-is-pass
+  - acceptance-run:
+      run:
+        shell: { command: tdd-evidence, arguments: [acceptance, green] }
+      metadata:
+        org:
+          by: code
+          role: ci
+          metrics: [acceptance-rounds]
+          acceptance:
+            - check: acceptance-suite-green
+  - review-cycle:
+      for: { each: round, in: [1, 2] }
+      while: ${ $accepted["review-cycle/review"] != true }
+      do:
+        - rework-fix:
+            if: ${ $round > 1 }
+            run:
+              workflow:
+                namespace: org
+                name: tdd-unit
+                version: 0.2.0
+                input: { unit: { id: bug-fix } }
+            metadata:
+              org:
+                by: code
+                role: lead
+                metrics: [escalations]
+                acceptance:
+                  - check: unit-verdict-is-pass
+        - review:
+            run:
+              shell: { command: agent-run, arguments: [--isolated] }
+            timeout:
+              after: { days: 7 }
+            metadata:
+              org:
+                by: model
+                role: reviewer
+                brief: briefs/sw/review.md
+                floor: true
+                metrics: [defects-found-in-review, defects-escaped]
+                acceptance:
+                  - rubric: criteria/sw/review.md
+                    judge: owner
+  - not-approved:
+      if: ${ $accepted["review-cycle/review"] != true }
+      raise:
+        error:
+          type: https://org.example/errors/review-not-approved
+          status: 409
+          title: Review not approved after the round bound
+      metadata:
+        org: { to: owner }
+  - merge-gate:
+      listen:
+        to:
+          one:
+            with:
+              type: org.owner-decided
+      timeout:
+        after: { days: 2 }
+      metadata:
+        org:
+          by: human
+          role: owner
+          floor: true
+          metrics: [escalations, decision-latency]
+          acceptance:
+            - human: decision signed and verified
+  - merge:
+      if: ${ $accepted["merge-gate"] == true }
+      run:
+        shell:
+          { command: merge-change, arguments: [--into, vcs.default-branch] }
+      metadata:
+        org:
+          by: code
+          role: ci
+          metrics: [lead-time]
+          acceptance:
+            - check: checks-green-and-gate-approved
+  - deploy:
+      run:
+        shell: { command: agent-run, arguments: [] }
+      metadata:
+        org:
+          by: model
+          role: ci
+          brief: briefs/sw/deploy.md
+          metrics: [lead-time]
+          acceptance:
+            - rubric: criteria/sw/deploy.md
+              judge: lead
+  - verify:
+      run:
+        shell: { command: tdd-evidence, arguments: [deploy, verify] }
+      metadata:
+        org:
+          by: code
+          role: ci
+          metrics: [defects-escaped]
+          acceptance:
+            - check: deploy-verified
+  - deploy-failed:
+      if: ${ $accepted["verify"] != true }
+      raise:
+        error:
+          type: https://org.example/errors/deploy-verification-failed
+          status: 409
+          title: Deploy verification failed for a bug fix
+      metadata:
+        org: { to: owner }

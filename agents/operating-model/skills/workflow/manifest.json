@@ -40,6 +40,14 @@
     "improve": {
       "path": "workflows/improve.yaml",
       "floors": []
+    },
+    "bug": {
+      "path": "workflows/bug.yaml",
+      "floors": ["reproduce-evidence", "review", "merge-gate"]
+    },
+    "improvement-scan": {
+      "path": "workflows/improvement-scan.yaml",
+      "floors": []
     }
   },
   "targets": {

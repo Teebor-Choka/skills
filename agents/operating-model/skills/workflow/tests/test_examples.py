@@ -26,7 +26,7 @@ import validate_catalog as vc  # noqa: E402
 import validate_manifest as vm  # noqa: E402
 import validate_org as vo  # noqa: E402
 
-WORKFLOWS = ["sw-development", "tdd-unit", "improve"]
+WORKFLOWS = ["sw-development", "tdd-unit", "improve", "bug", "improvement-scan"]
 APPENDIX_A = [
     "escalations", "spec-rework", "acceptance-coverage", "red-for-wrong-reason", "acceptance-rounds",
     "defects-found-in-review", "defects-escaped", "lead-time", "decision-latency", "write-set-collisions",
@@ -137,7 +137,7 @@ def test_manifest_floors_match_the_floor_nodes():
     manifest = load("manifest.json")
     for name in WORKFLOWS:
         floors = [p for p, b in all_leaves(name) if b.get("metadata", {}).get("org", {}).get("floor") is True]
-        assert sorted(manifest["workflows"][name]["floors"]) == sorted(floors)
+        assert sorted(manifest["workflows"][name]["floors"]) == sorted(p.rsplit("/", 1)[-1] for p in floors)
     assert sorted(manifest["workflows"]["sw-development"]["floors"]) == ["merge-gate", "review", "spec"]
 
 
@@ -147,7 +147,7 @@ def test_manifest_floors_match_the_floor_nodes():
 @needs_yaml
 def test_references_resolve_to_files():
     r = refs()
-    assert len(r["brief"]) == 11 and len(r["rubric"]) == 6 and len(r["schema"]) == 2
+    assert len(r["brief"]) == 14 and len(r["rubric"]) == 9 and len(r["schema"]) == 2
     missing = [p for p in sorted(r["brief"] | r["rubric"] | r["schema"]) if not (ROOT / p).is_file()]
     missing += [f"checks/{c}.py" for c in sorted(r["check"]) if not (ROOT / "checks" / f"{c}.py").is_file()]
     assert missing == []
@@ -233,6 +233,11 @@ GOOD = {
     "checks-green-and-gate-approved": HEAD,
     "report-has-every-required-section": {"report": REPORT_OK},
     "every-proposal-is-within-its-rung": {"proposals": []},  # filled in below, needs the repo files
+    "feasibility-holds": {"feasible": True, "failed": [], "reasons": ["every interface has an owner"]},
+    "deploy-verified": {"verified": True, "exit": 0},
+    "failing-test-committed": {"runs": [{"test": "test_bug.py::test_bug", "outcome": "assertion"}], "committed": True,
+                               "files": ["test_bug.py"], "uncommitted": [], "base": "b1", "head": "h1"},
+    "event-names-its-subject": {"run": "r1", "subject": "lessons and metrics of the run"},
 }
 if (ROOT / "checks").is_dir():
     GOOD["every-proposal-is-within-its-rung"] = {"proposals": [proposal()]}
@@ -337,6 +342,27 @@ BAD = {
         ("heading only inside a fence", lambda e: mut(
             e, ["report"], REPORT_OK.replace("## Metrics\ntext", "```\n## Metrics\ntext\n```"))),
     ],
+    "feasibility-holds": [
+        ("not feasible", lambda e: mut(mut(e, ["feasible"], False), ["failed"], ["modularity"])),
+        ("feasible but a dimension failed", lambda e: mut(e, ["failed"], ["testability"])),
+        ("no reasons", lambda e: mut(e, ["reasons"], [])),
+    ],
+    "deploy-verified": [
+        ("verification failed", lambda e: mut(mut(e, ["verified"], False), ["exit"], 3)),
+        ("did not run", lambda e: mut(e, ["exit"], None)),
+        ("verified with a failing exit", lambda e: mut(e, ["exit"], 1)),
+    ],
+    "failing-test-committed": [
+        ("not committed", lambda e: mut(mut(e, ["committed"], False), ["uncommitted"], ["test_bug.py"])),
+        ("committed but dirty", lambda e: mut(e, ["uncommitted"], ["test_bug.py"])),
+        ("the test passes", lambda e: mut(e, ["runs", 0, "outcome"], "pass")),
+        ("the test errors", lambda e: mut(e, ["runs", 0, "outcome"], "import-error")),
+        ("nothing committed since the base", lambda e: mut(e, ["head"], "b1")),
+    ],
+    "event-names-its-subject": [
+        ("no subject", lambda e: mut(e, ["subject"], " ")),
+        ("no run", lambda e: mut(e, ["run"], "")),
+    ],
     "every-proposal-is-within-its-rung": [
         ("no proposals", lambda e: mut(e, ["proposals"], [])),
         ("touches a floor", lambda e: mut(e, ["proposals"], [proposal("criteria/sw/spec.md")])),
@@ -367,6 +393,10 @@ TASK = {  # check name -> (full key of a task that names it, whether that task i
     "checks-green-and-gate-approved": ("merge", True),
     "report-has-every-required-section": ("report", True),
     "every-proposal-is-within-its-rung": ("propose", False),
+    "feasibility-holds": ("spec-cycle/design-cycle/feasibility", True),
+    "deploy-verified": ("verify", True),
+    "failing-test-committed": ("reproduce-evidence", True),
+    "event-names-its-subject": ("reflect", True),
 }
 SOURCE_RULE = lambda key, is_self: key if is_self else key + "-evidence"  # noqa: E731
 
@@ -419,7 +449,7 @@ def test_check_fails_on_each_bad_case_and_says_why(name, i):
     assert cp.stderr.strip()
 
 
-EMPTY_OK = {"tests_edited"}
+EMPTY_OK = {"tests_edited", "failed", "uncommitted"}
 GENERIC = [n for n in sorted(GOOD) if n != RUNG]
 
 
@@ -533,7 +563,7 @@ def test_rung_check_takes_allowed_rungs_from_the_runtime_only():
     # a loop bound outside a floor is ordinary (O1, K17), so the free rung alone refuses it
     bound = proposal("workflows/sw-development.yaml")
     bound["new"]["workflows/sw-development.yaml"] = bound["base"]["workflows/sw-development.yaml"].replace(
-        "in: [1, 2]", "in: [1, 2, 3]")
+        "{ each: build-round, in: [1, 2, 3] }", "{ each: build-round, in: [1, 2, 3, 4] }")
     assert bound["new"] != bound["base"]
     assert run_check(RUNG, {"proposals": [bound]}, env={"ORG_ALLOWED_RUNGS": "free"}).returncode == 1
     assert run_check(RUNG, {"proposals": [bound]}, env={"ORG_ALLOWED_RUNGS": "free,ordinary"}).returncode == 0
@@ -571,7 +601,7 @@ def test_missing_check_script_for_a_named_check_fails():
 
 
 @needs_yaml
-def test_non_agent_commands_are_files_in_bin_and_exit_three():
+def test_non_agent_commands_are_executable_files_in_bin():
     cmds = set()
     for name in WORKFLOWS:
         for _, body in all_leaves(name):
@@ -582,8 +612,7 @@ def test_non_agent_commands_are_files_in_bin_and_exit_three():
     for c in cmds:
         f = ROOT / "bin" / c
         assert f.is_file() and os.access(f, os.X_OK), c
-        cp = subprocess.run([str(f)], capture_output=True, text=True)
-        assert cp.returncode == 3 and "not implemented (U14)" in cp.stderr
+        assert "not implemented" not in f.read_text()  # U14 built both (test_cycle.py runs them)
 
 
 @pytest.mark.parametrize("metric", APPENDIX_A)
@@ -611,7 +640,7 @@ def test_rubrics_have_numbered_rules_and_a_fail_report():
 
 def test_briefs_are_not_empty():
     briefs = sorted((ROOT / "briefs" / "sw").glob("*.md"))
-    assert len(briefs) == 11
+    assert len(briefs) == 14
     assert all(len(b.read_text().split()) > 40 for b in briefs)
 
 

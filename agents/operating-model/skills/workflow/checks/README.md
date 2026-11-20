@@ -26,22 +26,26 @@ copies agent text into stdout makes the check judge the agent's own claim.
 
 Source step: the task itself (self) or `<relative key>-evidence` (sibling).
 
-| Check                                                | Source step | Fields in stdout                                      |
-| ---------------------------------------------------- | ----------- | ----------------------------------------------------- |
-| `spec-check`                                         | sibling     | `item`                                                |
-| `spec-coverage`                                      | sibling     | `item`, `spec_criteria_ids`, `tests`                  |
-| `every-acceptance-test-fails-on-an-assertion`        | self        | `runs`, `expected_tests`                              |
-| `red-evidence`                                       | sibling     | `runs`                                                |
-| `new-test-fails-on-an-assertion-not-a-compile-error` | self        | `runs`                                                |
-| `green-evidence`                                     | sibling     | `suite`, `tests_edited`                               |
-| `suite-green-and-no-test-edited`                     | self        | `suite`, `tests_edited`                               |
-| `suite-still-green-and-no-test-edited`               | sibling     | `suite`, `tests_edited`                               |
-| `write-sets-are-disjoint`                            | sibling     | `units`, `item_criteria_ids`, `acceptance_test_paths` |
-| `unit-verdict-is-pass`                               | self        | none (the call step's exit 0 is the verdict)          |
-| `acceptance-suite-green`                             | self        | `suite`, `tests_edited`, `expected_count`             |
-| `checks-green-and-gate-approved`                     | self        | `head`, `ci`, `gate`                                  |
-| `report-has-every-required-section`                  | self        | `report`                                              |
-| `every-proposal-is-within-its-rung`                  | sibling     | `proposals`                                           |
+| Check                                                | Source step | Fields in stdout                                            |
+| ---------------------------------------------------- | ----------- | ----------------------------------------------------------- |
+| `spec-check`                                         | sibling     | `item`                                                      |
+| `spec-coverage`                                      | sibling     | `item`, `spec_criteria_ids`, `tests`                        |
+| `every-acceptance-test-fails-on-an-assertion`        | self        | `runs`, `expected_tests`                                    |
+| `red-evidence`                                       | sibling     | `runs`                                                      |
+| `new-test-fails-on-an-assertion-not-a-compile-error` | self        | `runs`                                                      |
+| `green-evidence`                                     | sibling     | `suite`, `tests_edited`                                     |
+| `suite-green-and-no-test-edited`                     | self        | `suite`, `tests_edited`                                     |
+| `suite-still-green-and-no-test-edited`               | sibling     | `suite`, `tests_edited`                                     |
+| `write-sets-are-disjoint`                            | sibling     | `units`, `item_criteria_ids`, `acceptance_test_paths`       |
+| `unit-verdict-is-pass`                               | self        | none (the call step's exit 0 is the verdict)                |
+| `acceptance-suite-green`                             | self        | `suite`, `tests_edited`, `expected_count`                   |
+| `checks-green-and-gate-approved`                     | self        | `head`, `ci`, `gate`                                        |
+| `report-has-every-required-section`                  | self        | `report`                                                    |
+| `every-proposal-is-within-its-rung`                  | sibling     | `proposals`                                                 |
+| `feasibility-holds`                                  | self        | `feasible`, `failed`, `reasons`                             |
+| `deploy-verified`                                    | self        | `verified`, `exit`                                          |
+| `failing-test-committed`                             | self        | `runs`, `committed`, `files`, `uncommitted`, `base`, `head` |
+| `event-names-its-subject`                            | self        | `run`, `subject`                                            |
 
 Field shapes:
 
@@ -59,11 +63,21 @@ Field shapes:
 - `proposals`: list of `{id, base, new}`. `base` and `new` map an org-root path to file text or null. The check
   classifies them with `check_change` from `scripts/check_change.py`. A proposal declares no rung.
 
-## Code steps still to build (U14)
+## Code steps (U14)
 
-The workflows name `bin/tdd-evidence` and `bin/merge-change`; both are stubs that exit 3. The sibling
-`<task>-evidence` steps (`spec`, `acceptance-tests`, `cut`, `cycle/red`, `cycle/green`, `cycle/refactor`,
-`propose`) do not exist yet in the workflows. Until U14 adds them, the matching checks exit 2.
+`bin/tdd-evidence` prints the facts the fact checks read; its header lists the phases and the environment it
+needs (`TDD_WORKTREE`, `TDD_BASE`, `TDD_TEST_CMD`, `TDD_TIMEOUT`, `TDD_FAULTS`, `TDD_VERIFY_CMD`). The runtime
+(or the stack) must set them: the process host does not forward its own environment. `bin/merge-change` prints
+`head`, `ci` and `merged`.
+
+- `red` outcomes: `assertion`, `compile-error`, `import-error`, `timeout`, `pass`, and `error` (any other
+  exception, such as a `NameError` in the test body).
+- `feasibility-holds` (fact), `deploy-verified` (fact) and `failing-test-committed` (fact) sit on the code step
+  that prints their evidence. `event-names-its-subject` (shape) validates the emitted event's data. Classify all
+  four in `manifest.checks` when that map lands (P25).
+- `layer_fault` is `none`, `unit` or `design`; `system_fault` is `none`, `design` or `spec`. Both come from the
+  faults file the architect writes, never from the agent's output: the keys of the file are also the tests that
+  step runs.
 
 ## Defaults taken by the orchestrator
 
