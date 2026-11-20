@@ -1,0 +1,33 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/schedule-wakeup-guard\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "ScheduleWakeup|CronCreate"
+      },
+      {
+        "hooks": [
+          {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/send-message-guard\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "SendMessage"
+      },
+      {
+        "hooks": [
+          {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/review-dedup-guard\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "Agent"
+      }
+    ]
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "hooks": [
+    {
+      "id": "git-index",
+      "event": "session.start",
+      "matcher": "startup|resume",
+      "script": "hooks/git-index",
+      "enforce": "warn"
+    },
+    {
+      "id": "git-reindex",
+      "event": "stop",
+      "script": "hooks/git-reindex",
+      "enforce": "warn"
+    },
+    {
+      "id": "mcp-bash-reminder",
+      "event": "tool.before",
+      "tools": ["shell"],
+      "script": "hooks/mcp-bash-reminder",
+      "enforce": "warn"
+    },
+    {
+      "id": "mcp-find-reminder",
+      "event": "tool.before",
+      "matcher": "Grep|Glob",
+      "script": "hooks/mcp-find-reminder",
+      "enforce": "warn"
+    },
+    {
+      "id": "index-repo-rewrite",
+      "event": "tool.before",
+      "matcher": "mcp__codebase-memory-mcp__index_repository",
+      "script": "hooks/index-repo-rewrite",
+      "enforce": "warn"
+    },
+    {
+      "id": "mcp-subagent-context",
+      "event": "subagent.start",
+      "script": "hooks/mcp-subagent-context",
+      "enforce": "warn"
+    }
+  ]
+}

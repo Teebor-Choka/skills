@@ -18,6 +18,12 @@
       url = "github:cachix/git-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Only its pure lib is used (hook manifest renderer), so no flake inputs of its own.
+    # Pinned until the renderer lands on main.
+    agent-env = {
+      url = "git+https://github.com/Teebor-Choka/agent-env.git?ref=main&rev=a8de73ea2944b95598fe217e9ff085c8303fadd9";
+      flake = false;
+    };
   };
 
   outputs =
@@ -28,6 +34,7 @@
       treefmt-nix,
       flake-utils,
       git-hooks,
+      agent-env,
     }:
     flake-utils.lib.eachSystem [ "aarch64-darwin" "aarch64-linux" "x86_64-linux" ] (
       system:
@@ -145,6 +152,40 @@
                 python3 ${self}/scripts/check-marketplace.py ${self}
                 touch $out
               '';
+
+          # Every plugin that ships hooks/manifest.json: its committed hooks/hooks.json must equal the
+          # rendered one (agent-env's renderClaudeHooks). A new plugin is covered by adding the manifest.
+          hooks-manifest =
+            let
+              l = import "${agent-env}/modules/home/agent-plugins-lib.nix" { inherit (pkgs) lib; };
+              withHooks = builtins.filter (p: p.hooks != null) (l.normalize { src = self; });
+              one =
+                p:
+                let
+                  rendered = pkgs.writeText "${p.name}.hooks.json" (builtins.toJSON (l.renderClaudeHooks p.hooks));
+                in
+                ''
+                  echo "${p.name}"
+                  diff <(jq -S . ${rendered}) <(jq -S . ${p.root}/hooks/hooks.json)
+                '';
+            in
+            pkgs.runCommand "hooks-manifest" { nativeBuildInputs = [ pkgs.jq ]; } ''
+              ${pkgs.lib.concatMapStrings one withHooks}
+              touch $out
+            '';
+
+          # Every plugin normalizes through agent-env, including hooks-only ones with no skills/ dir:
+          # forcing skillNames and the root of each would throw if one did not.
+          plugins-normalize =
+            let
+              l = import "${agent-env}/modules/home/agent-plugins-lib.nix" { inherit (pkgs) lib; };
+              plugins = l.normalize { src = self; };
+              line = p: "${p.name}: ${toString (builtins.length p.skillNames)} skill(s)\n";
+            in
+            pkgs.runCommand "plugins-normalize" { } ''
+              printf '%s' ${pkgs.lib.escapeShellArg (pkgs.lib.concatMapStrings line plugins)}
+              touch $out
+            '';
 
           shellcheck =
             pkgs.runCommand "shellcheck"

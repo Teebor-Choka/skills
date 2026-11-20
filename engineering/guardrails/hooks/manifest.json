@@ -1,0 +1,25 @@
+{
+  "hooks": [
+    {
+      "id": "secret-read-guard",
+      "event": "tool.before",
+      "tools": ["shell", "file.read"],
+      "script": "hooks/secret-read-guard",
+      "enforce": "warn"
+    },
+    {
+      "id": "secret-read-guard-grep",
+      "event": "tool.before",
+      "matcher": "Grep",
+      "script": "hooks/secret-read-guard",
+      "enforce": "warn"
+    },
+    {
+      "id": "read-size-nudge",
+      "event": "tool.before",
+      "tools": ["file.read"],
+      "script": "hooks/read-size-nudge",
+      "enforce": "block"
+    }
+  ]
+}

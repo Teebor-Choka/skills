@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""PreToolUse hook (tool: Read): nudge before a whole-file read of a large file.
+
+Whole-file reads of large docs and sources (30-60 KB and up) fill the context and force early compaction.
+Over ~40 KB with no offset/limit, inject additionalContext pointing to
+a ranged read, grep by section, or the code graph. The nudge never blocks and fires once per file per session.
+
+Exception: a whole-file Read of a SOURCE file over DENY_THRESHOLD is denied while no codebase-memory graph
+tool has been called this session.
+The hook cannot ask the MCP whether the repo is indexed. The code-graph plugin's git-index hook indexes every
+git work tree at session start whenever `codebase-memory-mcp` is on PATH, so that pair (binary on PATH, file in a git work tree)
+stands in for "indexed". "No graph tool this session" is read from the whole transcript, streamed: an assistant tool_use line
+named mcp__codebase-memory-mcp__* (parsed as JSON, so quoted text never counts). Any doubt (no binary, not a repo, transcript unreadable) fails open.
+A ranged read (offset/limit) always passes. Tests: hooks/tests/test_read_size_nudge.py.
+Schema: https://docs.claude.com/en/docs/claude-code/hooks
+"""
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+THRESHOLD = 40 * 1024
+DENY_THRESHOLD = 40 * 1024
+SOURCE_EXTS = {".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".go", ".java", ".kt", ".scala",
+               ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".rb", ".php", ".swift", ".sol", ".lua", ".zig",
+               ".sh", ".nix"}
+GRAPH_PREFIX = b"mcp__codebase-memory-mcp__"  # cheap pre-filter before parsing a line
+# files that are not text to read in slices: a whole-file Read is how a PDF, image or notebook is read
+BINARY_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".tiff", ".svg", ".ipynb",
+               ".mp4", ".mov", ".avi", ".mkv", ".webm", ".mp3", ".wav", ".flac", ".zip", ".gz", ".tar", ".7z"}
+
+
+def tmp_root():
+    return os.environ.get("TMPDIR") or "/tmp"
+
+
+def clean_session(session):
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(session or "")).lstrip(".")[:64]
+
+
+def session_slug(payload):
+    """Sanitised session id. Without one, a per-user, per-cwd name, so sessions never share a file."""
+    sid = clean_session(payload.get("session_id"))
+    if sid:
+        return sid
+    cwd = str(payload.get("cwd") or os.getcwd())
+    return "nosession-%d-%s" % (os.getuid(), hashlib.sha1(cwd.encode()).hexdigest()[:8])
+
+
+def mark_once(path):
+    """Create the marker exclusively. False when it already exists (or is a planted symlink): never written through."""
+    try:
+        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600))
+    except FileExistsError:
+        return False
+    except OSError:
+        pass
+    return True
+
+
+def _tool_names(obj):
+    """Tool names of tool_use blocks in one parsed transcript line (bare, or inside an assistant message)."""
+    if not isinstance(obj, dict):
+        return
+    if obj.get("type") == "tool_use":
+        yield obj.get("name")
+    elif obj.get("type") == "assistant":
+        content = (obj.get("message") or {}).get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    yield block.get("name")
+
+
+def graph_used(transcript_path):
+    """True when an assistant tool_use line of the whole transcript names a graph tool (streamed, so a long
+    session is scanned fully and quoted text in tool results never matches). None when it cannot be read."""
+    if not isinstance(transcript_path, str):
+        return None
+    try:
+        with open(transcript_path, "rb") as f:
+            for raw in f:
+                if GRAPH_PREFIX not in raw:
+                    continue
+                try:
+                    obj = json.loads(raw)
+                except ValueError:
+                    continue
+                if any(isinstance(n, str) and n.startswith("mcp__codebase-memory-mcp__") for n in _tool_names(obj)):
+                    return True
+    except OSError:
+        return None
+    return False
+
+
+def in_git_work_tree(path):
+    try:
+        r = subprocess.run(["git", "-C", os.path.dirname(path) or ".", "rev-parse", "--is-inside-work-tree"],
+                           capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and r.stdout.strip() == "true"
+
+
+def deny_reason(tool_input, transcript_path, size_of=os.path.getsize, which=shutil.which, in_git=in_git_work_tree):
+    """Return the denial text for a big whole-file source Read before any graph call, else ""."""
+    path = tool_input.get("file_path")
+    if not isinstance(path, str) or tool_input.get("offset") or tool_input.get("limit"):
+        return ""
+    if os.path.splitext(path)[1].lower() not in SOURCE_EXTS:
+        return ""
+    try:
+        size = size_of(path)
+    except OSError:
+        return ""
+    if size < DENY_THRESHOLD or not which("codebase-memory-mcp") or not in_git(path):
+        return ""
+    if graph_used(transcript_path) is not False:
+        return ""
+    return (f"{os.path.basename(path)} is {size // 1024} KB and this repo is indexed. No code-graph tool has run "
+            "this session. Run ToolSearch select:mcp__codebase-memory-mcp__search_graph,"
+            "mcp__codebase-memory-mcp__get_code_snippet, then locate the symbol with search_graph and read it "
+            "with get_code_snippet. To read the file itself, pass offset and limit.")
+
+
+def nudge(tool_input, session, tmpdir, size_of=os.path.getsize, which=shutil.which):
+    """Return the reminder text, or "" when no nudge is due. Records a per-file marker."""
+    path = tool_input.get("file_path")
+    if not isinstance(path, str) or tool_input.get("offset") or tool_input.get("limit") or tool_input.get("pages"):
+        return ""
+    if os.path.splitext(path)[1].lower() in BINARY_EXTS:
+        return ""
+    try:
+        size = size_of(path)
+    except OSError:
+        return ""
+    if size < THRESHOLD:
+        return ""
+    marker = os.path.join(tmpdir, f"agent-read-size-nudge.{clean_session(session) or 'nosession'}."
+                                  f"{hashlib.sha1(path.encode()).hexdigest()[:12]}")
+    if not mark_once(marker):
+        return ""
+    graph = ", or for code use search_graph/get_code_snippet" if which("codebase-memory-mcp") else ""
+    return (f"{os.path.basename(path)} is {size // 1024} KB. Read only what you need: use offset/limit, grep the "
+            f"heading or symbol first{graph}. A whole-file read of a large file costs context on every later turn.")
+
+
+def main():
+    try:
+        data = json.load(sys.stdin)
+        if data.get("tool_name") != "Read":
+            return
+        tool_input = data.get("tool_input") or {}
+        reason = deny_reason(tool_input, data.get("transcript_path"))
+        if reason:
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
+            return
+        text = nudge(tool_input, session_slug(data), tmp_root())
+    except Exception:
+        return
+    if text:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": text}}))
+
+
+if __name__ == "__main__":
+    main()

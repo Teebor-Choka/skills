@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills \u2014 practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "2.2.0"
+    "version": "2.4.0"
   },
   "plugins": [
     {
@@ -15,7 +15,7 @@
       "source": "./agents/orchestrate",
       "strict": true,
       "metadata": {
-        "version": "2.1.4"
+        "version": "2.3.0"
       }
     },
     {
@@ -79,6 +79,24 @@
       "strict": true,
       "metadata": {
         "version": "2.2.3"
+      }
+    },
+    {
+      "name": "guardrails",
+      "description": "Hook guardrails for agent sessions: ask before a command or Read prints a secret into the transcript, and nudge or deny whole-file reads of large files.",
+      "source": "./engineering/guardrails",
+      "strict": true,
+      "metadata": {
+        "version": "1.1.1"
+      }
+    },
+    {
+      "name": "code-graph",
+      "description": "Keep the codebase-memory-mcp code graph fresh and in use: index the repo at session start and after edits, rewrite worktree indexing to the main checkout, and nudge agents and subagents to query the graph before grep or find sweeps.",
+      "source": "./engineering/code-graph",
+      "strict": true,
+      "metadata": {
+        "version": "1.0.3"
       }
     },
     {

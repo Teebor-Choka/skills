@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""PreToolUse hook (matcher: mcp__codebase-memory-mcp__index_repository): index a linked worktree into its
+main checkout's project.
+
+Without this, indexing a worktree adds a new project per worktree, and the graph keeps it after the
+worktree is pruned, so the index grows without bound. When `repo_path` is the root of a linked git worktree,
+rewrite it to the main checkout via `repo-root` and return it as updatedInput, with additionalContext saying
+so (worded as conditional: the runtime may drop `updatedInput` when no permission decision is given;
+unverified live). It never emits a permission decision: the normal permission flow still decides. A plain subdirectory
+(a deliberate partial index), a subdirectory of a worktree, the main checkout and non-git paths pass
+through untouched. The graph then reflects the main checkout's files; read files that differ on the
+worktree branch directly. Fails open (no output) on malformed input.
+Tests: hooks/tests/test_repo_root.py.
+Schema: https://docs.claude.com/en/docs/claude-code/hooks
+"""
+import json
+import os
+import subprocess
+import sys
+
+REPO_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "repo-root")
+
+
+def main():
+    try:
+        payload = json.load(sys.stdin)
+        tool_input = payload["tool_input"]
+        repo_path = tool_input["repo_path"]
+        if not isinstance(repo_path, str):
+            return
+    except Exception:
+        return
+    if not is_linked_worktree_root(repo_path):
+        return
+    r = subprocess.run([REPO_ROOT, repo_path], capture_output=True, text=True)
+    if r.returncode != 0:
+        return
+    root = r.stdout.split("\n")[0]
+    if not root or os.path.realpath(root) == os.path.realpath(repo_path):
+        return
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "additionalContext": f"repo_path rewritten from {repo_path} to {root} if your harness applies the update; "
+                             "confirm in the index_repository call. The graph indexes the main checkout, so read "
+                             "files that differ on this branch directly",
+        "updatedInput": {**tool_input, "repo_path": root},
+    }}))
+
+
+def is_linked_worktree_root(path):
+    """True when `path` is the top directory of a linked worktree (git dir differs from the common dir)."""
+    r = subprocess.run(["git", "-C", path, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir",
+                        "--git-common-dir"], capture_output=True, text=True)
+    lines = r.stdout.splitlines()
+    if r.returncode != 0 or len(lines) != 3:
+        return False
+    top, git_dir, common = lines
+    return os.path.realpath(top) == os.path.realpath(path) and os.path.realpath(git_dir) != os.path.realpath(common)
+
+
+if __name__ == "__main__":
+    main()

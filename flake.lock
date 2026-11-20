@@ -1,5 +1,23 @@
 {
   "nodes": {
+    "agent-env": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1795133253,
+        "narHash": "sha256-pYt7djcLj8T6/CIm867OynNOp6QmXWp/6crqh0L6Kk4=",
+        "ref": "main",
+        "rev": "a8de73ea2944b95598fe217e9ff085c8303fadd9",
+        "revCount": 23,
+        "type": "git",
+        "url": "https://github.com/Teebor-Choka/agent-env.git"
+      },
+      "original": {
+        "ref": "main",
+        "rev": "a8de73ea2944b95598fe217e9ff085c8303fadd9",
+        "type": "git",
+        "url": "https://github.com/Teebor-Choka/agent-env.git"
+      }
+    },
     "flake-compat": {
       "flake": false,
       "locked": {
@@ -89,6 +107,7 @@
     },
     "root": {
       "inputs": {
+        "agent-env": "agent-env",
         "flake-utils": "flake-utils",
         "git-hooks": "git-hooks",
         "nixpkgs": "nixpkgs",

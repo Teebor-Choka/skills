@@ -1,0 +1,5 @@
+{
+  "name": "guardrails",
+  "version": "1.1.1",
+  "description": "Hook guardrails for agent sessions: ask before a command or Read prints a secret into the transcript, and nudge or deny whole-file reads of large files."
+}
