@@ -429,7 +429,9 @@
                   "org": {
                     "acceptance": [
                       {
-                        "check": "red-evidence"
+                        "judge": "reviewer",
+                        "rubric": "criteria/sw/red.md",
+                        "sample": 0.2
                       }
                     ],
                     "brief": "briefs/sw/red.md",
@@ -451,6 +453,9 @@
                 "metadata": {
                   "org": {
                     "acceptance": [
+                      {
+                        "check": "red-evidence"
+                      },
                       {
                         "check": "new-test-fails-on-an-assertion-not-a-compile-error"
                       }
@@ -474,7 +479,9 @@
                   "org": {
                     "acceptance": [
                       {
-                        "check": "green-evidence"
+                        "judge": "reviewer",
+                        "rubric": "criteria/sw/green.md",
+                        "sample": 0.2
                       }
                     ],
                     "brief": "briefs/sw/green.md",
@@ -496,6 +503,9 @@
                 "metadata": {
                   "org": {
                     "acceptance": [
+                      {
+                        "check": "green-evidence"
+                      },
                       {
                         "check": "suite-green-and-no-test-edited"
                       }
@@ -519,7 +529,9 @@
                   "org": {
                     "acceptance": [
                       {
-                        "check": "suite-still-green-and-no-test-edited"
+                        "judge": "reviewer",
+                        "rubric": "criteria/sw/refactor.md",
+                        "sample": 0.2
                       }
                     ],
                     "brief": "briefs/sw/refactor.md",
@@ -532,6 +544,28 @@
                   "shell": {
                     "arguments": [],
                     "command": "agent-run"
+                  }
+                }
+              }
+            },
+            {
+              "refactor-evidence": {
+                "metadata": {
+                  "org": {
+                    "acceptance": [
+                      {
+                        "check": "suite-still-green-and-no-test-edited"
+                      }
+                    ],
+                    "by": "code",
+                    "metrics": ["diff-lines"],
+                    "role": "ci"
+                  }
+                },
+                "run": {
+                  "shell": {
+                    "arguments": ["unit", "refactor"],
+                    "command": "tdd-evidence"
                   }
                 }
               }

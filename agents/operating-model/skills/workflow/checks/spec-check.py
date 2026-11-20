@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check spec-check. See README.md in this directory for the evidence it reads."""
+"""Check spec-check. See README.md in this directory for what it reads."""
 import os
 import sys
 
@@ -17,8 +17,8 @@ def blank(v):
     return not _lib.is_str(v) or v.strip().lower().rstrip(".") in EMPTY
 
 
-def check(data):
-    item = data["item"]
+def check(ev):
+    item = ev.out()
     problems = [f"{k} is empty, missing or a placeholder" for k in CATEGORIES if blank(item.get(k))]
     criteria = item.get("criteria")
     if not (isinstance(criteria, list) and criteria):
@@ -40,4 +40,4 @@ def check(data):
 
 
 if __name__ == "__main__":
-    _lib.run(check, self_step=False, parse=True)
+    _lib.run(check)

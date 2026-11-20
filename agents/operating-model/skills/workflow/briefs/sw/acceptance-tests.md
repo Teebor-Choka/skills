@@ -6,7 +6,7 @@ Write one or more tests for every criterion in the approved item. Derive them fr
 
 ## Rules
 
-- Cover the boundaries: empty, zero, one, maximum, null, concurrent.
+- Cover the boundaries where meaningful for the criterion: empty, zero, one, maximum, null, concurrent.
 - Cover every failure path the spec names.
 - Tag each test with the criterion ids it covers.
 - Assert the bad behaviour too, not only the good one.
