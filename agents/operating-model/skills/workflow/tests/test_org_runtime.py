@@ -846,7 +846,7 @@ def judge_setup(tmp, script):
     inp = sess / "input-1.json"
     inp.write_text(json.dumps({"run": RID, "key": "gate", "input": {"item": 0, "output": "o"}, "reasons": {}}))
     host = ort.OrgProcessHost(root, session_dir=sess,
-                              env={"ORG_HARNESS": "scripted", "ORG_HARNESS_SCRIPT": str(script_path)})
+                              env={"ORG_TEST_HARNESS": "1", "ORG_HARNESS": "scripted", "ORG_HARNESS_SCRIPT": str(script_path)})
     req = JudgeRequest(key="gate", item=0, role="reviewer", rubric="criteria/q.md", run_id=RID, invocation="i-1",
                        input_file=str(inp),
                        argv=["agent-run", "--role", "reviewer", "--brief", "criteria/q.md", "--input", str(inp)])
@@ -892,7 +892,7 @@ def test_a_judge_through_the_whole_runtime(tmp_path):
     root = make_root(tmp_path, wf=doc(("a", task)))
     # each agent-run process reads the script from the start, so one reply serves the step and the judge
     script.write_text(json.dumps([{"result": "ok", "verdict": "pass"}]))
-    host = ort.OrgProcessHost(root, session_dir=sess, env={"ORG_HARNESS": "scripted", "ORG_HARNESS_SCRIPT": str(script)})
+    host = ort.OrgProcessHost(root, session_dir=sess, env={"ORG_TEST_HARNESS": "1", "ORG_HARNESS": "scripted", "ORG_HARNESS_SCRIPT": str(script)})
     res = runtime(tmp_path, root=root, host=host).run("t", run_id=RID)
     assert res.status == "success", res.errors
     assert [e["result"] for e in res.events if e["kind"] == "item"] == ["pass"]
@@ -914,13 +914,13 @@ def test_a_decision_event_without_an_id_is_ignored(tmp_path):
     host = ScriptedHost(events=[(1, ev("gate", id=False)), (2, ev("gate", id="ok-1"))])
     res = runtime(tmp_path, root=gate_root(tmp_path), host=host).run("t", run_id=RID)
     assert res.status == "success", res.errors
-    assert [e["reason"] for e in res.events if e["kind"] == "ignored"] == ["decision event has no id"]
+    assert [e["reason"] for e in res.events if e["kind"] == "ignored"] == ["event has no id"]
 
 
 def test_a_decision_event_with_a_non_string_or_empty_id_is_ignored(tmp_path):
     host = ScriptedHost(events=[(1, ev("gate", id=5)), (2, ev("gate", id="")), (3, ev("gate", id="ok-1"))])
     res = runtime(tmp_path, root=gate_root(tmp_path), host=host).run("t", run_id=RID)
-    assert [e["reason"] for e in res.events if e["kind"] == "ignored"] == ["decision event has no id"] * 2
+    assert [e["reason"] for e in res.events if e["kind"] == "ignored"] == ["event has no id"] * 2
 
 
 def test_r45_the_same_decision_id_in_the_next_round_is_ignored(tmp_path):
@@ -929,7 +929,7 @@ def test_r45_the_same_decision_id_in_the_next_round_is_ignored(tmp_path):
     host = ScriptedHost(events=[(1, ev("r/g", id="same")), (5, ev("r/g", id="same", reason="again"))])
     res = runtime(tmp_path, root=root, host=host).run("t", run_id=RID)
     assert res.status == "error" and "timeout" in " ".join(res.errors).lower()
-    assert [e["reason"] for e in res.events if e["kind"] == "ignored"] == ["decision event id already consumed"]
+    assert [e["reason"] for e in res.events if e["kind"] == "ignored"] == ["decision event already consumed"]
     assert ids_in(tmp_path) == [{"id": "same", "key": "r/g"}]
 
 
@@ -1458,3 +1458,34 @@ def test_the_verify_journal_key_includes_the_signature(tmp_path):
 def test_proposer_rungs_never_include_frozen(tmp_path):
     with pytest.raises(ValueError, match="frozen"):
         runtime(tmp_path, proposer_rungs=("free", "frozen"))
+
+
+# ---- integration: ControlFlow, one id authority
+
+
+def test_ledger_and_divergence_errors_pass_through_the_interpreter():
+    assert issubclass(ort.LedgerError, it.ControlFlow) and issubclass(ort.DivergenceError, it.ControlFlow)
+    assert not issubclass(ort.IntegrityError, it.ControlFlow)  # a changed file is a located run error
+
+
+def test_replaying_an_unfinished_run_raises_the_ledger_error_not_a_run_error(tmp_path):
+    with pytest.raises(Killed):
+        runtime(tmp_path, host=KillingHost(2, checks=CHECKS)).run("t", run_id=RID)
+    with pytest.raises(ort.LedgerError, match="replay"):
+        runtime(tmp_path).replay()
+
+
+def test_a_resume_that_diverges_from_the_ledger_raises_a_divergence_error(tmp_path):
+    root = make_root(tmp_path, wf=doc(("gate", gate()), ("b", leaf())))
+    with pytest.raises(Killed):
+        runtime(tmp_path, root=root, host=KillingHost(0, events=[(1, ev("gate", id="x"))])).run("t", run_id=RID)
+    other = ScriptedHost(events=[(1, ev("gate", "reject", id="x"))])
+    with pytest.raises(ort.DivergenceError):
+        runtime(tmp_path, root=root, host=other).resume()
+
+
+def test_the_interpreter_is_the_one_authority_on_ids_and_the_ledger_only_records(tmp_path):
+    host = ScriptedHost(events=[(1, ev("gate", id=False)), (2, ev("gate", id="x")), (3, ev("gate", id="x"))])
+    res = runtime(tmp_path, root=gate_root(tmp_path), host=host).run("t", run_id=RID)
+    assert res.status == "success"
+    assert ids_in(tmp_path) == [{"id": "x", "key": "gate"}]  # only the accepted decision is recorded, once
