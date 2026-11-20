@@ -195,6 +195,14 @@ def test_uses_switch_and_fork_and_a_counted_listen_any(flow):
     assert "any" in join["listen"]["to"] and "until" in join["listen"]["to"]
 
 
+def test_join_is_skipped_when_there_are_no_claims(flow):
+    # With zero claims no event arrives, `until` is never evaluated, and the join would time out.
+    cond = find(flow, "claims-checked").get("if")
+    assert cond, "claims-checked has no if guard for an empty claim list"
+    assert expr.evaluate(expr.unwrap(cond), None, {"context": {"claims": []}}) is False
+    assert expr.evaluate(expr.unwrap(cond), None, {"context": {"claims": [{"id": "c1"}]}}) is True
+
+
 def test_claim_review_and_cite_check_are_floors(flow):
     for name in RESEARCH_FLOORS:
         assert find(flow, name)["metadata"]["org"].get("floor") is True
