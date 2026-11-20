@@ -18,3 +18,7 @@ Write test files only. Do not write production code. Every test must fail on an 
 ## Write-set
 
 You may write only the acceptance test files. The cut later forbids every unit from writing them.
+
+## Test ids
+
+List each test by its pytest node id, for example `tests/test_x.py::test_y`. The checks compare these ids with the real test run.
