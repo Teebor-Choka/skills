@@ -29,10 +29,12 @@ Decisions the spec leaves open (PROVISIONAL, listed in the unit report):
      matching events of its scope that no earlier gate consumed; each event is consumed
      by at most one gate execution per run.
   D12 `exit` inside a `for` body leaves the whole loop (the body list is the task list).
-  D13 an executable `bin` command runs from the verified descriptor only when it starts
-     with `#!` (macOS cannot exec a read-only descriptor); other files are refused there.
-  D14 a check script runs from the verified bytes (`python -c` with the script on stdin),
-     not from its path.
+  D13 an executable `bin` command runs from the verified descriptor (`/dev/fd/N`). A `#!`
+     script works everywhere (its interpreter opens the descriptor); a binary works where
+     the OS can exec a read-only descriptor (Linux) and fails to start with a located
+     error elsewhere (macOS). Python scripts get `-I`.
+  D14 a check script runs from the verified bytes (`python -I -c`, script on stdin, run as
+     `__main__`), not from its path; the org root is never on `sys.path` ahead of the stdlib.
   D15 a caller's `$accepted` also holds callee keys as `<call key>><callee key>`.
 
 The runtime input file (7.8) lives in a private 0700 temp directory outside the org root
@@ -84,12 +86,14 @@ ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]*")
 CMD_NAME = re.compile(r"[a-z0-9][a-z0-9._-]*")
 CHECK_NAME = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 CHECK_PRELUDE = (
-    "import os, sys\n"
+    "import os, sys, __main__\n"
     "path, key = sys.argv[1], sys.argv[2]\n"
-    "src = sys.stdin.read()\n"
+    "src = sys.stdin.buffer.read()\n"
     "sys.argv = [path, key]\n"
-    "sys.path.insert(0, os.path.dirname(path))\n"
-    "exec(compile(src, path, 'exec'), {'__name__': '__main__', '__file__': path})\n"
+    "sys.path.append(os.path.dirname(path))\n"  # siblings such as _lib, after the stdlib
+    "ns = __main__.__dict__\n"
+    "ns['__file__'] = path\n"
+    "exec(compile(src, path, 'exec'), ns)\n"
 )
 
 
@@ -157,6 +161,10 @@ class RunResult:
     output: object = None
     context: object = None
     now: float = 0.0
+
+
+class ControlFlow(Exception):
+    """Base for exceptions that must pass through the interpreter unchanged (U13b's ledger and divergence errors)."""
 
 
 class OutsideRoot(Exception):
@@ -326,6 +334,7 @@ class _Scheduler:
         self.live = 0
         self.fin = 0
         self.procs = []
+        self.abort = False
         self.on_event = None
 
     def spawn(self, gen):
@@ -435,6 +444,9 @@ class _Scheduler:
     def run(self):
         """Run until every process is done. False on a deadlock (live processes, nothing can wake)."""
         while self.live > 0:
+            if self.abort:
+                self.close_all()
+                return True
             if self.ready:
                 p, value, exc = self.ready.popleft()
                 self._step(p, value, exc)
@@ -527,7 +539,7 @@ class ScriptedHost:
             return StepOutcome()
         return v if isinstance(v, StepOutcome) else StepOutcome(**v)
 
-    def run_check(self, name, key, evidence, rungs=None):
+    def run_check(self, name, key, evidence, rungs):
         self.calls.append(("check", name, key))
         self.last_rungs = rungs
         if f"checks/{name}.py" in self.outside:
@@ -615,7 +627,7 @@ class ProcessHost:
         state, fd, path = self._open(f"{folder}/{name}{suffix}", nofollow=True)
         if fd is not None and (os.path.dirname(path) != os.path.join(self.root, folder) or os.path.basename(path) != name + suffix):
             os.close(fd)
-            return "outside", None, path
+            return "invalid", None, path  # inside the root, but not a file directly in the folder
         return state, fd, path
 
     def _kill(self, proc):
@@ -648,8 +660,12 @@ class ProcessHost:
                     self.after_verify()
                 head = os.pread(fd, 512, 0)
                 if head.startswith(b"#!"):
-                    parts = head.split(b"\n", 1)[0][2:].decode("utf-8", errors="replace").split(None, 1)
-                    argv0 = parts[:1] + parts[1:] + [f"/dev/fd/{fd}"] if parts else []
+                    toks = head.split(b"\n", 1)[0][2:].decode("utf-8", errors="replace").split(None, 1)
+                    if toks:
+                        py = 1 if os.path.basename(toks[0]) == "env" and len(toks) > 1 else 0
+                        if re.fullmatch(r"python[0-9.]*", os.path.basename(toks[py])):
+                            toks.insert(py + 1, "-I")  # isolated: no cwd, no user site, no PYTHON* variables
+                        argv0 = toks + [f"/dev/fd/{fd}"]
                 else:
                     argv0 = [f"/dev/fd/{fd}"]
                 pass_fds = (fd,)
@@ -690,7 +706,10 @@ class ProcessHost:
             error = (err.strip().splitlines() or [f"command exited {proc.returncode}"])[0]
         return StepOutcome(exit_code=proc.returncode, output=parsed, stdout=out, duration=dur, error=error, truncated=trunc)
 
-    def run_check(self, name, key, evidence, rungs=None):
+    def run_check(self, name, key, evidence, rungs):
+        tmp = os.path.realpath(tempfile.gettempdir())
+        if tmp == self.root or tmp.startswith(self.root + os.sep):
+            raise RuntimeError(f"temp directory '{tmp}' is inside the org root")
         state, fd, path = self._verified("checks", name, CHECK_NAME, ".py")
         if state == "outside":
             raise OutsideRoot(f"checks/{name}.py")
@@ -714,11 +733,11 @@ class ProcessHost:
         efd, epath = tempfile.mkstemp(prefix="org-evidence-", suffix=".json")
         try:
             with os.fdopen(efd, "w") as f:
-                json.dump(evidence, f)
+                json.dump(evidence, f, default=str)
             env = {"PATH": os.environ.get("PATH", ""), "ORG_EVIDENCE": os.path.abspath(epath), "ORG_KEY": key,
-                   "ORG_RUN": evidence["run"], "ORG_ALLOWED_RUNGS": ",".join(rungs or ("free", "ordinary"))}
+                   "ORG_RUN": evidence["run"], "ORG_ALLOWED_RUNGS": ",".join(rungs)}
             try:
-                proc = subprocess.Popen([sys.executable, "-c", CHECK_PRELUDE, path, key], env=env, cwd=self.root,
+                proc = subprocess.Popen([sys.executable, "-I", "-c", CHECK_PRELUDE, path, key], env=env, cwd=self.root,
                                         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                         start_new_session=True)
             except OSError:
@@ -755,20 +774,24 @@ class ProcessHost:
 class _Sc:
     """Scope of a task list: key prefixes, loop variables, rework loops, cancel registries."""
 
-    __slots__ = ("pathp", "relp", "idx", "iters", "loops", "lv", "regs", "outer")
+    __slots__ = ("pathp", "relp", "idx", "iters", "loops", "lv", "regs", "outer", "fors", "base")
 
-    def __init__(self, pathp="", relp="", idx=None, iters=(), loops=(), lv=None, regs=(), outer=()):
+    def __init__(self, pathp="", relp="", idx=None, iters=(), loops=(), lv=None, regs=(), outer=(), fors=(), base=""):
         self.pathp, self.relp, self.idx, self.iters, self.loops = pathp, relp, idx, iters, loops
-        self.lv, self.regs, self.outer = lv or {}, regs, outer
+        self.lv, self.regs, self.outer, self.fors, self.base = lv or {}, regs, outer, fors, base
 
     def derive(self, **kw):
-        new = _Sc(self.pathp, self.relp, self.idx, self.iters, self.loops, self.lv, self.regs, self.outer)
+        new = _Sc(self.pathp, self.relp, self.idx, self.iters, self.loops, self.lv, self.regs, self.outer, self.fors, self.base)
         for k, v in kw.items():
             setattr(new, k, v)
         return new
 
     def child(self, t, idx=None, **kw):
-        """Scope for the tasks inside task `t`; `idx` marks the iteration of a `for` without `while` (section 1)."""
+        """Scope for the tasks inside task `t`; `idx` marks the iteration of a `for` without `while` (section 1).
+
+        The direct body task of an iteration (`self.idx` set) becomes the base of the relative `$accepted` view.
+        """
+        kw.setdefault("base", t.rel + "/" if self.idx is not None else self.base)
         return self.derive(pathp=t.path + "/", relp=t.rel + "/", idx=idx, **kw)
 
     def with_vars(self, **names):
@@ -790,6 +813,7 @@ class _T:
         self.sort = ex.sortbase + (ex.pre.get(self.path, 0),) + tuple(sc.iters)
         self.entry = None
         self.cls = None  # step | call | emit | gate
+        self.consumed = []  # ids of task-ended events a gate consumed; released if the gate does not pass
 
 
 class _Rec:
@@ -806,8 +830,9 @@ class _Rec:
 class _Loop:
     """A rework loop (`for` with `while`): its round, its unfinished detached work, its reject reasons."""
 
-    def __init__(self, src, ex):
-        self.src, self.ex, self.round = src, ex, 0
+    def __init__(self, src, ex, base=""):
+        self.src, self.ex, self.base, self.round = src, ex, base, 0
+        self.serial = ex.run.nxt()
         self.procs, self.reasons, self.next = [], {}, {}
 
 
@@ -817,6 +842,7 @@ class _Ex:
     def __init__(self, run, name, doc, prefix, sortbase, stack, parent=None, call_rel=None):
         self.run, self.name, self.doc, self.prefix, self.sortbase, self.stack = run, name, doc, prefix, sortbase, stack
         self.parent, self.call_rel = parent, call_rel
+        self.serial = run.nxt()
         self.context, self.accepted, self.ent, self.dec = {}, {}, {}, {}
         self.pre = {p: i for i, (p, _) in enumerate(_walk(doc["do"]))}
         self.floors = {p for p, t in _walk(doc["do"]) if run.is_floor(t)}
@@ -827,7 +853,8 @@ class _Run:
     def __init__(self, interp, rid):
         self.interp, self.host, self.rid = interp, interp.host, rid
         self.events, self.records, self.execs = [], {}, []
-        self.detached_errors, self.inv, self.seq, self.iterations = [], 0, 0, 0
+        self.detached_errors, self.inv, self.seq, self.iterations, self.serial = [], 0, 0, 0, 0
+        self.fatal_errors = []
         self.scopes, self.tmp, self.nfile, self.ended = {}, None, 0, []
         self.consumed, self.internal, self.seen_decisions = {}, {}, set()
         self._floors = {}
@@ -836,30 +863,40 @@ class _Run:
 
     # -- infrastructure
 
+    def nxt(self):
+        self.serial += 1
+        return self.serial
+
     @staticmethod
     def plain(value):
-        return json.loads(json.dumps(value, default=str))
+        try:
+            return json.loads(json.dumps(value, default=str))
+        except (TypeError, ValueError, RecursionError):  # non-string keys, cycles
+            return repr(value)[:10000]
 
     def log(self, kind, **kw):
         e = {"seq": len(self.events), "t": self.sched.now, "kind": kind}
         e.update(kw)
         self.events.append(e)
 
-    def has_floors(self, name, seen=()):
-        """P35: a workflow has floors if it, or a workflow it calls, has one."""
+    def has_floors(self, name):
+        """P35: a workflow has floors if it, or a workflow it can call, has one (cycle-safe, never a cached partial)."""
         if name in self._floors:
             return self._floors[name]
-        doc = self.interp.workflows.get(name)
-        found = False
-        if doc is not None and name not in seen:
+        seen, stack, found = set(), [name], False
+        while stack and not found:
+            n = stack.pop()
+            doc = self.interp.workflows.get(n)
+            if n in seen or doc is None:
+                continue
+            seen.add(n)
             for _, t in _walk(doc["do"]):
                 org = (t.get("metadata") or {}).get("org")
                 if isinstance(org, dict) and org.get("floor") is True:
                     found = True
-                elif isinstance(t.get("run"), dict) and isinstance(t["run"].get("workflow"), dict):
-                    found = self.has_floors(t["run"]["workflow"].get("name"), seen + (name,))
-                if found:
                     break
+                if isinstance(t.get("run"), dict) and isinstance(t["run"].get("workflow"), dict):
+                    stack.append(t["run"]["workflow"].get("name"))
         self._floors[name] = found
         return found
 
@@ -875,7 +912,12 @@ class _Run:
         v.update(extra)
         v.update({"context": ex.context, "runtime": {"name": "ows-interpreter", "version": "0"},
                   "workflow": {"id": self.rid, "definition": {"document": ex.doc.get("document", {})}}})
-        v["accepted"] = ex.accepted  # bound last: nothing shadows it
+        acc = ex.accepted
+        if sc.base:  # inside an iteration the keys are also visible relative to its body (spec update 8)
+            n = len(sc.base)
+            acc = dict(acc)
+            acc.update({k[n:]: val for k, val in ex.accepted.items() if k.startswith(sc.base)})
+        v["accepted"] = acc  # bound last: nothing shadows it
         return v
 
     def x(self, ex, key, value, data, sc, **extra):
@@ -884,11 +926,15 @@ class _Run:
         except expr.ExprError as e:
             raise TaskError(key, E_EXPR, 400, str(e)) from None
 
-    def hostcall(self, t, fn, *args):
-        """A host that raises is a located run error, never a traceback."""
+    def hostcall(self, t, fn, *args, outside=False):
+        """A host that raises is a located run error, never a traceback. ControlFlow passes through."""
         try:
             return fn(*args)
-        except (TaskError, OutsideRoot):
+        except OutsideRoot as e:
+            if outside:
+                raise
+            raise TaskError(t.full, E_RUNTIME, 500, f"'{e}' resolves outside the org root", fatal=True) from None
+        except (TaskError, ControlFlow):
             raise
         except Exception as e:
             raise TaskError(t.full, E_RUNTIME, 500, f"host: {type(e).__name__}: {e}") from None
@@ -946,28 +992,31 @@ class _Run:
             del self.records[k]
 
     def change(self, t):
-        fn = getattr(self.host, "change", None)
-        if fn is None:
-            return {"head": None, "worktree": None}
-        return self.plain(self.hostcall(t, fn))
+        return self.plain(self.hostcall(t, self.host.change))
 
-    def rungs(self, role):
+    def rungs(self, t):
+        role = t.org.get("role")
         if role == "owner":
             return RUNGS + ("frozen",)
         roles = (self.interp.manifest or {}).get("roles")
         entry = roles.get(role) if isinstance(roles, dict) else None
         listed = entry.get("rungs") if isinstance(entry, dict) else None
-        if not isinstance(listed, list):
+        if listed is None:
             return RUNGS[:2]
-        return tuple(r for r in RUNGS if r in listed)
+        valid = tuple(r for r in RUNGS if isinstance(listed, list) and r in listed)
+        if not valid:  # an empty or all-invalid list is an error, never the default (N2)
+            raise TaskError(t.full, E_RUNTIME, 500,
+                            f"manifest.roles.{role}.rungs: must list at least one of {', '.join(RUNGS)}", fatal=True)
+        return valid
 
     def evidence(self, ex, t, start_seq):
         """The 6.1 evidence file content: runtime-built from entries that ended before the task started."""
         steps = {k: e for k, (seq, e, cls, code) in ex.ent.items() if seq <= start_seq and code and cls != "gate"}
         outputs = {k: e for k, (seq, e, cls, code) in ex.ent.items() if seq <= start_seq}
         decisions = {k: d for k, (seq, d) in ex.dec.items() if seq <= start_seq}
-        return self.plain({"run": self.rid, "key": t.full, "output": t.entry, "steps": steps, "outputs": outputs,
-                           "decisions": decisions, "change": self.change(t)})
+        # entries are shared by reference and never mutated; the host serialises the file once
+        return {"run": self.rid, "key": t.full, "output": t.entry, "steps": steps, "outputs": outputs,
+                "decisions": decisions, "change": self.change(t)}
 
     def finish_entry(self, ex, t):
         if t.entry is not None:
@@ -998,6 +1047,8 @@ class _Run:
         names = [n for n, _ in _items(lst)]
         i = 0
         while i < len(lst):
+            if self.fatal_errors:
+                raise self.fatal_errors[0]  # a fatal error in detached work ends the run (review 2, 8)
             (name, task), = lst[i].items()
             out, d = yield from self.task(ex, name, task, sc, data)
             data = out
@@ -1073,10 +1124,11 @@ class _Run:
         cond = task.get("while")
         loop = None
         if cond is not None:
-            loop = _Loop(expr.unwrap(cond) if isinstance(cond, str) and expr.is_expression(cond) else None, ex)
+            loop = _Loop(expr.unwrap(cond) if isinstance(cond, str) and expr.is_expression(cond) else None, ex, sc.base)
         loops = sc.loops + (loop,) if loop else sc.loops
         regs = sc.regs + (loop.procs,) if loop else sc.regs
         out = data
+        fsr = self.nxt()
         for i, item in enumerate(items):
             self.count_iteration(t)
             lv = dict(sc.lv)
@@ -1089,7 +1141,7 @@ class _Run:
                     self.new_round(ex, t, loop)
                 loop.round = i
             isc = sc.child(t, idx=None if cond is not None else i, iters=sc.iters if cond is not None else sc.iters + (i,),
-                           loops=loops, lv=lv, regs=regs)
+                           loops=loops, lv=lv, regs=regs, fors=sc.fors if cond is not None else sc.fors + ((fsr, i),))
             out, sig = yield from self.tasks(ex, task["do"], isc, data)
             if sig in ("end", "exit"):  # D12
                 return out, ("end" if sig == "end" else None)
@@ -1207,7 +1259,8 @@ class _Run:
         if isinstance(tmo, dict) and "after" in tmo:
             lim = _secs(tmo["after"])
         elif t.kind == "run" and "shell" in t.task["run"]:
-            lim = STEP_LIMIT  # 7.10
+            owner = any(isinstance(i, dict) and "rubric" in i and i.get("judge") == "owner" for i in t.org.get("acceptance") or [])
+            lim = OWNER_RUBRIC_LIMIT if owner else STEP_LIMIT  # 7.10, P34
         else:
             return None if ex.deadline is None else ex.deadline
         dl = self.sched.now + lim
@@ -1223,13 +1276,17 @@ class _Run:
         return (yield from self.body(ex, t, data))
 
     def scope_of(self, ex, t):
-        return (id(ex), t.sc.iters, tuple((id(loop), loop.round) for loop in t.sc.loops))
+        return (ex.serial, t.sc.fors, tuple((loop.serial, loop.round) for loop in t.sc.loops))
 
     def detached(self, ex, t, data):
         scope = self.scope_of(ex, t)
         try:
             yield from self.body(ex, t, data)
         except TaskError as e:
+            if e.fatal:  # never dropped by a new round: the run ends
+                self.fatal_errors.append(e)
+                self.sched.abort = True
+                return
             self.detached_errors.append((e, tuple((loop, loop.round) for loop in t.sc.loops + t.sc.outer)))
         rec = self.records.get(t.full)
         ev = {"type": TASK_ENDED, "data": {"run": self.rid, "task": t.full, "accepted": bool(rec and rec.ok)}}
@@ -1253,23 +1310,36 @@ class _Run:
                 out = yield from self.call(ex, t, data)
             results = yield from self.items(ex, t, deadline, decision, start_seq)
         except TaskError as e:
+            self.release(t)
             self.finish_entry(ex, t)
             e.failed.append((t.full, self.record(ex, t, "fail")))  # a raised error records fail (6.1)
             raise
         except GeneratorExit:
+            self.release(t)
             self.record(ex, t, "cancelled")
             raise
         self.finish_entry(ex, t)
         ok = "fail" not in results and decision != "reject"
+        if not ok:
+            self.release(t)
         self.record(ex, t, "pass" if ok else "fail")
         if not ok and t.floor and not self.exempt(t):
             raise TaskError(t.full, E_RUNTIME, 500, "acceptance failed")  # 7.4 rule 1
         return out
 
+    def release(self, t):
+        """A gate that timed out, failed or was cancelled gives its consumed events back to the pool."""
+        for i in t.consumed:
+            self.consumed.pop(i, None)
+        t.consumed = []
+
     def exempt(self, t):
         """7.4 rule 1: a rework loop whose `while` names this task's key reads the result, so a fail does not raise."""
         for loop in t.sc.loops:
-            if loop.src and t.rel in expr.accepted_keys(loop.src):
+            if not loop.src:
+                continue
+            keys = expr.accepted_keys(loop.src)
+            if t.rel in keys or (loop.base and t.rel.startswith(loop.base) and t.rel[len(loop.base):] in keys):
                 return True
         for loop in t.sc.outer:  # a callee floor is named by its full key from the caller (P36)
             if loop.src and t.full[len(loop.ex.prefix):] in expr.accepted_keys(loop.src):
@@ -1337,8 +1407,11 @@ class _Run:
             yield Sleep(now + dur)
         text = o.stdout if o.stdout is not None else (o.output if isinstance(o.output, str) else
                                                       ("" if o.output is None else json.dumps(o.output, default=str)))
-        t.entry = {"exit": o.exit_code, "stdout": str(text)}
-        if o.truncated:
+        text, truncated = str(text), o.truncated
+        if len(text) > OUTPUT_CAP:  # the cap holds for every host
+            text, truncated = text[:OUTPUT_CAP], True
+        t.entry = {"exit": o.exit_code, "stdout": text}
+        if truncated:
             t.entry["truncated"] = True
         if o.exit_code != 0 or o.error:
             raise TaskError(t.full, E_RUNTIME, 500, str(o.error) if o.error else f"command exited {o.exit_code}")
@@ -1409,10 +1482,9 @@ class _Run:
     # -- gates and decision events
 
     def decision_test(self, event, full, item=None, signer="owner"):
+        """Content first, so a foreign event never reaches the verifier; then the signature; then once-only by id (P33)."""
         if id(event) in self.internal:
             return None, "emitted by the runtime"
-        if not self.host.verify_signed(event, signer):
-            return None, f"not signed by the {signer}"
         d = event.get("data") if isinstance(event.get("data"), dict) else {}
         if d.get("run") != self.rid:
             return None, "data.run is not this run"
@@ -1424,10 +1496,14 @@ class _Run:
             return None, "data.decision must be approve or reject"
         if "reason" in d and not isinstance(d["reason"], str):
             return None, "data.reason must be a string"
-        seen = json.dumps(event, sort_keys=True, default=str)
-        if seen in self.seen_decisions:
-            return None, "decision event already consumed"  # P33
-        self.seen_decisions.add(seen)
+        eid = event.get("id")
+        if not isinstance(eid, str) or not eid:
+            return None, "event has no id"
+        if not self.host.verify_signed(event, signer):  # the matcher guard turns a host error into the gate's error
+            return None, f"not signed by the {signer}"
+        if eid in self.seen_decisions:
+            return None, "decision event already consumed"
+        self.seen_decisions.add(eid)
         return d["decision"], None
 
     def ignore(self, full, event, why):
@@ -1452,7 +1528,7 @@ class _Run:
                 return None
             try:
                 return matcher(event)
-            except TaskError:
+            except (TaskError, ControlFlow):
                 raise
             except Exception as e:
                 raise TaskError(t.full, E_RUNTIME, 500, f"event filter failed: {type(e).__name__}: {e}") from None
@@ -1470,7 +1546,7 @@ class _Run:
         flts = [(self.x(ex, t.full, f.get("with") or {}, data, t.sc, input=data), f.get("correlate")) for f in raw]
         until = to.get("until")
         full, hits, got, expect = t.full, set(), [], {}
-        scope = (id(ex), t.sc.iters, tuple((id(loop), loop.round) for loop in t.sc.loops))
+        scope = (ex.serial, t.sc.fors, tuple((loop.serial, loop.round) for loop in t.sc.loops))
 
         def done(v):
             return (v,)
@@ -1486,31 +1562,34 @@ class _Run:
                 return done((dec, event))
         else:
             def matcher(event):
+                idxs, warned = [], False
                 for idx, (w, corr) in enumerate(flts):
                     if not self.flt_match(w, event):
                         continue
-                    if event.get("type") == TASK_ENDED:
-                        if not self.in_scope(event, scope) or id(event) in self.consumed:
-                            continue
+                    if event.get("type") == TASK_ENDED and (not self.in_scope(event, scope) or id(event) in self.consumed):
+                        continue
                     if corr:
                         if not self.correlated(ex, t, corr, event, expect, data):
                             continue
                     elif (event.get("data") or {}).get("run") != self.rid:
-                        self.ignore(full, event, "data.run is not this run")
+                        if not warned:
+                            self.ignore(full, event, "data.run is not this run")
+                            warned = True
                         continue
-                    got.append(event)
-                    hits.add(idx)
-                    if event.get("type") == TASK_ENDED:
-                        self.consumed[id(event)] = (event, full)  # D11: once per run
-                    if mode == "one":
-                        return done((event, None))
-                    if mode == "all":
-                        if len(hits) == len(flts):
-                            return done((list(got), None))
-                    elif until is None:
-                        return done((list(got), None))
-                    elif self.until_holds(ex, t, until, got, data):  # D2
-                        return done((list(got), None))
+                    idxs.append(idx)
+                if not idxs:
+                    return None
+                got.append(event)  # once, however many filters it matches
+                hits.update(idxs)
+                if event.get("type") == TASK_ENDED:
+                    self.consumed[id(event)] = (event, full)  # D11: once per run, released if this gate does not pass
+                    t.consumed.append(id(event))
+                if mode == "one":
+                    return done((event, None))
+                if mode == "all":
+                    return done((list(got), None)) if len(hits) == len(flts) else None
+                if until is None or self.until_holds(ex, t, until, got, data):  # D2
+                    return done((list(got), None))
                 return None
 
             if until is not None and self.until_holds(ex, t, until, [], data):  # 7.5: once, before the first event
@@ -1557,9 +1636,9 @@ class _Run:
         entry = self.scopes.get(id(event))
         if entry is None or entry[0] is not event:
             return False
-        exid, iters, loops = entry[1]
-        gate_ex, gate_iters, gate_loops = scope
-        return exid == gate_ex and iters[:len(gate_iters)] == gate_iters and loops[:len(gate_loops)] == gate_loops
+        exid, fors, loops = entry[1]
+        gate_ex, gate_fors, gate_loops = scope
+        return exid == gate_ex and fors[:len(gate_fors)] == gate_fors and loops[:len(gate_loops)] == gate_loops
 
     def correlated(self, ex, t, corr, event, expect, data):
         for key, spec in corr.items():
@@ -1582,8 +1661,9 @@ class _Run:
                 kind = "check"
                 if evidence is None:
                     evidence = self.evidence(ex, t, start_seq)
+                rungs = self.rungs(t)
                 try:
-                    ok = self.hostcall(t, self.host.run_check, item["check"], t.full, self.plain(evidence), self.rungs(t.org.get("role")))
+                    ok = self.hostcall(t, self.host.run_check, item["check"], t.full, evidence, rungs, outside=True)
                     r = "pass" if ok else "fail"
                 except OutsideRoot as e:
                     raise TaskError(t.full, E_RUNTIME, 500,
@@ -1608,7 +1688,7 @@ class _Run:
         if item["judge"] == "owner":
             full = t.full
             tmo = t.task.get("timeout")
-            if not (isinstance(tmo, dict) and "after" in tmo):  # 6.1: an owner rubric without a task timeout waits 7 days
+            if deadline is None and not (isinstance(tmo, dict) and "after" in tmo):  # 6.1: no task limit at all, wait 7 days
                 deadline = self.sched.now + OWNER_RUBRIC_LIMIT
                 if ex.deadline is not None:
                     deadline = min(deadline, ex.deadline)
@@ -1653,10 +1733,13 @@ class _Run:
 
     def accounting(self):
         errs = []
+        by_base = {}
+        for k, r in self.records.items():
+            by_base.setdefault(r.base, []).append((k, r))
         for ex in self.execs:
             for path in sorted(ex.floors, key=lambda p: ex.pre.get(p, 0)):
                 base = ex.prefix + path
-                recs = [(k, r) for k, r in self.records.items() if r.base == base]
+                recs = by_base.get(base, [])
                 if not recs:
                     errs.append((ex.sortbase + (ex.pre.get(path, 0),), f"{base}: floor-not-run"))
                 for k, r in recs:  # a floor must pass: handled and cancelled never count for one (S1)
@@ -1692,11 +1775,11 @@ class _Run:
         if main.error is not None:
             errors.append(main.error.text)
             objects.append(main.error.obj())
-        for e, _ in self.detached_errors:
+        for e in self.fatal_errors + [x for x, _ in self.detached_errors]:
             if e.text not in errors:
                 errors.append(e.text)
                 objects.append(e.obj())
-        if main.error is None:
+        if main.error is None and not self.fatal_errors:
             if not finished:
                 errors.append("deadlock: tasks are waiting and nothing can wake them")
             for text in self.accounting():
@@ -1725,6 +1808,8 @@ class Interpreter:
     def __init__(self, workflows, host, catalog=None, manifest=None):
         if (catalog is None) != (manifest is None):
             raise ValueError("catalog and manifest must be given together or not at all")
+        if not callable(getattr(host, "change", None)) or not hasattr(host, "root"):
+            raise ValueError("host must provide change() and root")
         self.workflows, self.host = workflows, host
         self.catalog, self.manifest = catalog, manifest
 
