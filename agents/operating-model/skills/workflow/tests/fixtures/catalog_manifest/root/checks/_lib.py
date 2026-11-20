@@ -1,0 +1,1 @@
+"""Helper, not a check."""
