@@ -428,6 +428,8 @@ def _step_errors(task, p, o, errs):
         return
     if cmd != "agent-run":
         return
+    if o.get("by") == "code":
+        errs.append(f"{p}: run.shell.command: agent-run may not run on a by: code task")
     if "brief" not in o:
         errs.append(f"{p}: metadata.org.brief: required for agent-run")
     if o.get("role") == OWNER:
