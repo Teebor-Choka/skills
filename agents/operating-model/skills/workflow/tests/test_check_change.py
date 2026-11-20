@@ -211,9 +211,10 @@ def test_K4_swap_merge_and_report_is_protected():
     assert tasks_with_row(entries, "reordering tasks")
 
 
-def test_K5_brief_text_is_free_but_brief_path_is_frozen():
+def test_K5_brief_text_is_ordinary_but_brief_path_is_frozen():
     entries, refused = check(_root(), {**_root(), "briefs/review.md": b"new text\n"})
-    assert top(entries) == "free" and refused == []
+    assert top(entries) == "ordinary" and refused == []
+    assert top(check(_root(), {**_root(), "briefs/spec.md": b"new text\n"})[0]) == "ordinary"
     assert rung(lambda d: org(d, "review").update(brief="briefs/spec.md")) == "frozen"
 
 
@@ -308,8 +309,19 @@ def test_K13_edit_check_named_by_floor_is_frozen():
     assert file_rung("checks/spec-check.py", b"changed\n") == "frozen"
 
 
-def test_K14_edit_check_named_only_by_non_floor_is_protected():
-    assert file_rung("checks/acceptance-suite-green.py", b"changed\n") == "protected"
+def test_K14_edit_check_named_only_by_non_floor_is_frozen():
+    assert file_rung("checks/acceptance-suite-green.py", b"changed\n") == "frozen"
+
+
+def test_K19_every_file_under_checks_is_frozen():
+    assert file_rung("checks/_lib.py", b"helper\n") == "frozen"
+    assert file_rung("checks/other-check.py", b"changed\n") == "frozen"
+    assert file_rung("checks/sub/dir.txt", b"x\n") == "frozen"
+
+
+def test_K20_routing_is_ordinary_on_non_floor_and_frozen_on_floor():
+    assert rung(lambda d: org(d, "design").update(role="lead")) == "ordinary"
+    assert rung(lambda d: org(d, "review").update(role="lead")) == "frozen"
 
 
 def test_K15_collector_of_targeted_metric_is_frozen_other_is_protected():
@@ -426,7 +438,7 @@ def test_removal_of_acceptance_or_metrics_is_frozen_whatever_else_changes():
     base, new = pair(lambda d: org(d, "report").pop("acceptance"))
     new["briefs/review.md"] = b"new text\n"
     entries, refused = check(base, new)
-    assert {e[3] for e in entries} == {"free", "frozen"}
+    assert {e[3] for e in entries} == {"ordinary", "frozen"}
     assert refused and all(e[3] == "frozen" for e in refused)
 
 
@@ -488,8 +500,7 @@ def test_check_script_named_by_floor_via_floor_call_is_frozen():
     edit(base, MANIFEST, lambda m: m["workflows"]["tdd-unit"].update(floors=["red"]))
     new = dict(base)
     new["checks/other-check.py"] = b"changed\n"
-    # not named by anything: protected
-    assert top(check(base, new)[0]) == "protected"
+    assert top(check(base, new)[0]) == "frozen"  # every file under checks/
     # name it from the floor-call task's acceptance in both versions
     edit(base, SW, lambda d: org(d, "tdd")["acceptance"].append({"check": "other-check"}))
     new = dict(base)
@@ -530,16 +541,22 @@ def test_reorder_with_no_floor_index_change_is_protected():
 
 
 @pytest.mark.parametrize("fn", [
-    lambda d: org(d, "merge").update(by="human"),
-    lambda d: org(d, "merge").update(role="lead"),
     lambda d: org(d, "align").update(brief="briefs/spec.md"),
     lambda d: find(d, "merge")["run"]["shell"].update(arguments=["--into", "elsewhere"]),
     lambda d: find(d, "merge")["run"]["shell"].update(command="other-command"),
-    lambda d: find(d, "not-accepted")["metadata"]["org"].update(to="owner"),
     lambda d: d["document"]["metadata"]["org"].update(policy=["work.tracker"]),
-], ids=["by", "role", "brief-path", "arguments", "command", "to", "doc-policy"])
+], ids=["brief-path", "arguments", "command", "doc-policy"])
 def test_protected_key_changes_on_non_floor(fn):
     assert rung(fn) == "protected"
+
+
+@pytest.mark.parametrize("fn", [
+    lambda d: org(d, "merge").update(by="human"),
+    lambda d: org(d, "merge").update(role="lead"),
+    lambda d: find(d, "not-accepted")["metadata"]["org"].update(to="owner"),
+], ids=["by", "role", "to"])
+def test_routing_on_non_floor_is_ordinary(fn):
+    assert rung(fn) == "ordinary"
 
 
 def test_adding_a_metric_or_acceptance_item_is_protected():
@@ -646,17 +663,16 @@ def test_new_catalog_entry_that_is_floor_listed_is_frozen():
 
 def test_other_files_under_the_org_root_are_protected():
     assert file_rung("docs/notes.txt", b"hello\n") == "protected"
-    assert file_rung("checks/other-check.py", b"changed\n") == "protected"
     assert file_rung("collectors/new_collector.py", b"x\n") == "protected"
     assert file_rung("briefs/odd.txt", b"x\n") == "protected"  # briefs/*.md only
 
 
-def test_new_and_removed_briefs_are_free():
-    assert file_rung("briefs/new.md", b"hello\n") == "free"
+def test_new_and_removed_briefs_are_ordinary():
+    assert file_rung("briefs/new.md", b"hello\n") == "ordinary"
     base = _root()
     new = dict(base)
     new["briefs/review.md"] = None
-    assert top(check(base, new)[0]) == "free"
+    assert top(check(base, new)[0]) == "ordinary"
 
 
 def test_stack_document_is_free():
@@ -677,6 +693,7 @@ def test_combined_change_takes_the_highest_rung():
     base, new = pair(lambda d: (find(d, "build")["for"].update({"in": [1, 2, 3]}),
                                 d["do"].append({"note": {"set": {"x": 1}}})))
     new["briefs/review.md"] = b"edited\n"
+    new["stack.yaml"] = b"tools: [y]\n"
     entries, refused = check(base, new, {"free", "ordinary"})
     assert {e[3] for e in entries} == {"free", "ordinary", "protected"}
     assert top(entries) == "protected"
@@ -765,3 +782,109 @@ def test_yaml_workflow_loads_with_pyyaml():
     assert top(entries) == "protected"
     new["workflows/extra.yaml"] = b"document: [unclosed\n"
     assert top(check(base, new)[0]) == "frozen"
+
+
+# ---------------------------------------------------------------- review 1
+
+
+def test_floor_export_schema_endpoint_is_named_by_the_floor():
+    base = _root()
+    edit(base, SW, lambda d: find(d, "review").update(
+        export={"schema": {"format": "json", "resource": {"endpoint": "schemas/exported.json"}}}))
+    base["schemas/exported.json"] = b"{}\n"
+    assert file_rung("schemas/exported.json", b'{"x": 1}\n', base) == "frozen"
+
+
+def _with_args(args, name="merge"):
+    def fn(d):
+        find(d, name)["run"]["shell"]["arguments"] = args
+    return fn
+
+
+def test_reordering_a_map_of_arguments_is_a_change():
+    base = _root()
+    edit(base, SW, _with_args({"a": 1, "b": 2}, "review"))
+    new = dict(base)
+    edit(new, SW, _with_args({"b": 2, "a": 1}, "review"))
+    assert _load(base, SW) != {} and top(check(base, new)[0]) == "frozen"  # floor
+    # on a non-floor agent-run step the change takes the run row
+    base = _root()
+    edit(base, SW, lambda d: find(d, "align")["run"]["shell"].update(arguments={"a": 1, "b": 2}))
+    new = dict(base)
+    edit(new, SW, lambda d: find(d, "align")["run"]["shell"].update(arguments={"b": 2, "a": 1}))
+    assert top(check(base, new)[0]) == "protected"
+
+
+def test_map_arguments_on_another_command_fail_closed():
+    base = _root()
+    edit(base, SW, _with_args({"a": 1, "b": 2}, "merge"))
+    new = dict(base)
+    edit(new, SW, _with_args({"b": 2, "a": 1}, "merge"))
+    assert top(check(base, new)[0]) == "frozen"
+
+
+def test_reordering_a_list_of_arguments_on_a_floor_is_frozen():
+    base = _root()
+    edit(base, SW, _with_args(["--a", "--b"], "review"))
+    new = dict(base)
+    edit(new, SW, _with_args(["--b", "--a"], "review"))
+    assert top(check(base, new)[0]) == "frozen"
+
+
+def test_grammar_files_are_outside_the_org_root_and_only_protected_here():
+    # Documents the limit: a grammar path is not an org-root class, so U13b must name it.
+    assert file_rung("grammar/kind-table.md", b"x\n") == "protected"
+
+
+def test_task_name_with_a_slash_is_unpairable_and_does_not_crash():
+    base = _root()
+    edit(base, SW, lambda d: d["do"].extend([
+        {"a/b": {"set": {"x": 1}}},
+        {"a": {"do": [{"b": {"set": {"x": 1}}}]}}]))
+    new = dict(base)
+    edit(new, SW, lambda d: d["do"].append({"more": {"set": {"x": 1}}}))
+    entries, refused = check(base, new)
+    assert top(entries) == "frozen" and refused
+
+
+def test_unloadable_manifest_makes_calls_to_workflows_frozen():
+    base = _root()
+    base[MANIFEST] = b"{broken"
+    new = dict(base)
+    edit(new, SW, lambda d: org(d, "tdd").update(role="ci"))
+    entries, _ = check(base, new)
+    assert any(e[1] == "build/units/tdd" and e[3] == "frozen" for e in entries)
+    # a plain non-call task is unaffected by the missing manifest
+    new = dict(base)
+    edit(new, SW, lambda d: org(d, "merge").update(by="human"))
+    assert top(check(base, new)[0]) == "ordinary"
+
+
+def test_two_manifest_files_in_a_version_are_unsure():
+    base = _root()
+    new = dict(base)
+    new["manifest.yaml"] = b"owner: x\n"
+    edit(new, SW, lambda d: org(d, "tdd").update(role="ci"))
+    entries, refused = check(base, new)
+    assert any(e[1] == "build/units/tdd" and e[3] == "frozen" for e in entries) and refused
+    new["manifest.yaml"] = None
+    base["manifest.yml"] = b"owner: x\n"
+    assert top(check(base, new)[0]) == "frozen"
+
+
+@pytest.mark.parametrize("bad", [123, 1.5, ["x"], {"a": 1}])
+def test_a_value_that_is_not_bytes_or_str_is_refused_not_raised(bad):
+    base = _root()
+    new = dict(base)
+    new["briefs/review.md"] = bad
+    entries, refused = check(base, new)
+    assert refused and top(entries) == "frozen"
+
+
+def test_a_key_that_is_not_a_string_is_refused_not_raised():
+    base = _root()
+    new = dict(base)
+    new[7] = b"x"
+    new[None] = b"y"
+    entries, refused = check(base, new)
+    assert refused and top(entries) == "frozen"
