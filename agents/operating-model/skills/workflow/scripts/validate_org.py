@@ -33,11 +33,13 @@ MAX_TASKS = 10000  # tasks per workflow; the spec's scale target is 1000
 WRAPPERS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "env", "exec", "eval", "command", "sudo", "nohup",
             "nice", "timeout", "xargs"}
 RESERVED_VARS = {"accepted", "authorization", "context", "input", "output", "runtime", "secrets", "task",
-                 "workflow"}
+                 "workflow", "events"}
 DUR_MS = {"days": 86400000, "hours": 3600000, "minutes": 60000, "seconds": 1000, "milliseconds": 1}
-ORG_KEYS = {"by", "role", "metrics", "acceptance", "brief", "floor", "to"}
+ORG_KEYS = {"by", "role", "metrics", "acceptance", "brief", "floor", "to", "network", "signer"}
 LEAF_KEYS = {"by", "role", "metrics", "acceptance", "brief", "floor"}
 ALLOWED = {k: LEAF_KEYS for k in LEAF}
+ALLOWED["step"] = LEAF_KEYS | {"network"}
+ALLOWED["gate"] = LEAF_KEYS | {"signer"}
 ALLOWED["escalation"] = {"to", "metrics"}
 for _k in ("container", "branch", "assign", "wait"):
     ALLOWED[_k] = {"metrics"}
@@ -247,7 +249,8 @@ def _acceptance_items(task):
 
 
 def _is_decision_gate(task):
-    return _org(task).get("role") == OWNER or any(isinstance(i, dict) and "human" in i
+    o = _org(task)
+    return o.get("role") == OWNER or "signer" in o or any(isinstance(i, dict) and "human" in i
                                                    for i in _acceptance_items(task))
 
 
@@ -396,6 +399,10 @@ def _org_errors(task, p, kind, catalog, roles, errs):
             _acceptance_errors(a, p, kind, roles, errs)
     if "brief" in o and not _relpath(o["brief"], "briefs/", ".md"):
         errs.append(f"{p}: metadata.org.brief: must be a relative path under briefs/ ending .md")
+    if "network" in o and not (isinstance(o["network"], str) and POLICY.fullmatch(o["network"])):
+        errs.append(f"{p}: metadata.org.network: must be a dotted policy name like research.source-allowlist")
+    if "signer" in o and not _str_in(o["signer"], roles):
+        errs.append(f"{p}: metadata.org.signer: unknown role {_r(o['signer'])}")
     if "floor" in o and not isinstance(o["floor"], bool):
         errs.append(f"{p}: metadata.org.floor: must be true or false")
     if o.get("role") == OWNER and "by" in o and o["by"] != "human":
@@ -430,11 +437,12 @@ def _step_errors(task, p, o, errs):
         if skip:
             skip = False
             continue
-        flag = next((f for f in ("--role", "--brief")
+        flag = next((f for f in ("--role", "--brief", "--network", "--input")
                      if a == f or (isinstance(a, str) and a.startswith(f + "="))), None)
         if flag:
             skip = a == flag
-            errs.append(f"{p}: run.shell.arguments: {flag} is set by the runtime from metadata.org; remove it")
+            source = "the task input" if flag == "--input" else "metadata.org"
+            errs.append(f"{p}: run.shell.arguments: {flag} is set by the runtime from {source}; remove it")
         elif a == "--isolated":
             if seen_isolated:
                 errs.append(f"{p}: run.shell.arguments: --isolated given more than once")
@@ -487,8 +495,9 @@ def _emit_errors(n, ctx, errs):
     et = _map(_map(_map(n["task"]["emit"]).get("event")).get("with")).get("type")
     if not _literal(et):
         errs.append(f"{p}: emit.event.with.type: must be a literal event type")
-    elif et.startswith("org.owner-"):
-        errs.append(f"{p}: emit.event.with.type: '{et}' uses the reserved prefix org.owner-")
+    elif et.startswith(("org.owner-", "org.task-")):
+        prefix = "org.owner-" if et.startswith("org.owner-") else "org.task-"
+        errs.append(f"{p}: emit.event.with.type: '{et}' uses the reserved prefix {prefix}")
     elif et in ctx["decision_types"]:
         errs.append(f"{p}: emit.event.with.type: '{et}' is listened on by gate '{ctx['decision_types'][et]}'")
 

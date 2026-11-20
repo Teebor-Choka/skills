@@ -163,8 +163,8 @@ def w89(d):
     join = join_gate("org.unit-done")
     gate = join["join"]
     del gate["listen"]["to"]["one"]
-    gate["listen"]["to"]["any"] = [{"with": {"type": "org.unit-done"}}]
-    gate["listen"]["to"]["until"] = "${ ($context.results | length) == ($context.units | length) }"
+    gate["listen"]["to"]["any"] = [{"with": {"type": "org.task-ended"}}]
+    gate["listen"]["to"]["until"] = "${ ($events | length) == ($context.units | length) }"
     find(d, "build")["do"].insert(1, join)
 
 
@@ -963,3 +963,60 @@ def test_json_nesting_of_exactly_512_loads_and_513_does_not(tmp_path):
     assert vo.load_file(str(_json_file(tmp_path, "[" * 512 + "]" * 512))) is not None
     with pytest.raises(vo.LoadError):
         vo.load_file(str(_json_file(tmp_path, "[" * 513 + "]" * 513)))
+
+
+# update 3: spec W90 (events), W107 to W116 (P11, P12, P14, P18, P19)
+def pm_gate():
+    return {"pm-accepts": {"listen": {"to": {"one": {"with": {"type": "org.pm-decided"}}}},
+                           "timeout": {"after": {"days": 1}},
+                           "metadata": {"org": {"by": "human", "role": "pm", "signer": "pm", "metrics": ["escalations"],
+                                                "acceptance": [{"human": "pm accepts"}]}}}}
+
+
+def w116(d):
+    d["do"].append(pm_gate())
+    emit_type(d, "org.pm-decided")
+
+
+U3_CASES = [
+    ("W90-events", SW, lambda d: find(d, "units")["for"].__setitem__("each", "events"),
+     "build/units: for.each: 'events' is a reserved variable name", MAN),
+    ("W90-events-catch", SW, lambda d: d["do"].append({"r": {"try": [{"i": {"set": {"a": 1}}}], "catch": {"as": "events"}}}),
+     "r: catch.as: 'events' is a reserved variable name", MAN),
+    ("W107", SW, lambda d: emit_type(d, "org.task-ended"),
+     "report: emit.event.with.type: 'org.task-ended' uses the reserved prefix org.task-", MAN),
+    ("W108", SW, lambda d: org(d, "align").__setitem__("network", "allowlist"),
+     "align: metadata.org.network: must be a dotted policy name like research.source-allowlist", MAN),
+    ("W108-newline", SW, lambda d: org(d, "align").__setitem__("network", "a.b\n"),
+     "align: metadata.org.network: must be a dotted policy name like research.source-allowlist", MAN),
+    ("W109", SW, lambda d: org(d, "merge-gate").__setitem__("network", "research.source-allowlist"),
+     "merge-gate: metadata.org.network: not allowed on kind gate", MAN),
+    ("W109-call", SW, lambda d: org(d, "improve").__setitem__("network", "research.source-allowlist"),
+     "improve: metadata.org.network: not allowed on kind call", MAN),
+    ("W110", SW, lambda d: org(d, "align").__setitem__("network", "research.source-allowlist"), None, MAN),
+    ("W111", SW, lambda d: shell(d, "align").__setitem__("arguments", ["--network", "research.source-allowlist"]),
+     "align: run.shell.arguments: --network is set by the runtime from metadata.org; remove it", MAN),
+    ("W111-eq", SW, lambda d: shell(d, "align").__setitem__("arguments", ["--network=x.y"]),
+     "align: run.shell.arguments: --network is set by the runtime from metadata.org; remove it", MAN),
+    ("W112", SW, lambda d: shell(d, "align").__setitem__("arguments", ["--input=x.json"]),
+     "align: run.shell.arguments: --input is set by the runtime from the task input; remove it", MAN),
+    ("W112-bare", SW, lambda d: shell(d, "align").__setitem__("arguments", ["--input", "x.json"]),
+     "align: run.shell.arguments: --input is set by the runtime from the task input; remove it", MAN),
+    ("W113", SW, lambda d: org(d, "merge-gate").__setitem__("signer", "boss"),
+     "merge-gate: metadata.org.signer: unknown role 'boss'", MAN),
+    ("W114", SW, lambda d: org(d, "align").__setitem__("signer", "pm"),
+     "align: metadata.org.signer: not allowed on kind step", MAN),
+    ("W115", SW, lambda d: d["do"].append(pm_gate()), None, MAN),
+    ("W116", SW, w116, "report: emit.event.with.type: 'org.pm-decided' is listened on by gate 'pm-accepts'", MAN),
+    ("signer-owner-ok", SW, lambda d: org(d, "merge-gate").__setitem__("signer", "owner"), None, MAN),
+    ("signer-makes-decision-gate", SW,
+     lambda d: d["do"].append({"g": {"listen": {"to": {"any": [{"with": {"type": "org.x"}}]}}, "timeout": {"after": {"hours": 1}},
+                                     "metadata": {"org": {"by": "code", "role": "lead", "signer": "lead",
+                                                          "metrics": ["escalations"], "acceptance": [{"check": "c"}]}}}}),
+     "g: listen.to: a decision gate listens with to.one only", MAN),
+]
+
+
+@pytest.mark.parametrize("case", U3_CASES, ids=[c[0] for c in U3_CASES])
+def test_update_3_cases(case):
+    check_cases([case])
