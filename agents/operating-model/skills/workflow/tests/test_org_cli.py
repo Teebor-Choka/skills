@@ -694,3 +694,24 @@ def test_the_chain_bound_holds_across_a_resume(tmp_path):
     refusals = json.loads(o.status("--json")[1])["refusals"]
     assert [r["reason"] for r in refusals] == ["chain depth 9 exceeds 8"]
     assert [p["state"] for p in pairs(o).values()] == ["done"]
+
+
+def test_a_same_size_rewrite_inside_one_mtime_tick_is_verified_again(gated):
+    verifier = CountingVerifier()
+    gated.emit("org.work-item-ready", "--id", "w-1")
+    other = gated.inbox / "other.json"
+    gated.clock.on_sleep.append((1, lambda: gated.decision("f" * 32, name="other.json")))
+    seen = []
+
+    def rewrite():
+        seen.append(verifier.calls)
+        before = other.stat()
+        gated.decision("e" * 32, name="other.json")  # same length, other content
+        os.utime(other, ns=(before.st_atime_ns, before.st_mtime_ns))  # the same mtime tick
+        assert other.stat().st_size == before.st_size and other.stat().st_mtime_ns == before.st_mtime_ns
+
+    gated.clock.on_sleep.append((50, rewrite))
+    gated.clock.on_sleep.append((60, lambda: seen.append(verifier.calls)))  # the gate is still waiting here
+    code, out, err = gated.serve(verifier=verifier)
+    assert code == 1 and other.exists()
+    assert seen[0] < seen[1] <= seen[0] + 2  # re-verified at once, not once per poll
