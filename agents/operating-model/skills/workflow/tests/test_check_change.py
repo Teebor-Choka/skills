@@ -890,3 +890,72 @@ def test_a_key_that_is_not_a_string_is_refused_not_raised():
     new[None] = b"y"
     entries, refused = check(base, new)
     assert refused and top(entries) == "frozen"
+
+
+# ---------------------------------------------------------------- stack document (P53, K21 to K23)
+
+
+def _stack(text, name="stack.yaml"):
+    base = _root()
+    base["stack.yaml"] = None
+    base[name] = b"tools: []\nroles:\n  tdd-unit: {worker: {tools: [Read]}}\nbin-env:\n  tdd-unit: {TDD_BASE: main}\n"
+    new = dict(base)
+    new[name] = text
+    return base, new
+
+
+def test_K21_stack_roles_or_bin_env_change_is_protected():
+    for text in (b"tools: []\nroles:\n  tdd-unit: {worker: {tools: [Read, Bash]}}\nbin-env:\n  tdd-unit: {TDD_BASE: main}\n",
+                 b"tools: []\nroles:\n  tdd-unit: {worker: {tools: [Read]}}\nbin-env:\n  tdd-unit: {TDD_BASE: dev}\n",
+                 b"tools: []\nbin-env:\n  tdd-unit: {TDD_BASE: main}\n"):  # roles removed
+        base, new = _stack(text)
+        entries, refused = check(base, new, {"free"})
+        assert top(entries) == "protected" and refused
+
+
+def test_K22_other_stack_keys_are_free():
+    base, new = _stack(b"tools: [x]\nroles:\n  tdd-unit: {worker: {tools: [Read]}}\nbin-env:\n  tdd-unit: {TDD_BASE: main}\n")
+    entries, refused = check(base, new)
+    assert top(entries) == "free" and refused == []
+
+
+def test_K22_roles_and_other_key_together_take_the_higher_rung():
+    base, new = _stack(b"tools: [x]\nbin-env:\n  tdd-unit: {TDD_BASE: dev}\nroles:\n  tdd-unit: {worker: {tools: [Read]}}\n")
+    assert top(check(base, new)[0]) == "protected"
+
+
+def test_K23_unparseable_stack_is_frozen():
+    for text in (b"roles: [unclosed\n", b"- a\n- b\n", b"a: 1\na: 2\n", b""):
+        base, new = _stack(text)
+        entries, refused = check(base, new)
+        assert top(entries) == "frozen" and refused, text
+
+
+def test_stack_json_is_classified_like_yaml():
+    base, new = _stack(b'{"roles": {}, "tools": []}', "stack.json")
+    assert top(check(base, new)[0]) == "protected"
+    base, new = _stack(b'{"tools": ["y"], "roles": {"tdd-unit": {"worker": {"tools": ["Read"]}}}, '
+                       b'"bin-env": {"tdd-unit": {"TDD_BASE": "main"}}}', "stack.json")
+    assert top(check(base, new)[0]) == "free"
+
+
+def test_stack_reformat_is_no_change_and_key_order_is_ignored():
+    base, new = _stack(b"bin-env:\n  tdd-unit: {TDD_BASE: main}\nroles:\n  tdd-unit: {worker: {tools: [Read]}}\ntools: []\n")
+    assert check(base, new) == ([], [])
+
+
+def test_adding_a_stack_file_with_roles_is_protected():
+    base = _root()
+    base["stack.yaml"] = None
+    new = dict(base)
+    new["stack.yaml"] = b"roles: {}\n"
+    assert top(check(base, new)[0]) == "protected"
+    new["stack.yaml"] = b"tools: []\n"
+    assert top(check(base, new)[0]) == "free"
+
+
+def test_two_stack_files_in_a_version_are_frozen():
+    base = _root()
+    new = dict(base)
+    new["stack.json"] = b"{}"
+    assert top(check(base, new)[0]) == "frozen"
