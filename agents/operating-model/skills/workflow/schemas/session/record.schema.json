@@ -1,0 +1,422 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Standard session record",
+  "description": "One record per message block, one JSON object per line. Every harness adapter exports to this shape. The stdlib validator in scripts/session_export.py is authoritative at run time; this file documents it.",
+  "oneOf": [
+    {
+      "title": "user",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "harness",
+        "session_id",
+        "seq",
+        "uuid",
+        "parent_uuid",
+        "timestamp",
+        "kind",
+        "block_index",
+        "is_sidechain",
+        "is_meta",
+        "text"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": ["string", "null"]
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position in the export, starting at 0."
+        },
+        "uuid": {
+          "type": ["string", "null"],
+          "description": "Native line id, or null when the line has none. Blocks of one line share it."
+        },
+        "parent_uuid": {
+          "type": ["string", "null"]
+        },
+        "timestamp": {
+          "type": ["string", "null"]
+        },
+        "kind": {
+          "const": "user"
+        },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the block in the native line's content. (uuid, block_index) is the record key."
+        },
+        "is_sidechain": {
+          "type": "boolean",
+          "description": "The native line is from a sidechain (subagent) transcript."
+        },
+        "is_meta": {
+          "type": "boolean",
+          "description": "The native line is marked meta."
+        },
+        "text": {
+          "type": "string",
+          "description": "Message text. For compaction, the summary that replaced earlier turns."
+        }
+      }
+    },
+    {
+      "title": "assistant_text",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "harness",
+        "session_id",
+        "seq",
+        "uuid",
+        "parent_uuid",
+        "timestamp",
+        "kind",
+        "block_index",
+        "is_sidechain",
+        "is_meta",
+        "text",
+        "model"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": ["string", "null"]
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position in the export, starting at 0."
+        },
+        "uuid": {
+          "type": ["string", "null"],
+          "description": "Native line id, or null when the line has none. Blocks of one line share it."
+        },
+        "parent_uuid": {
+          "type": ["string", "null"]
+        },
+        "timestamp": {
+          "type": ["string", "null"]
+        },
+        "kind": {
+          "const": "assistant_text"
+        },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the block in the native line's content. (uuid, block_index) is the record key."
+        },
+        "is_sidechain": {
+          "type": "boolean",
+          "description": "The native line is from a sidechain (subagent) transcript."
+        },
+        "is_meta": {
+          "type": "boolean",
+          "description": "The native line is marked meta."
+        },
+        "text": {
+          "type": "string",
+          "description": "Message text. For compaction, the summary that replaced earlier turns."
+        },
+        "model": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    {
+      "title": "tool_call",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "harness",
+        "session_id",
+        "seq",
+        "uuid",
+        "parent_uuid",
+        "timestamp",
+        "kind",
+        "block_index",
+        "is_sidechain",
+        "is_meta",
+        "tool_use_id",
+        "name",
+        "input"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": ["string", "null"]
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position in the export, starting at 0."
+        },
+        "uuid": {
+          "type": ["string", "null"],
+          "description": "Native line id, or null when the line has none. Blocks of one line share it."
+        },
+        "parent_uuid": {
+          "type": ["string", "null"]
+        },
+        "timestamp": {
+          "type": ["string", "null"]
+        },
+        "kind": {
+          "const": "tool_call"
+        },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the block in the native line's content. (uuid, block_index) is the record key."
+        },
+        "is_sidechain": {
+          "type": "boolean",
+          "description": "The native line is from a sidechain (subagent) transcript."
+        },
+        "is_meta": {
+          "type": "boolean",
+          "description": "The native line is marked meta."
+        },
+        "tool_use_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object",
+          "description": "Secrets redacted. A tool input that is not an object is kept as {\"_raw\": text}."
+        }
+      }
+    },
+    {
+      "title": "tool_result",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "harness",
+        "session_id",
+        "seq",
+        "uuid",
+        "parent_uuid",
+        "timestamp",
+        "kind",
+        "block_index",
+        "is_sidechain",
+        "is_meta",
+        "tool_use_id",
+        "content",
+        "is_error"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": ["string", "null"]
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position in the export, starting at 0."
+        },
+        "uuid": {
+          "type": ["string", "null"],
+          "description": "Native line id, or null when the line has none. Blocks of one line share it."
+        },
+        "parent_uuid": {
+          "type": ["string", "null"]
+        },
+        "timestamp": {
+          "type": ["string", "null"]
+        },
+        "kind": {
+          "const": "tool_result"
+        },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the block in the native line's content. (uuid, block_index) is the record key."
+        },
+        "is_sidechain": {
+          "type": "boolean",
+          "description": "The native line is from a sidechain (subagent) transcript."
+        },
+        "is_meta": {
+          "type": "boolean",
+          "description": "The native line is marked meta."
+        },
+        "tool_use_id": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string",
+          "description": "Text. For tool_result, text blocks joined by newline, other block types become a placeholder."
+        },
+        "is_error": {
+          "type": "boolean"
+        }
+      }
+    },
+    {
+      "title": "system",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "harness",
+        "session_id",
+        "seq",
+        "uuid",
+        "parent_uuid",
+        "timestamp",
+        "kind",
+        "block_index",
+        "is_sidechain",
+        "is_meta",
+        "subtype",
+        "content"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": ["string", "null"]
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position in the export, starting at 0."
+        },
+        "uuid": {
+          "type": ["string", "null"],
+          "description": "Native line id, or null when the line has none. Blocks of one line share it."
+        },
+        "parent_uuid": {
+          "type": ["string", "null"]
+        },
+        "timestamp": {
+          "type": ["string", "null"]
+        },
+        "kind": {
+          "const": "system"
+        },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the block in the native line's content. (uuid, block_index) is the record key."
+        },
+        "is_sidechain": {
+          "type": "boolean",
+          "description": "The native line is from a sidechain (subagent) transcript."
+        },
+        "is_meta": {
+          "type": "boolean",
+          "description": "The native line is marked meta."
+        },
+        "subtype": {
+          "type": ["string", "null"],
+          "description": "Native subtype. \"unknown-line\" marks a native line type the adapter does not know; content is only its type name."
+        },
+        "content": {
+          "type": "string",
+          "description": "Text. For tool_result, text blocks joined by newline, other block types become a placeholder."
+        }
+      }
+    },
+    {
+      "title": "compaction",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "harness",
+        "session_id",
+        "seq",
+        "uuid",
+        "parent_uuid",
+        "timestamp",
+        "kind",
+        "block_index",
+        "is_sidechain",
+        "is_meta",
+        "text"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": ["string", "null"]
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position in the export, starting at 0."
+        },
+        "uuid": {
+          "type": ["string", "null"],
+          "description": "Native line id, or null when the line has none. Blocks of one line share it."
+        },
+        "parent_uuid": {
+          "type": ["string", "null"]
+        },
+        "timestamp": {
+          "type": ["string", "null"]
+        },
+        "kind": {
+          "const": "compaction"
+        },
+        "block_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of the block in the native line's content. (uuid, block_index) is the record key."
+        },
+        "is_sidechain": {
+          "type": "boolean",
+          "description": "The native line is from a sidechain (subagent) transcript."
+        },
+        "is_meta": {
+          "type": "boolean",
+          "description": "The native line is marked meta."
+        },
+        "text": {
+          "type": "string",
+          "description": "Message text. For compaction, the summary that replaced earlier turns."
+        }
+      }
+    }
+  ]
+}
