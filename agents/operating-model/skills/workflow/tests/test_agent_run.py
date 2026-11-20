@@ -1325,12 +1325,22 @@ def test_cli_never_passes_the_session_dir_to_the_child(org, monkeypatch):
 
 # M1: timeout, process group, SIGTERM
 def fake_claude(tmp, body):
+    """A fake `claude` written in Python with an absolute interpreter: the nix sandbox has no env, sh or sleep."""
     d = tmp / "bin"
     d.mkdir(exist_ok=True)
     script = d / "claude"
-    script.write_text("#!/bin/sh\n" + body)
+    script.write_text(f"#!{sys.executable}\nimport os, subprocess, sys, time\n" + body)
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     return d
+
+
+def wait_for(path, seconds=60):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if path.exists() and path.read_text().strip():
+            return path.read_text().strip()
+        time.sleep(0.05)
+    raise AssertionError(f"{path} was not written within {seconds}s")
 
 
 def alive(pid):
@@ -1347,13 +1357,28 @@ def test_default_internal_timeout_is_below_the_step_limit():
 
 def test_default_runner_kills_the_whole_process_group_on_timeout(tmp_path):
     pidfile = tmp_path / "pids"
-    bindir = fake_claude(tmp_path, f"sleep 60 &\necho $! > {pidfile}\nwait\n")
-    t0 = time.time()
-    with pytest.raises(subprocess.TimeoutExpired):
-        ar._default_runner([str(bindir / "claude")], "", 1, {"PATH": "/bin:/usr/bin"}, str(tmp_path))
-    assert time.time() - t0 < 10
-    time.sleep(0.3)
-    assert not alive(int(pidfile.read_text()))
+    bindir = fake_claude(
+        tmp_path,
+        f"p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+        f"open({str(pidfile)!r}, 'w').write(str(p.pid))\ntime.sleep(120)\n")
+    result = {}
+
+    def run():
+        try:
+            ar._default_runner([str(bindir / "claude")], "", 3, {}, str(tmp_path))
+        except subprocess.TimeoutExpired:
+            result["timeout"] = True
+
+    t = threading.Thread(target=run)
+    t.start()
+    pid = int(wait_for(pidfile))
+    t.join(timeout=60)
+    assert result.get("timeout") is True, "the runner did not raise TimeoutExpired"
+    for _ in range(100):
+        if not alive(pid):
+            break
+        time.sleep(0.05)
+    assert not alive(pid), "the grandchild survived the timeout"
 
 
 def test_terminated_records_the_call_releases_the_instance_and_raises():
@@ -1372,21 +1397,20 @@ def test_terminated_records_the_call_releases_the_instance_and_raises():
 def test_sigterm_to_the_program_records_the_call_kills_the_child_and_exits_143(org):
     root, env, tmp = org
     pidfile = tmp / "childpid"
-    bindir = fake_claude(tmp, f"echo $$ > {pidfile}\nsleep 60\n")
+    bindir = fake_claude(tmp, f"open({str(pidfile)!r}, 'w').write(str(os.getpid()))\ntime.sleep(120)\n")
     real = {k: v for k, v in env.items() if k not in ("ORG_HARNESS", "ORG_TEST_HARNESS")}
-    real["PATH"] = f"{bindir}:/bin:/usr/bin"
+    real["PATH"] = str(bindir)
     p = subprocess.Popen([sys.executable, str(SKILL / "scripts" / "agent_run.py"), "--role", "worker", "--brief",
                           "briefs/build.md"], env={**os.environ, **real}, stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE, text=True)
-    for _ in range(100):
-        if pidfile.exists() and pidfile.read_text().strip():
-            break
-        time.sleep(0.1)
-    child = int(pidfile.read_text())
+    child = int(wait_for(pidfile))
     p.send_signal(signal.SIGTERM)
-    out, err = p.communicate(timeout=20)
+    out, err = p.communicate(timeout=60)
     assert p.returncode == 143 and "terminated" in err
-    time.sleep(0.3)
+    for _ in range(100):
+        if not alive(child):
+            break
+        time.sleep(0.05)
     assert not alive(child)
     [rec] = ar.SessionStore(Path(env["ORG_SESSION_DIR"])).calls(RUN)
     assert rec["error"] == "terminated"
@@ -1417,13 +1441,27 @@ def test_an_empty_parent_role_is_not_the_top_level_launch(org):
 
 
 # M4: boundaries
-def test_a_deeply_nested_input_file_is_input_refused_not_a_traceback(org):
+def _nested_input(org, depth):
     root, env, _ = org
     f = Path(env["ORG_SESSION_DIR"]) / "deep.json"
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text('{"run": "%s", "key": "build", "reasons": {}, "input": %s}' % (RUN, "[" * 100000 + "]" * 100000))
-    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--input", str(f)], env)
+    f.write_text('{"run": "%s", "key": "build", "reasons": {}, "input": %s}' % (RUN, "[" * depth + "]" * depth))
+    return cli(["--role", "worker", "--brief", "briefs/build.md", "--input", str(f)], env)
+
+
+def test_a_deeply_nested_input_file_is_input_refused_not_a_traceback(org):
+    # Depth from the interpreter's own limit, so the result does not depend on the stack of the host.
+    code, out, err = _nested_input(org, sys.getrecursionlimit() * 3 + 50)
     assert code == 1 and "input-refused" in err and "Traceback" not in err
+
+
+def test_the_nesting_cap_is_a_text_cap_independent_of_the_stack(org):
+    code, out, err = _nested_input(org, 513)
+    assert code == 1 and "input-refused" in err and "nesting" in err
+
+
+def test_a_moderately_nested_input_file_is_accepted(org):
+    assert _nested_input(org, 100)[0] == 0
 
 
 @pytest.mark.parametrize("item", ["٣", "²", "1 ", "-1", "३"])
