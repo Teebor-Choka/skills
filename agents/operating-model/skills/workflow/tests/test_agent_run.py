@@ -1189,8 +1189,6 @@ def test_granted_that_differs_from_the_request_is_refused_and_released():
 
 
 def test_notes_and_docstring_do_not_claim_confinement():
-    text = " ".join(contract()["notes"]).lower()
-    assert "requested" in text and "not enforced" in text or "only a real instance tool" in text
     assert "enforced only by a real instance tool" in " ".join(contract()["notes"])
     assert "enforced only by a real instance tool" in ar.__doc__
 
