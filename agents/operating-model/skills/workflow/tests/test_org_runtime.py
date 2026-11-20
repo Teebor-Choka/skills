@@ -1651,6 +1651,26 @@ def test_a_subflow_uses_its_own_workflows_bin_env(tmp_path):
     assert res.output["TDD_VERIFY_CMD"] == "from-u" and "TDD_BASE" not in res.output
 
 
+def test_the_stack_roles_reach_agent_run_as_tools_and_workdir_flags(tmp_path):
+    """Live smoke 2: the runtime loaded the stack but its interpreter never saw `roles`, so no flag was passed."""
+    argv_file = tmp_path / "argv.json"
+    script = fake_agent_run(tmp_path, "import json, sys\nopen(%r, 'w').write(json.dumps(sys.argv[1:]))\nprint('{}')\n" % str(argv_file))
+    task = leaf(by="model")
+    task["run"]["shell"]["command"] = "agent-run"
+    task["metadata"]["org"]["brief"] = "briefs/x.md"
+    work = tmp_path / "work"
+    work.mkdir()
+    stack = {"bin-env": {"t": {"TDD_WORKTREE": str(work)}},
+             "roles": {"t": {"worker": {"tools": ["Read", "Edit"], "workdir": "TDD_WORKTREE"}}}}
+    root = stack_root(tmp_path, stack, wf=doc(("a", task)))
+    host = ort.OrgProcessHost(root, session_dir=tmp_path / "s", agent_run=script)
+    res = runtime(tmp_path, root=root, host=host).run("t", run_id=RID)
+    assert res.status == "success", res.errors
+    argv = json.loads(argv_file.read_text())
+    assert argv[argv.index("--tools") + 1] == "Read,Edit"
+    assert argv[argv.index("--workdir") + 1] == str(work)
+
+
 # ---- P53: the rung of a stack change is per key
 
 
