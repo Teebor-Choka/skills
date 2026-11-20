@@ -117,7 +117,7 @@ def ev(task="a", decision="approve", sig="by:owner", run=RID, id=None, **data):
     out = {"type": "org.owner-decided", "data": {"run": run, "task": task, "decision": decision, **data},
            "signature": sig}
     if id is not False:
-        out["id"] = id or f"e-{task}-{decision}-{sig}-{run[:4]}"
+        out["id"] = id if id is not None else f"e-{task}-{decision}-{sig}-{run[:4]}"
     return out
 
 
@@ -186,9 +186,9 @@ class KillingHost(ScriptedHost):
         self._tick()
         return super().run_step(req)
 
-    def run_check(self, name, key, evidence):
+    def run_check(self, name, key, evidence, rungs=None):
         self._tick()
-        return super().run_check(name, key, evidence)
+        return super().run_check(name, key, evidence, rungs)
 
 
 CHECKS = {"c": lambda name, key, evidence: key != "b"}  # b's acceptance fails, deterministically
@@ -770,6 +770,7 @@ def test_inbox_feed_delivers_each_file_once_in_name_order(tmp_path):
     (inbox / "3.json").write_text("{not json")
     feed = ort.InboxFeed(inbox)
     assert [e["type"] for e in feed.poll()] == ["a", "b"]
+    feed.ack()
     assert feed.poll() == []
     assert feed.rejected and "3.json" in feed.rejected[0]
 
@@ -993,6 +994,24 @@ def test_a_long_step_then_a_gate_replays_without_divergence(tmp_path):
     assert summary(again) == summary(live)
 
 
+def test_a_step_run_live_during_replay_does_not_wait_twice(tmp_path):
+    root = make_root(tmp_path, wf=doc(("a", leaf()), ("b", leaf())))
+    c1 = FakeClock()
+    with pytest.raises(Killed):  # a step, its check, then b's step: killed on the third call
+        runtime(tmp_path, root=root, host=KillingHost(2), clock=c1.now, sleep=c1.sleep).run(
+            "t", run_id=RID, feed=ort.QueueFeed())
+    c2 = FakeClock()
+
+    def slow(req):  # a real host blocks for the step's duration and reports it
+        c2.t += 40
+        return {"duration": 40}
+
+    res = runtime(tmp_path, root=root, host=ScriptedHost(steps={"b": slow}), clock=c2.now, sleep=c2.sleep).resume(
+        feed=ort.QueueFeed())
+    assert res.status == "success", res.errors
+    assert c2.t <= 45  # the 40 s already passed on the wall clock are not waited a second time
+
+
 def test_the_journal_keeps_real_step_durations_in_live_mode(tmp_path):
     root = make_root(tmp_path, wf=doc(("a", leaf())))
     clock = FakeClock()
@@ -1128,8 +1147,8 @@ def test_real_signed_snapshots_and_namespaces(tmp_path):
     good = add(ort.SnapshotStore(tmp_path / "good"), owner_key, "org-snapshot")
     assert rt_with(tmp_path, root, good, ring=ring).run("t", run_id=RID).status == "success"
     for name, key, ns in (("evns", owner_key, NS), ("pm", pm_key, "org-snapshot")):
-        bad = add(ort.SnapshotStore(tmp_path / name), key, ns)
-        res = rt_with(tmp_path / name if False else tmp_path, root, bad, ring=ring).run("t", run_id="e" * 32)
+        bad = add(ort.SnapshotStore(tmp_path / f"store-{name}"), key, ns)
+        res = rt_with(tmp_path, root, bad, ring=ring).run("t", run_id="e" * 32)
         assert res.status == "refused" and "no owner-signed snapshot" in res.errors[0], name
     event = ev("gate", sig=None)  # and a snapshot-namespace signature is no decision
     snap_sig = sign_event(event, owner_key, "org-snapshot")

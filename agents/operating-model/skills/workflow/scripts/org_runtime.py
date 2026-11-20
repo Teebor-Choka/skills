@@ -1,30 +1,39 @@
 """Org runtime (U13b): the interpreter's run record, signatures, rungs, metrics and the real-time driver.
 
-Standard library only, plus the sibling modules `interpreter` (U13a), `check_change` (U15), `agent_run` (U12) and
-the validators. It adds, around the interpreter and without editing it (spec 13.1):
+Standard library only, plus the sibling modules `interpreter` (U13a), `check_change` (U15), `agent_run` (U12)
+and the validators. Around the interpreter, without editing it (spec 13.1):
 
-  1. `RunLedger`, `OrgRuntime.run/resume/replay`: every interpreter event goes to an HMAC hash chain. Resume and
-     replay re-run the interpreter with the same run id and answer every host call from the ledger, so a run
-     killed after any node ends in the same state. The ledger MAC key is the runtime's own; it is not the owner key.
-  2. `KeyRing`: decision events verify against the gate's signer role (P18). The runtime holds public keys only.
-     `SshKeygenVerifier` is the first implementation of the identity port (OpenSSH); others plug in behind
-     `verify(principal, keys, payload, signature)`. No code here signs anything.
-  3. Load refusals (run before the first task): file maps, rung enforcement against the last owner-signed
-     snapshot, the static start-cycle check, catalog and collector checks.
-  4. `InboxFeed`, `QueueFeed` and the real-time scheduler that delivers events to waiting gates.
+  1. `RunLedger` and `OrgRuntime.run/resume/replay`. Every interpreter event goes to an HMAC hash chain, and a
+     `<ledger>.head` file records the entry count and last MAC after each append, so a rolled-back ledger is
+     refused. Resume and replay re-run the interpreter with the same run id and answer every host call from the
+     ledger. A run killed after any node ends in the same state; a live-fed run resumes with a feed.
+     `RunLedger` is a port of `procedure/scripts/ledger.py`: U16 deletes that module and its names clash here.
+     The ledger key (at least 32 random bytes) belongs in a file with mode 0600 outside the org root, readable
+     by the runtime user only. It is the runtime's own key, never the owner key.
+  2. `KeyRing`: a decision event verifies against the gate's signer role (P18); each decision event id is
+     consumed once per run (P33). The runtime holds public keys only; no code here signs anything.
+     `SshKeygenVerifier` is the first implementation of the identity port (OpenSSH).
+  3. Load refusals, run before the first task: file maps, rung enforcement against a signed monotonic snapshot
+     chain, the start-cycle check, catalog and collector checks. Manifest, catalogs and workflows are parsed
+     from the verified file-map bytes, never from a second disk read. Before every exec of a check, a `bin/`
+     command or `agent_run.py`, the bytes on disk are compared with the verified ones.
+     OPERATIONAL REQUIREMENT: agent children must not have write access to the org root (U12, sandboxing), and
+     the runtime must be launched from a trusted copy of `scripts/`.
+  4. `InboxFeed`, `QueueFeed` and `LiveScheduler`, the real-time driver.
   5. `OrgProcessHost`: `ProcessHost` plus the `agent-run` environment and `run_judge` (6.1).
 
-It reuses `interpreter._Run` and `interpreter._Scheduler`, which are private to the same skill.
+Private names of `interpreter` this module still uses (a note for U13a: public hooks would replace them):
+`_Run` (subclassed for decision ids; `events`, `sched`, `execute`, `decision_test`), `_Scheduler` (subclassed:
+`timers`, `ext`, `ext_i`, `ready`, `live`, `_step`, `_resume`, `publish`, `on_event`), `_walk`, `heapq`, `signal`.
 
-PROVISIONAL choices (spec silent; each listed in the unit report):
-  - the signature of a decision event is an armored SSH signature (namespace `org-event`) in `event["signature"]`
-    over the canonical JSON of the event without that key;
-  - the base for rungs is the newest whole-root snapshot carrying a valid owner signature (see `SnapshotStore`);
-  - a proposer without a signed snapshot may apply the rungs of the role named by `proposer_role`
-    (default `improver`) in the base manifest, else `free` and `ordinary`;
+PROVISIONAL choices (the spec is silent; listed in the unit report):
+  - an event signature is an armored SSH signature in `event["signature"]` over the canonical JSON of the
+    event without that key; namespace `org-event` for events and `org-snapshot` for snapshots;
+  - the rung base is the newest snapshot of a signed chain (`seq`, `prev`, `root_id`);
+  - the proposer's rungs come from the base manifest role named by `proposer_role` (default `improver`);
   - file maps follow a file symlink that resolves inside the root and refuse every other symlink;
-  - the collector calling convention (`ProcessCollector`);
-  - an unreadable metric is recorded as an error, never as 0.
+  - the collector convention (`ProcessCollector`) and an unreadable metric as an error row, never 0;
+  - the time a resumed run spent down does not count toward its timeouts (the clock resumes at the last event).
 """
 
 import dataclasses
@@ -34,6 +43,7 @@ import json
 import os
 import re
 import secrets
+import stat
 import subprocess
 import sys
 import tempfile
@@ -49,31 +59,31 @@ import validate_catalog as vc  # noqa: E402
 import validate_manifest as vman  # noqa: E402
 
 __all__ = (
-    "UNENFORCED", "DEFAULT_FROZEN_OUTSIDE", "LedgerError", "DivergenceError", "OwnerKeyError", "FileMapError",
-    "FrozenOutside", "RunLedger", "KeyRing", "SshKeygenVerifier", "SnapshotStore", "ProcessCollector",
-    "InboxFeed", "QueueFeed", "OrgProcessHost", "OrgRuntime", "load_ring", "event_payload", "snapshot_event",
-    "build_file_map", "check_collisions",
+    "UNENFORCED", "NO_OUTSIDE", "DEFAULT_FROZEN_OUTSIDE", "LedgerError", "DivergenceError", "OwnerKeyError",
+    "FileMapError", "SnapshotError", "IntegrityError", "FrozenOutside", "RunLedger", "KeyRing", "SshKeygenVerifier",
+    "SnapshotStore", "ProcessCollector", "InboxFeed", "QueueFeed", "LiveScheduler", "OrgProcessHost", "OrgRuntime",
+    "load_ring", "event_payload", "snapshot_event", "build_file_map", "check_collisions",
 )
 
 UNENFORCED = object()  # pass as `snapshots` to run with no rung enforcement (tests, throwaway roots)
-NAMESPACE = "org-event"
+NS_EVENT = "org-event"
+NS_SNAPSHOT = "org-snapshot"
 ORG_ENTRIES = ("workflows", "briefs", "criteria", "schemas", "collectors", "checks", "bin")
-ROOT_FILE = re.compile(r"^(manifest|metrics[^/]*)\.(json|yaml|yml)$")
-MANIFEST_FILE = re.compile(r"^manifest\.(json|yaml|yml)$")
-KEY_LINE = re.compile(r"^(ssh-[a-z0-9-]+|sk-ssh-[a-z0-9@.-]+|ecdsa-sha2-[a-z0-9]+|sk-ecdsa-sha2-[a-z0-9@.-]+) \S+( [^\n]*)?$")
-PRINCIPAL = re.compile(r"^[A-Za-z0-9._-]+$")
+ROOT_FILE = re.compile(r"(manifest|metrics[^/]*)\.(json|yaml|yml)")
+MANIFEST_FILE = re.compile(r"manifest\.(json|yaml|yml)")
+KEY_LINE = re.compile(r"(ssh-[a-z0-9-]+|sk-ssh-[a-z0-9@.-]+|ecdsa-sha2-[a-z0-9]+|sk-ecdsa-sha2-[a-z0-9@.-]+) \S+( [^\n]*)?")
+PRINCIPAL = re.compile(r"[A-Za-z0-9._-]+")
+GENESIS = "0" * 64
+MIN_KEY = 32
 
-# Files outside the org root that only the owner may change (spec 10, 13.1): the grammar (kind table, accepted
-# subset, interpreter and validators), the harness and port contracts, hooks, plugin metadata and CI.
+# Files outside the org root that only the owner may change (spec 10, 13.1): the grammar (interpreter and
+# validators), port contracts, harness, bindings, hooks, plugin metadata, CI and the repo tooling that runs tests.
 # Relative to the repository root; a trailing slash names a directory. PROVISIONAL default.
+_W = "agents/operating-model/skills/workflow/"
 DEFAULT_FROZEN_OUTSIDE = (
-    "agents/operating-model/skills/workflow/scripts/",
-    "agents/operating-model/skills/workflow/contracts/",
-    "agents/operating-model/skills/workflow/harness/",
-    "agents/operating-model/hooks/",
-    "agents/operating-model/.claude-plugin/plugin.json",
-    ".claude-plugin/marketplace.json",
-    ".github/workflows/",
+    _W + "scripts/", _W + "contracts/", _W + "harness/", _W + "bindings/", _W + "SKILL.md",
+    "agents/operating-model/hooks/", "agents/operating-model/.claude-plugin/plugin.json",
+    ".claude-plugin/marketplace.json", ".github/workflows/", ".claude/", "pyproject.toml", "uv.lock", "conftest.py",
 )
 
 
@@ -93,6 +103,14 @@ class FileMapError(Exception):
     """A file map cannot be built safely."""
 
 
+class SnapshotError(Exception):
+    """The signed snapshot chain is broken."""
+
+
+class IntegrityError(Exception):
+    """A file about to run differs from the verified bytes."""
+
+
 # ---------------------------------------------------------------- file maps
 
 
@@ -106,7 +124,7 @@ def check_collisions(paths):
 
 
 def _read_file(full, rel, real_root):
-    """Bytes of a regular file or of a symlink that resolves to a regular file inside the root."""
+    """Bytes of a regular file, or of a symlink that resolves to a regular file inside the root."""
     if os.path.islink(full):
         target = os.path.realpath(full)
         if not os.path.exists(target):
@@ -121,22 +139,25 @@ def _read_file(full, rel, real_root):
 
 
 def _collect(base, entry, out):
-    """Add the file or the tree `entry` (relative to `base`) to `out`."""
+    """Add the file or the tree `entry` (relative to `base`) to `out`. Bytecode caches are left out."""
     real_root = os.path.realpath(base)
     full = os.path.join(base, entry)
     if os.path.islink(full) and os.path.isdir(full):
         raise FileMapError(f"{entry}: directory symlink")
     if os.path.isdir(full):
         for dirpath, dirnames, filenames in os.walk(full, followlinks=False):
-            for d in sorted(dirnames):
+            dirnames[:] = sorted(d for d in dirnames if d != "__pycache__" or os.path.islink(os.path.join(dirpath, d)))
+            for d in dirnames:
                 dp = os.path.join(dirpath, d)
                 if os.path.islink(dp):
                     raise FileMapError(f"{os.path.relpath(dp, base).replace(os.sep, '/')}: directory symlink")
             for fn in sorted(filenames):
+                if fn.endswith(".pyc"):
+                    continue
                 fp = os.path.join(dirpath, fn)
                 rel = os.path.relpath(fp, base).replace(os.sep, "/")
                 out[rel] = _read_file(fp, rel, real_root)
-    elif os.path.lexists(full):
+    elif os.path.lexists(full) and not entry.endswith(".pyc"):
         out[entry] = _read_file(full, entry, real_root)
 
 
@@ -145,18 +166,21 @@ def build_file_map(root):
     root = str(root)
     out = {}
     for name in sorted(os.listdir(root)):
-        if ROOT_FILE.match(name):
-            _collect(root, name, out)
-        elif name in ORG_ENTRIES:
+        if ROOT_FILE.fullmatch(name) or name in ORG_ENTRIES:
             _collect(root, name, out)
     check_collisions(list(out))
     return out
 
 
 class FrozenOutside:
-    """The path list of files outside the org root that are frozen (13.1), relative to `repo_root`."""
+    """The path list of files outside the org root that are frozen (13.1), relative to `repo_root`.
 
-    def __init__(self, repo_root, paths):
+    A missing repo root or an empty list is an error; `NO_OUTSIDE` says it on purpose.
+    """
+
+    def __init__(self, repo_root, paths, _explicit_none=False):
+        if not _explicit_none and (repo_root is None or not paths):
+            raise ValueError("FrozenOutside needs a repo root and paths; pass NO_OUTSIDE to opt out explicitly")
         for p in paths:
             if not isinstance(p, str) or not p or p.startswith("/") or "\\" in p or any(
                     seg in ("", ".", "..") for seg in p.rstrip("/").split("/")):
@@ -173,6 +197,9 @@ class FrozenOutside:
         return out
 
 
+NO_OUTSIDE = FrozenOutside(None, (), _explicit_none=True)
+
+
 # ---------------------------------------------------------------- the ledger
 
 
@@ -182,17 +209,24 @@ def _mac(key, entry):
 
 
 class RunLedger:
-    """Append-only JSON lines. Each entry holds the MAC of the one before it. A torn last line is dropped."""
+    """Append-only JSON lines, each holding the MAC of the one before it, plus a `.head` file.
 
-    GENESIS = "0" * 64
+    A torn last line is dropped. The head file (HMAC over run id, entry count and last MAC, written by an atomic
+    replace after every append) lets `verify_head` refuse a ledger that was cut back.
+    """
 
     def __init__(self, path, key, readonly=False):
-        self.path, self.key, self.readonly, self.torn = str(path), key, readonly, False
-        self._last, self._seq, self._good = self.GENESIS, 0, 0
+        if not isinstance(key, (bytes, bytearray)) or len(key) < MIN_KEY:
+            raise ValueError(f"the ledger key must be at least {MIN_KEY} bytes")
+        self.path, self.key, self.readonly, self.torn = str(path), bytes(key), readonly, False
+        self.head_path = self.path + ".head"
+        self._last, self._seq, self._good, self._run_id = GENESIS, 0, 0, None
         if os.path.exists(self.path):
             entries = self.read()
             if entries:
                 self._last, self._seq = entries[-1]["mac"], entries[-1]["seq"]
+                if entries[0]["kind"] == "header":
+                    self._run_id = entries[0]["body"].get("run_id")
 
     def read(self):
         try:
@@ -200,25 +234,38 @@ class RunLedger:
                 raw = f.read()
         except FileNotFoundError:
             return []
-        lines = raw.decode("utf-8", errors="replace").split("\n")
+        lines = raw.split(b"\n")
         self.torn = bool(lines.pop())
-        entries, prev, good = [], self.GENESIS, 0
+        entries, prev, good = [], GENESIS, 0
         for n, line in enumerate(lines, 1):
             try:
-                entry = json.loads(line)
+                entry = json.loads(line.decode("utf-8"))
                 ok = isinstance(entry, dict) and all(k in entry for k in ("seq", "prev", "kind", "body", "mac"))
-            except ValueError:
+            except (ValueError, UnicodeDecodeError):
                 ok = False
             if not ok:
-                raise LedgerError(f"{self.path}: line {n} is not a ledger entry")
+                raise LedgerError(f"{self.path}: line {n} is not a ledger entry (strict UTF-8 JSON)")
             if entry["seq"] != n or entry["prev"] != prev:
                 raise LedgerError(f"{self.path}: entry {n} does not follow the one before it")
             if not hmac.compare_digest(str(entry["mac"]), _mac(self.key, entry)):
                 raise LedgerError(f"{self.path}: entry {n} has a bad signature")
             entries.append(entry)
-            prev, good = entry["mac"], good + len(line.encode()) + 1
+            prev, good = entry["mac"], good + len(line) + 1
         self._good = good
         return entries
+
+    def _head_mac(self, run_id, count, last):
+        return hmac.new(self.key, f"head\n{run_id}\n{count}\n{last}".encode(), hashlib.sha256).hexdigest()
+
+    def _write_head(self):
+        head = {"run_id": self._run_id, "count": self._seq, "last": self._last}
+        head["mac"] = self._head_mac(head["run_id"], head["count"], head["last"])
+        tmp = self.head_path + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(json.dumps(head, sort_keys=True))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, self.head_path)
 
     def append(self, kind, body):
         if self.readonly:
@@ -234,7 +281,38 @@ class RunLedger:
             f.flush()
             os.fsync(f.fileno())
         self._last, self._seq, self._good = entry["mac"], entry["seq"], self._good + len(line.encode())
+        if kind == "header" and isinstance(entry["body"], dict):
+            self._run_id = entry["body"].get("run_id")
+        self._write_head()
         return entry
+
+    def verify_head(self, entries, expected_head=None):
+        """Refuse a ledger that is shorter than its head file, belongs to another run, or has no valid head."""
+        try:
+            with open(self.head_path) as f:
+                head = json.load(f)
+            run_id, count, last, mac = head["run_id"], head["count"], head["last"], head["mac"]
+            valid = hmac.compare_digest(str(mac), self._head_mac(run_id, count, last)) and isinstance(count, int)
+        except FileNotFoundError:
+            if len(entries) > 1:
+                raise LedgerError(f"{self.path}: the head file is missing") from None
+            valid, run_id, count, last = None, None, 0, None
+        except (OSError, ValueError, KeyError, TypeError):
+            valid = False
+        if valid is False:
+            raise LedgerError(f"{self.path}: the head file does not verify")
+        if valid:
+            first = entries[0]["body"].get("run_id") if entries and isinstance(entries[0]["body"], dict) else None
+            if run_id != first:
+                raise LedgerError(f"{self.path}: the ledger's run id differs from the head file's")
+            if len(entries) < count:
+                raise LedgerError(f"{self.path}: the ledger is shorter than its head file (rolled back?)")
+            if count and entries[count - 1]["mac"] != last:
+                raise LedgerError(f"{self.path}: entry {count} differs from the head file")
+        if expected_head is not None:
+            n, mac = expected_head
+            if len(entries) < n or (n and entries[n - 1]["mac"] != mac):
+                raise LedgerError(f"{self.path}: the ledger does not match the expected head")
 
 
 # ---------------------------------------------------------------- the key ring (identity port: verify, revoke, list)
@@ -246,22 +324,49 @@ def event_payload(event):
     return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
 
 
-class SshKeygenVerifier:
-    """OpenSSH verification: `ssh-keygen -Y verify` against an allowed-signers file of public keys only."""
+def _trusted_dirs():
+    dirs = ["/usr/bin", "/bin", "/run/current-system/sw/bin", "/nix/var/nix/profiles/default/bin"]
+    user = os.environ.get("USER")
+    if user:
+        dirs.append(f"/etc/profiles/per-user/{user}/bin")
+    home = os.path.expanduser("~")
+    if home and home != "~":
+        dirs.append(os.path.join(home, ".nix-profile", "bin"))
+    return dirs
 
-    def verify(self, principal, keys, payload, sig):
-        if not PRINCIPAL.match(principal) or not isinstance(sig, str) or not sig:
+
+class SshKeygenVerifier:
+    """OpenSSH verification: `ssh-keygen -Y verify` against an allowed-signers file of public keys only.
+
+    `ssh-keygen` is resolved once to an absolute path from a fixed trusted directory list, not from the caller's
+    PATH, and runs with a minimal environment. If it cannot be found, every verification fails.
+    """
+
+    def __init__(self, ssh_keygen=None):
+        self._dirs = _trusted_dirs()
+        self.path = ssh_keygen
+        if self.path is None:
+            for d in self._dirs:
+                cand = os.path.join(d, "ssh-keygen")
+                if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                    self.path = cand
+                    break
+
+    def verify(self, principal, keys, payload, sig, namespace):
+        if not self.path or not isinstance(principal, str) or not PRINCIPAL.fullmatch(principal) \
+                or not isinstance(sig, str) or not sig or namespace not in (NS_EVENT, NS_SNAPSHOT):
             return False
         with tempfile.TemporaryDirectory(prefix="org-verify-") as tmp:
             allowed, sigfile = os.path.join(tmp, "allowed"), os.path.join(tmp, "sig")
             with open(allowed, "w") as f:
                 for k in keys:
-                    f.write(f'{principal} namespaces="{NAMESPACE}" {k}\n')
+                    f.write(f'{principal} namespaces="{namespace}" {k}\n')
             with open(sigfile, "w") as f:
                 f.write(sig)
             try:
-                r = subprocess.run(["ssh-keygen", "-Y", "verify", "-f", allowed, "-I", principal, "-n", NAMESPACE,
-                                    "-s", sigfile], input=payload, capture_output=True, timeout=15)
+                r = subprocess.run([self.path, "-Y", "verify", "-f", allowed, "-I", principal, "-n", namespace,
+                                    "-s", sigfile], input=payload, capture_output=True, timeout=15,
+                                   env={"PATH": ":".join(self._dirs), "LC_ALL": "C"})
             except (OSError, subprocess.TimeoutExpired):
                 return False  # fail closed
             return r.returncode == 0
@@ -270,7 +375,7 @@ class SshKeygenVerifier:
 def _check_key_line(line):
     if not isinstance(line, str) or "PRIVATE KEY" in line:
         raise OwnerKeyError("the key ring takes public keys only; private key material was refused")
-    if not KEY_LINE.match(line):
+    if not KEY_LINE.fullmatch(line):
         raise ValueError(f"not a public key line: {line[:40]!r}")
     return line
 
@@ -282,14 +387,14 @@ class KeyRing:
         self._keys = {role: [_check_key_line(k) for k in lines] for role, lines in keys.items()}
         self._verifier = verifier or SshKeygenVerifier()
 
-    def verify(self, event, signer):
+    def verify(self, event, signer, namespace=NS_EVENT):
         try:
             if not isinstance(event, dict) or not isinstance(event.get("signature"), str):
                 return False
             keys = list(self._keys.get(signer) or [])
             if not keys:
                 return False
-            return self._verifier.verify(signer, keys, event_payload(event), event["signature"]) is True
+            return self._verifier.verify(signer, keys, event_payload(event), event["signature"], namespace) is True
         except Exception:  # noqa: BLE001  fail closed on anything odd in the event
             return False
 
@@ -316,66 +421,105 @@ def load_ring(text, verifier=None):
     return KeyRing(keys, verifier=verifier)
 
 
-# ---------------------------------------------------------------- owner-signed snapshots (the base for rungs)
+# ---------------------------------------------------------------- owner-signed snapshot chain (the base for rungs)
 
 
 def _hashes(m):
     return {k: hashlib.sha256(v).hexdigest() for k, v in sorted(m.items())}
 
 
-def snapshot_event(files, outside):
-    """The event the owner signs: the hashes of every org-root file and every listed outside file."""
-    return {"type": "org.snapshot", "data": {"files": _hashes(files), "outside": _hashes(outside)}}
+def snapshot_event(files, outside, root_id, seq, prev):
+    """The event the owner signs (namespace `org-snapshot`): hashes of every org-root and listed outside file."""
+    return {"type": "org.snapshot", "data": {"files": _hashes(files), "outside": _hashes(outside), "seq": seq,
+                                              "prev": prev, "root_id": root_id}}
 
 
 class SnapshotStore:
-    """Whole-root snapshots in a directory outside the org root: blobs by hash plus `snapshots.jsonl`.
+    """A chain of whole-root snapshots in a directory outside the org root: blobs plus `snapshots.jsonl`.
 
-    The runtime reads it and verifies the owner signature of each snapshot; adding one is the owner's act.
-    A snapshot holds every file, so "the last owner-signed version of each file" is the newest valid snapshot.
+    Each line is signed by the owner and binds `seq`, `prev` (hash of the previous line of the same root) and
+    `root_id`. The runtime verifies and reads; adding a snapshot is the owner's act.
     """
 
     def __init__(self, path):
         self.dir = str(path)
+        self.file = os.path.join(self.dir, "snapshots.jsonl")
 
-    def add(self, files, outside, signature):
+    def _lines(self):
+        try:
+            with open(self.file, encoding="utf-8", errors="replace") as f:
+                return f.read().splitlines()
+        except FileNotFoundError:
+            return []
+
+    @staticmethod
+    def _parse(raw):
+        try:
+            entry = json.loads(raw)
+            data, sig = entry["data"], entry["signature"]
+            if isinstance(data, dict) and isinstance(sig, str) and isinstance(data.get("root_id"), str):
+                return data, sig
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    def next_event(self, files, outside, root_id, ring=None):
+        """The event to sign next for `root_id`. With a `ring` it continues the verified chain."""
+        seq, prev = 0, GENESIS
+        if ring is not None:
+            got = self.latest_valid(ring, root_id)
+            if got:
+                seq, prev = got["seq"], got["hash"]
+        else:
+            for raw in self._lines():
+                parsed = self._parse(raw)
+                if parsed and parsed[0]["root_id"] == root_id and isinstance(parsed[0].get("seq"), int):
+                    seq, prev = parsed[0]["seq"], hashlib.sha256(raw.encode()).hexdigest()
+        return snapshot_event(files, outside, root_id, seq + 1, prev)
+
+    def add(self, event, signature, files, outside):
         os.makedirs(os.path.join(self.dir, "blobs"), exist_ok=True)
         for blob in list(files.values()) + list(outside.values()):
             p = os.path.join(self.dir, "blobs", hashlib.sha256(blob).hexdigest())
             if not os.path.exists(p):
                 with open(p, "wb") as f:
                     f.write(blob)
-        entry = {"data": snapshot_event(files, outside)["data"], "signature": signature}
-        with open(os.path.join(self.dir, "snapshots.jsonl"), "a") as f:
-            f.write(json.dumps(entry, sort_keys=True) + "\n")
+        with open(self.file, "a") as f:
+            f.write(json.dumps({"data": event["data"], "signature": signature}, sort_keys=True) + "\n")
 
-    def latest_valid(self, ring):
-        """(files, outside) of the newest snapshot with a valid owner signature, else None."""
-        try:
-            with open(os.path.join(self.dir, "snapshots.jsonl")) as f:
-                lines = f.read().splitlines()
-        except FileNotFoundError:
-            return None
-        for line in reversed(lines):
-            try:
-                entry = json.loads(line)
-                event = {"type": "org.snapshot", "data": entry["data"], "signature": entry["signature"]}
-                if not ring.verify(event, "owner"):
-                    continue
-                maps = []
-                for part in ("files", "outside"):
-                    m = {}
-                    for rel, digest in entry["data"][part].items():
-                        with open(os.path.join(self.dir, "blobs", digest), "rb") as b:
-                            blob = b.read()
-                        if hashlib.sha256(blob).hexdigest() != digest:
-                            raise ValueError("blob does not match its hash")
-                        m[rel] = blob
-                    maps.append(m)
-                return maps[0], maps[1]
-            except (OSError, ValueError, KeyError, TypeError):
+    def latest_valid(self, ring, root_id):
+        """The newest snapshot of the signed chain of `root_id`, or None. A break in the chain raises SnapshotError.
+
+        A line that is not owner-signed is ignored. An owner-signed line that does not extend the chain (an older
+        one appended, a gap) refuses the run: there is no fallback to an older snapshot.
+        """
+        last_seq, last_hash, best = 0, GENESIS, None
+        for raw in self._lines():
+            parsed = self._parse(raw)
+            if parsed is None or parsed[0]["root_id"] != root_id:
                 continue
-        return None
+            data, sig = parsed
+            if not ring.verify({"type": "org.snapshot", "data": data, "signature": sig}, "owner", NS_SNAPSHOT):
+                continue
+            if data.get("seq") != last_seq + 1 or data.get("prev") != last_hash:
+                raise SnapshotError(f"owner-signed snapshot {data.get('seq')} is out of sequence after {last_seq}")
+            last_seq, last_hash, best = data["seq"], hashlib.sha256(raw.encode()).hexdigest(), data
+        if best is None:
+            return None
+        maps = []
+        try:
+            for part in ("files", "outside"):
+                m = {}
+                for rel, digest in best[part].items():
+                    with open(os.path.join(self.dir, "blobs", digest), "rb") as b:
+                        blob = b.read()
+                    if hashlib.sha256(blob).hexdigest() != digest:
+                        raise ValueError(digest)
+                    m[rel] = blob
+                maps.append(m)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+            raise SnapshotError(f"snapshot {last_seq}: a blob is missing or does not match its hash ({e})") from None
+        return {"seq": last_seq, "hash": last_hash, "files": maps[0], "outside": maps[1]}
 
 
 # ---------------------------------------------------------------- metrics
@@ -385,33 +529,67 @@ class CollectorError(Exception):
     pass
 
 
-class ProcessCollector:
-    """Run `collectors/<name>.py` by argv exec and read one JSON number from stdout. PROVISIONAL convention.
+_COLLECTOR_PRELUDE = (
+    "import sys\n"
+    "path, key = sys.argv[1], sys.argv[2]\n"
+    "src = sys.stdin.read()\n"
+    "sys.argv = [path, key]\n"
+    "exec(compile(src, path, 'exec'), {'__name__': '__main__', '__file__': path})\n"
+)
 
-    argv: `<python> <collector> <full task key>`; environment: ORG_LEDGER (the run ledger, read it only),
-    ORG_KEY, ORG_RUN, ORG_METRIC. Exit 0 with a finite JSON number on stdout is a value. Anything else raises
+
+class ProcessCollector:
+    """Run `collectors/<name>.py` and read one JSON number from stdout. PROVISIONAL convention.
+
+    The collector runs as `python -I -c <prelude> <path> <full key>` from the verified bytes (`bind`), in its own
+    process group that is killed on timeout, with a minimal environment: ORG_METRIC_INPUT (a read-only copy of the
+    run ledger), ORG_KEY, ORG_RUN, ORG_METRIC. Exit 0 with a finite JSON number is a value; anything else raises
     CollectorError, which the runtime records as an error: a metric is never recorded as zero by accident.
     """
 
     def __init__(self, root, timeout=60):
-        self.root, self.timeout = os.path.realpath(str(root)), timeout
+        self.root, self.timeout, self.files = os.path.realpath(str(root)), timeout, None
+
+    def bind(self, files):
+        self.files = files
+
+    def _source(self, rel):
+        if self.files is not None:
+            if rel not in self.files:
+                raise CollectorError(f"{rel}: collector is not in the verified file map")
+            return self.files[rel]
+        if not vc.relative_path_ok(rel, "collectors/", (".py",)) or not vc.file_under_root(self.root, rel):
+            raise CollectorError(f"{rel}: collector is not a file inside the org root")
+        with open(os.path.join(self.root, rel), "rb") as f:
+            return f.read()
 
     def __call__(self, metric, entry, key, run_id, ledger_path):
         rel = entry.get("collector", "")
-        if not vc.relative_path_ok(rel, "collectors/", (".py",)) or not vc.file_under_root(self.root, rel):
-            raise CollectorError(f"{rel}: collector is not a file inside the org root")
-        env = {"PATH": os.environ.get("PATH", ""), "ORG_LEDGER": os.path.abspath(ledger_path), "ORG_KEY": key,
-               "ORG_RUN": run_id, "ORG_METRIC": metric}
+        source = self._source(rel)
+        with tempfile.TemporaryDirectory(prefix="org-metric-") as tmp:
+            copy = os.path.join(tmp, "ledger")
+            with open(ledger_path, "rb") as f, open(copy, "wb") as g:
+                g.write(f.read())
+            os.chmod(copy, 0o444)
+            env = {"PATH": os.environ.get("PATH", ""), "ORG_METRIC_INPUT": copy, "ORG_KEY": key, "ORG_RUN": run_id,
+                   "ORG_METRIC": metric}
+            try:
+                p = subprocess.Popen([sys.executable, "-I", "-c", _COLLECTOR_PRELUDE, os.path.join(self.root, rel), key],
+                                     env=env, cwd=tmp, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, start_new_session=True)
+            except OSError as e:
+                raise CollectorError(f"collector cannot start: {e.strerror}") from None
+            try:
+                out, err = p.communicate(source, timeout=self.timeout)
+            except subprocess.TimeoutExpired:
+                OrgProcessHost._killpg(p.pid)
+                p.communicate()
+                raise CollectorError("collector timed out") from None
+        if p.returncode != 0:
+            lines = err.decode("utf-8", errors="replace").strip().splitlines()
+            raise CollectorError(lines[0] if lines else f"collector exited {p.returncode}")
         try:
-            r = subprocess.run([sys.executable, os.path.join(self.root, rel), key], env=env, cwd=self.root,
-                               capture_output=True, text=True, timeout=self.timeout, stdin=subprocess.DEVNULL)
-        except (OSError, subprocess.TimeoutExpired) as e:
-            raise CollectorError(f"collector cannot run: {type(e).__name__}") from None
-        if r.returncode != 0:
-            lines = r.stderr.strip().splitlines()
-            raise CollectorError(lines[0] if lines else f"collector exited {r.returncode}")
-        try:
-            v = json.loads(r.stdout)
+            v = json.loads(out.decode("utf-8", errors="replace"))
         except ValueError:
             raise CollectorError("collector printed no JSON number") from None
         if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or v in (float("inf"), float("-inf")):
@@ -423,12 +601,19 @@ class ProcessCollector:
 
 
 class QueueFeed:
-    """An in-memory feed: `push` an event from anywhere, the driver polls it."""
+    """An in-memory feed: `push` an event from anywhere, the driver polls it. Events must be strict JSON."""
 
     def __init__(self):
         self._q, self.closed, self.rejected = deque(), False, []
 
     def push(self, event):
+        try:
+            if not isinstance(event, dict):
+                raise ValueError("not an object")
+            json.dumps(event, allow_nan=False)
+        except (TypeError, ValueError) as e:
+            self.rejected.append(f"event is not strict JSON: {e}")
+            return
         self._q.append(event)
 
     def close(self):
@@ -439,50 +624,157 @@ class QueueFeed:
         self._q.clear()
         return out
 
+    def ack(self):
+        pass
+
+
+def _reject_constant(name):
+    raise ValueError(f"{name} is not allowed")
+
+
+def _depth_ok(text, limit=64):
+    depth, in_str, esc = 0, False, False
+    for ch in text:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch in "[{":
+            depth += 1
+            if depth > limit:
+                return False
+        elif ch in "]}":
+            depth -= 1
+    return True
+
 
 class InboxFeed:
-    """A directory of `*.json` event files, delivered once each in name order, then renamed `.seen`.
+    """A directory of `*.json` event files, each delivered once, in name order.
 
-    A file that is not a JSON object is renamed `.rejected` and listed in `rejected`. Delivery is not trust:
-    the gates verify signatures themselves.
+    Files open with `O_NOFOLLOW | O_NONBLOCK` and must be regular; they are read from the descriptor under a size
+    cap and parsed as strict JSON objects (no NaN or Infinity, bounded nesting). A bad file is renamed `.rejected`.
+    A good file is renamed `.seen` by `ack()`, which the driver calls after it has journaled the event, so a crash
+    in between redelivers (decision ids make that harmless). At most `max_per_poll` events per poll and
+    `max_total` per feed.
     """
 
-    def __init__(self, path, max_bytes=1_000_000):
-        self.dir, self.max_bytes, self.closed, self.rejected = str(path), max_bytes, False, []
+    def __init__(self, path, max_bytes=1_000_000, max_per_poll=100, max_total=10000):
+        self.dir, self.max_bytes, self.max_per_poll, self.max_total = str(path), max_bytes, max_per_poll, max_total
+        self.closed, self.rejected, self.total, self._pending, self._capped = False, [], 0, [], False
+
+    def _load(self, path):
+        flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+        fd = os.open(path, flags)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError("not a regular file")
+            raw = b""
+            while len(raw) <= self.max_bytes:
+                chunk = os.read(fd, 65536)
+                if not chunk:
+                    break
+                raw += chunk
+            if len(raw) > self.max_bytes:
+                raise ValueError("over the size limit")
+        finally:
+            os.close(fd)
+        text = raw.decode("utf-8")
+        if not _depth_ok(text):
+            raise ValueError("nested too deeply")
+        event = json.loads(text, parse_constant=_reject_constant)
+        if not isinstance(event, dict):
+            raise ValueError("not a JSON object")
+        return event
 
     def poll(self):
         out = []
-        for name in sorted(os.listdir(self.dir)):
+        try:
+            names = sorted(os.listdir(self.dir))
+        except OSError as e:
+            self.rejected.append(f"{self.dir}: {e.strerror}")
+            return out
+        for name in names:
             if not name.endswith(".json"):
                 continue
+            if len(out) >= self.max_per_poll:
+                break
+            if self.total >= self.max_total:
+                if not self._capped:
+                    self.rejected.append("run cap reached: further events are not delivered")
+                    self._capped = True
+                break
             path = os.path.join(self.dir, name)
             try:
-                if os.path.getsize(path) > self.max_bytes:
-                    raise ValueError("over the size limit")
-                with open(path, encoding="utf-8") as f:
-                    event = json.load(f)
-                if not isinstance(event, dict):
-                    raise ValueError("not a JSON object")
-                out.append(event)
-                os.replace(path, path[:-5] + ".seen")
-            except (OSError, ValueError) as e:
-                self.rejected.append(f"{name}: {e}")
+                event = self._load(path)
+            except Exception as e:  # noqa: BLE001  every escape is a rejected file, never a crash
+                self.rejected.append(f"{name}: {type(e).__name__}: {e}")
                 try:
                     os.replace(path, path[:-5] + ".rejected")
                 except OSError:
                     pass
+                continue
+            self._pending.append(path)
+            self.total += 1
+            out.append(event)
         return out
 
+    def ack(self):
+        for path in self._pending:
+            try:
+                os.replace(path, path[:-5] + ".seen")
+            except OSError:
+                pass
+        self._pending = []
 
-class _LiveScheduler(it._Scheduler):
-    """The U13a scheduler on a wall clock: due timers and host events fire, then feed events, else wait."""
 
-    def __init__(self, ext, feed, clock, sleep, journal, poll):
-        self._clock, self._t0 = clock, clock()
+class LiveScheduler(it._Scheduler):
+    """The U13a scheduler on a wall clock, in two phases.
+
+    Replay phase (a resumed run): behaves like the base scheduler, jumping the virtual clock over the journaled
+    timers and events up to `replay_end`. Live phase: `now` follows `clock()` from where the replay ended; due
+    timers and host events fire, then feed events (journaled by `journal` before `feed.ack()`), else it sleeps.
+    A fresh run is live from the start. `go_live()` also fires before a live host call during replay.
+    """
+
+    def __init__(self, ext, feed, clock, sleep, journal, poll, replay_end=None):
+        self._clock, self._virt, self._origin = clock, 0.0, None
         super().__init__(ext)
         self.feed, self._sleep, self._journal, self._poll = feed, sleep, journal, poll
+        self.replay_end = replay_end
+        if replay_end is None:
+            self.go_live()
 
-    now = property(lambda s: s._clock() - s._t0, lambda s, v: None)
+    def _get_now(self):
+        if self._origin is None:
+            return self._virt
+        return self._origin[0] + (self._clock() - self._origin[1])
+
+    def _set_now(self, v):
+        if self._origin is None:
+            self._virt = v
+
+    now = property(_get_now, _set_now)
+
+    def go_live(self):
+        if self._origin is None:
+            self._origin = (self._virt, self._clock())
+
+    def _fire_timers(self, t):
+        while self.timers and self.timers[0][0] <= t:
+            _, _, p, token, exc = it.heapq.heappop(self.timers)
+            if not p.done and p.token == token:
+                self._resume(p, None, exc)
+
+    def _fire_ext(self, t):
+        while self.ext_i < len(self.ext) and self.ext[self.ext_i][0] <= t:
+            event = self.ext[self.ext_i][1]
+            self.ext_i += 1
+            self.publish(event)
 
     def run(self):
         while self.live > 0:
@@ -490,26 +782,41 @@ class _LiveScheduler(it._Scheduler):
                 p, value, exc = self.ready.popleft()
                 self._step(p, value, exc)
                 continue
-            now = self.now
-            if self.timers and self.timers[0][0] <= now:
-                while self.timers and self.timers[0][0] <= now:
-                    _, _, p, token, exc = it.heapq.heappop(self.timers)
-                    if not p.done and p.token == token:
-                        self._resume(p, None, exc)
+            nt = self.timers[0][0] if self.timers else None
+            ne = self.ext[self.ext_i][0] if self.ext_i < len(self.ext) else None
+            if self._origin is None:  # replay phase: the base scheduler's jumps
+                due = min(t for t in (nt, ne) if t is not None) if (nt is not None or ne is not None) else None
+                if due is None or due > self.replay_end:
+                    self.go_live()
+                    continue
+                if nt is not None and (ne is None or nt <= ne):
+                    self.now = max(self.now, nt)
+                    self._fire_timers(nt)
+                else:
+                    self.now = max(self.now, ne)
+                    self._fire_ext(ne)
                 continue
-            if self.ext_i < len(self.ext) and self.ext[self.ext_i][0] <= now:
-                event = self.ext[self.ext_i][1]
-                self.ext_i += 1
-                self.publish(event)
+            now = self.now
+            if nt is not None and nt <= now:
+                self._fire_timers(now)
+                continue
+            if ne is not None and ne <= now:
+                self._fire_ext(now)
                 continue
             fed = self.feed.poll()
             if fed:
                 for event in fed:
-                    self._journal(now, event)
+                    try:
+                        self._journal(now, event)
+                    except Exception:  # noqa: BLE001  an event that cannot be journaled is not delivered
+                        getattr(self.feed, "rejected", []).append("event could not be journaled")
+                        continue
                     self.publish(event)
+                ack = getattr(self.feed, "ack", None)
+                if ack:
+                    ack()
                 continue
-            nxt = [t for t in (self.timers[0][0] if self.timers else None,
-                               self.ext[self.ext_i][0] if self.ext_i < len(self.ext) else None) if t is not None]
+            nxt = [t for t in (nt, ne) if t is not None]
             if not nxt and self.feed.closed:
                 return False
             wait = self._poll if not nxt else min(self._poll, max(min(nxt) - now, 0.0))
@@ -525,6 +832,7 @@ class _NoLive:
 
     def __init__(self, inner):
         self._inner = inner
+        self.root = getattr(inner, "root", None)
 
     def scheduled_events(self):
         return self._inner.scheduled_events()
@@ -538,7 +846,7 @@ class _NoLive:
     def run_step(self, req):
         self._no(f"step '{req.key}'")
 
-    def run_check(self, name, key, evidence):
+    def run_check(self, name, key, evidence, rungs=None):
         self._no(f"check '{name}' on '{key}'")
 
     def run_judge(self, req):
@@ -547,17 +855,86 @@ class _NoLive:
     def verify_signed(self, event, signer):
         self._no("signature check")
 
+    def change(self):
+        self._no("change query")
+
+
+def _sha(b):
+    return hashlib.sha256(b).hexdigest()
+
+
+class _VerifiedHost:
+    """Before a live exec of a check, a `bin/` command or `agent_run.py`, compare the bytes on disk with the
+    verified ones and refuse on a mismatch. (The window between this read and the exec is closed for hosts that
+    exec from a descriptor; agent children must not be able to write the org root at all.)"""
+
+    def __init__(self, inner, root, files):
+        self._inner, self._root, self._files = inner, os.path.realpath(str(root)), files
+        agent = getattr(inner, "agent_run", None)
+        self._agent = agent if agent and os.path.isfile(agent) else None
+        self._agent_hash = None
+        if self._agent:
+            with open(self._agent, "rb") as f:
+                self._agent_hash = _sha(f.read())
+        self.root = getattr(inner, "root", None)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def _check(self, rel):
+        verified = self._files.get(rel)
+        full = os.path.join(self._root, rel)
+        if verified is None:
+            if os.path.lexists(full):
+                raise IntegrityError(f"{rel}: is not in the verified file map")
+            return  # absent then and now: the host refuses it itself
+        try:
+            current = _read_file(full, rel, self._root)
+        except (OSError, FileMapError) as e:
+            raise IntegrityError(f"{rel}: changed since the run started ({e})") from None
+        if _sha(current) != _sha(verified):
+            raise IntegrityError(f"{rel}: changed since the run started")
+
+    def _check_agent(self):
+        if self._agent:
+            with open(self._agent, "rb") as f:
+                if _sha(f.read()) != self._agent_hash:
+                    raise IntegrityError("agent_run.py: changed since the run started")
+
+    def run_step(self, req):
+        if req.command == "agent-run":
+            self._check_agent()
+        else:
+            self._check(f"bin/{req.command}")
+        return self._inner.run_step(req)
+
+    def run_check(self, name, key, evidence, rungs=None):
+        self._check(f"checks/{name}.py")
+        return self._inner.run_check(name, key, evidence, rungs)
+
+    def run_judge(self, req):
+        self._check_agent()
+        return self._inner.run_judge(req)
+
 
 class _JournalHost:
-    """Answers host calls from the ledger while it holds an answer, else asks the live host and records it."""
+    """Answers host calls from the ledger while it holds an answer, else asks the live host and records it.
 
-    def __init__(self, inner, ring, ledger, journal, fed, zero_duration):
+    Real step durations are journaled as the host returned them: the virtual replay rebuilds the same timeline
+    as the live run, and a live run's own `Sleep(now + duration)` is already in the past."""
+
+    def __init__(self, inner, ring, ledger, journal, fed):
         self.inner, self.ring, self.ledger = inner, ring, ledger
-        self.journal, self.fed, self.zero_duration = journal, fed, zero_duration
+        self.journal, self.fed, self.sched = journal, fed, None
+        self.root = getattr(inner, "root", None)
 
     def _take(self, kind, key):
         q = self.journal.get((kind, key))
-        return (True, q.popleft()) if q else (False, None)
+        if q:
+            return True, q.popleft()
+        if kind != "verify" and self.sched is not None and hasattr(self.sched, "go_live"):
+            self.sched.go_live()  # the journal is exhausted: from here on the clock is the wall clock
+        return False, None
 
     def _put(self, kind, key, result):
         self.ledger.append("host", {"call": kind, "key": key, "result": result})
@@ -569,7 +946,8 @@ class _JournalHost:
         return self.inner.confined(rel)
 
     def verify_signed(self, event, signer):
-        k = hashlib.sha256(event_payload(event) + b"\n" + signer.encode()).hexdigest()
+        sig = json.dumps(event.get("signature") if isinstance(event, dict) else None, default=str)
+        k = _sha(event_payload(event) + b"\n" + signer.encode() + b"\n" + sig.encode())
         hit, res = self._take("verify", k)
         if hit:
             return res
@@ -582,16 +960,14 @@ class _JournalHost:
         if hit:
             return it.StepOutcome(**res)
         out = self.inner.run_step(req)
-        if self.zero_duration:
-            out.duration = 0.0  # a live step already took wall time
         self._put("step", req.key, dataclasses.asdict(out))
         return out
 
-    def run_check(self, name, key, evidence):
+    def run_check(self, name, key, evidence, rungs=None):
         hit, res = self._take("check", f"{name}\n{key}")
         if not hit:
             try:
-                res = bool(self.inner.run_check(name, key, evidence))
+                res = bool(self.inner.run_check(name, key, evidence, rungs))
             except it.OutsideRoot as e:
                 res = {"outside": str(e)}
             self._put("check", f"{name}\n{key}", res)
@@ -606,6 +982,15 @@ class _JournalHost:
             return res
         res = self.inner.run_judge(req)
         self._put("judge", key, res)
+        return res
+
+    def change(self):
+        hit, res = self._take("change", "")
+        if hit:
+            return res
+        fn = getattr(self.inner, "change", None)
+        res = fn() if fn else {"head": None, "worktree": None}
+        self._put("change", "", res)
         return res
 
 
@@ -633,6 +1018,33 @@ class _Tee(list):
         self.on_new(e)
 
 
+class _OrgRun(it._Run):
+    """`_Run` plus P33: a decision event needs an `id`, and each id is consumed once per run."""
+
+    def __init__(self, interp, rid, ledger, recorded):
+        super().__init__(interp, rid)
+        self._ledger, self._recorded, self._ids = ledger, set(recorded), set()
+
+    def decision_test(self, event, full, item=None, signer="owner"):
+        dec, why = super().decision_test(event, full, item, signer)
+        if why:
+            return dec, why
+        eid = event.get("id") if isinstance(event, dict) else None
+        if not isinstance(eid, str) or not eid:
+            return None, "decision event has no id"
+        if eid in self._ids:
+            return None, "decision event id already consumed"
+        self._ids.add(eid)
+        if eid not in self._recorded:
+            self._ledger.append("decision-id", {"id": eid, "key": full})
+            self._recorded.add(eid)
+        return dec, None
+
+
+class _StageError(Exception):
+    pass
+
+
 class OrgProcessHost(it.ProcessHost):
     """`ProcessHost` that gives `agent-run` its environment and runs model judges through it (6.1)."""
 
@@ -640,9 +1052,16 @@ class OrgProcessHost(it.ProcessHost):
 
     def __init__(self, root, session_dir, env=None, agent_run=None, events=(), verify=None):
         super().__init__(root, agent_run=agent_run or self.AGENT_RUN, events=events, verify=verify)
-        self.session_dir = os.path.abspath(str(session_dir))
+        self.session_dir = os.path.realpath(str(session_dir))
         self.env = dict(env or {})
         os.makedirs(self.session_dir, exist_ok=True)
+
+    @staticmethod
+    def _killpg(pid):
+        try:
+            os.killpg(pid, it.signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
 
     def _env(self, req, item=None):
         env = {"PATH": os.environ.get("PATH", ""), "ORG_ROOT": self.root, "ORG_RUN": req.run_id, "ORG_KEY": req.key,
@@ -652,45 +1071,53 @@ class OrgProcessHost(it.ProcessHost):
             env["ORG_ITEM"] = str(item)
         return env
 
-    def _stage_input(self, argv):
+    def _stage_input(self, argv, input_file):
         """agent-run reads its input file only from the session directory or the org root, and U13a writes it to
         a private temporary directory: copy it (read-only) into the session directory and point `--input` there."""
         argv = list(argv)
-        if "--input" in argv and argv.index("--input") + 1 < len(argv):
-            i = argv.index("--input") + 1
-            src = argv[i]
-            if not os.path.realpath(src).startswith(self.session_dir + os.sep):
-                dst_dir = os.path.join(self.session_dir, "inputs")
-                os.makedirs(dst_dir, exist_ok=True)
-                dst = os.path.join(dst_dir, secrets.token_hex(8) + ".json")
-                with open(src, "rb") as f:
-                    data = f.read()
-                with open(dst, "wb") as f:
-                    f.write(data)
-                os.chmod(dst, 0o444)
-                argv[i] = dst
-        return argv
+        if not input_file or input_file not in argv:
+            return argv
+        if os.path.realpath(input_file).startswith(self.session_dir + os.sep):
+            return argv
+        try:
+            dst_dir = os.path.join(self.session_dir, "inputs")
+            os.makedirs(dst_dir, exist_ok=True)
+            dst = os.path.join(dst_dir, secrets.token_hex(8) + ".json")
+            with open(input_file, "rb") as f:
+                data = f.read()
+            with open(dst, "wb") as f:
+                f.write(data)
+            os.chmod(dst, 0o444)
+        except OSError as e:
+            raise _StageError(f"input file cannot be staged: {e.strerror or type(e).__name__}") from None
+        return [dst if a == input_file else a for a in argv]
 
-    def _agent_run(self, argv, env, stdin, limit):
-        argv = self._stage_input(argv)
+    def _agent_run(self, argv, input_file, env, stdin, limit):
+        """(stdout, stderr, seconds, exit code, timed out); text decoded with replacement, never raising."""
+        try:
+            argv = self._stage_input(argv, input_file)
+        except _StageError as e:
+            return None, str(e), 0.0, 127, False
         try:
             p = subprocess.Popen([sys.executable, self.agent_run] + argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE, env=env, cwd=self.root, text=True, start_new_session=True)
+                                 stderr=subprocess.PIPE, env=env, cwd=self.root, start_new_session=True)
         except OSError as e:
-            return None, None, f"cannot start: {e.strerror}", 127, False
+            return None, f"cannot start: {e.strerror}", 0.0, 127, False
         t0 = time.monotonic()
         try:
-            out, err = p.communicate(stdin, timeout=limit)
+            out, err = p.communicate(stdin.encode(), timeout=limit)
         except subprocess.TimeoutExpired:
-            os.killpg(p.pid, it.signal.SIGKILL)
+            self._killpg(p.pid)
             p.communicate()
             return None, None, None, -9, True
-        return out, err, time.monotonic() - t0, p.returncode, False
+        return (out.decode("utf-8", errors="replace"), err.decode("utf-8", errors="replace"),
+                time.monotonic() - t0, p.returncode, False)
 
     def run_step(self, req):
         if req.command != "agent-run":
             return super().run_step(req)
-        out, err, dur, code, timed_out = self._agent_run(req.argv[1:], self._env(req), json.dumps(req.input), req.limit)
+        out, err, dur, code, timed_out = self._agent_run(req.argv[1:], req.input_file, self._env(req),
+                                                         json.dumps(req.input, default=str), req.limit)
         if timed_out:
             return it.StepOutcome(exit_code=-9, duration=req.limit or 0, timed_out=True)
         if out is None:
@@ -703,19 +1130,22 @@ class OrgProcessHost(it.ProcessHost):
         return it.StepOutcome(exit_code=code, output=parsed, stdout=out, duration=dur, error=error)
 
     def run_judge(self, req):
-        out, err, dur, code, timed_out = self._agent_run(req.argv[1:], self._env(req, req.item), "", 3600)
-        if timed_out or code != 0 or out is None:
-            return None
         try:
+            out, err, dur, code, timed_out = self._agent_run(req.argv[1:], req.input_file, self._env(req, req.item), "",
+                                                             3600)
+            if timed_out or code != 0 or out is None:
+                return None
             event = json.loads(out)["event"]
             d = event["data"]
-        except (ValueError, KeyError, TypeError):
+            if not isinstance(event, dict) or not isinstance(d, dict):
+                return None
+            if (event.get("type") != "org.rubric-verdict" or d.get("run") != req.run_id or d.get("task") != req.key
+                    or d.get("item") != req.item):
+                return None
+            return {"invocation": req.invocation, "type": event["type"],
+                    "data": {"run": d["run"], "task": d["task"], "item": d["item"], "verdict": d.get("verdict")}}
+        except Exception:  # noqa: BLE001  anything odd in the agent's output is no verdict
             return None
-        if (event.get("type") != "org.rubric-verdict" or d.get("run") != req.run_id or d.get("task") != req.key
-                or d.get("item") != req.item):
-            return None
-        return {"invocation": req.invocation, "type": event["type"],
-                "data": {"run": d["run"], "task": d["task"], "item": d["item"], "verdict": d.get("verdict")}}
 
 
 # ---------------------------------------------------------------- the runtime
@@ -728,20 +1158,40 @@ def _digest(files):
     return h.hexdigest()
 
 
+def _no_collector(*args, **kw):
+    raise LedgerError("replay would run a collector")
+
+
+class _Loaded:
+    def __init__(self, errs=(), workflows=None, catalog=None, manifest=None, files=None, snap=None):
+        self.errs, self.workflows, self.catalog = list(errs), workflows, catalog
+        self.manifest, self.files, self.snap = manifest, files, snap
+
+
 class OrgRuntime:
     """Load, refuse, run, resume and replay workflows of one org root against a host and a ledger.
 
-    `snapshots` (a `SnapshotStore`, or `UNENFORCED`) and `frozen` (a `FrozenOutside`) are required: leaving rung
-    enforcement out has to be written down.
+    `snapshots` (a `SnapshotStore`, or `UNENFORCED`) and `frozen` (a `FrozenOutside`, or `NO_OUTSIDE`) are
+    required: leaving rung enforcement out has to be written down. A caller-chosen run id needs
+    `allow_run_id=True` (tests only); an id any earlier ledger in the same directory used is refused.
     """
 
     def __init__(self, root, *, ledger_path, ledger_key, ring, host, snapshots, frozen, proposer_rungs=None,
-                 proposer_role="improver", collector=None, clock=time.monotonic, sleep=time.sleep, poll=1.0):
-        self.root, self.ledger_path, self.ledger_key = str(root), str(ledger_path), ledger_key
+                 proposer_role="improver", collector=None, clock=time.monotonic, sleep=time.sleep, poll=1.0,
+                 root_id=None, allow_run_id=False, used_ids_path=None):
+        if not isinstance(ledger_key, (bytes, bytearray)) or len(ledger_key) < MIN_KEY:
+            raise ValueError(f"the ledger key must be at least {MIN_KEY} bytes")
+        if proposer_rungs is not None and "frozen" in proposer_rungs:
+            raise ValueError("a proposer may never be given the 'frozen' rung")
+        self.root, self.ledger_path, self.ledger_key = str(root), str(ledger_path), bytes(ledger_key)
         self.ring, self.host, self.snapshots, self.frozen = ring, host, snapshots, frozen
         self.proposer_rungs, self.proposer_role = proposer_rungs, proposer_role
         self.collector = collector or ProcessCollector(self.root)
         self.clock, self.sleep, self.poll = clock, sleep, poll
+        self.root_id = root_id or hashlib.sha256(os.path.realpath(self.root).encode()).hexdigest()[:32]
+        self.allow_run_id = allow_run_id
+        self.used_ids_path = str(used_ids_path or os.path.join(os.path.dirname(os.path.abspath(self.ledger_path)),
+                                                               "used-run-ids"))
 
     # -- load
 
@@ -749,7 +1199,7 @@ class OrgRuntime:
         if self.proposer_rungs is not None:
             return set(self.proposer_rungs)
         for name, data in base_files.items():  # the BASE manifest: a proposer cannot grant itself rungs
-            if MANIFEST_FILE.match(name) and data is not None:
+            if MANIFEST_FILE.fullmatch(name) and data is not None:
                 try:
                     man = json.loads(data) if name.endswith(".json") else __import__("yaml").safe_load(data)
                     rungs = man["roles"][self.proposer_role]["rungs"]
@@ -760,60 +1210,71 @@ class OrgRuntime:
         return {"free", "ordinary"}
 
     def _rung_refusals(self, files):
+        """(refusals, snapshot info)."""
         if self.snapshots is UNENFORCED:
-            return []
-        base = self.snapshots.latest_valid(self.ring)
+            return [], None
+        try:
+            base = self.snapshots.latest_valid(self.ring, self.root_id)
+        except SnapshotError as e:
+            return [f"run refused: snapshot: {e}"], None
         if base is None:
-            return ["run refused: snapshot: no owner-signed snapshot to compare against"]
-        base_files, base_out = base
+            return ["run refused: snapshot: no owner-signed snapshot to compare against"], None
+        snap = {"seq": base["seq"], "hash": base["hash"]}
         errs = []
         try:
             out = self.frozen.map()
         except FileMapError as e:
-            return [f"run refused: {e}"]
-        for p in sorted(set(base_out) | set(out)):
-            if base_out.get(p) != out.get(p):
+            return [f"run refused: {e}"], snap
+        for p in sorted(set(base["outside"]) | set(out)):
+            if base["outside"].get(p) != out.get(p):
                 errs.append(f"run refused: {p}: change needs rung 'frozen' and has no owner signature")
-        if base_files != files:
-            paths = set(base_files) | set(files)
-            b = {p: base_files.get(p) for p in paths}
+        if base["files"] != files:
+            paths = set(base["files"]) | set(files)
+            b = {p: base["files"].get(p) for p in paths}
             n = {p: files.get(p) for p in paths}
-            _, refused = check_change.check_change(b, n, self._rungs_for(base_files))
+            _, refused = check_change.check_change(b, n, self._rungs_for(base["files"]))
             for path, _task, _row, rung in sorted(refused, key=lambda e: (e[0], e[3])):
                 errs.append(f"run refused: {path}: change needs rung '{rung}' and has no owner signature")
-        return errs
+        return errs, snap
 
     def _load(self, name):
-        """(refusals, workflows, catalog, manifest, files)."""
+        """Everything is parsed from the verified file-map bytes, materialised in a private temporary directory."""
         try:
             files = build_file_map(self.root)
         except (FileMapError, OSError) as e:
-            return [f"run refused: {e}"], None, None, None, None
-        errs = self._rung_refusals(files)
+            return _Loaded([f"run refused: {e}"])
+        errs, snap = self._rung_refusals(files)
         if errs:
-            return errs, None, None, None, files
-        mans = [n for n in files if MANIFEST_FILE.match(n)]
+            return _Loaded(errs, files=files, snap=snap)
+        mans = [n for n in files if MANIFEST_FILE.fullmatch(n)]
         if len(mans) != 1:
-            return [f"run refused: manifest: need exactly one manifest file, found {len(mans)}"], None, None, None, files
+            return _Loaded([f"run refused: manifest: need exactly one manifest file, found {len(mans)}"], files=files)
         mname = mans[0]
-        cat_files = sorted(n for n in files if n.startswith("metrics") and ROOT_FILE.match(n))
-        try:
-            manifest = vc.load_document(os.path.join(self.root, mname))
-            docs = [(n, vc.load_document(os.path.join(self.root, n))) for n in cat_files]
-        except (vc.LoadError, vc.UsageError) as e:
-            return [f"run refused: {getattr(e, 'path', mname)}: {getattr(e, 'msg', e)}"], None, None, None, files
-        catalog, cerrs = vc.merge_catalogs(docs)
-        cerrs = cerrs or vc.validate_catalog(docs, self.root)
-        if cerrs:
-            return [f"run refused: {cat_files[0] if len(cat_files) == 1 else 'metrics'}: {cerrs[0]}"], None, None, None, files
-        merrs = vman.validate_manifest(manifest, catalog, self.root)
-        if merrs:
-            return [f"run refused: {mname}: {merrs[0]}"], None, None, None, files
-        workflows = {}
-        for wname, entry in manifest["workflows"].items():
-            workflows[wname] = vc.load_document(os.path.join(self.root, entry["path"]))
+        cat_files = sorted(n for n in files if n.startswith("metrics") and ROOT_FILE.fullmatch(n))
+        with tempfile.TemporaryDirectory(prefix="org-load-") as tmp:
+            for rel, data in files.items():
+                dst = os.path.join(tmp, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                with open(dst, "wb") as f:
+                    f.write(data)
+            try:
+                manifest = vc.load_document(os.path.join(tmp, mname))
+                docs = [(n, vc.load_document(os.path.join(tmp, n))) for n in cat_files]
+            except (vc.LoadError, vc.UsageError) as e:
+                return _Loaded([f"run refused: {mname}: {getattr(e, 'msg', e)}"], files=files)
+            catalog, cerrs = vc.merge_catalogs(docs)
+            cerrs = cerrs or vc.validate_catalog(docs, tmp)
+            if cerrs:
+                label = cat_files[0] if len(cat_files) == 1 else "metrics"
+                return _Loaded([f"run refused: {label}: {cerrs[0]}"], files=files)
+            merrs = vman.validate_manifest(manifest, catalog, tmp)
+            if merrs:
+                return _Loaded([f"run refused: {mname}: {merrs[0]}"], files=files)
+            workflows = {}
+            for wname, entry in manifest["workflows"].items():
+                workflows[wname] = vc.load_document(os.path.join(tmp, entry["path"]))
         interp = it.Interpreter(workflows, self.host, catalog=catalog, manifest=manifest)
-        return interp.refusals(name), workflows, catalog, manifest, files
+        return _Loaded(interp.refusals(name), workflows, catalog, manifest, files, snap)
 
     # -- metrics
 
@@ -821,7 +1282,8 @@ class OrgRuntime:
     def _task_index(workflows):
         return {n: {p: t for p, t in it._walk(doc["do"])} for n, doc in workflows.items()}
 
-    def _metrics_of(self, index, start, full):
+    @staticmethod
+    def _metrics_of(index, start, full):
         wf, parts, task = start, full.split(">"), None
         for i, part in enumerate(parts):
             task = index.get(wf, {}).get(re.sub(r"#[0-9]+", "", part))
@@ -834,95 +1296,127 @@ class OrgRuntime:
 
     # -- execute
 
-    def _execute(self, name, inp, rid, ledger, loaded, journal, existing, fed, feed=None):
-        _errs, workflows, catalog, manifest, _files = loaded
+    def _execute(self, name, inp, rid, ledger, loaded, entries, feed=None, readonly=False):
+        workflows, catalog, manifest = loaded.workflows, loaded.catalog, loaded.manifest
+        existing = [e["body"] for e in entries if e["kind"] == "log"]
+        journal, fed, recorded_ids, rows_after, cur = {}, [], [], {}, None
+        for e in entries:
+            b = e["body"]
+            if e["kind"] == "host":
+                journal.setdefault((b["call"], b["key"]), deque()).append(b["result"])
+            elif e["kind"] == "feed":
+                fed.append((b["t"], b["event"]))
+            elif e["kind"] == "decision-id":
+                recorded_ids.append(b["id"])
+            if e["kind"] == "log":
+                cur = b["seq"] if b.get("kind") == "accept" else None
+            elif e["kind"] == "metric" and cur is not None:
+                rows_after.setdefault(cur, set()).add(b["metric"])
         index = self._task_index(workflows)
-        pending = {"seq": None}
+        collector = _no_collector if readonly else self.collector
+        if hasattr(collector, "bind"):
+            collector.bind(loaded.files)
 
-        def collect(e):
+        def collect(e, done=()):
             if e["kind"] != "accept" or e.get("status") == "cancelled":
                 return
             for metric in self._metrics_of(index, name, e["key"]):
+                if metric in done:
+                    continue
                 row = {"key": e["key"], "metric": metric}
                 try:
-                    row["value"] = self.collector(metric, catalog[metric], e["key"], rid, ledger.path)
+                    row["value"] = collector(metric, catalog[metric], e["key"], rid, ledger.path)
                 except Exception as exc:  # noqa: BLE001  an unreadable metric is an error row, never a zero
                     row["error"] = str(exc) or type(exc).__name__
                 ledger.append("metric", row)
 
-        def skipped(e):
-            if pending["seq"] == e["seq"]:  # killed between the accept entry and its metric rows
-                collect(e)
-
-        jhost = _JournalHost(self.host, self.ring, ledger, journal, fed, zero_duration=feed is not None)
+        verified = _VerifiedHost(_NoLive(self.host) if readonly else self.host, self.root, loaded.files)
+        jhost = _JournalHost(verified, self.ring, ledger, journal, fed)
         interp = it.Interpreter(workflows, jhost, catalog=catalog, manifest=manifest)
-        run = it._Run(interp, rid)
-        tail = ledger.read()
-        if tail and tail[-1]["kind"] == "log" and tail[-1]["body"].get("kind") == "accept":
-            pending["seq"] = tail[-1]["body"]["seq"]
-        tee = _Tee(ledger, existing, collect, skipped)
+        run = _OrgRun(interp, rid, ledger, recorded_ids)
+        tee = _Tee(ledger, existing, collect, lambda e: collect(e, done=rows_after.get(e["seq"], set())))
         run.events = tee
         if feed is not None:
-            sched = _LiveScheduler(list(jhost.scheduled_events()), feed, self.clock, self.sleep,
-                                   lambda t, ev: ledger.append("feed", {"t": t, "event": ev}), self.poll)
+            replay_end = existing[-1]["t"] if existing else None
+            sched = LiveScheduler(list(jhost.scheduled_events()), feed, self.clock, self.sleep,
+                                  lambda t, ev: ledger.append("feed", {"t": t, "event": ev}), self.poll, replay_end)
             sched.on_event = run.sched.on_event
             run.sched = sched
+            jhost.sched = sched
         try:
             return run.execute(name, inp)
         finally:
             tee.closed = True  # a crash writes nothing more; neither does unwinding after one
 
+    def _used(self):
+        try:
+            with open(self.used_ids_path) as f:
+                return set(f.read().split())
+        except FileNotFoundError:
+            return set()
+
     def run(self, name, input=None, run_id=None, feed=None):
+        if run_id is not None:
+            if not self.allow_run_id:
+                raise ValueError("a caller-chosen run id needs allow_run_id=True (tests only)")
+            if not (isinstance(run_id, str) and it.RUN_ID.fullmatch(run_id)):
+                raise ValueError("run id must match [A-Za-z0-9-]{8,64}")
         rid = run_id or secrets.token_hex(16)
         loaded = self._load(name)
-        if loaded[0]:
-            return it.RunResult(status="refused", errors=loaded[0], run_id=rid)
+        if loaded.errs:
+            return it.RunResult(status="refused", errors=loaded.errs, run_id=rid)
+        if rid in self._used():
+            raise ValueError(f"run id {rid} was already used by an earlier ledger")
         ledger = RunLedger(self.ledger_path, self.ledger_key)
         if ledger.read():
             raise LedgerError(f"{self.ledger_path}: the ledger already holds a run; resume it")
-        ledger.append("header", {"run_id": rid, "workflow": name, "input": input, "root_digest": _digest(loaded[4])})
-        return self._execute(name, input, rid, ledger, loaded, {}, [], [], feed=feed)
+        ledger.append("header", {"run_id": rid, "workflow": name, "input": input,
+                                 "root_digest": _digest(loaded.files), "snapshot": loaded.snap})
+        with open(self.used_ids_path, "a") as f:
+            f.write(rid + "\n")
+        return self._execute(name, input, rid, ledger, loaded, [], feed=feed)
 
-    def _recover(self, readonly):
+    def _recover(self, readonly, expected_head=None):
         ledger = RunLedger(self.ledger_path, self.ledger_key, readonly=readonly)
         entries = ledger.read()
         if not entries or entries[0]["kind"] != "header":
             raise LedgerError(f"{self.ledger_path}: no header: there is nothing to resume")
+        ledger.verify_head(entries, expected_head)
         h = entries[0]["body"]
         loaded = self._load(h["workflow"])
-        if loaded[0]:
-            return None, it.RunResult(status="refused", errors=loaded[0], run_id=h["run_id"])
-        if _digest(loaded[4]) != h["root_digest"]:
+        if loaded.errs:
+            return None, it.RunResult(status="refused", errors=loaded.errs, run_id=h["run_id"])
+        snap = h.get("snapshot")
+        if snap and loaded.snap:
+            if loaded.snap["seq"] < snap["seq"]:
+                err = "run refused: snapshot: the signed snapshot chain is older than the one this run started with"
+            elif loaded.snap["seq"] == snap["seq"] and loaded.snap["hash"] != snap["hash"]:
+                err = "run refused: snapshot: the signed snapshot differs from the one this run started with"
+            else:
+                err = None
+            if err:
+                return None, it.RunResult(status="refused", errors=[err], run_id=h["run_id"])
+        if _digest(loaded.files) != h["root_digest"]:
             err = "run refused: org root: the org root changed since the run started"
             return None, it.RunResult(status="refused", errors=[err], run_id=h["run_id"])
-        journal, existing, fed = {}, [], []
-        for e in entries[1:]:
-            if e["kind"] == "log":
-                existing.append(e["body"])
-            elif e["kind"] == "host":
-                b = e["body"]
-                journal.setdefault((b["call"], b["key"]), deque()).append(b["result"])
-            elif e["kind"] == "feed":
-                fed.append((e["body"]["t"], e["body"]["event"]))
-        return (ledger, h, loaded, journal, existing, fed), None
+        return (ledger, h, loaded, entries[1:]), None
 
-    def resume(self):
-        """Re-run the recorded run from its ledger. Host calls the ledger answers are not made again."""
-        ctx, refused = self._recover(readonly=False)
+    def resume(self, feed=None, expected_head=None):
+        """Re-run the recorded run from its ledger. Host calls the ledger answers are not made again.
+
+        With a `feed` the run continues live after the journal is replayed: a gate waiting days survives a restart.
+        `expected_head=(entry count, last MAC)` pins the ledger to a head kept somewhere else.
+        """
+        ctx, refused = self._recover(readonly=False, expected_head=expected_head)
         if refused:
             return refused
-        ledger, h, loaded, journal, existing, fed = ctx
-        return self._execute(h["workflow"], h["input"], h["run_id"], ledger, loaded, journal, existing, fed)
+        ledger, h, loaded, entries = ctx
+        return self._execute(h["workflow"], h["input"], h["run_id"], ledger, loaded, entries, feed=feed)
 
     def replay(self):
-        """Rebuild the run's result from its ledger alone: no live call and no write."""
+        """Rebuild the run's result from its ledger alone: no live call, no collector and no write."""
         ctx, refused = self._recover(readonly=True)
         if refused:
             return refused
-        ledger, h, loaded, journal, existing, fed = ctx
-        real = self.host
-        try:
-            self.host = _NoLive(real)
-            return self._execute(h["workflow"], h["input"], h["run_id"], ledger, loaded, journal, existing, fed)
-        finally:
-            self.host = real
+        ledger, h, loaded, entries = ctx
+        return self._execute(h["workflow"], h["input"], h["run_id"], ledger, loaded, entries, readonly=True)
