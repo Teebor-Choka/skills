@@ -16,8 +16,9 @@ fixed template. Only its data block changes.
 ## Template
 
 [assets/tracker.html](assets/tracker.html) is the template. Do not edit its markup, CSS or
-script. Copy it, then replace the data block: the lines from `var ASOF=` up to, but not including,
-`var LABEL=`. The block holds `ASOF`, `LEAD`, `FOOT`, `U` and `TARGET`.
+script. Copy it, then replace the data block: the lines from `var ASOF = ` up to, but not including,
+`var LABEL = `. The block holds `ASOF`, `LEAD`, `FOOT`, `U` and `TARGET`. Keep the formatter's
+layout (two-space indent, spaces around `=`).
 
 The template ships with a worked example (the 21-unit organization-model build). Replace all of it.
 
