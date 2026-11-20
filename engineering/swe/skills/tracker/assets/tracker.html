@@ -1,0 +1,1108 @@
+<title>Build Map</title>
+<meta name="claude:viewport-fit-sides" content="cover" />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+/>
+<style>
+  /* Layout: a left-to-right dependency map (one column per wave, circles for units, a target at the right edge), a detail panel under it, then the full component list. */
+  :root {
+    --bg: #f3f5f6;
+    --surface: #ffffff;
+    --fg: #17212a;
+    --muted: #5b6770;
+    --line: #d5dbe0;
+    --code: #e8edf0;
+    --done: #1d6f5c;
+    --done-bg: #dcefe9;
+    --active: #1b5fa8;
+    --active-bg: #dde9f6;
+    --wait: #7a858e;
+    --wait-bg: #eef1f3;
+    --gate: #a35a00;
+    --gate-bg: #fbeedb;
+    --target: #6a3fa0;
+    --target-bg: #ece4f6;
+    --font-body: "Instrument Sans", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10161b;
+      --surface: #182027;
+      --fg: #e4eaee;
+      --muted: #93a0aa;
+      --line: #2b3640;
+      --code: #1f2830;
+      --done: #6fcfb4;
+      --done-bg: #16302a;
+      --active: #7fb4ee;
+      --active-bg: #17283a;
+      --wait: #8d99a3;
+      --wait-bg: #1e272e;
+      --gate: #e8b162;
+      --gate-bg: #33261380;
+      --target: #c3a4ea;
+      --target-bg: #2a2038;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10161b;
+    --surface: #182027;
+    --fg: #e4eaee;
+    --muted: #93a0aa;
+    --line: #2b3640;
+    --code: #1f2830;
+    --done: #6fcfb4;
+    --done-bg: #16302a;
+    --active: #7fb4ee;
+    --active-bg: #17283a;
+    --wait: #8d99a3;
+    --wait-bg: #1e272e;
+    --gate: #e8b162;
+    --gate-bg: #33261380;
+    --target: #c3a4ea;
+    --target-bg: #2a2038;
+    color-scheme: dark;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.55 var(--font-body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  main {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding-block: 28px 72px;
+  }
+  h1 {
+    font-size: 30px;
+    line-height: 1.2;
+    margin: 0 0 6px;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+  h2 {
+    font-size: 20px;
+    margin: 36px 0 10px;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+  p {
+    margin: 0 0 10px;
+    max-width: 72ch;
+  }
+  .lead {
+    color: var(--muted);
+    font-size: 17px;
+  }
+  code,
+  .mono {
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  code {
+    background: var(--code);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+    align-items: center;
+    margin: 16px 0 4px;
+  }
+  .bar {
+    flex: 1 1 260px;
+    min-width: 0;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--wait-bg);
+    border: 1px solid var(--line);
+    overflow: hidden;
+    display: flex;
+  }
+  .bar i {
+    display: block;
+    height: 100%;
+  }
+  .bar .b-done {
+    background: var(--done);
+  }
+  .bar .b-active {
+    background: var(--active);
+  }
+  .counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    font-size: 13.5px;
+    color: var(--muted);
+    margin: 10px 0 8px;
+  }
+  .legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .legend svg {
+    width: 18px;
+    height: 18px;
+    flex: none;
+  }
+  .map {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    overflow-x: auto;
+  }
+  .map svg {
+    display: block;
+    min-width: 980px;
+    width: 100%;
+    height: auto;
+  }
+  .wavelab {
+    fill: var(--muted);
+    font: 500 11px var(--font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .wavebg {
+    fill: var(--bg);
+    opacity: 0.55;
+  }
+  .edge {
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 1.6;
+    transition:
+      stroke 0.15s,
+      opacity 0.15s;
+  }
+  .edge.fromdone {
+    stroke: var(--done);
+    opacity: 0.55;
+  }
+  .edge.hot {
+    stroke: var(--fg);
+    opacity: 1;
+    stroke-width: 2.2;
+  }
+  .dim {
+    opacity: 0.18;
+  }
+  .node {
+    cursor: pointer;
+    outline: none;
+  }
+  .node .disc {
+    stroke-width: 2.2;
+  }
+  .node.done .disc {
+    fill: var(--done-bg);
+    stroke: var(--done);
+  }
+  .node.active .disc {
+    fill: var(--active-bg);
+    stroke: var(--active);
+  }
+  .node.wait .disc {
+    fill: var(--wait-bg);
+    stroke: var(--wait);
+    stroke-dasharray: 4 4;
+  }
+  .node.gate .disc {
+    fill: var(--gate-bg);
+    stroke: var(--gate);
+    stroke-dasharray: 4 4;
+  }
+  .node.target .disc {
+    fill: var(--target-bg);
+    stroke: var(--target);
+  }
+  .node .id {
+    font: 500 12.5px var(--font-mono);
+    fill: var(--fg);
+    text-anchor: middle;
+    dominant-baseline: central;
+  }
+  .node .nm {
+    font: 500 11.5px var(--font-body);
+    fill: var(--fg);
+    text-anchor: middle;
+  }
+  .node:focus-visible .disc,
+  .node.sel .disc {
+    stroke-width: 4;
+  }
+  .node:hover .disc {
+    stroke-width: 3.4;
+  }
+  .tick {
+    fill: none;
+    stroke: var(--done);
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .spin {
+    fill: none;
+    stroke: var(--active);
+    stroke-width: 3.4;
+    stroke-linecap: round;
+    stroke-dasharray: 30 110;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: spin 1.3s linear infinite;
+  }
+  .lock {
+    fill: none;
+    stroke: var(--gate);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spin {
+      animation: none;
+      stroke-dasharray: 6 6;
+    }
+  }
+  .panel {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-top: 12px;
+    min-height: 150px;
+  }
+  .panel .top {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .panel h3 {
+    font-size: 18px;
+    margin: 0;
+    font-weight: 600;
+  }
+  .panel dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 14px;
+    margin: 8px 0 0;
+  }
+  .panel dt {
+    color: var(--muted);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding-top: 2px;
+  }
+  .panel dd {
+    margin: 0;
+    min-width: 0;
+  }
+  .pill {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 1px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill.done {
+    background: var(--done-bg);
+    color: var(--done);
+  }
+  .pill.active {
+    background: var(--active-bg);
+    color: var(--active);
+  }
+  .pill.wait {
+    background: var(--wait-bg);
+    color: var(--wait);
+  }
+  .pill.gate {
+    background: var(--gate-bg);
+    color: var(--gate);
+  }
+  .pill.target {
+    background: var(--target-bg);
+    color: var(--target);
+  }
+  .list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 10px;
+  }
+  .item {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 8px;
+    padding: 11px 14px;
+    min-width: 0;
+    cursor: pointer;
+  }
+  .item:hover {
+    border-color: var(--muted);
+  }
+  .item:focus-visible {
+    outline: 2px solid var(--active);
+    outline-offset: 2px;
+  }
+  .item .h {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 3px;
+  }
+  .item .h b {
+    font-weight: 600;
+  }
+  .item p {
+    font-size: 14.5px;
+    margin: 0;
+    color: var(--muted);
+  }
+  .item .t {
+    font-size: 13.5px;
+    margin-top: 5px;
+  }
+  .item .t span {
+    color: var(--muted);
+  }
+  .foot {
+    color: var(--muted);
+    font-size: 13.5px;
+    margin-top: 28px;
+  }
+  @media (max-width: 560px) {
+    .panel dl {
+      grid-template-columns: 1fr;
+    }
+    .panel dt {
+      padding-top: 6px;
+    }
+  }
+</style>
+
+<main>
+  <h1>Build Map</h1>
+  <p class="lead" id="lead"></p>
+
+  <div class="summary">
+    <div class="bar" id="bar" role="img" aria-label="Progress"></div>
+    <div class="counts" id="counts"></div>
+  </div>
+  <div class="legend" id="legend"></div>
+
+  <div class="map">
+    <svg
+      id="svg"
+      role="img"
+      aria-label="Dependency map of the build units, by wave, ending at the target"
+    ></svg>
+  </div>
+  <div class="panel" id="panel" aria-live="polite"></div>
+
+  <h2>Components</h2>
+  <p>
+    The same units, in build order, with what each one is and what it must
+    deliver.
+  </p>
+  <div class="list" id="list"></div>
+
+  <p class="foot" id="foot"></p>
+</main>
+
+<script>
+  /* status: done | active | wait | gate. note: the short state label shown beside the pill. */
+  var ASOF = "2026-11-20";
+  var LEAD =
+    "The organization model, built from 21 units in six waves. Each circle is one unit, each line a dependency. Select a circle to see what it is and what it must deliver.";
+  var FOOT =
+    "Nothing is pushed yet. Statuses come from the build log, and each accepted unit has passed an isolated review and my own re-run of its checks.";
+  var U = [
+    {
+      id: "H1",
+      w: 1,
+      name: "Repository hygiene",
+      st: "done",
+      note: "fixed",
+      dep: [],
+      what: "Finds why the skills symlink was broken and reports repository state.",
+      tgt: "A clean base: the workflow skill directory and its links resolve.",
+    },
+    {
+      id: "U6",
+      w: 1,
+      name: "Format research",
+      st: "done",
+      note: "checked twice",
+      dep: [],
+      what: "Compares how n8n, Node-RED, Codex and OpenCode store workflows and sessions, from primary sources.",
+      tgt: "A note that fixes the session record shape and says what is still unverified.",
+    },
+    {
+      id: "U7",
+      w: 1,
+      name: "Instance backends",
+      st: "done",
+      note: "accepted",
+      dep: [],
+      what: "Compares sandy and nix-vm as places where a step runs.",
+      tgt: "A recommendation for this machine, with the missing enforcement in sandy flagged.",
+    },
+    {
+      id: "U8",
+      w: 1,
+      name: "Identity research",
+      st: "done",
+      note: "error corrected",
+      dep: [],
+      what: "Compares step-ca, an OpenSSH CA and OpenBao PKI for agent and person identities.",
+      tgt: "A product choice for you to make, with the reasons it could be wrong.",
+    },
+    {
+      id: "U0",
+      w: 1,
+      name: "Governance spec",
+      st: "done",
+      note: "signed",
+      dep: [],
+      what: "One written contract for the three governance documents: the workflow metadata, the metric catalog and the manifest, with every rule, message and test case.",
+      tgt: "1280 lines, two isolated reviews, 149 prototype cases pass.",
+    },
+    {
+      id: "U1b",
+      w: 1,
+      name: "OWS schema gate",
+      st: "done",
+      note: "accepted",
+      dep: [],
+      what: "Checks workflows against the vendored Open Workflow Specification schema.",
+      tgt: "A CI gate that refuses unknown keys, with exit codes for missing packages.",
+    },
+    {
+      id: "U1",
+      w: 2,
+      name: "Workflow validator",
+      st: "active",
+      note: "fixing review findings",
+      dep: ["U0"],
+      what: "Validates the governance metadata inside a workflow: kinds, floors, gates, acceptance items, commands, bounds.",
+      tgt: "validate_org: both example workflows pass, every spec case has a test.",
+    },
+    {
+      id: "U2",
+      w: 2,
+      name: "Catalog and manifest",
+      st: "done",
+      note: "accepted",
+      dep: ["U0"],
+      what: "Validates the metric catalog and the manifest, including static call-cycle and emit-cycle checks.",
+      tgt: "validate_catalog and validate_manifest, 324 tests.",
+    },
+    {
+      id: "U5",
+      w: 2,
+      name: "Expression subset",
+      st: "active",
+      note: "in review",
+      dep: ["U0"],
+      what: "Defines and evaluates the part of jq the core accepts, with no jq dependency.",
+      tgt: "A safe evaluator, including the acceptance variable, that stays inside its limits on hostile input.",
+    },
+    {
+      id: "U11",
+      w: 2,
+      name: "Session export",
+      st: "done",
+      note: "accepted",
+      dep: ["U6"],
+      what: "Turns a Claude Code session into one standard record, with secrets redacted and every drop counted.",
+      tgt: "session_export: 191 tests, redaction best effort with known gaps.",
+    },
+    {
+      id: "U9",
+      w: 2,
+      name: "Operation contracts",
+      st: "gate",
+      note: "waits for O4",
+      dep: ["U0"],
+      what: "Defines each port as a set of operations with inputs, requirements, guarantees and a conformance test.",
+      tgt: "Contracts for channel, tracker, documents, identity, instances, sessions, memory and metrics.",
+    },
+    {
+      id: "U3",
+      w: 3,
+      name: "Software process",
+      st: "wait",
+      note: "waiting",
+      dep: ["U1", "U1b", "U2"],
+      what: "Writes sw-development and tdd-unit in the repository, with the real metric catalog.",
+      tgt: "The software engineering process as OWS files that pass every validator.",
+    },
+    {
+      id: "U4",
+      w: 3,
+      name: "Research workflow",
+      st: "wait",
+      note: "waiting",
+      dep: ["U1", "U1b", "U2"],
+      what: "Writes a research workflow on paper against the same contracts.",
+      tgt: "Proof that the grammar fits a second process.",
+    },
+    {
+      id: "U13a",
+      w: 3,
+      name: "Interpreter",
+      st: "wait",
+      note: "waiting",
+      dep: ["U1", "U5"],
+      what: "Runs the accepted OWS subset on the core with scripted agents.",
+      tgt: "The first runner. The largest unit.",
+    },
+    {
+      id: "U12",
+      w: 3,
+      name: "Harness adapter",
+      st: "gate",
+      note: "waits for O4",
+      dep: ["U9"],
+      what: "One contract for any harness, with agent-run and Claude Code as the first.",
+      tgt: "A model step runs in a harness and returns signed events with cost.",
+    },
+    {
+      id: "U10",
+      w: 3,
+      name: "Terminal and GitHub",
+      st: "wait",
+      note: "waiting",
+      dep: ["U9"],
+      what: "Binds the channel and tracker ports to the terminal and GitHub.",
+      tgt: "You and GitHub can start and answer a run.",
+    },
+    {
+      id: "U15",
+      w: 3,
+      name: "Change-rung checker",
+      st: "gate",
+      note: "waits for O1",
+      dep: ["U1"],
+      what: "Classifies a change to the documents as free, protected or frozen.",
+      tgt: "check_change: the improver cannot touch a frozen item.",
+    },
+    {
+      id: "U13b",
+      w: 4,
+      name: "Ledger and signing",
+      st: "wait",
+      note: "waiting",
+      dep: ["U13a", "U2"],
+      what: "Connects the interpreter to the ledger, signatures and metrics, and enforces the runtime rules.",
+      tgt: "Every run leaves a replayable, signed record.",
+    },
+    {
+      id: "U14",
+      w: 4,
+      name: "Complete cycle",
+      st: "wait",
+      note: "waiting",
+      dep: ["U3", "U13a"],
+      what: "Finishes the software process: bug and improve entries, deploy, and the circular loops.",
+      tgt: "A feature, a bug and an improvement each run end to end with scripted agents.",
+    },
+    {
+      id: "U16",
+      w: 5,
+      name: "Retire old format",
+      st: "gate",
+      note: "waits for O3",
+      dep: ["U13b", "U14", "U15"],
+      what: "Deletes the old procedure format, its tests and docs.",
+      tgt: "One format left: OWS.",
+    },
+    {
+      id: "U17",
+      w: 6,
+      name: "Final pass",
+      st: "wait",
+      note: "waiting",
+      dep: ["U16", "U10", "U12", "U11", "U4"],
+      what: "Updates the documents, artifacts and pointers to match what was built.",
+      tgt: "Nothing describes the old design.",
+    },
+  ];
+  var TARGET = {
+    id: "Goal",
+    name: "Software engineering runs on OWS",
+    st: "target",
+    dep: ["U17"],
+    what: "An organization with one human head. A deterministic trunk runs processes, models and people are leaves, everything is measured, and it changes its own code through the same process.",
+    tgt: "Phase 1 done: a complete process runs with scripted agents, then one real model.",
+  };
+  var LABEL = {
+    done: "done",
+    active: "in progress",
+    wait: "waiting",
+    gate: "needs your decision",
+    target: "target",
+  };
+  var byId = {};
+  U.forEach(function (u) {
+    byId[u.id] = u;
+  });
+
+  function el(n, a, t) {
+    var e = document.createElementNS("http://www.w3.org/2000/svg", n);
+    for (var k in a) e.setAttribute(k, a[k]);
+    if (t != null) e.textContent = t;
+    return e;
+  }
+  function h(tag, cls, txt) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (txt != null) e.textContent = txt;
+    return e;
+  }
+
+  /* layout: one column per wave, rows centred; target in the last column */
+  var COLW = 160,
+    PADL = 24,
+    TOP = 50,
+    ROWH = 92,
+    R = 27,
+    NW = Math.max.apply(
+      null,
+      U.map(function (u) {
+        return u.w;
+      }),
+    );
+  var rows = {};
+  U.forEach(function (u) {
+    (rows[u.w] = rows[u.w] || []).push(u);
+  });
+  var maxRows = 0;
+  for (var w = 1; w <= NW; w++)
+    maxRows = Math.max(maxRows, (rows[w] || []).length);
+  var H = TOP + maxRows * ROWH + 20,
+    W = PADL * 2 + (NW + 1) * COLW;
+  U.forEach(function (u) {
+    var col = rows[u.w],
+      i = col.indexOf(u);
+    var off = ((maxRows - col.length) * ROWH) / 2;
+    u.x = PADL + (u.w - 1) * COLW + COLW / 2;
+    u.y = TOP + off + i * ROWH + ROWH / 2 - 6;
+  });
+  TARGET.x = PADL + NW * COLW + COLW / 2;
+  TARGET.y = TOP + (maxRows * ROWH) / 2 - 6;
+  TARGET.w = NW + 1;
+  byId.Goal = TARGET;
+
+  var svg = document.getElementById("svg");
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+  var gBack = el("g", {}),
+    gEdge = el("g", {}),
+    gNode = el("g", {});
+  svg.appendChild(gBack);
+  svg.appendChild(gEdge);
+  svg.appendChild(gNode);
+  for (var w = 1; w <= NW + 1; w++) {
+    if (w % 2 === 0)
+      gBack.appendChild(
+        el("rect", {
+          class: "wavebg",
+          x: PADL + (w - 1) * COLW,
+          y: 8,
+          width: COLW,
+          height: H - 16,
+          rx: 8,
+        }),
+      );
+    gBack.appendChild(
+      el(
+        "text",
+        {
+          class: "wavelab",
+          x: PADL + (w - 1) * COLW + COLW / 2,
+          y: 28,
+          "text-anchor": "middle",
+        },
+        w <= NW ? "Wave " + w : "Target",
+      ),
+    );
+  }
+  var edges = [];
+  function addEdge(a, b) {
+    var x1 = a.x + R,
+      y1 = a.y,
+      x2 = b.x - R - 3,
+      y2 = b.y,
+      dx = Math.max(40, (x2 - x1) * 0.5);
+    var p = el("path", {
+      class: "edge" + (a.st === "done" ? " fromdone" : ""),
+      d:
+        "M" +
+        x1 +
+        "," +
+        y1 +
+        " C" +
+        (x1 + dx) +
+        "," +
+        y1 +
+        " " +
+        (x2 - dx) +
+        "," +
+        y2 +
+        " " +
+        x2 +
+        "," +
+        y2,
+    });
+    gEdge.appendChild(p);
+    edges.push({ a: a.id, b: b.id, p: p });
+  }
+  U.forEach(function (u) {
+    u.dep.forEach(function (d) {
+      addEdge(byId[d], u);
+    });
+  });
+  TARGET.dep.forEach(function (d) {
+    addEdge(byId[d], TARGET);
+  });
+
+  var nodes = {};
+  function wrap(s, n) {
+    var out = [],
+      cur = "";
+    s.split(" ").forEach(function (wd) {
+      if ((cur + " " + wd).trim().length > n && cur) {
+        out.push(cur);
+        cur = wd;
+      } else cur = (cur + " " + wd).trim();
+    });
+    if (cur) out.push(cur);
+    return out;
+  }
+  function icon(g, u) {
+    if (u.st === "done")
+      g.appendChild(
+        el("path", {
+          class: "tick",
+          d: "M" + (u.x - 9) + "," + (u.y + 1) + " l6,6 l12,-13",
+        }),
+      );
+    else if (u.st === "active")
+      g.appendChild(
+        el("circle", { class: "spin", cx: u.x, cy: u.y, r: R - 5 }),
+      );
+    else if (u.st === "gate") {
+      g.appendChild(
+        el("rect", {
+          class: "lock",
+          x: u.x - 7,
+          y: u.y - 2,
+          width: 14,
+          height: 11,
+          rx: 2,
+        }),
+      );
+      g.appendChild(
+        el("path", {
+          class: "lock",
+          d: "M" + (u.x - 4) + "," + (u.y - 2) + " v-4 a4,4 0 0 1 8,0 v4",
+        }),
+      );
+    }
+  }
+  function drawNode(u) {
+    var g = el("g", {
+      class: "node " + u.st,
+      tabindex: 0,
+      role: "button",
+      "aria-label": u.id + " " + u.name + ", " + LABEL[u.st],
+    });
+    var big = u.st === "target",
+      r = big ? R + 9 : R;
+    g.appendChild(el("circle", { class: "disc", cx: u.x, cy: u.y, r: r }));
+    if (big) {
+      g.appendChild(el("text", { class: "id", x: u.x, y: u.y }, "Goal"));
+    } else {
+      if (u.st === "wait")
+        g.appendChild(el("text", { class: "id", x: u.x, y: u.y }, u.id));
+      else {
+        icon(g, u);
+      }
+    }
+    var ly = u.y + r + 14;
+    if (!big && u.st !== "wait") {
+      var idt = el(
+        "text",
+        {
+          class: "id",
+          x: u.x,
+          y: ly,
+          style: "font-size:11px;fill:var(--muted)",
+        },
+        u.id,
+      );
+      g.appendChild(idt);
+      ly += 13;
+    }
+    wrap(u.name, 17).forEach(function (line, i) {
+      g.appendChild(el("text", { class: "nm", x: u.x, y: ly + i * 13 }, line));
+    });
+    g.addEventListener("click", function () {
+      select(u.id);
+    });
+    g.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        select(u.id);
+      }
+    });
+    gNode.appendChild(g);
+    nodes[u.id] = g;
+  }
+  U.forEach(drawNode);
+  drawNode(TARGET);
+
+  /* selection: highlight the chain through the chosen unit */
+  function chain(id) {
+    var up = {},
+      down = {};
+    (function f(i) {
+      var x = byId[i];
+      (x.dep || []).forEach(function (d) {
+        if (!up[d]) {
+          up[d] = 1;
+          f(d);
+        }
+      });
+    })(id);
+    (function f(i) {
+      edges.forEach(function (e) {
+        if (e.a === i && !down[e.b]) {
+          down[e.b] = 1;
+          f(e.b);
+        }
+      });
+    })(id);
+    return { up: up, down: down };
+  }
+  var cur = null;
+  function select(id) {
+    cur = id;
+    var c = chain(id);
+    Object.keys(nodes).forEach(function (k) {
+      nodes[k].classList.toggle("sel", k === id);
+      nodes[k].classList.toggle("dim", !(k === id || c.up[k] || c.down[k]));
+    });
+    edges.forEach(function (e) {
+      var on =
+        (e.b === id && c.up[e.a]) ||
+        (e.a === id && c.down[e.b]) ||
+        (c.up[e.a] && (c.up[e.b] || e.b === id)) ||
+        (c.down[e.b] && (c.down[e.a] || e.a === id));
+      e.p.classList.toggle("hot", !!on);
+      e.p.classList.toggle("dim", !on);
+    });
+    panel(id);
+  }
+  function clearSel() {
+    cur = null;
+    Object.keys(nodes).forEach(function (k) {
+      nodes[k].classList.remove("sel", "dim");
+    });
+    edges.forEach(function (e) {
+      e.p.classList.remove("hot", "dim");
+    });
+    panel(null);
+  }
+  svg.addEventListener("click", function (e) {
+    if (
+      e.target === svg ||
+      e.target.tagName === "rect" ||
+      (e.target.tagName === "path" && e.target.classList.contains("edge"))
+    )
+      clearSel();
+  });
+
+  function panel(id) {
+    var p = document.getElementById("panel");
+    p.textContent = "";
+    if (!id) {
+      p.appendChild(
+        h(
+          "p",
+          "",
+          "Select a circle. The chain of units it depends on and the ones that wait for it stays lit.",
+        ),
+      );
+      var s = h(
+        "p",
+        "",
+        "Spinning circles are being built now. Dashed amber circles wait for a decision from you. The target is what the whole build is for.",
+      );
+      s.style.color = "var(--muted)";
+      p.appendChild(s);
+      return;
+    }
+    var u = byId[id],
+      top = h("div", "top");
+    top.appendChild(h("h3", "", (u.id === "Goal" ? "" : u.id + "  ") + u.name));
+    top.appendChild(
+      h("span", "pill " + u.st, LABEL[u.st] + (u.note ? " · " + u.note : "")),
+    );
+    p.appendChild(top);
+    var dl = h("dl");
+    function row(k, v) {
+      dl.appendChild(h("dt", "", k));
+      var d = h("dd");
+      if (typeof v === "string") d.textContent = v;
+      else d.appendChild(v);
+      dl.appendChild(d);
+    }
+    row("What", u.what);
+    row("Target", u.tgt);
+    if (u.dep && u.dep.length)
+      row(
+        "Needs",
+        u.dep
+          .map(function (d) {
+            return d + " " + byId[d].name;
+          })
+          .join(", "),
+      );
+    var after = U.filter(function (x) {
+      return x.dep.indexOf(u.id) >= 0;
+    }).map(function (x) {
+      return x.id;
+    });
+    if (TARGET.dep.indexOf(u.id) >= 0) after.push("Goal");
+    if (after.length) row("Unlocks", after.join(", "));
+    p.appendChild(dl);
+  }
+
+  /* summary, legend, list */
+  (function () {
+    var n = { done: 0, active: 0, wait: 0, gate: 0 };
+    U.forEach(function (u) {
+      n[u.st]++;
+    });
+    var bar = document.getElementById("bar");
+    [
+      ["b-done", n.done],
+      ["b-active", n.active],
+    ].forEach(function (x) {
+      var i = h("i", x[0]);
+      i.style.width = (x[1] / U.length) * 100 + "%";
+      bar.appendChild(i);
+    });
+    bar.setAttribute(
+      "aria-label",
+      n.done + " of " + U.length + " units done, " + n.active + " in progress",
+    );
+    var c = document.getElementById("counts");
+    [
+      [n.done + " of " + U.length + " done"],
+      [n.active + " in progress"],
+      [n.gate + " wait for you"],
+      [n.wait + " queued"],
+    ].forEach(function (x) {
+      c.appendChild(h("span", "", x[0]));
+    });
+    var lg = document.getElementById("legend");
+    function key(svgInner, label) {
+      var s = h("span");
+      s.innerHTML =
+        '<svg viewBox="0 0 20 20" aria-hidden="true">' + svgInner + "</svg>";
+      s.appendChild(document.createTextNode(label));
+      lg.appendChild(s);
+    }
+    key(
+      '<circle cx="10" cy="10" r="8" fill="var(--done-bg)" stroke="var(--done)" stroke-width="2"/><path d="M6,10 l3,3 l5,-6" fill="none" stroke="var(--done)" stroke-width="2" stroke-linecap="round"/>',
+      "done and accepted",
+    );
+    key(
+      '<circle cx="10" cy="10" r="8" fill="var(--active-bg)" stroke="var(--active)" stroke-width="2"/><circle class="spin" cx="10" cy="10" r="4.5" style="stroke-width:2.4;stroke-dasharray:9 20"/>',
+      "in progress (spinning)",
+    );
+    key(
+      '<circle cx="10" cy="10" r="8" fill="var(--wait-bg)" stroke="var(--wait)" stroke-width="2" stroke-dasharray="3 3"/>',
+      "queued",
+    );
+    key(
+      '<circle cx="10" cy="10" r="8" fill="var(--gate-bg)" stroke="var(--gate)" stroke-width="2" stroke-dasharray="3 3"/>',
+      "needs your decision",
+    );
+    key(
+      '<circle cx="10" cy="10" r="8" fill="var(--target-bg)" stroke="var(--target)" stroke-width="2"/>',
+      "target",
+    );
+    var L = document.getElementById("list");
+    U.concat([TARGET]).forEach(function (u) {
+      var it = h("div", "item");
+      it.tabIndex = 0;
+      it.setAttribute("role", "button");
+      var hd = h("div", "h");
+      hd.appendChild(h("span", "mono", u.id));
+      hd.appendChild(h("b", "", u.name));
+      hd.appendChild(h("span", "pill " + u.st, LABEL[u.st]));
+      it.appendChild(hd);
+      it.appendChild(h("p", "", u.what));
+      var t = h("div", "t");
+      t.appendChild(h("span", "", "Target: "));
+      t.appendChild(document.createTextNode(u.tgt));
+      it.appendChild(t);
+      function go() {
+        select(u.id);
+        document
+          .getElementById("svg")
+          .scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+      it.addEventListener("click", go);
+      it.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          go();
+        }
+      });
+      L.appendChild(it);
+    });
+    document.getElementById("lead").textContent = LEAD;
+    document
+      .getElementById("svg")
+      .setAttribute(
+        "aria-label",
+        "Dependency map of " +
+          U.length +
+          " build units in " +
+          NW +
+          " waves, ending at the target",
+      );
+    document.getElementById("foot").textContent = "As of " + ASOF + ". " + FOOT;
+    panel(null);
+  })();
+</script>
