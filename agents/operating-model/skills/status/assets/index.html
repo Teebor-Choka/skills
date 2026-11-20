@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="light dark" />
+    <title>Organization</title>
+    <link rel="stylesheet" href="css/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main" data-skip>Skip to the content</a>
+    <div class="shell">
+      <aside class="side" aria-label="Site">
+        <a class="brand" href="#/"
+          ><span class="mark" aria-hidden="true"
+            ><i class="seg-software-engineering"></i><i class="seg-research"></i
+            ><i class="seg-self-improvement"></i
+            ><i class="seg-platform"></i></span
+          >Organization</a
+        >
+        <button
+          type="button"
+          class="jump"
+          id="jump"
+          aria-keyshortcuts="/ Control+K"
+          aria-haspopup="dialog"
+        >
+          Jump to anything <kbd>/</kbd>
+        </button>
+        <ul class="vitals" aria-label="State now">
+          <li>
+            <a id="sb-build" href="#/"
+              ><span class="dot"></span
+              ><span class="t">Nothing building</span></a
+            >
+          </li>
+          <li>
+            <a id="sb-owner" href="#/decisions"
+              ><span class="dot"></span
+              ><span class="t">Nothing for you</span></a
+            >
+          </li>
+          <li>
+            <a id="sb-fail" href="#/"
+              ><span class="dot"></span
+              ><span class="t">Nothing failing</span></a
+            >
+          </li>
+        </ul>
+        <nav class="primary" aria-label="Main">
+          <a href="#/" data-nav="home">Home</a>
+          <a href="#/build" data-nav="build">Build progress</a>
+          <a href="#/language" data-nav="language">Process language</a>
+        </nav>
+        <details class="lower">
+          <summary>Decisions and open items</summary>
+          <a href="#/decisions" data-nav="decisions"
+            >Open items and decisions</a
+          >
+        </details>
+        <div class="datastat">
+          <p id="sb-data">Loading</p>
+          <div class="row">
+            <button type="button" id="sb-refresh">Refresh now</button
+            ><button type="button" id="sb-theme" aria-label="Color theme">
+              Theme: system
+            </button>
+          </div>
+        </div>
+      </aside>
+      <main id="main" tabindex="-1">
+        <noscript
+          ><p>
+            This site draws its graphs with JavaScript. Turn it on, or read the
+            sources listed in README.md.
+          </p></noscript
+        >
+      </main>
+    </div>
+    <dialog
+      class="pal"
+      id="pal"
+      aria-label="Jump to a workflow, step, unit or page"
+    >
+      <form method="dialog" role="search">
+        <input
+          id="pal-q"
+          type="search"
+          placeholder="Type a workflow, step, unit or decision"
+          autocomplete="off"
+          aria-controls="pal-list"
+          aria-autocomplete="list"
+        /><kbd>Esc</kbd>
+      </form>
+      <ul id="pal-list" role="listbox" aria-label="Matches"></ul>
+    </dialog>
+    <script>
+      try {
+        var t =
+          new URLSearchParams(location.search).get("theme") ||
+          localStorage.getItem("org-theme");
+        if (t === "light" || t === "dark")
+          document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
+    <script src="data/data.js"></script>
+    <script src="js/graph.js"></script>
+    <script src="js/views.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>

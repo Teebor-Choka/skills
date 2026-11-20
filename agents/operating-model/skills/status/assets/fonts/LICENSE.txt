@@ -1,0 +1,9 @@
+Atkinson Hyperlegible Next, Copyright Braille Institute of America, Inc.
+Licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org).
+Copied unmodified from nixpkgs `atkinson-hyperlegible-next` (2.001-unstable-2025-02-21),
+upstream https://www.brailleinstitute.org/freefont/.
+
+Atkinson Hyperlegible Mono, Copyright Braille Institute of America, Inc.
+Licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org).
+Copied unmodified from nixpkgs `atkinson-hyperlegible-mono` (2.001-unstable-2024-11-20),
+file AtkinsonHyperlegibleMono[wght].ttf, saved as atkinson-mono-var.ttf.
