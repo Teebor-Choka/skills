@@ -429,7 +429,7 @@ def test_does_not_mutate_inputs():
 # ---------------------------------------------------------------- command line
 
 def run_cli(*args, code=None):
-    code = code or "import runpy,sys; runpy.run_path(sys.argv[1], run_name='__main__')"
+    code = code or "import runpy,sys; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')"
     return subprocess.run([sys.executable, "-c", code, SCRIPT, *args], capture_output=True, text=True, timeout=120)
 
 
@@ -578,7 +578,7 @@ def test_loader_does_not_change_pyyaml_for_other_users():
 def test_loader_l4_yaml_without_pyyaml_exits_2(tmp_path):
     f = tmp_path / "w.yaml"
     f.write_text("do: []\n")
-    code = "import sys; sys.modules['yaml'] = None; import runpy; runpy.run_path(sys.argv[1], run_name='__main__')"
+    code = "import sys; sys.modules['yaml'] = None; import runpy; sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')"
     p = run_cli("--catalog", fx("catalog.json"), "--manifest", fx("manifest.json"), str(f), code=code)
     assert p.returncode == 2
     assert p.stderr.startswith(f"ERROR: {f}: reading YAML needs PyYAML; run with uv run --with pyyaml, or convert the file to JSON")
