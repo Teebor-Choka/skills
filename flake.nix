@@ -21,7 +21,7 @@
     # Only its pure lib is used (hook manifest renderer), so no flake inputs of its own.
     # Pinned until the renderer lands on main.
     agent-env = {
-      url = "git+https://github.com/Teebor-Choka/agent-env.git?ref=kauki/feat/agent-plugins/hooks-manifest-renderer&rev=e579167667d3dafa8a02a099151a742772a253ac";
+      url = "git+https://github.com/Teebor-Choka/agent-env.git?ref=main&rev=a8de73ea2944b95598fe217e9ff085c8303fadd9";
       flake = false;
     };
   };
