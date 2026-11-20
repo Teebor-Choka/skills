@@ -1720,3 +1720,313 @@ def test_cli_hides_the_run_id_the_input_file_and_the_session_dir_from_the_child(
     for secret in (RUN2, f, env["ORG_SESSION_DIR"], "task-input.json"):
         assert secret not in blob
     assert "ORG_RUN" not in seen[0]["env"] and "U-MARK" in seen[0]["stdin"]
+
+
+# ---------------------------------------------------------------- P49 to P51: --tools and --workdir
+
+TOOLS = ("Read", "Grep", "Glob", "Edit", "Write", "Bash")
+
+
+def run_with_runner(org, monkeypatch, argv, env_extra=None):
+    """Run the CLI with the real claude adapter and a recording runner. No model call."""
+    root, env, tmp = org
+    env = {k: v for k, v in env.items() if k not in ("ORG_HARNESS", "ORG_TEST_HARNESS")} | {"PATH": "/bin"}
+    env.update(env_extra or {})
+    seen = []
+
+    def runner(argv_, stdin, timeout, env_, cwd):
+        seen.append({"argv": argv_, "stdin": stdin, "env": env_, "cwd": cwd})
+        return 0, json.dumps({"result": "r", "total_cost_usd": 0.1, "duration_ms": 5}), ""
+
+    monkeypatch.setattr(ar, "_default_runner", runner)
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", *argv], env)
+    return code, out, err, seen
+
+
+def flag_value(argv, flag):
+    return argv[argv.index(flag) + 1]
+
+
+def test_the_closed_tool_set_and_the_read_tools():
+    assert ar.ALLOWED_TOOLS == TOOLS and ar.READ_TOOLS == ("Read", "Grep", "Glob")
+
+
+def test_contract_input_has_a_workdir():
+    assert "workdir" in contract()["operations"]["run"]["input"]["properties"]
+
+
+def test_claude_adapter_passes_tools_to_both_cli_flags():
+    argv = child_call(FULL_ENV, tools=["Read", "Edit", "Bash"])["argv"]
+    assert flag_value(argv, "--tools") == "Read,Edit,Bash" and flag_value(argv, "--allowedTools") == "Read,Edit,Bash"
+
+
+def test_claude_adapter_with_no_tools_disables_all_tools():
+    argv = child_call(FULL_ENV, tools=[])["argv"]
+    assert flag_value(argv, "--tools") == "" and "--allowedTools" not in argv
+
+
+def test_tool_flag_syntax_sits_behind_one_constant():
+    assert ar.tool_flags(["Read", "Bash"]) == ["--tools", "Read,Bash", "--allowedTools", "Read,Bash"]
+    assert ar.tool_flags([]) == ["--tools", ""]
+
+
+def test_claude_adapter_uses_the_workdir_as_cwd_and_keeps_it(tmp_path):
+    work = tmp_path / "w"
+    work.mkdir()
+    call = child_call(FULL_ENV, workdir=str(work))
+    assert call["cwd"] == str(work) and work.is_dir()
+
+
+def test_claude_adapter_without_a_workdir_still_uses_an_empty_temp_dir():
+    call = child_call(FULL_ENV)
+    assert call["cwd_listing"] == [] and not os.path.exists(call["cwd"])
+
+
+def test_cli_passes_tools_and_workdir_to_the_child(org, monkeypatch):
+    root, env, tmp = org
+    work = tmp / "worktree"
+    work.mkdir()
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--tools", "Read,Edit,Bash", "--workdir", str(work)])
+    assert code == 0, err
+    call = seen[0]
+    assert flag_value(call["argv"], "--tools") == "Read,Edit,Bash"
+    assert flag_value(call["argv"], "--allowedTools") == "Read,Edit,Bash"
+    assert call["cwd"] == str(work)
+    assert [k for k in call["env"] if k.startswith("ORG_")] == ["ORG_PARENT_ROLE"]
+
+
+def test_cli_without_tools_or_workdir_keeps_the_defaults(org, monkeypatch):
+    code, out, err, seen = run_with_runner(org, monkeypatch, [])
+    assert code == 0 and flag_value(seen[0]["argv"], "--tools") == "" and seen[0]["cwd"] != ""
+    assert not os.path.exists(seen[0]["cwd"])
+
+
+def test_isolated_call_passes_only_the_read_tools_and_keeps_the_workdir(org, monkeypatch):
+    root, env, tmp = org
+    work = tmp / "worktree"
+    work.mkdir()
+    code, out, err, seen = run_with_runner(
+        org, monkeypatch, ["--isolated", "--tools", "Read,Edit,Grep,Write,Glob,Bash", "--workdir", str(work)])
+    assert code == 0, err
+    assert flag_value(seen[0]["argv"], "--tools") == "Read,Grep,Glob"
+    assert flag_value(seen[0]["argv"], "--allowedTools") == "Read,Grep,Glob"
+    assert seen[0]["cwd"] == str(work)
+
+
+def test_isolated_call_with_only_write_tools_gets_none(org, monkeypatch):
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--isolated", "--tools", "Edit,Write,Bash"])
+    assert code == 0 and flag_value(seen[0]["argv"], "--tools") == "" and "--allowedTools" not in seen[0]["argv"]
+
+
+def test_a_non_isolated_call_keeps_all_listed_tools(org, monkeypatch):
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--tools", "Write,Glob"])
+    assert flag_value(seen[0]["argv"], "--tools") == "Write,Glob"
+
+
+@pytest.mark.parametrize("bad", ["Browse", "read", "Read,,Bash", "Read, Bash", "Read,Browse", " Read", "bash"])
+def test_a_tool_outside_the_closed_set_is_refused_and_no_child_starts(org, monkeypatch, bad):
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--tools", bad])
+    offender = [t for t in bad.split(",") if t not in TOOLS][0]
+    assert code == 1 and out == "" and seen == []
+    assert f"agent-run: --tools: '{offender}' is not an allowed tool" in err
+
+
+def test_the_tool_refusal_message_is_exact(org, monkeypatch):
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--tools", "Browse"])
+    assert err.strip() == "agent-run: --tools: 'Browse' is not an allowed tool"
+
+
+def test_every_closed_set_tool_is_accepted(org, monkeypatch):
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--tools", ",".join(TOOLS)])
+    assert code == 0, err
+    assert flag_value(seen[0]["argv"], "--tools") == ",".join(TOOLS)
+
+
+def test_a_workdir_that_is_not_an_existing_directory_is_refused(org, monkeypatch):
+    root, env, tmp = org
+    (tmp / "afile").write_text("x")
+    for path in (str(tmp / "missing"), str(tmp / "afile")):
+        code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", path])
+        assert code == 1 and seen == [] and err.strip() == f"agent-run: --workdir: '{path}' is not a directory"
+
+
+@pytest.mark.parametrize("part", ["checks", "bin", "collectors", "criteria", "workflows", "schemas"])
+def test_a_workdir_inside_a_frozen_part_is_refused_and_no_child_starts(org, monkeypatch, part):
+    root, env, _ = org
+    sub = root / part / "sub"
+    sub.mkdir(parents=True)
+    for path in (str(sub), str(root / part)):
+        code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", path])
+        assert code == 1 and seen == [] and out == ""
+        assert err.strip() == f"agent-run: --workdir: '{path}' is inside the frozen part '{part}/'"
+
+
+def test_a_workdir_reaching_a_frozen_part_through_a_symlink_or_dotdot_is_refused(org, monkeypatch):
+    root, env, tmp = org
+    (root / "checks" / "sub").mkdir(parents=True)
+    (tmp / "alias").symlink_to(root / "checks" / "sub")
+    for path in (str(tmp / "alias"), str(root / "briefs" / ".." / "checks" / "sub")):
+        code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", path])
+        assert code == 1 and seen == [] and "inside the frozen part 'checks/'" in err
+
+
+def test_a_workdir_in_an_unfrozen_part_of_the_root_or_outside_it_is_accepted(org, monkeypatch):
+    root, env, tmp = org
+    (root / "briefs" / "scratch").mkdir()
+    (tmp / "elsewhere").mkdir()
+    for path in (str(root / "briefs" / "scratch"), str(tmp / "elsewhere")):
+        code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", path])
+        assert code == 0, err
+        assert seen[-1]["cwd"] == path
+
+
+def test_a_frozen_name_that_is_only_a_prefix_is_not_frozen(org, monkeypatch):
+    root, env, _ = org
+    (root / "checks-extra").mkdir()
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", str(root / "checks-extra")])
+    assert code == 0, err
+
+
+def test_the_child_gets_no_run_id_or_org_variable_when_tools_and_workdir_are_set(org, monkeypatch):
+    root, env, tmp = org
+    work = tmp / "worktree"
+    work.mkdir()
+    code, out, err, seen = run_with_runner(
+        org, monkeypatch, ["--tools", "Read,Bash", "--workdir", str(work)],
+        env_extra={"ORG_RUN": RUN2})
+    assert code == 0, err
+    blob = _everything_the_child_gets(seen[0]).replace(str(work), "WORKDIR")
+    assert RUN2 not in blob and "ORG_RUN" not in seen[0]["env"] and env["ORG_SESSION_DIR"] not in blob
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [["--tools"], ["--workdir"], ["--tools=Read"], ["--workdir=/tmp"], ["--tools", "Read", "--tools", "Bash"],
+     ["--workdir", "/a", "--workdir", "/b"]],
+)
+def test_a_repeated_or_malformed_tools_or_workdir_flag_is_a_bad_argument(org, extra):
+    root, env, _ = org
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", *extra], env)
+    assert code == 2 and "bad-arguments" in err
+
+
+# ---------------------------------------------------------------- workdir containment (security)
+
+
+def _refused(org, monkeypatch, workdir, env_extra=None):
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", str(workdir)], env_extra)
+    assert code == 1 and out == "" and seen == [], err
+    return err.strip()
+
+
+def test_workdir_equal_to_the_org_root_is_refused(org, monkeypatch):
+    root, _, _ = org
+    assert _refused(org, monkeypatch, root) == f"agent-run: --workdir: '{root}' contains the org root"
+
+
+def test_workdir_that_is_a_parent_of_the_org_root_is_refused(org, monkeypatch):
+    root, _, _ = org
+    assert _refused(org, monkeypatch, root.parent) == f"agent-run: --workdir: '{root.parent}' contains the org root"
+
+
+def test_workdir_that_is_a_symlink_to_the_org_root_is_refused(org, monkeypatch):
+    root, _, tmp = org
+    (tmp / "rootlink").symlink_to(root)
+    assert "contains the org root" in _refused(org, monkeypatch, tmp / "rootlink")
+
+
+def test_workdir_that_is_a_symlink_to_a_parent_of_the_root_is_refused(org, monkeypatch):
+    root, _, tmp = org
+    (tmp / "uplink").symlink_to(root.parent)
+    assert "contains the org root" in _refused(org, monkeypatch, tmp / "uplink")
+
+
+def test_workdir_equal_to_the_session_dir_is_refused(org, monkeypatch):
+    root, env, _ = org
+    session = Path(env["ORG_SESSION_DIR"])
+    session.mkdir(parents=True)
+    assert _refused(org, monkeypatch, session) == f"agent-run: --workdir: '{session}' overlaps the session directory"
+
+
+def test_workdir_inside_the_session_dir_is_refused(org, monkeypatch):
+    root, env, _ = org
+    inside = Path(env["ORG_SESSION_DIR"]) / "sub"
+    inside.mkdir(parents=True)
+    assert "overlaps the session directory" in _refused(org, monkeypatch, inside)
+
+
+def test_workdir_that_is_a_parent_of_the_session_dir_is_refused(org, monkeypatch):
+    root, env, tmp = org
+    session = tmp / "s" / "sessions"
+    session.mkdir(parents=True)
+    msg = _refused(org, monkeypatch, tmp / "s", {"ORG_SESSION_DIR": str(session)})
+    assert msg == f"agent-run: --workdir: '{tmp / 's'}' overlaps the session directory"
+
+
+def test_workdir_that_is_a_symlink_to_the_session_dir_is_refused(org, monkeypatch):
+    root, env, tmp = org
+    session = Path(env["ORG_SESSION_DIR"])
+    session.mkdir(parents=True)
+    (tmp / "sesslink").symlink_to(session)
+    assert "overlaps the session directory" in _refused(org, monkeypatch, tmp / "sesslink")
+
+
+def test_a_sibling_of_the_org_root_and_the_session_dir_is_still_accepted(org, monkeypatch):
+    root, env, tmp = org
+    (tmp / "sessions-extra").mkdir()
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", str(tmp / "sessions-extra")])
+    assert code == 0, err
+
+
+def test_run_agent_refuses_a_workdir_that_contains_the_org_root(tmp_path):
+    root, work = tmp_path / "org", tmp_path
+    root.mkdir()
+    runner = FakeRunner()
+    with pytest.raises(PortError) as e:
+        ar.run_agent(claude(runner), ar.SessionStore(tmp_path / "x" / "s"), role="worker", brief="b", task=TASK,
+                     isolated=True, manifest=MANIFEST, workdir=str(work), org_root=str(root))
+    assert e.value.code == "workdir-refused" and "contains the org root" in str(e.value) and runner.calls == []
+
+
+def test_run_agent_refuses_a_workdir_that_overlaps_the_session_dir(tmp_path):
+    root, session = tmp_path / "org", tmp_path / "s" / "sessions"
+    root.mkdir()
+    session.mkdir(parents=True)
+    runner = FakeRunner()
+    with pytest.raises(PortError) as e:
+        ar.run_agent(claude(runner), ar.SessionStore(session), role="worker", brief="b", task=TASK, isolated=True,
+                     manifest=MANIFEST, workdir=str(session), org_root=str(root))
+    assert e.value.code == "workdir-refused" and "overlaps the session directory" in str(e.value)
+    assert runner.calls == []
+
+
+def test_run_agent_refuses_a_workdir_in_a_frozen_part_or_a_missing_one(tmp_path):
+    root = tmp_path / "org"
+    (root / "checks").mkdir(parents=True)
+    for path, text in ((root / "checks", "inside the frozen part 'checks/'"), (tmp_path / "gone", "is not a directory")):
+        with pytest.raises(PortError) as e:
+            ar.run_agent(claude(), ar.SessionStore(), role="worker", brief="b", task=TASK, isolated=True,
+                         manifest=MANIFEST, workdir=str(path), org_root=str(root))
+        assert e.value.code == "workdir-refused" and text in str(e.value)
+
+
+def test_run_agent_needs_the_org_root_to_accept_a_workdir(tmp_path):
+    with pytest.raises(PortError) as e:
+        ar.run_agent(claude(), ar.SessionStore(), role="worker", brief="b", task=TASK, isolated=True,
+                     manifest=MANIFEST, workdir=str(tmp_path))
+    assert e.value.code == "invalid-input" and "org_root" in str(e.value)
+
+
+def test_run_agent_accepts_a_safe_workdir(tmp_path):
+    root, work = tmp_path / "org", tmp_path / "work"
+    root.mkdir()
+    work.mkdir()
+    runner = FakeRunner()
+    ar.run_agent(claude(runner), ar.SessionStore(tmp_path / "s"), role="worker", brief="b", task=TASK,
+                 isolated=True, manifest=MANIFEST, workdir=str(work), org_root=str(root))
+    assert runner.calls[0]["cwd"] == str(work)
+
+
+def test_the_code_explains_why_manifest_and_catalog_files_need_no_rule():
+    text = Path(ar.__file__).read_text()
+    assert "cannot contain a directory" in text
