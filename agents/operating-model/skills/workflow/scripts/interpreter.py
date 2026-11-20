@@ -36,6 +36,9 @@ Decisions the spec leaves open (PROVISIONAL, listed in the unit report):
   D14 a check script runs from the verified bytes (`python -I -c`, script on stdin, run as
      `__main__`), not from its path; the org root is never on `sys.path` ahead of the stdlib.
   D15 a caller's `$accepted` also holds callee keys as `<call key>><callee key>`.
+  D17 (P49 to P51) `--tools` and `--workdir` come from the stack dict given to `Interpreter(stack=)` for the
+     running task's own workflow and role; `--isolated` keeps only Read, Grep, Glob; bin programs get exactly the
+     stack's `bin-env` names.
   D16 (P41) `org.task-ended` data also carries `output`, the unit's recorded entry `{exit, stdout}`.
 
 The runtime input file (7.8) lives in a private 0700 temp directory outside the org root
@@ -82,6 +85,7 @@ TASK_ENDED = "org.task-ended"
 RESERVED_PREFIXES = ("org.owner-", "org.task-")
 DURATION_UNITS = {"days": 86400, "hours": 3600, "minutes": 60, "seconds": 1, "milliseconds": 0.001}
 RUNGS = ("free", "ordinary", "protected")
+READ_TOOLS = ("Read", "Grep", "Glob")  # the only tools an --isolated call keeps (P50)
 RUN_ID = re.compile(r"[A-Za-z0-9-]{8,64}")
 ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]*")
 CMD_NAME = re.compile(r"[a-z0-9][a-z0-9._-]*")
@@ -129,6 +133,9 @@ class StepRequest:
     shell: dict = field(default_factory=dict)
     network: object = None
     input_file: str = ""
+    tools: list = field(default_factory=list)  # agent-run: the stack's tools for this role (P49), after --isolated
+    workdir: str = ""  # agent-run: the stack's working directory (P49); empty means a temporary one
+    bin_env: dict = field(default_factory=dict)  # bin programs: exactly the stack's bin-env names (P47)
 
 
 @dataclass
@@ -273,6 +280,12 @@ def _subset_errors(doc):
                         errs.append(f"{p}: task 'run.{bad}' is not in the accepted subset")
                 if not ("shell" in run or "workflow" in run) and not any(b in run for b in ("container", "script")):
                     errs.append(f"{p}: run: needs exactly one of container, script, shell, workflow")
+                shell = run.get("shell") if isinstance(run.get("shell"), dict) else {}
+                if shell.get("command") == "agent-run" and isinstance(shell.get("arguments"), list):
+                    for a in shell["arguments"]:  # W122, W123 (P51): the stack owns these flags
+                        flag = a.split("=", 1)[0] if isinstance(a, str) else None
+                        if flag in ("--tools", "--workdir"):
+                            errs.append(f"{p}: run.shell.arguments: {flag} is set by the runtime from the stack document; remove it")
             elif k == "listen":
                 if "foreach" in t:
                     errs.append(f"{p}: foreach: not in the accepted subset")
@@ -680,6 +693,8 @@ class ProcessHost:
         env = {}
         if cmd != "agent-run":
             env.update({str(k): str(v) for k, v in (req.shell.get("environment") or {}).items()})
+        if cmd != "agent-run":
+            env.update({str(k): str(v) for k, v in req.bin_env.items()})  # exactly the stack's names, nothing inherited
         env.update({"PATH": os.environ.get("PATH", ""), "ORG_ROOT": self.root, "ORG_RUN": req.run_id, "ORG_KEY": req.key})
         t0 = time.monotonic()
         out_f, err_f = tempfile.TemporaryFile(), tempfile.TemporaryFile()
@@ -1367,7 +1382,7 @@ class _Run:
         argv = [cmd] + args
         role = brief = ""
         network = None
-        input_file = ""
+        input_file, tools, workdir, bin_env = "", [], "", {}
         fatal = lambda text: TaskError(t.full, E_RUNTIME, 500, text, fatal=True)  # noqa: E731
         if cmd == "agent-run":
             role, brief = org.get("role"), org.get("brief")
@@ -1395,16 +1410,22 @@ class _Run:
                 argv += ["--network", network]
             input_file = self.input_file(t.full, data, self.reasons_of(t.sc))
             argv += ["--input", input_file]
+            tools, workdir = self.stack_tools(ex, t, "--isolated" in args)
+            argv += ["--tools", ",".join(tools)]
+            if workdir:
+                argv += ["--workdir", workdir]
         else:
             env = shell.get("environment")
             for name in (env.keys() if isinstance(env, dict) else ()):
                 if not ENV_NAME.fullmatch(str(name)) or str(name).startswith(("LD_", "DYLD_")):
                     raise fatal(f"run.shell.environment: '{name}' is not an allowed name")
+            bin_env = self.stack_env(ex, t)
         now = self.sched.now
         req = StepRequest(key=t.full, rel=t.rel, path=t.path, command=cmd, arguments=args, argv=argv, role=role or org.get("role", ""),
                           brief=brief or org.get("brief", ""), by=org.get("by", ""), input=data,
                           limit=None if deadline is None else max(deadline - now, 0), run_id=self.rid,
-                          accepted=dict(ex.accepted), shell=shell, network=network, input_file=input_file)
+                          accepted=dict(ex.accepted), shell=shell, network=network, input_file=input_file,
+                          tools=tools, workdir=workdir, bin_env=bin_env)
         self.log("step", key=t.full, command=cmd)
         o = self.hostcall(t, self.host.run_step, req)
         dur = o.duration or 0
@@ -1426,6 +1447,32 @@ class _Run:
             raise TaskError(t.full, E_RUNTIME, 500, str(o.error) if o.error else f"command exited {o.exit_code}")
         return o.output
 
+    def stack_env(self, ex, t):
+        """The stack's `bin-env` of the running workflow: exactly these names reach a bin program (P47, 8.6)."""
+        env = (self.interp.stack.get("bin-env") or {}).get(ex.name) or {}
+        out = {}
+        for name, value in env.items():
+            if not ENV_NAME.fullmatch(str(name)) or str(name) == "PATH" or str(name).startswith(("ORG_", "LD_", "DYLD_")):
+                raise TaskError(t.full, E_RUNTIME, 500, f"stack: bin-env.{ex.name}.{name}: name is not allowed", fatal=True)
+            out[str(name)] = str(value)
+        return out
+
+    def stack_tools(self, ex, t, isolated):
+        """`--tools` and `--workdir` from the stack's `roles` for this workflow and role (P49, P50)."""
+        entry = ((self.interp.stack.get("roles") or {}).get(ex.name) or {}).get(t.org.get("role")) or {}
+        tools = [x for x in entry.get("tools") or [] if isinstance(x, str)]
+        if isolated:
+            tools = [x for x in tools if x in READ_TOOLS]
+        workdir = ""
+        name = entry.get("workdir")
+        if name:
+            env = self.stack_env(ex, t)
+            if name not in env:
+                raise TaskError(t.full, E_RUNTIME, 500,
+                                f"stack: roles.{ex.name}.{t.org.get('role')}.workdir: '{name}' is not a bin-env variable of {ex.name}", fatal=True)
+            workdir = env[name]
+        return tools, workdir
+
     @staticmethod
     def flag_error(args):
         """7.8: an agent-run step may carry only --isolated, once."""
@@ -1440,6 +1487,8 @@ class _Run:
                 return f"run.shell.arguments: {flag} is set by the runtime from metadata.org; remove it"
             elif flag == "--input":
                 return "run.shell.arguments: --input is set by the runtime from the task input; remove it"
+            elif flag in ("--tools", "--workdir"):
+                return f"run.shell.arguments: {flag} is set by the runtime from the stack document; remove it"
             else:
                 return f"run.shell.arguments: '{a}' is not an allowed agent-run flag (allowed: --isolated)"
         return None
@@ -1814,13 +1863,16 @@ class Interpreter:
     still holds either way.
     """
 
-    def __init__(self, workflows, host, catalog=None, manifest=None):
+    def __init__(self, workflows, host, catalog=None, manifest=None, stack=None):
+        if stack is not None and not isinstance(stack, dict):
+            raise ValueError("stack must be a map (bin-env, roles), loaded and checked by U13b")
         if (catalog is None) != (manifest is None):
             raise ValueError("catalog and manifest must be given together or not at all")
         if not callable(getattr(host, "change", None)) or not hasattr(host, "root"):
             raise ValueError("host must provide change() and root")
         self.workflows, self.host = workflows, host
         self.catalog, self.manifest = catalog, manifest
+        self.stack = stack or {}  # plain dict from the stack document; the host API takes it as data, not a file
 
     def refusals(self, name):
         if name not in self.workflows:
