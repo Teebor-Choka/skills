@@ -45,3 +45,18 @@ From Python: `validate_org(doc, catalog, manifest) -> list[str]`. An empty list 
 
 It does not check that briefs, rubrics, check scripts or collectors exist, and it does not validate the
 manifest or the catalog.
+
+## Metrics at run time
+
+The org runtime (`scripts/org_runtime.py`) computes metrics in-process with `scripts/metric_collectors.py`: a
+registry with one collector per `reads` source (`run-ledger`, `session-record`). A catalog `collector` file is a
+named shim that exits 3 on its own. Every result goes to the run ledger as an appended entry, never a rewrite:
+
+- after each accepted node, a `metric` row per metric the task names;
+- at run end, one `org.metric` entry per catalog metric;
+- at a turn boundary (`OrgRuntime.turn_boundary()`), the export, one `org.metric` per metric, the reflection and
+  `org.turn-complete`, in that order (spec 13.3). `compaction_allowed(turn)` reads the ledger.
+
+Each row holds a `value`, a `reason` (for example `no collector for git-diff`) or an `error`, never a silent zero.
+`metrics.runtime.json` adds run metrics (duration, model calls, cost, tokens, reruns, gate wait, session tool
+calls). The entry shapes are in the org-documents spec, update 13.

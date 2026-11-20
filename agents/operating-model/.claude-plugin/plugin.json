@@ -1,5 +1,5 @@
 {
   "name": "organization",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Run work, independent of the domain: workflow (organization workflows in the Open Workflow Specification with governance metadata, a validator, an interpreter and a run ledger) and policy (the layered .agents/policy settings a skill reads instead of hardcoding a constant)."
 }
