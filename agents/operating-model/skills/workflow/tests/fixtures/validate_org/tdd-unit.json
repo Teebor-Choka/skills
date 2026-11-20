@@ -77,7 +77,6 @@
           },
           {
             "green": {
-              "if": "${ $accepted[\"cycle/red-evidence\"] == true }",
               "run": {
                 "shell": {
                   "command": "agent-run",
@@ -128,7 +127,6 @@
           },
           {
             "refactor": {
-              "if": "${ $accepted[\"cycle/green-evidence\"] == true }",
               "run": {
                 "shell": {
                   "command": "agent-run",

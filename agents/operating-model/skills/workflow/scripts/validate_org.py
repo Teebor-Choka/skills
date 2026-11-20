@@ -428,8 +428,6 @@ def _step_errors(task, p, o, errs):
         return
     if cmd != "agent-run":
         return
-    if o.get("by") == "code":
-        errs.append(f"{p}: run.shell.command: agent-run may not run on a by: code task")
     if "brief" not in o:
         errs.append(f"{p}: metadata.org.brief: required for agent-run")
     if o.get("role") == OWNER:
@@ -446,12 +444,11 @@ def _step_errors(task, p, o, errs):
         if skip:
             skip = False
             continue
-        flag = next((f for f in ("--role", "--brief", "--network", "--input", "--tools", "--workdir")
+        flag = next((f for f in ("--role", "--brief", "--network", "--input")
                      if a == f or (isinstance(a, str) and a.startswith(f + "="))), None)
         if flag:
             skip = a == flag
-            source = {"--input": "the task input", "--tools": "the stack document",
-                      "--workdir": "the stack document"}.get(flag, "metadata.org")
+            source = "the task input" if flag == "--input" else "metadata.org"
             errs.append(f"{p}: run.shell.arguments: {flag} is set by the runtime from {source}; remove it")
         elif a == "--isolated":
             if seen_isolated:

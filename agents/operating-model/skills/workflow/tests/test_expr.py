@@ -572,6 +572,63 @@ def test_fan_out_join_expression(context, expected):
     assert evaluate(unwrap(join), None, {"context": context}) is expected
 
 
+EVENTS_JOIN = "${ ($events | length) == ($context.units | length) }"
+
+
+def _ended(key):
+    return {"type": "org.task-ended", "data": {"run": "r1", "task": key, "accepted": True}}
+
+
+@pytest.mark.parametrize(
+    "events,units,expected",
+    [
+        ([], [], True),  # evaluated once before the first event: a join over zero units completes at once
+        ([], [{"id": "u1"}], False),
+        ([_ended("build/units/tdd#0")], [{"id": "u1"}, {"id": "u2"}], False),
+        ([_ended("build/units/tdd#0"), _ended("build/units/tdd#1")], [{"id": "u1"}, {"id": "u2"}], True),
+        ([_ended("build/units/tdd#0")], [], False),
+        ([], None, True),  # null | length is 0, as jq
+    ],
+)
+def test_events_join_counts_consumed_events(events, units, expected):
+    context = {} if units is None else {"units": units}
+    assert evaluate(unwrap(EVENTS_JOIN), None, {"events": events, "context": context}) is expected
+
+
+def test_events_is_readable_like_any_bound_variable():
+    events = [_ended("build/units/tdd#1")]
+    variables = {"events": events, "context": {}}
+    assert evaluate("$events[0].data.task", None, variables) == "build/units/tdd#1"
+    assert evaluate("$events[-1].data.accepted == true", None, variables) is True
+    assert evaluate("$events[5]", None, variables) is None
+
+
+def test_unbound_events_is_refused():
+    with pytest.raises(ExprError) as err:
+        evaluate(unwrap(EVENTS_JOIN), None, {"context": {"units": []}})
+    assert "variable '$events' is not defined" in str(err.value)
+
+
+def test_event_payloads_stay_data():
+    hostile = [{"data": {"task": "${ $ENV.HOME }"}}]
+    assert evaluate("$events[0].data.task", None, {"events": hostile}) == "${ $ENV.HOME }"
+    assert resolve({"t": "${ $events[0].data.task }"}, None, {"events": hostile}) == {"t": "${ $ENV.HOME }"}
+    # A non-finite number is refused where it is an operand or in the result; a count does not read it.
+    nan_events = {"events": [{"data": {"n": float("nan")}}]}
+    assert evaluate("($events | length) == 1", None, nan_events) is True
+    for source in ["$events[0].data.n == 1", "$events", "$events[0]"]:
+        with pytest.raises(ExprError) as err:
+            evaluate(source, None, nan_events)
+        assert "non-finite number" in str(err.value)
+
+
+def test_events_result_is_a_copy():
+    events = [_ended("k")]
+    out = evaluate("$events", None, {"events": events})
+    out[0]["data"]["task"] = "forged"
+    assert events[0]["data"]["task"] == "k"
+
+
 def test_join_expression_stays_inside_the_safety_caps():
     join = "($context.results | length) == ($context.units | length)"
     assert accepted_keys(join) == []
