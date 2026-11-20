@@ -4,8 +4,8 @@ description: >
   Check the governance metadata of an OWS workflow file (`metadata.org` on each task: who acts, role,
   metrics, acceptance items, floors) against the metric catalog and the manifest. Use when asked to
   write, change or validate an organization workflow, to add a task with its acceptance and metrics,
-  or to find out why a workflow is refused. Not for the OWS schema check itself, and not for GitHub
-  Actions workflow YAML.
+  or to find out why a workflow is refused. Not for the OWS schema check itself, not for the retired
+  procedure format (use procedure), and not for GitHub Actions workflow YAML.
 license: MIT
 compatibility: Python 3.10 or newer; PyYAML only to read YAML files
 metadata:
@@ -60,3 +60,26 @@ named shim that exits 3 on its own. Every result goes to the run ledger as an ap
 Each row holds a `value`, a `reason` (for example `no collector for git-diff`) or an `error`, never a silent zero.
 `metrics.runtime.json` adds run metrics (duration, model calls, cost, tokens, reruns, gate wait, session tool
 calls). The entry shapes are in the org-documents spec, update 13.
+
+## Run the organization
+
+`scripts/org.py` runs the organization on one machine (usage only; the rules are in `scripts/org.py` and the spec).
+
+```
+python3 scripts/org.py emit   --inbox INBOX --type org.scan-requested [--data '{"k": 1}'] [--id ID] [--source S]
+python3 scripts/org.py serve  --root ORG_ROOT --state STATE --inbox INBOX [--once] [--poll SECONDS]
+python3 scripts/org.py status --state STATE [--json]
+```
+
+- `emit` writes one event file into the inbox. It refuses the reserved types `org.owner-` and `org.task-`.
+- `serve` hands each event to the dispatcher and runs the workflows it starts. A signed decision file put in the
+  inbox later wakes a waiting gate. Bad files move to `.rejected`, handled ones to `.seen`.
+- `STATE` must hold `ledger.key` (mode 0600, 32 bytes or more), `keys/` (public keys, `<role> <key>` per line) and
+  `snapshots/`. The org root must hold `stack.yaml` or `stack.json`. `serve` refuses to start without them.
+- Exit codes of `serve`: 0 ok, 1 a run ended in error, 2 usage or a refusal. One `serve` per `STATE`.
+- `serve` compares the frozen files outside the org root with the signed snapshot. The repository is `--repo`, or the
+  git top level of the org root; with neither, `serve` refuses. `--no-outside-check` turns this off, warns, and is
+  recorded in the state.
+- After a crash `serve` resumes each run left "starting". A run whose ledger does not verify is reported and left.
+- A run the runtime refused is marked done: after fixing the root, `emit --id <new id>` starts it again.
+- `status` only reads. It lists each started pair with its run result (and the refusal reason) and the last ledger entry.
