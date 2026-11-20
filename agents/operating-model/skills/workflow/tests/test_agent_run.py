@@ -1699,3 +1699,191 @@ def test_cli_hides_the_run_id_the_input_file_and_the_session_dir_from_the_child(
     for secret in (RUN2, f, env["ORG_SESSION_DIR"], "task-input.json"):
         assert secret not in blob
     assert "ORG_RUN" not in seen[0]["env"] and "U-MARK" in seen[0]["stdin"]
+
+
+# ---------------------------------------------------------------- P49 to P51: --tools and --workdir
+
+TOOLS = ("Read", "Grep", "Glob", "Edit", "Write", "Bash")
+
+
+def run_with_runner(org, monkeypatch, argv, env_extra=None):
+    """Run the CLI with the real claude adapter and a recording runner. No model call."""
+    root, env, tmp = org
+    env = {k: v for k, v in env.items() if k not in ("ORG_HARNESS", "ORG_TEST_HARNESS")} | {"PATH": "/bin"}
+    env.update(env_extra or {})
+    seen = []
+
+    def runner(argv_, stdin, timeout, env_, cwd):
+        seen.append({"argv": argv_, "stdin": stdin, "env": env_, "cwd": cwd})
+        return 0, json.dumps({"result": "r", "total_cost_usd": 0.1, "duration_ms": 5}), ""
+
+    monkeypatch.setattr(ar, "_default_runner", runner)
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", *argv], env)
+    return code, out, err, seen
+
+
+def flag_value(argv, flag):
+    return argv[argv.index(flag) + 1]
+
+
+def test_the_closed_tool_set_and_the_read_tools():
+    assert ar.ALLOWED_TOOLS == TOOLS and ar.READ_TOOLS == ("Read", "Grep", "Glob")
+
+
+def test_contract_input_has_a_workdir():
+    assert "workdir" in contract()["operations"]["run"]["input"]["properties"]
+
+
+def test_claude_adapter_passes_tools_to_both_cli_flags():
+    argv = child_call(FULL_ENV, tools=["Read", "Edit", "Bash"])["argv"]
+    assert flag_value(argv, "--tools") == "Read,Edit,Bash" and flag_value(argv, "--allowedTools") == "Read,Edit,Bash"
+
+
+def test_claude_adapter_with_no_tools_disables_all_tools():
+    argv = child_call(FULL_ENV, tools=[])["argv"]
+    assert flag_value(argv, "--tools") == "" and "--allowedTools" not in argv
+
+
+def test_tool_flag_syntax_sits_behind_one_constant():
+    assert ar.tool_flags(["Read", "Bash"]) == ["--tools", "Read,Bash", "--allowedTools", "Read,Bash"]
+    assert ar.tool_flags([]) == ["--tools", ""]
+
+
+def test_claude_adapter_uses_the_workdir_as_cwd_and_keeps_it(tmp_path):
+    work = tmp_path / "w"
+    work.mkdir()
+    call = child_call(FULL_ENV, workdir=str(work))
+    assert call["cwd"] == str(work) and work.is_dir()
+
+
+def test_claude_adapter_without_a_workdir_still_uses_an_empty_temp_dir():
+    call = child_call(FULL_ENV)
+    assert call["cwd_listing"] == [] and not os.path.exists(call["cwd"])
+
+
+def test_cli_passes_tools_and_workdir_to_the_child(org, monkeypatch):
+    root, env, tmp = org
+    work = tmp / "worktree"
+    work.mkdir()
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--tools", "Read,Edit,Bash", "--workdir", str(work)])
+    assert code == 0, err
+    call = seen[0]
+    assert flag_value(call["argv"], "--tools") == "Read,Edit,Bash"
+    assert flag_value(call["argv"], "--allowedTools") == "Read,Edit,Bash"
+    assert call["cwd"] == str(work)
+    assert [k for k in call["env"] if k.startswith("ORG_")] == ["ORG_PARENT_ROLE"]
+
+
+def test_cli_without_tools_or_workdir_keeps_the_defaults(org, monkeypatch):
+    code, out, err, seen = run_with_runner(org, monkeypatch, [])
+    assert code == 0 and flag_value(seen[0]["argv"], "--tools") == "" and seen[0]["cwd"] != ""
+    assert not os.path.exists(seen[0]["cwd"])
+
+
+def test_isolated_call_passes_only_the_read_tools_and_keeps_the_workdir(org, monkeypatch):
+    root, env, tmp = org
+    work = tmp / "worktree"
+    work.mkdir()
+    code, out, err, seen = run_with_runner(
+        org, monkeypatch, ["--isolated", "--tools", "Read,Edit,Grep,Write,Glob,Bash", "--workdir", str(work)])
+    assert code == 0, err
+    assert flag_value(seen[0]["argv"], "--tools") == "Read,Grep,Glob"
+    assert flag_value(seen[0]["argv"], "--allowedTools") == "Read,Grep,Glob"
+    assert seen[0]["cwd"] == str(work)
+
+
+def test_isolated_call_with_only_write_tools_gets_none(org, monkeypatch):
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--isolated", "--tools", "Edit,Write,Bash"])
+    assert code == 0 and flag_value(seen[0]["argv"], "--tools") == "" and "--allowedTools" not in seen[0]["argv"]
+
+
+def test_a_non_isolated_call_keeps_all_listed_tools(org, monkeypatch):
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--tools", "Write,Glob"])
+    assert flag_value(seen[0]["argv"], "--tools") == "Write,Glob"
+
+
+@pytest.mark.parametrize("bad", ["Browse", "read", "Read,,Bash", "Read, Bash", "Read,Browse", " Read", "bash"])
+def test_a_tool_outside_the_closed_set_is_refused_and_no_child_starts(org, monkeypatch, bad):
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--tools", bad])
+    offender = [t for t in bad.split(",") if t not in TOOLS][0]
+    assert code == 1 and out == "" and seen == []
+    assert f"agent-run: --tools: '{offender}' is not an allowed tool" in err
+
+
+def test_the_tool_refusal_message_is_exact(org, monkeypatch):
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--tools", "Browse"])
+    assert err.strip() == "agent-run: --tools: 'Browse' is not an allowed tool"
+
+
+def test_every_closed_set_tool_is_accepted(org, monkeypatch):
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--tools", ",".join(TOOLS)])
+    assert code == 0, err
+    assert flag_value(seen[0]["argv"], "--tools") == ",".join(TOOLS)
+
+
+def test_a_workdir_that_is_not_an_existing_directory_is_refused(org, monkeypatch):
+    root, env, tmp = org
+    (tmp / "afile").write_text("x")
+    for path in (str(tmp / "missing"), str(tmp / "afile")):
+        code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", path])
+        assert code == 1 and seen == [] and err.strip() == f"agent-run: --workdir: '{path}' is not a directory"
+
+
+@pytest.mark.parametrize("part", ["checks", "bin", "collectors", "criteria", "workflows", "schemas"])
+def test_a_workdir_inside_a_frozen_part_is_refused_and_no_child_starts(org, monkeypatch, part):
+    root, env, _ = org
+    sub = root / part / "sub"
+    sub.mkdir(parents=True)
+    for path in (str(sub), str(root / part)):
+        code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", path])
+        assert code == 1 and seen == [] and out == ""
+        assert err.strip() == f"agent-run: --workdir: '{path}' is inside the frozen part '{part}/'"
+
+
+def test_a_workdir_reaching_a_frozen_part_through_a_symlink_or_dotdot_is_refused(org, monkeypatch):
+    root, env, tmp = org
+    (root / "checks" / "sub").mkdir(parents=True)
+    (tmp / "alias").symlink_to(root / "checks" / "sub")
+    for path in (str(tmp / "alias"), str(root / "briefs" / ".." / "checks" / "sub")):
+        code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", path])
+        assert code == 1 and seen == [] and "inside the frozen part 'checks/'" in err
+
+
+def test_a_workdir_in_an_unfrozen_part_of_the_root_or_outside_it_is_accepted(org, monkeypatch):
+    root, env, tmp = org
+    (root / "briefs" / "scratch").mkdir()
+    (tmp / "elsewhere").mkdir()
+    for path in (str(root / "briefs" / "scratch"), str(tmp / "elsewhere")):
+        code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", path])
+        assert code == 0, err
+        assert seen[-1]["cwd"] == path
+
+
+def test_a_frozen_name_that_is_only_a_prefix_is_not_frozen(org, monkeypatch):
+    root, env, _ = org
+    (root / "checks-extra").mkdir()
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", str(root / "checks-extra")])
+    assert code == 0, err
+
+
+def test_the_child_gets_no_run_id_or_org_variable_when_tools_and_workdir_are_set(org, monkeypatch):
+    root, env, tmp = org
+    work = tmp / "worktree"
+    work.mkdir()
+    code, out, err, seen = run_with_runner(
+        org, monkeypatch, ["--tools", "Read,Bash", "--workdir", str(work)],
+        env_extra={"ORG_RUN": RUN2})
+    assert code == 0, err
+    blob = _everything_the_child_gets(seen[0]).replace(str(work), "WORKDIR")
+    assert RUN2 not in blob and "ORG_RUN" not in seen[0]["env"] and env["ORG_SESSION_DIR"] not in blob
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [["--tools"], ["--workdir"], ["--tools=Read"], ["--workdir=/tmp"], ["--tools", "Read", "--tools", "Bash"],
+     ["--workdir", "/a", "--workdir", "/b"]],
+)
+def test_a_repeated_or_malformed_tools_or_workdir_flag_is_a_bad_argument(org, extra):
+    root, env, _ = org
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", *extra], env)
+    assert code == 2 and "bad-arguments" in err
