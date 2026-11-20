@@ -1,0 +1,42 @@
+[
+  {
+    "id": "U3",
+    "w": 1,
+    "name": "Unit loop",
+    "st": "done",
+    "note": "verified",
+    "dep": [],
+    "what": "Runs one unit through red, green and refactor.",
+    "tgt": "The tdd-unit workflow passes its own acceptance."
+  },
+  {
+    "id": "U4",
+    "w": 1,
+    "name": "Research workflow",
+    "st": "done",
+    "note": "verified",
+    "dep": [],
+    "what": "Turns one question into one cited note.",
+    "tgt": "Every claim in the note cites a primary source."
+  },
+  {
+    "id": "U13b",
+    "w": 2,
+    "name": "Org runtime",
+    "st": "done",
+    "note": "verified",
+    "dep": ["U3"],
+    "what": "Runs workflows with a ledger.",
+    "tgt": "A run can be replayed from its ledger."
+  },
+  {
+    "id": "U19",
+    "w": 3,
+    "name": "Command line",
+    "st": "active",
+    "note": "building",
+    "dep": ["U13b"],
+    "what": "Serves the organization on one machine.",
+    "tgt": "serve, emit and status work end to end."
+  }
+]
