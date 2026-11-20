@@ -988,7 +988,7 @@ class _JournalHost:
         self._put("judge", key, res)
         return res
 
-    def change(self):
+    def change(self, worktree=None, base=None):
         hit, res = self._take("change", "")
         if hit:
             return res

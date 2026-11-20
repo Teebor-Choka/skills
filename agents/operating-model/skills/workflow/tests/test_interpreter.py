@@ -2797,3 +2797,101 @@ def test_a_skipped_task_does_not_count_for_a_join_that_waits_on_task_ended():
         {"join": _plain_gate("${ ($events | length) == 1 }", after={"seconds": 30})}]}))
     res = go(doc)
     assert res.status == "success", res.errors
+
+
+# ================================================================= spec update 12: judge inputs after the second live run (P54 to P56)
+
+
+def _judged(stack=None, judge_role="reviewer", input=None):
+    """Run one code step judged by a rubric; return (judge requests with their input files, change() calls)."""
+    seen, changes = [], []
+
+    def judge(req):
+        seen.append((req, json.loads(Path(req.input_file).read_text())))
+        return {"invocation": req.invocation, "type": "org.rubric-verdict",
+                "data": {"run": req.run_id, "task": req.key, "item": req.item, "verdict": "pass"}}
+
+    def change(worktree=None, base=None):
+        changes.append((worktree, base))
+        return {"head": "h1", "worktree": worktree or "/org", "base": base, "diff": "+x" if worktree else None}
+    doc = wf(("t1", leaf("work", [{"rubric": "criteria/x.md", "judge": judge_role}])))
+    host = ScriptedHost(steps={"t1": StepOutcome(output={"ok": 1})}, judges={"t1": judge}, change=change)
+    res = Interpreter({"t": doc}, host, stack=stack).run("t", input=input, run_id=RID)
+    assert res.status == "success", res.errors
+    return seen, changes
+
+
+def test_p54_change_is_computed_for_the_stack_worktree_against_its_base():
+    seen, changes = _judged(stack=_stack(role="reviewer"))
+    assert changes == [("/w", "main")]  # TDD_WORKTREE and TDD_BASE of the running workflow's bin-env
+    ev = seen[0][1]["input"]["evidence"]
+    assert ev["change"] == {"head": "h1", "worktree": "/w", "base": "main", "diff": "+x"}
+
+
+def test_p54_without_a_stack_worktree_change_stays_on_the_org_root():
+    seen, changes = _judged(stack=None)
+    assert changes == [(None, None)]
+    assert seen[0][1]["input"]["evidence"]["change"]["worktree"] == "/org"
+
+
+def test_p55_evidence_carries_the_workflow_input_so_judges_see_the_write_set():
+    unit = {"id": "sum", "write_set": ["calc.py", "test_add.py"]}
+    seen, _ = _judged(input={"unit": unit})
+    assert seen[0][1]["input"]["evidence"].get("input") == {"unit": unit}
+
+
+def test_p55_a_check_sees_the_workflow_input_too():
+    seen = []
+    doc = wf(("s", leaf("work", [chk("c")])))
+    host = ScriptedHost(checks={"c": lambda name, key, ev: seen.append(ev.get("input")) or True})
+    Interpreter({"t": doc}, host).run("t", input={"unit": {"write_set": ["a.py"]}}, run_id=RID)
+    assert seen == [{"unit": {"write_set": ["a.py"]}}]
+
+
+def test_p56_a_judge_gets_the_read_tools_and_workdir_of_its_own_role_from_the_stack():
+    stack = _stack(tools=("Read", "Grep", "Glob", "Edit", "Bash"), role="reviewer")
+    seen, _ = _judged(stack=stack)
+    req = seen[0][0]
+    flags = _flags(req.argv)
+    assert flags.get("--tools") == "Read,Grep,Glob" and flags.get("--workdir") == "/w"  # write tools never reach a judge
+    assert req.argv[:7] == ["agent-run", "--role", "reviewer", "--brief", "criteria/x.md", "--input", req.input_file]
+
+
+def test_p56_a_judge_whose_role_has_no_stack_entry_gets_no_tools_and_no_workdir():
+    seen, _ = _judged(stack=_stack(role="worker"), judge_role="lead")
+    assert "--tools" not in seen[0][0].argv and "--workdir" not in seen[0][0].argv
+
+
+def _git(repo, *args):
+    return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@e", "-c", "user.name=t", *args], check=True,
+                          capture_output=True, text=True).stdout.strip()
+
+
+def test_p54_process_host_change_diffs_the_worktree_against_base_including_untracked_files(tmp_path, org):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "calc.py").write_text("def add(a, b):\n    return 0\n")
+    _git(repo, "add", "calc.py")
+    _git(repo, "commit", "-q", "-m", "base")
+    base = _git(repo, "rev-parse", "HEAD")
+    (repo / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+    (repo / "test_add.py").write_text("def test_add():\n    assert True\n")
+    c = ProcessHost(str(org)).change(str(repo), "main")
+    assert c["head"] == base and c.get("base") == base and c["worktree"] == os.path.realpath(repo)
+    diff = c.get("diff") or ""
+    assert "+    return a + b" in diff and "-    return 0" in diff
+    assert "+def test_add():" in diff  # an untracked new file is part of the change
+    assert _git(repo, "diff", "--cached", "--name-only") == ""  # the index is untouched (no `git add -N`)
+
+
+def test_p54_process_host_change_caps_the_diff(tmp_path, org):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "a.txt").write_text("a\n")
+    _git(repo, "add", "a.txt")
+    _git(repo, "commit", "-q", "-m", "base")
+    (repo / "big.txt").write_text("x" * 50 + "\n")
+    c = ProcessHost(str(org)).change(str(repo), "main", cap=20)
+    assert len(c.get("diff") or "") == 20 and c.get("truncated") is True

@@ -193,6 +193,8 @@ UNITS = {"units": [
     {"id": "u1", "goal": "g", "write_set": ["src/a.py"], "criteria": ["C1"], "depends_on": []},
     {"id": "u2", "goal": "g", "write_set": ["src/b.py"], "criteria": ["C2"], "depends_on": ["u1"]},
 ]}
+# the tdd-unit workflow input (P55): the red fact compares `changed` with the unit's write_set (P57)
+UNIT_INPUT = {"unit": {"id": "sum", "write_set": ["calc.py", "test_add.py"]}}
 DECISION = {"decision": "approve", "signer_role": "owner", "signature_verified": True, "run": RUN,
             "task": "merge-gate", "head": HEAD}
 # check name -> spec of its evidence: the task it sits on, the checked task's own output (`out`, JSON data, or
@@ -202,8 +204,8 @@ SPECS = {
     "spec-coverage": dict(task="acceptance-tests", out=AT_OUT, outputs={"spec": ITEM}),
     "every-acceptance-test-fails-on-an-assertion": dict(task="acceptance-red", out=RUNS,
                                                         outputs={"acceptance-tests": AT_OUT}),
-    "red-evidence": dict(task="cycle/red-evidence", out=RUNS),
-    "new-test-fails-on-an-assertion-not-a-compile-error": dict(task="cycle/red-evidence", out=RUNS),
+    "red-evidence": dict(task="cycle/red-evidence", out=dict(RUNS, changed=["test_add.py"]), input=UNIT_INPUT),
+    "new-test-fails-on-an-assertion-not-a-compile-error": dict(task="cycle/red-evidence", out=RUNS, input=UNIT_INPUT),
     "green-evidence": dict(task="cycle/green-evidence", out=GREEN),
     "suite-green-and-no-test-edited": dict(task="cycle/green-evidence", out=GREEN),
     "suite-still-green-and-no-test-edited": dict(task="cycle/refactor-evidence", out=GREEN),
@@ -238,7 +240,7 @@ def entry(data):
 def build(spec, run=RUN, key=None, change=None):
     """The evidence file of spec 6.1, built from a spec dict."""
     out = {"exit": 0, "stdout": spec["out_raw"]} if "out_raw" in spec else entry(spec["out"])
-    return {
+    return {"input": spec.get("input", {}),
         "run": run, "key": key or spec["task"], "output": out,
         "steps": {k: entry(v) for k, v in spec.get("steps", {}).items()},
         "outputs": {k: entry(v) for k, v in spec.get("outputs", {}).items()},
@@ -299,6 +301,12 @@ BAD = {
         ("no runs", lambda s: mut(s, ["out", "runs"], [])),
         ("test passes", lambda s: mut(s, ["out", "runs", 0, "outcome"], "pass")),
         ("timeout", lambda s: mut(s, ["out", "runs", 0, "outcome"], "timeout")),
+        ("production file changed at red", lambda s: mut(s, ["out", "changed"], ["calc.py", "test_add.py"])),
+        ("production file inside a write-set directory changed", lambda s: mut(
+            mut(s, ["input", "unit", "write_set"], ["src/", "tests/test_add.py"]), ["out", "changed"], ["src/calc.py"])),
+        ("import error without new_symbols", lambda s: mut(s, ["out", "runs", 0, "outcome"], "import-error")),
+        ("compile error with new_symbols", lambda s: mut(
+            mut(s, ["input", "unit", "new_symbols"], ["add"]), ["out", "runs", 0, "outcome"], "compile-error")),
     ],
     "new-test-fails-on-an-assertion-not-a-compile-error": [
         ("import error", lambda s: mut(s, ["out", "runs", 0, "outcome"], "import-error")),
@@ -437,7 +445,7 @@ def test_check_fails_on_each_bad_case_and_says_why(name, i):
     assert cp.stderr.strip()
 
 
-EMPTY_OK = {"tests_edited", "failed", "uncommitted"}
+EMPTY_OK = {"tests_edited", "failed", "uncommitted", "changed"}
 
 
 @pytest.mark.parametrize("name", [n for n in sorted(SPECS) if "out" in SPECS[n]])
@@ -923,3 +931,73 @@ def test_catalog_definitions_match_their_units():
 def test_shipped_workflow_equals_the_normalised_example_snapshot(name):
     snap = json.loads((HERE / "fixtures" / "examples" / "snapshot.json").read_text())
     assert workflow(name) == snap[name]
+
+
+# ---------------------------------------------------------------- spec update 12 (P55, P57, P59)
+
+
+@pytest.mark.parametrize("name", ["red-evidence", "new-test-fails-on-an-assertion-not-a-compile-error"])
+@pytest.mark.parametrize("outcome", ["import-error", "error"])
+def test_p59_red_accepts_a_missing_symbol_only_when_the_unit_declares_new_symbols(name, outcome):
+    spec = mut(SPECS[name], ["out", "runs", 0, "outcome"], outcome)
+    assert run_spec(name, spec).returncode == 1
+    spec = mut(spec, ["input", "unit", "new_symbols"], ["add"])
+    cp = run_spec(name, spec)
+    assert cp.returncode == 0, cp.stderr
+
+
+@pytest.mark.parametrize("name", ["red-evidence", "new-test-fails-on-an-assertion-not-a-compile-error"])
+def test_p59_new_symbols_must_be_a_list_of_names(name):
+    spec = mut(mut(SPECS[name], ["out", "runs", 0, "outcome"], "import-error"), ["input", "unit", "new_symbols"], "add")
+    assert run_spec(name, spec).returncode in (1, 2)
+
+
+@pytest.mark.parametrize("drop", ["unit", "write_set"])
+def test_p57_red_fact_without_a_write_set_is_missing_evidence(drop):
+    spec = copy.deepcopy(SPECS["red-evidence"])
+    if drop == "unit":
+        spec["input"] = {}
+    else:
+        del spec["input"]["unit"]["write_set"]
+    cp = run_spec("red-evidence", spec)
+    assert cp.returncode == 2 and "write_set" in cp.stderr
+
+
+def test_p57_a_changed_file_outside_the_write_set_is_not_the_red_checks_business():
+    spec = mut(SPECS["red-evidence"], ["out", "changed"], ["test_add.py", "other.py"])
+    assert run_spec("red-evidence", spec).returncode == 0
+
+
+def test_p57_the_red_brief_tells_a_rework_round_to_restore_the_production_files():
+    text = (ROOT / "briefs" / "sw" / "red.md").read_text()
+    assert "git checkout" in text and "rework round" in text
+
+
+def test_p55_judge_criteria_read_the_write_set_from_the_workflow_input_not_the_cut_output():
+    for name in ("green", "refactor", "unit-review"):
+        text = (ROOT / "criteria" / "sw" / f"{name}.md").read_text()
+        assert "cut output" not in text, name
+        assert "write_set" in text, name
+
+
+@needs_schema
+def test_p59_the_cut_schema_accepts_new_symbols_and_the_cut_brief_asks_for_them():
+    import jsonschema
+    schema = load("schemas/org/units.json")
+    unit = dict(UNITS["units"][0], new_symbols=["add"])
+    jsonschema.validate({"units": [unit]}, schema)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"units": [dict(unit, new_symbols="add")]}, schema)
+    assert "new_symbols" in (ROOT / "briefs" / "sw" / "cut.md").read_text()
+
+
+@pytest.mark.parametrize("step,later", [("red", "red-evidence"), ("green", "green-evidence"),
+                                        ("refactor", "refactor-evidence")])
+def test_p56_a_step_rubric_cites_no_fact_of_the_evidence_step_that_runs_after_its_judge(step, later):
+    # the judge runs when the model step ends; the next evidence step has not run, so its output cannot be cited
+    text = (ROOT / "criteria" / "sw" / f"{step}.md").read_text()
+    assert later not in text and "evidence.change.diff" in text
+
+
+def test_p60_the_refactor_criteria_let_a_no_op_refactor_pass():
+    assert "changes nothing passes" in " ".join((ROOT / "criteria" / "sw" / "refactor.md").read_text().split())

@@ -1768,3 +1768,33 @@ def test_a_change_that_leaves_two_stack_files_is_frozen(tmp_path):
     (root / "stack.yaml").write_text("models: {}\n")
     res = rt_with(tmp_path, root, store, proposer_rungs=("free", "ordinary", "protected")).run("t", run_id=RID)
     assert res.errors[0] == "run refused: stack.yaml: change needs rung 'frozen' and has no owner signature"
+
+
+# ---------------------------------------------------------------- spec update 12: change of a stack worktree (P54)
+
+
+class _Ledger:
+    def __init__(self):
+        self.rows = []
+
+    def append(self, kind, body):
+        self.rows.append((kind, body))
+
+
+def test_p54_the_journal_passes_the_worktree_and_base_through_and_replays_per_arguments():
+    from collections import deque
+    calls = []
+
+    def change(worktree=None, base=None):
+        calls.append((worktree, base))
+        return {"head": "h", "worktree": worktree or "/org", "base": base, "diff": ""}
+    ledger = _Ledger()
+    live = ort._JournalHost(ScriptedHost(change=change), None, ledger, {}, [])
+    assert live.change("/w", "main")["worktree"] == "/w"
+    assert live.change()["worktree"] == "/org"
+    assert calls == [("/w", "main"), (None, None)]
+    journal = {}
+    for kind, body in ledger.rows:
+        journal.setdefault((body["call"], body["key"]), deque()).append(body["result"])
+    replay = ort._JournalHost(ScriptedHost(change=lambda *a: pytest.fail("live call on replay")), None, _Ledger(), journal, [])
+    assert replay.change()["worktree"] == "/org" and replay.change("/w", "main")["worktree"] == "/w"

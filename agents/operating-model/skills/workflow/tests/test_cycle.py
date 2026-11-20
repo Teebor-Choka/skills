@@ -506,7 +506,7 @@ def test_unit_green_counts_the_suite_and_lists_edited_tests(repo):
     assert ev["suite"] == {"passed": 1, "failed": 0} and ev["tests_edited"] == []
     (repo / "test_old.py").write_text("def test_old():\n    assert True\n")
     ev = out(tdd(repo, "unit", "green"))
-    assert ev["tests_edited"] == ["test_old.py"]
+    assert ev["tests_edited"] == ["test_old.py::test_old"]  # P58: named per test function
 
 
 def test_unit_green_counts_a_failing_test(repo):
@@ -803,3 +803,85 @@ def test_no_local_paths_in_the_new_files():
     files = [TDD, MERGE, Path(__file__)] + [ROOT / "workflows" / f"{n}.yaml" for n in NAMES if (ROOT / "workflows" / f"{n}.yaml").exists()]
     for f in files:
         assert not [b for b in bad if b in f.read_text()], f
+
+
+# ---------------------------------------------------------------- spec update 12: tests compared per function (P58)
+
+NEW_TEST = "\n\ndef test_add_two():\n    assert add(2, 3) == 6\n"
+
+
+def test_p58_a_test_appended_to_an_existing_file_is_not_an_edit(repo):
+    (repo / "test_old.py").write_text((repo / "test_old.py").read_text() + NEW_TEST)
+    assert out(tdd(repo, "unit", "green"))["tests_edited"] == []
+
+
+def test_p58_red_runs_only_the_added_tests_of_a_changed_file(repo):
+    (repo / "test_old.py").write_text((repo / "test_old.py").read_text() + NEW_TEST)
+    ev = out(tdd(repo, "unit", "red"))
+    assert ev["runs"] == [{"test": "test_old.py::test_add_two", "outcome": "assertion"}]
+    assert ev["expected_tests"] == ["test_old.py::test_add_two"]
+
+
+def test_p58_an_appended_test_with_a_new_import_is_still_not_an_edit(repo):
+    (repo / "test_old.py").write_text("import math\n" + (repo / "test_old.py").read_text() + NEW_TEST)
+    assert out(tdd(repo, "unit", "green"))["tests_edited"] == []
+
+
+def test_p58_a_changed_existing_test_is_an_edit_named_by_its_id(repo):
+    (repo / "test_old.py").write_text("from calc import add\n\ndef test_old():\n    assert True\n" + NEW_TEST)
+    assert out(tdd(repo, "unit", "green"))["tests_edited"] == ["test_old.py::test_old"]
+
+
+def test_p58_a_moved_but_unchanged_test_is_not_an_edit(repo):
+    (repo / "test_old.py").write_text("from calc import add\n\n\n\n# moved down\ndef test_old():\n    assert add(1, 1) == 2\n")
+    assert out(tdd(repo, "unit", "green"))["tests_edited"] == []
+
+
+def test_p58_a_deleted_test_is_an_edit(repo):
+    (repo / "test_old.py").write_text("from calc import add\n" + NEW_TEST)
+    assert out(tdd(repo, "unit", "green"))["tests_edited"] == ["test_old.py::test_old"]
+
+
+def test_p58_a_deleted_or_renamed_test_file_is_an_edit(repo):
+    (repo / "test_old.py").unlink()
+    assert out(tdd(repo, "unit", "green"))["tests_edited"] == ["test_old.py"]
+    git(repo, "checkout", "--", "test_old.py")
+    git(repo, "mv", "test_old.py", "test_renamed.py")
+    assert out(tdd(repo, "unit", "green"))["tests_edited"] == ["test_old.py"]
+
+
+def test_p58_a_test_file_that_no_longer_parses_is_an_edit(repo):
+    (repo / "test_old.py").write_text((repo / "test_old.py").read_text() + "\ndef test_x(:\n")
+    assert out(tdd(repo, "unit", "green"))["tests_edited"] == ["test_old.py"]
+
+
+def test_p58_a_changed_method_of_a_test_class_is_named_with_its_class(repo):
+    (repo / "test_cls.py").write_text("class TestA:\n    def test_a(self):\n        assert 1\n")
+    git(repo, "add", "test_cls.py")
+    git(repo, "commit", "-q", "-m", "cls")
+    head = git(repo, "rev-parse", "HEAD")
+    (repo / "test_cls.py").write_text("class TestA:\n    def test_a(self):\n        assert 2\n\n    def test_b(self):\n        assert 0\n")
+    assert out(tdd(repo, "unit", "green", TDD_BASE=head))["tests_edited"] == ["test_cls.py::TestA::test_a"]
+    (repo / "test_cls.py").write_text("class TestA:\n    def test_a(self):\n        assert 1\n\n    def test_b(self):\n        assert 0\n")
+    assert out(tdd(repo, "unit", "red", TDD_BASE=head))["runs"] == [
+        {"test": "test_cls.py::TestA::test_b", "outcome": "assertion"}]
+
+
+# ---------------------------------------------------------------- spec update 12: what changed since base, for the red fact (P57)
+
+
+def test_p57_unit_red_lists_every_file_changed_since_base_including_untracked(repo):
+    (repo / "calc.py").write_text("def add(a, b):\n    return 0\n")
+    (repo / "new_mod.py").write_text("X = 1\n")
+    (repo / "test_new.py").write_text("from calc import add\n\ndef test_neg():\n    assert add(-1, -1) == -2\n")
+    assert out(tdd(repo, "unit", "red")).get("changed") == ["calc.py", "new_mod.py", "test_new.py"]
+
+
+def test_p57_unit_red_with_nothing_changed_lists_nothing(repo):
+    assert out(tdd(repo, "unit", "red")).get("changed") == []
+
+
+def test_p59_a_new_test_file_that_collects_no_test_is_never_an_error_red(repo):
+    # with new_symbols an `error` run counts as red, so an empty test file must not report `error`
+    (repo / "test_new.py").write_text("from calc import add\n")
+    assert [r["outcome"] for r in out(tdd(repo, "unit", "red"))["runs"]] == ["no-tests"]

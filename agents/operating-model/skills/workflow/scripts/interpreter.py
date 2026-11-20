@@ -546,8 +546,8 @@ class ScriptedHost:
     def confined(self, rel):
         return rel not in self.outside
 
-    def change(self):
-        return dict(self._change)
+    def change(self, worktree=None, base=None):
+        return dict(self._change() if callable(self._change) else self._change)
 
     def run_step(self, req):
         self.calls.append(("step", req.command, req.key))
@@ -772,7 +772,7 @@ class ProcessHost:
         finally:
             os.unlink(epath)
 
-    def change(self):
+    def change(self, worktree=None, base=None, cap=OUTPUT_CAP):
         """The VCS head and working tree of the org root (P28); head is None outside a git tree."""
         env = {"PATH": os.environ.get("PATH", "")}
 
