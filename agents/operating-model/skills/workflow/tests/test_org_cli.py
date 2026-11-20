@@ -32,6 +32,19 @@ class FakeVerifier:
         return sig == f"by:{principal}" and bool(keys)
 
 
+class CountingVerifier(FakeVerifier):
+    def __init__(self):
+        self.calls = 0
+
+    def verify(self, *a):
+        self.calls += 1
+        return super().verify(*a)
+
+
+class Killed(BaseException):
+    pass
+
+
 class FakeClock:
     def __init__(self):
         self.t = 0.0
@@ -107,7 +120,7 @@ class Org:
     def __init__(self, tmp, root):
         self.tmp, self.root = tmp, root
         self.state, self.inbox = tmp / "state", tmp / "inbox"
-        for d in (self.state / "keys", self.inbox):
+        for d in (self.state / "keys", self.inbox, tmp / ".git"):
             d.mkdir(parents=True)
         (self.state / "ledger.key").write_bytes(KEY)
         os.chmod(self.state / "ledger.key", 0o600)
@@ -119,12 +132,13 @@ class Org:
         store = ort.SnapshotStore(self.state / "snapshots")
         files = ort.build_file_map(self.root)
         root_id = hashlib.sha256(os.path.realpath(self.root).encode()).hexdigest()[:32]
-        store.add(store.next_event(files, {}, root_id), "by:owner", files, {})
+        outside = ort.FrozenOutside(self.tmp, ort.DEFAULT_FROZEN_OUTSIDE).map()
+        store.add(store.next_event(files, outside, root_id), "by:owner", files, outside)
 
     def call(self, *argv, host=None, **kw):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
-            code = org_cli.main(list(argv), host=host or ScriptedHost(), verifier=FakeVerifier(),
+            code = org_cli.main(list(argv), host=host or ScriptedHost(), verifier=kw.pop("verifier", None) or FakeVerifier(),
                                 clock=self.clock.now, sleep=self.clock.sleep, **kw)
         return code, out.getvalue(), err.getvalue()
 
@@ -447,3 +461,167 @@ def test_sigterm_stops_after_the_current_delivery_and_exits_0(chain):
     assert signal.getsignal(signal.SIGTERM) == before
     assert len(chain.ledgers()) == 2  # the delivery in flight finished (scan, then its work item)
     assert len([n for n in chain.names() if n.endswith(".json")]) == 1  # the second scan was not taken
+
+
+# ---------------------------------------------------------------- follow-up 1: frozen-outside protection
+
+FROZEN = "agents/operating-model/skills/workflow/scripts/grammar.py"
+
+
+def frozen_file(o, text="v1"):
+    path = o.tmp / FROZEN
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
+def frozen_org(tmp):
+    root = chain_root(tmp)
+    (tmp / FROZEN).parent.mkdir(parents=True)
+    (tmp / FROZEN).write_text("v1")
+    o = Org(tmp, root)  # the snapshot holds the frozen file as it is now
+    (tmp / FROZEN).write_text("v2")  # then someone changes it without the owner
+    return o
+
+
+def test_the_repo_defaults_to_the_git_top_level_and_its_frozen_files_reach_the_runtime(tmp_path):
+    o = frozen_org(tmp_path)
+    o.emit("org.scan-requested", "--id", "s-1")
+    code, out, err = o.serve()
+    assert code == 2 and "frozen" in (out + err) and o.ledgers() == []  # refused: the runtime saw the change
+
+
+def test_an_explicit_repo_is_used_instead_of_the_default(tmp_path):
+    o = frozen_org(tmp_path)
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    o.emit("org.scan-requested", "--id", "s-1")
+    code, out, err = o.serve("--repo", str(other))  # no frozen files there: differs from the snapshot's list
+    assert code == 2 and "frozen" in (out + err)  # the snapshot named a file the repo lacks
+
+
+def test_no_repo_and_no_flag_refuses_to_start(tmp_path):
+    o = Org(tmp_path, chain_root(tmp_path))
+    os.rmdir(tmp_path / ".git")
+    code, out, err = o.serve()
+    assert code == 2 and "--repo" in err and "--no-outside-check" in err and o.ledgers() == []
+
+
+def test_the_no_outside_check_flag_runs_with_a_warning_and_is_recorded(tmp_path):
+    o = frozen_org(tmp_path)
+    o.emit("org.scan-requested", "--id", "s-1")
+    code, out, err = o.serve("--no-outside-check")
+    assert code == 0, (out, err)
+    assert "warning" in err.lower() and "outside" in err.lower()
+    state = json.loads((o.state / "dispatcher.json").read_text())
+    assert state["outside_check"] == "disabled"
+    assert "outside" in o.status()[1].lower()
+    assert json.loads(o.status("--json")[1])["outside_check"] == "disabled"
+
+
+def test_a_repo_with_the_flag_is_a_usage_error(tmp_path):
+    o = Org(tmp_path, chain_root(tmp_path))
+    code, out, err = o.serve("--repo", str(tmp_path), "--no-outside-check")
+    assert code == 2
+
+
+# ---------------------------------------------------------------- follow-up 2: restart safety
+
+
+def kill_at(o, seconds):
+    def die():
+        raise Killed()
+    o.clock.on_sleep.append((seconds, die))
+
+
+def killed_gate_run(o):
+    o.emit("org.work-item-ready", "--id", "w-1")
+    kill_at(o, 5)
+    with pytest.raises(Killed):
+        o.serve()
+    state = json.loads((o.state / "dispatcher.json").read_text())
+    assert [p["state"] for p in state["pairs"].values()] == ["starting"]
+
+
+def test_a_run_left_starting_is_resumed_at_startup(gated):
+    killed_gate_run(gated)
+    gated.clock = FakeClock()
+    gated.clock.on_sleep.append((20, lambda: gated.decision(gated.run_id())))
+    host = ScriptedHost()
+    code, out, err = gated.serve(host=host)
+    assert code == 0, (out, err)
+    assert not [c for c in host.calls if c[0] == "step"]  # the journal answered the finished step
+    state = json.loads((gated.state / "dispatcher.json").read_text())
+    (pair,) = state["pairs"].values()
+    assert pair["state"] == "done" and pair["status"] == "success"
+    assert len(gated.ledgers()) == 1  # the redelivered event did not start a second run
+    assert (gated.inbox / "decision.seen").exists()
+    assert not [n for n in gated.names() if n.endswith(".json")]
+
+
+def test_a_resumed_run_that_ends_in_error_gives_exit_1(gated):
+    killed_gate_run(gated)
+    gated.clock = FakeClock()
+    code, out, err = gated.serve()  # nobody decides: the gate times out
+    assert code == 1
+    (pair,) = json.loads((gated.state / "dispatcher.json").read_text())["pairs"].values()
+    assert pair["state"] == "done" and pair["status"] == "error"
+
+
+def test_a_ledger_that_does_not_verify_is_reported_and_left(gated):
+    killed_gate_run(gated)
+    (path,) = gated.ledgers()
+    raw = path.read_bytes()
+    path.write_bytes(raw.replace(b'"workflow"', b'"workfloW"', 1))
+    tampered = path.read_bytes()
+    gated.clock = FakeClock()
+    code, out, err = gated.serve()
+    assert code == 1 and "not resumed" in (out + err) and path.name in (out + err)
+    assert path.read_bytes() == tampered and len(gated.ledgers()) == 1
+    (pair,) = json.loads((gated.state / "dispatcher.json").read_text())["pairs"].values()
+    assert pair["state"] == "starting"
+
+
+def test_a_starting_pair_without_a_ledger_is_reported_and_left(gated):
+    killed_gate_run(gated)
+    for p in gated.state.joinpath("ledgers").glob("*.ledger*"):
+        p.unlink()
+    gated.clock = FakeClock()
+    code, out, err = gated.serve()
+    assert code == 1 and "not resumed" in (out + err)
+    (pair,) = json.loads((gated.state / "dispatcher.json").read_text())["pairs"].values()
+    assert pair["state"] == "starting"
+
+
+# ---------------------------------------------------------------- follow-up 3: a refused run keeps its reason
+
+
+def test_a_refused_run_is_done_and_status_prints_the_reason(chain):
+    (chain.root / "manifest.json").write_text((chain.root / "manifest.json").read_text().replace("teebor", "mallory"))
+    chain.emit("org.scan-requested", "--id", "s-1")
+    assert chain.serve()[0] == 2
+    (pair,) = json.loads(chain.status("--json")[1])["pairs"]
+    assert pair["state"] == "done" and pair["status"] == "refused" and "refused" in pair["reason"]
+    assert "reason=" in chain.status()[1] and "run refused" in chain.status()[1]
+    chain.emit("org.scan-requested", "--id", "s-1")  # the same id is a duplicate: it starts nothing
+    chain.serve()
+    assert len(json.loads(chain.status("--json")[1])["pairs"]) == 1
+
+
+# ---------------------------------------------------------------- follow-up 4: verification is not repeated per poll
+
+
+def test_a_decision_left_in_the_inbox_is_verified_once_until_it_changes(gated):
+    verifier = CountingVerifier()
+    gated.emit("org.work-item-ready", "--id", "w-1")
+    seen = []
+    gated.clock.on_sleep.append((1, lambda: gated.decision("f" * 32, name="other.json")))
+
+    def rewrite():
+        seen.append(verifier.calls)
+        gated.decision("e" * 32, name="other.json", id="d-longer-id-2")
+
+    gated.clock.on_sleep.append((100, rewrite))
+    code, out, err = gated.serve(verifier=verifier)
+    assert code == 1 and (gated.inbox / "other.json").exists()  # nobody decided this run: it timed out
+    assert seen == [1]  # ~99 polls, one verification
+    assert seen[0] < verifier.calls <= 3  # the changed file was verified again
