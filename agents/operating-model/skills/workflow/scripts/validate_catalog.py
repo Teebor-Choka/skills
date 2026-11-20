@@ -23,6 +23,7 @@ ENTRY_KEYS = ("scope", "unit", "better", "formula", "collector", "reads")
 SCOPES = ("node", "stage", "process")
 BETTER = ("lower", "higher", "context")
 MAX_DEPTH = 128
+MAX_JSON_NESTING = 512  # text-level cap; makes the result the same on every Python version
 
 YAML_HINT = "reading YAML needs PyYAML; run with uv run --with pyyaml, or convert the file to JSON"
 
@@ -55,6 +56,27 @@ def _no_duplicates(label):
     return hook
 
 
+def _check_json_nesting(path, text):
+    """One linear pass over the text, tracking string and escape state and bracket depth."""
+    depth, in_string, escaped = 0, False, False
+    for ch in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+            if depth > MAX_JSON_NESTING:
+                raise LoadError(path, "nesting too deep to load")
+        elif ch in "]}":
+            depth -= 1
+
+
 def _load_json(path):
     def constant(text):
         raise LoadError(path, f"non-finite number {text}")
@@ -66,7 +88,9 @@ def _load_json(path):
         return value
 
     with open(path, encoding="utf-8") as fh:
-        return json.load(fh, object_pairs_hook=_no_duplicates(path), parse_constant=constant, parse_float=number)
+        text = fh.read()
+    _check_json_nesting(path, text)
+    return json.loads(text, object_pairs_hook=_no_duplicates(path), parse_constant=constant, parse_float=number)
 
 
 def _load_yaml(path):
