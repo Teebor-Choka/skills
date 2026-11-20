@@ -631,6 +631,27 @@ def test_claude_adapter_refuses_a_failing_exit_code():
     assert e.value.code == "harness-error" and "boom" in str(e.value)
 
 
+def test_claude_adapter_reports_the_error_text_the_cli_prints_on_stdout_with_a_failing_exit_code():
+    # real claude 2.1.311: an auth failure exits 1 with stderr empty and the reason in the JSON result
+    raw = '{"is_error": true, "result": "Failed to authenticate: OAuth session expired"}'
+    with pytest.raises(PortError) as e:
+        claude(FakeRunner(rc=1, raw=raw)).call("run", request())
+    assert e.value.code == "harness-error" and "Failed to authenticate" in str(e.value)
+
+
+def test_child_env_keeps_the_account_name_the_cli_needs_to_find_its_keychain_login():
+    # real claude 2.1.311 on macOS: with only HOME and PATH it fails "OAuth session expired"; USER fixes it
+    call = child_call({**FULL_ENV, "USER": "u", "LOGNAME": "u"})
+    assert call["env"]["USER"] == "u" and call["env"]["LOGNAME"] == "u"
+
+
+def test_claude_adapter_caps_spend_per_call_when_org_max_budget_usd_is_set():
+    assert "--max-budget-usd" not in child_call({})["argv"]
+    argv = child_call({"ORG_MAX_BUDGET_USD": "0.25"})["argv"]
+    assert argv[argv.index("--max-budget-usd") + 1] == "0.25"
+    assert "--max-budget-usd" not in child_call({"ORG_MAX_BUDGET_USD": "lots"})["argv"]
+
+
 def test_claude_adapter_maps_timeout_and_missing_binary():
     with pytest.raises(PortError) as e:
         claude(FakeRunner(error=subprocess.TimeoutExpired("claude", 3))).call("run", request())

@@ -9,7 +9,8 @@ U13a starts `agent-run` by argv exec and appends `--role <role> --brief <path>` 
 The network policy is REQUESTED from the instance tool: it is enforced only by a real instance tool, and none
 exists yet. The call record says `enforced: false`. The model child runs with an allow-listed environment
 (CHILD_ENV_ALLOW plus the names in ORG_CHILD_ENV_ALLOW), an empty temp directory as cwd, no ORG_* variable but
-ORG_PARENT_ROLE, and the flags in ISOLATION_FLAGS. Of those flags only `claude --help` was read, not run. Everything else comes from the runtime environment:
+ORG_PARENT_ROLE, and the flags in ISOLATION_FLAGS (all accepted together with -p, checked against claude 2.1.311). USER and LOGNAME are
+needed: without them the keychain login is not found. Everything else comes from the runtime environment:
 
     ORG_ROOT          org root directory (briefs/, criteria/, manifest.json or manifest.yaml)
     ORG_RUN           run id
@@ -18,6 +19,7 @@ ORG_PARENT_ROLE, and the flags in ISOLATION_FLAGS. Of those flags only `claude -
     ORG_ITEM          rubric item index (required when the brief is under criteria/)
     ORG_PARENT_ROLE   role that starts this one (absent for the top-level launch; enforces `may-spawn`)
     ORG_TRUST         trusted (default) or untrusted; set by the runtime
+    ORG_MAX_BUDGET_USD  optional per-call spend cap, passed as claude --max-budget-usd
     ORG_CHILD_ENV_ALLOW  extra variable names the model child may inherit
     ORG_TEST_HARNESS  1 allows ORG_HARNESS=scripted and ORG_INSTANCES=scripted (tests only)
     ORG_INSTANCES     instance tool for --network; only `scripted` exists so far
@@ -60,11 +62,12 @@ HARNESS_GUARANTEES = ("context-only", "cost-reported", "refuses-untrusted-on-mac
 RUN_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 VERDICT_LINE = re.compile(r"^\s*VERDICT:\s*(pass|fail)\s*$", re.IGNORECASE)
 DEFAULT_TIMEOUT = 3000  # below the 1 hour step limit, so the program kills its child before the runtime does
-CHILD_ENV_ALLOW = ("PATH", "LANG", "LC_ALL", "TERM", "HOME", "TMPDIR", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+CHILD_ENV_ALLOW = ("PATH", "LANG", "LC_ALL", "TERM", "HOME", "TMPDIR", "USER", "LOGNAME", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
                    "CLAUDE_CODE_OAUTH_TOKEN")
-# Flags read from `claude --help` (2.1.311); not run here. --safe-mode: no CLAUDE.md, skills, plugins, hooks, MCP
+# Flags read from `claude --help` and run live against 2.1.311. --safe-mode: no CLAUDE.md, skills, plugins, hooks, MCP
 # servers or custom commands, auth still works (--bare would drop OAuth and keychain).
 ISOLATION_FLAGS = ("--safe-mode", "--strict-mcp-config", "--disable-slash-commands")
+ENV_USD = re.compile(r"^[0-9]+(\.[0-9]+)?$")
 ALLOWED_TOOLS = ("Read", "Grep", "Glob", "Edit", "Write", "Bash")
 READ_TOOLS = ("Read", "Grep", "Glob")
 FROZEN_PARTS = ("checks/", "bin/", "collectors/", "criteria/", "workflows/", "schemas/")  # spec 7.8
@@ -273,6 +276,9 @@ class ClaudeCodeAdapter(_Adapter):
         self._accept(op, inp)
         argv = [self.claude_bin, "-p", "--output-format", "json", "--no-session-persistence", *ISOLATION_FLAGS]
         argv += tool_flags(inp["tools"])
+        cap = self.environ.get("ORG_MAX_BUDGET_USD", "")
+        if ENV_USD.match(cap):
+            argv += ["--max-budget-usd", cap]
         prompt = prompt_for(inp)
         try:
             with tempfile.TemporaryDirectory(prefix="agent-run-") as tmp:
@@ -285,7 +291,13 @@ class ClaudeCodeAdapter(_Adapter):
         except OSError as e:
             raise PortError("harness-unavailable", f"cannot run {self.claude_bin}: {e.strerror}") from None
         if rc != 0:
-            raise PortError("harness-error", f"claude exited {rc}: {stderr.strip()[:200]}")
+            detail = stderr.strip()
+            if not detail:  # the CLI prints a failure as JSON on stdout and leaves stderr empty
+                try:
+                    detail = str(json.loads(stdout).get("result", ""))
+                except (ValueError, AttributeError):
+                    detail = stdout.strip()
+            raise PortError("harness-error", f"claude exited {rc}: {detail[:200]}")
         try:
             body = json.loads(stdout)
         except ValueError:
