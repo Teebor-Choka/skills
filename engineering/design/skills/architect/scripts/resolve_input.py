@@ -42,7 +42,7 @@ def find_loader(explicit=None):
             return cand
     here = os.path.dirname(os.path.abspath(__file__))
     while here != os.path.dirname(here):
-        cand = os.path.join(here, "agents", "operating-model", "skills", "policy", "policy_loader.py")
+        cand = os.path.join(here, "agents", "ops", "skills", "policy", "policy_loader.py")
         if os.path.exists(cand):
             return cand
         here = os.path.dirname(here)

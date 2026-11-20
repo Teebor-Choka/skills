@@ -169,7 +169,7 @@ def test_policy_reader_agrees_with_the_shared_loader(tmp_path):
     body = ('docs:\n  components:\n    include: ["crates/*/src/*/", pkgs/*]  # two globs\n'
             '    exclude:\n      "@scope/x": generated, see: gen.py')
     policy(tmp_path, body)
-    loader_path = Path(__file__).resolve().parents[5] / "agents/operating-model/skills/policy"
+    loader_path = Path(__file__).resolve().parents[5] / "agents/ops/skills/policy"
     if not (loader_path / "policy_loader.py").is_file():
         pytest.skip("shared policy loader not in this checkout")
     sys.path.insert(0, str(loader_path))

@@ -26,7 +26,7 @@ an organization of workflows in the Open Workflow Specification, held by the `wo
 
 ## Kept
 
-`policy` is unchanged: `policy_loader.py` is still used by `project-docs` (components settings) and read by
+`policy` moved to the `ops` plugin (`agents/ops/skills/policy`, organization 2.1.1) and is otherwise unchanged: `policy_loader.py` is still used by `project-docs` (components settings) and read by
 `orchestrate` through the policy keys `work.tracker` and `work.isolation`.
 
 ## Other changes

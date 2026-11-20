@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills \u2014 practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "2.5.0"
+    "version": "2.6.0"
   },
   "plugins": [
     {
@@ -20,11 +20,20 @@
     },
     {
       "name": "organization",
-      "description": "Run work, independent of the domain: workflow (organization workflows in the Open Workflow Specification with governance metadata, a validator, an interpreter and a run ledger) policy (the layered .agents/policy settings a skill reads instead of hardcoding a constant) and status (a local live site of the organization, its runs and its build).",
+      "description": "Run work, independent of the domain: workflow (organization workflows in the Open Workflow Specification with governance metadata, a validator, an interpreter and a run ledger) and status (a local live site of the organization, its runs and its build).",
       "source": "./agents/operating-model",
       "strict": true,
       "metadata": {
-        "version": "2.1.0"
+        "version": "2.1.1"
+      }
+    },
+    {
+      "name": "ops",
+      "description": "Shared operating settings: policy (the layered .agents/policy settings a skill reads instead of hardcoding a constant, with its loader).",
+      "source": "./agents/ops",
+      "strict": true,
+      "metadata": {
+        "version": "1.0.0"
       }
     },
     {
