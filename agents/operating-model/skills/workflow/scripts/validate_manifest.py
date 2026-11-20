@@ -75,7 +75,7 @@ def _role_errors(roles):
         errs.append(f"manifest: roles.{OWNER}: 'owner' is reserved for the top rung; do not declare it")
     for name, role in roles.items():
         loc = f"manifest: roles.{name}"
-        if not KEBAB.match(name):
+        if not KEBAB.fullmatch(name):
             errs.append(f"{loc}: name must be kebab-case")
         if not isinstance(role, dict):
             errs.append(f"{loc}: must be a map")
@@ -83,6 +83,8 @@ def _role_errors(roles):
         for key in role:
             if key not in ROLE_KEYS:
                 errs.append(f"{loc}: unknown key '{key}'")
+        if "summary" in role and not isinstance(role["summary"], str):
+            errs.append(f"{loc}.summary: must be a string")
         up = role.get("escalates-to")
         if up is None:
             errs.append(f"{loc}.escalates-to: required")
@@ -117,7 +119,7 @@ def _entry_errors(workflows, root):
     errs = []
     for name, entry in workflows.items():
         loc = f"manifest: workflows.{name}"
-        if not KEBAB.match(name):
+        if not KEBAB.fullmatch(name):
             errs.append(f"{loc}: name must be kebab-case")
         if not isinstance(entry, dict):
             errs.append(f"{loc}: must be a map")
@@ -135,7 +137,7 @@ def _entry_errors(workflows, root):
             errs.append(f"{loc}.floors: required")
         else:
             floors = entry["floors"]
-            if not (isinstance(floors, list) and all(isinstance(f, str) and KEBAB.match(f) for f in floors)):
+            if not (isinstance(floors, list) and all(isinstance(f, str) and KEBAB.fullmatch(f) for f in floors)):
                 errs.append(f"{loc}.floors: must be a list of task names")
             elif len(set(floors)) != len(floors):
                 errs.append(f"{loc}.floors: duplicate task name")
@@ -164,7 +166,8 @@ def _load_workflows(workflows, root, errs):
         found = _map(doc.get("document")).get("name")
         if found != name:
             errs.append(f"{loc}: document.name is {found!r}, expected '{name}'")
-        docs[name] = doc
+        if found == name:  # a mismatched file is already an error; it stays out of the start graph
+            docs[name] = doc
     return docs
 
 
@@ -222,24 +225,26 @@ def _is_decision_gate(task):
 def _cycle_error(edges):
     """First back edge of a sorted DFS, then the shortest path back (spec 8.3). At most one error."""
     state, back = {}, []
-
-    def dfs(v):
-        state[v] = 1
-        for x in sorted(edges[v]):
-            if back:
-                return
-            if state.get(x) == 1:
-                back.append((v, x))
-                return
-            if x not in state:
-                dfs(x)
-        state[v] = 2
-
-    for v in sorted(edges):
+    for root_node in sorted(edges):
         if back:
             break
-        if v not in state:
-            dfs(v)
+        if root_node in state:
+            continue
+        state[root_node] = 1
+        stack = [(root_node, iter(sorted(edges[root_node])))]
+        while stack and not back:
+            v, targets = stack[-1]
+            for x in targets:
+                if state.get(x) == 1:
+                    back.append((v, x))
+                    break
+                if x not in state:
+                    state[x] = 1
+                    stack.append((x, iter(sorted(edges[x]))))
+                    break
+            else:
+                state[v] = 2
+                stack.pop()
     if not back:
         return None
     u, v = back[0]
@@ -338,7 +343,7 @@ def validate_manifest(manifest, catalog, root):
     if "owner" in manifest and not (isinstance(manifest["owner"], str) and manifest["owner"].strip()):
         errs.append("manifest: owner: must be a non-empty string")
     if "namespace" in manifest and not (
-        isinstance(manifest["namespace"], str) and NAMESPACE.match(manifest["namespace"])
+        isinstance(manifest["namespace"], str) and NAMESPACE.fullmatch(manifest["namespace"])
     ):
         errs.append("manifest: namespace: must match the OWS namespace pattern")
 

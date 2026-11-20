@@ -113,10 +113,9 @@ def _load_yaml(path):
 
 def load_document(path):
     """Parse a .json, .yaml or .yml file. Raises LoadError (exit 1) or UsageError (exit 2)."""
-    lower = path.lower()
-    if lower.endswith(".json"):
+    if path.endswith(".json"):
         reader = _load_json
-    elif lower.endswith((".yaml", ".yml")):
+    elif path.endswith((".yaml", ".yml")):
         reader = _load_yaml
     else:
         raise UsageError(f"{path}: unknown extension; use .json, .yaml or .yml")
@@ -128,9 +127,12 @@ def load_document(path):
         raise LoadError(path, "nesting too deep to load") from None
     except OSError as exc:
         raise LoadError(path, f"cannot read: {exc.strerror or type(exc).__name__}") from None
+    except json.JSONDecodeError as exc:
+        # A syntax error whose message happens to contain "4300" (an offset) is not a digit-limit error.
+        raise LoadError(path, f"parse error: {str(exc).splitlines()[0]}") from None
     except ValueError as exc:
         text = str(exc)
-        if "4300" in text or "integer string conversion" in text:
+        if "integer string conversion" in text:
             raise LoadError(path, "integer longer than 4300 digits") from None
         raise LoadError(path, f"parse error: {text.splitlines()[0] if text else type(exc).__name__}") from None
     except Exception as exc:  # PyYAML's own error classes, and anything else a parser throws
@@ -180,7 +182,10 @@ def shape_errors(value):
 
 
 def relative_path_ok(path, prefix, suffixes):
-    """A POSIX relative path with the given prefix and one of the suffixes."""
+    """A POSIX relative path with the given prefix and one of the suffixes.
+
+    The stem may not be empty (`collectors/.py`): a validator choice, the spec is silent on it.
+    """
     if isinstance(suffixes, str):
         suffixes = (suffixes,)
     if not isinstance(path, str) or CONTROL.search(path) or "\\" in path or path.startswith("/"):
@@ -223,7 +228,7 @@ def merge_catalogs(files):
 
 def _entry_errors(name, entry, root):
     loc = f"catalog: {name}"
-    if not KEBAB.match(name):
+    if not KEBAB.fullmatch(name):
         yield f"{loc}: name must be kebab-case"
     if not isinstance(entry, dict):
         yield f"{loc}: entry must be a map"
@@ -249,7 +254,7 @@ def _entry_errors(name, entry, root):
             yield f"{loc}.collector: file not found under root: {path}"
     if "reads" in entry:
         reads = entry["reads"]
-        if not (isinstance(reads, list) and reads and all(isinstance(s, str) and SOURCE.match(s) for s in reads)):
+        if not (isinstance(reads, list) and reads and all(isinstance(s, str) and SOURCE.fullmatch(s) for s in reads)):
             yield f"{loc}.reads: must be a non-empty list of source names"
         elif len(set(reads)) != len(reads):
             yield f"{loc}.reads: duplicate source"
