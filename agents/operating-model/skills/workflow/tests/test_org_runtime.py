@@ -4,6 +4,7 @@ All model use is scripted. Tests that need `ssh-keygen` skip with a reason when 
 a fake verifier and always run. The signing helper lives here only: the runtime module has no private-key path.
 """
 import copy
+import gc
 import json
 import os
 import shutil
@@ -88,7 +89,7 @@ class FakeVerifier:
 
 
 def fake_ring(**keys):
-    return ort.KeyRing({"owner": ["ssh-ed25519 AAAA owner"], "pm": ["ssh-ed25519 AAAA pm"], **keys},
+    return ort.KeyRing({"owner": ["ssh-ed25519 AAAAowner"], "pm": ["ssh-ed25519 AAAApm"], **keys},
                        verifier=FakeVerifier())
 
 
@@ -130,7 +131,7 @@ def test_ledger_chain_detects_an_edit_and_a_reorder(tmp_path):
     path.write_text("\n".join([lines[0], lines[2], lines[1]] + lines[3:]) + "\n")
     with pytest.raises(ort.LedgerError):
         ort.RunLedger(path, b"k" * 32).read()
-    path.write_text("\n".join(lines[:2] + [lines[2].replace("task-start", "task-skip")] + lines[3:]) + "\n")
+    path.write_text("\n".join(lines[:1] + [lines[1].replace("run-start", "run-stop")] + lines[2:]) + "\n")
     with pytest.raises(ort.LedgerError):
         ort.RunLedger(path, b"k" * 32).read()
 
@@ -196,6 +197,8 @@ def test_a_run_killed_after_each_node_resumes_to_the_same_final_state(tmp_path, 
     rt = runtime(tmp_path, host=KillingHost(k, checks=CHECKS))
     with pytest.raises(Killed):
         rt.run("t", run_id=RID)
+    del rt
+    gc.collect()  # the unwound generators record `cancelled`; a real crash would not
     entries = ort.RunLedger(tmp_path / "run.ledger", b"k" * 32).read()
     assert not any(e["kind"] == "log" and e["body"]["kind"] == "accept" and e["body"].get("status") == "cancelled"
                    for e in entries), "unwinding after the kill must not write to the ledger"
@@ -203,6 +206,17 @@ def test_a_run_killed_after_each_node_resumes_to_the_same_final_state(tmp_path, 
     resumed = runtime(tmp_path, host=live).resume()
     assert summary(resumed) == summary(base)
     assert len(live.calls) == n - k  # journaled answers are not run again
+
+
+def test_unwinding_siblings_after_a_kill_write_nothing_to_the_ledger(tmp_path):
+    root = make_root(tmp_path, wf=doc(("par", {"fork": {"branches": [{"w": gate()}, {"s": leaf()}]}})))
+    rt = runtime(tmp_path, root=root, host=KillingHost(0))
+    with pytest.raises(Killed):
+        rt.run("t", run_id=RID)
+    del rt
+    gc.collect()
+    entries = ort.RunLedger(tmp_path / "run.ledger", b"k" * 32).read()
+    assert not any(e["kind"] == "log" and e["body"]["kind"] == "accept" for e in entries)
 
 
 def test_resume_with_a_torn_last_line(tmp_path):
@@ -243,12 +257,12 @@ def test_the_ring_verifies_against_the_signer_role_not_the_claimed_one():
 def test_the_ring_never_verifies_for_an_unknown_role_and_list_shows_public_keys_only():
     ring = fake_ring()
     assert ring.verify(ev(sig="by:ghost"), "ghost") is False
-    assert ring.list() == {"owner": ["ssh-ed25519 AAAA owner"], "pm": ["ssh-ed25519 AAAA pm"]}
+    assert ring.list() == {"owner": ["ssh-ed25519 AAAAowner"], "pm": ["ssh-ed25519 AAAApm"]}
 
 
 def test_revoke_removes_the_key():
     ring = fake_ring()
-    ring.revoke("ssh-ed25519 AAAA pm")
+    ring.revoke("ssh-ed25519 AAAApm")
     assert ring.verify(ev(sig="by:pm"), "pm") is False
     assert ring.verify(ev(sig="by:owner"), "owner") is True
 
@@ -293,7 +307,7 @@ def test_r32_a_gate_with_a_signer_ignores_the_owner_and_accepts_the_signer(tmp_p
 def test_the_ring_not_the_inner_host_decides(tmp_path):
     host = ScriptedHost(events=[(1, ev("gate", sig="by:owner"))], signed=lambda e, s: True)  # inner host says yes
     ring = fake_ring()
-    ring.revoke("ssh-ed25519 AAAA owner")
+    ring.revoke("ssh-ed25519 AAAAowner")
     res = runtime(tmp_path, root=gate_root(tmp_path), host=host, ring=ring).run("t", run_id=RID)
     assert res.status == "error" and "timeout" in " ".join(res.errors).lower()
 
@@ -310,7 +324,7 @@ def test_replay_keeps_a_decision_after_the_key_is_revoked(tmp_path):
     ring = fake_ring()
     live = runtime(tmp_path, root=root, host=ScriptedHost(events=[(1, ev("gate"))]), ring=ring).run("t", run_id=RID)
     assert live.status == "success"
-    ring.revoke("ssh-ed25519 AAAA owner")
+    ring.revoke("ssh-ed25519 AAAAowner")
     again = runtime(tmp_path, root=root, host=ScriptedHost(events=[(1, ev("gate"))]), ring=ring).replay()
     assert summary(again) == summary(live)
 
@@ -768,7 +782,8 @@ def test_a_judge_through_the_whole_runtime(tmp_path):
     task["run"]["shell"]["command"] = "agent-run"
     task["metadata"]["org"]["brief"] = "briefs/x.md"
     root = make_root(tmp_path, wf=doc(("a", task)))
-    script.write_text(json.dumps([{"result": "built"}, {"result": "ok", "verdict": "pass"}]))
+    # each agent-run process reads the script from the start, so one reply serves the step and the judge
+    script.write_text(json.dumps([{"result": "ok", "verdict": "pass"}]))
     host = ort.OrgProcessHost(root, session_dir=sess, env={"ORG_HARNESS": "scripted", "ORG_HARNESS_SCRIPT": str(script)})
     res = runtime(tmp_path, root=root, host=host).run("t", run_id=RID)
     assert res.status == "success", res.errors
