@@ -7,6 +7,9 @@ literals, `==` `!=` `<` `<=` `>` `>=`, `and`, `or`, `X | not`, and `+` on object
 
 Standard library only. No eval, no file, network or environment access: an
 expression sees only the input value and the variables passed in.
+
+The caller binds `accepted` last, after any loop or catch variable, so no other
+binding can shadow the runtime's `$accepted` map.
 """
 
 import json
@@ -14,7 +17,9 @@ import math
 import re
 
 MAX_SOURCE = 4096
-MAX_DEPTH = 32
+MAX_DEPTH = 32  # bracket and parenthesis nesting
+MAX_AST_DEPTH = 256  # any chain (`.a.a...`, `| not | not`, `. + . + ...`); keeps _eval far below the recursion limit
+MAX_RESULT_VALUES = 1_000_000  # JSON values (scalars and containers) in one result
 
 SUBSET = "not in the accepted subset"
 
@@ -66,6 +71,7 @@ OPERATORS = [
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 NUMBER = re.compile(r"[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
 COMPARE = {"==", "!=", "<", "<=", ">", ">="}
+DIGITS_SET = set("0123456789")
 
 
 class ExprError(ValueError):
@@ -173,17 +179,19 @@ def _lex(src, out):
             out.append(("dot", "."))
             i += 1
             continue
-        negative = (
-            c == "-"
-            and src[i + 1 : i + 2].isdigit()
-            and not (out and _ends_value(out[-1]))
-        )
-        if c.isdigit() or negative:
+        # ASCII digits only: str.isdigit() is true for '٣' or '²', which NUMBER does not match.
+        negative = c == "-" and src[i + 1 : i + 2] in DIGITS_SET and not (out and _ends_value(out[-1]))
+        if c in DIGITS_SET or negative:
             m = NUMBER.match(src, i + 1 if negative else i)
+            if not m:
+                raise ExprError(f"malformed number at offset {i}")
             text = ("-" if negative else "") + m.group(0)
-            value = float(text) if any(ch in text for ch in ".eE") else int(text)
-            if isinstance(value, float) and not math.isfinite(value):
-                raise ExprError(f"number '{text}' is not finite")
+            try:
+                value = float(text) if any(ch in text for ch in ".eE") else int(text)
+            except ValueError:
+                # int() refuses more digits than the host's PYTHONINTMAXSTRDIGITS.
+                raise ExprError(f"number literal at offset {i} is too long") from None
+            _type(value)  # refuses a non-finite or out-of-range literal
             out.append(("num", value))
             i = m.end()
             continue
@@ -250,7 +258,7 @@ class _Parser:
         raise ExprError(f"unexpected {value!r}")
 
     def ident(self, name):
-        if name in ("and", "or"):
+        if name in ("and", "or") or name in LITERALS:
             raise ExprError(f"unexpected {name!r}")
         if name in KEYWORDS:
             _refuse(f"keyword '{name}'")
@@ -391,7 +399,31 @@ def parse(source):
     node = parser.pipe()
     if not parser.at("end"):
         parser.unexpected()
+    if _depth(node) > MAX_AST_DEPTH:
+        raise ExprError(f"expression nests deeper than {MAX_AST_DEPTH} operations")
     return node
+
+
+def _children(node):
+    tag = node[0]
+    if tag == "array":
+        return node[1]
+    if tag == "cmp":
+        return node[2:]
+    if tag in ("index", "and", "or", "plus", "not"):
+        return node[1:]
+    return ()
+
+
+def _depth(node):
+    """AST depth, computed without recursion."""
+    deepest = 0
+    stack = [(node, 1)]
+    while stack:
+        current, d = stack.pop()
+        deepest = max(deepest, d)
+        stack.extend((child, d + 1) for child in _children(current))
+    return deepest
 
 
 # --- evaluator --------------------------------------------------------------
@@ -403,6 +435,12 @@ def _type(v):
     if isinstance(v, bool):
         return "boolean"
     if isinstance(v, (int, float)):
+        try:
+            finite = math.isfinite(float(v))
+        except OverflowError:  # an int beyond the float range
+            finite = False
+        if not finite:
+            _refuse("non-finite number")
         return "number"
     if isinstance(v, str):
         return "string"
@@ -413,20 +451,22 @@ def _type(v):
     raise ExprError(f"value of Python type {type(v).__name__} is not JSON")
 
 
-def _json(v):
-    """Deep-copy a JSON value; refuse anything else (no attribute access, ever)."""
+def _json(v, count):
+    """Deep-copy a JSON value; refuse anything else (no attribute access, ever).
+    `count` is a one-item list holding the values copied so far."""
+    count[0] += 1
+    if count[0] > MAX_RESULT_VALUES:
+        raise ExprError(f"result has more than {MAX_RESULT_VALUES} values")
     t = _type(v)
     if t == "array":
-        return [_json(x) for x in v]
+        return [_json(x, count) for x in v]
     if t == "object":
         out = {}
         for k, x in v.items():
             if not isinstance(k, str):
                 raise ExprError("object key is not a string")
-            out[k] = _json(x)
+            out[k] = _json(x, count)
         return out
-    if t == "number" and isinstance(v, float) and not math.isfinite(v):
-        raise ExprError("number is not finite")
     return v
 
 
@@ -442,6 +482,7 @@ def _equal(a, b):
 
 
 def _truthy(v):
+    _type(v)
     return v is not None and v is not False
 
 
@@ -512,14 +553,28 @@ def evaluate(source, data=None, variables=None):
     """
     node = parse(source)
     try:
-        return _json(_eval(node, data, dict(variables or {})))
+        return _json(_eval(node, data, dict(variables or {})), [0])
     except RecursionError:
         raise ExprError("value nests too deeply") from None
 
 
 def accepted_keys(source):
-    """Stub: implemented in the next commit."""
-    return []
+    """Literal keys of every `$accepted[...]` lookup in `source`, in source order, once each.
+
+    Works on the AST, so every spelling counts: `$accepted["k"]`, `$accepted."k"`,
+    `$accepted.["k"]`, `$accepted.k`, `($accepted)["k"]`. A computed key cannot be
+    known statically and is left out. For U13a's floor-exemption rule (spec 7.4 rule 1).
+    """
+    keys = []
+    stack = [parse(source)]
+    while stack:
+        node = stack.pop()
+        if node[0] == "index" and node[1] == ("var", "accepted") and node[2][0] == "lit":
+            key = node[2][1]
+            if isinstance(key, str) and key not in keys:
+                keys.append(key)
+        stack.extend(reversed(_children(node)))
+    return keys
 
 
 def resolve(value, data=None, variables=None):
@@ -528,10 +583,17 @@ def resolve(value, data=None, variables=None):
     Only the definition is walked. A result is never evaluated again, so expression
     text that arrives in data stays data (OWS dsl.md, runtime expressions warning).
     """
+    try:
+        return _resolve(value, data, variables)
+    except RecursionError:
+        raise ExprError("definition nested too deep") from None
+
+
+def _resolve(value, data, variables):
     if is_expression(value):
         return evaluate(unwrap(value), data, variables)
     if isinstance(value, list):
-        return [resolve(x, data, variables) for x in value]
+        return [_resolve(x, data, variables) for x in value]
     if isinstance(value, dict):
-        return {k: resolve(x, data, variables) for k, x in value.items()}
+        return {k: _resolve(x, data, variables) for k, x in value.items()}
     return value
