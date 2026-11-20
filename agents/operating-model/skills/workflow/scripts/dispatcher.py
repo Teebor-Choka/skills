@@ -24,7 +24,9 @@ PROVISIONAL choices (the spec is silent; listed in the unit report):
   - each run gets its own ledger, `<ledger_dir>/<hash of event id and workflow>.ledger`; `make_runtime(ledger_path)`
     builds the `OrgRuntime`;
   - one `deliver` at a time per state file (an exclusive `flock` where the platform has one);
-  - the emits of a run that was cut off by a crash are not re-dispatched on restart.
+  - the emits of a run that was cut off by a crash are dispatched when `finish_pair` is given the resumed run's
+    result: the pair state records its chain `depth` when it starts, and the emits go out at depth + 1 under the
+    same bounds as a normal run (a pair from an older state file has no depth and counts as 0).
 """
 
 import contextlib
@@ -139,16 +141,23 @@ class Dispatcher:
             self._write(st)
 
     def finish_pair(self, key, res):
-        """Mark a pair done with the result of its run (a run the dispatcher did not see end, resumed after a crash).
-        Keeps the error text as `reason`. Returns the records of any follow-up dispatch."""
+        """Mark a pair done with the result of its run (a run the dispatcher did not see end, resumed after a crash),
+        keep the error text as `reason`, and dispatch the events the run emitted one hop deeper than the pair, under
+        the same bounds as a normal run. The emits go first and the pair is marked done after them, so a crash in
+        between repeats the dispatch and the pair check makes that harmless. Returns the dispatch records."""
         with self._locked():
             st = self._read()
             pair = st["pairs"].setdefault(key, {})
+            depth, root = pair.get("depth", 0), pair.get("root") or key.partition("\n")[0]
+            table, _, fatal = self._routes()
+            records, queue = [], []
+            self._queue_emits(queue, res, depth, root)
+            self._drain(st, table, queue, fatal, records)
             pair.update(state="done", run_id=res.run_id, status=res.status)
             if res.status != "success" and res.errors:
                 pair["reason"] = "; ".join(res.errors)
             self._write(st)
-        return []
+        return records
 
     def record_reason(self, key, reason):
         """Keep `reason` on an existing pair; an unknown pair is ignored."""
@@ -207,14 +216,15 @@ class Dispatcher:
         st = self._read()
         table, notes, fatal = self._routes()
         records = []
-        queue = []
         root_id = event.get("id") if isinstance(event, dict) else None
-        queue.append((event, None, root_id))  # (event, depth override, root id)
+        self._drain(st, table, [(event, None, root_id)], fatal, records)  # (event, depth override, root id)
+        records.extend(notes)
+        return records
+
+    def _drain(self, st, table, queue, fatal, records):
         while queue:
             ev, depth, root = queue.pop(0)
             self._one(st, table, ev, depth, root, fatal, records, queue)
-        records.extend(notes)
-        return records
 
     def _refuse(self, st, records, ev, reason, workflow=None, depth=None):
         eid = ev.get("id") if isinstance(ev, dict) else None
@@ -269,7 +279,7 @@ class Dispatcher:
 
     def _start(self, st, ev, name, key, depth, root, records, queue):
         ledger = hashlib.sha256(key.encode()).hexdigest()[:32] + ".ledger"
-        st["pairs"][key] = {"state": "starting", "ledger": ledger, "root": root}
+        st["pairs"][key] = {"state": "starting", "ledger": ledger, "root": root, "depth": depth}
         st["starts"][root] = st["starts"].get(root, 0) + 1
         self._write(st)  # before the run: a crash must not start the pair a second time
         os.makedirs(self.ledger_dir, exist_ok=True)
@@ -284,6 +294,10 @@ class Dispatcher:
         records.append({"outcome": "started", "event": ev["id"], "workflow": name, "depth": depth,
                         "run_id": res.run_id, "status": res.status, "errors": list(res.errors),
                         "ledger": ledger, "reason": None})
+        self._queue_emits(queue, res, depth, root)
+
+    @staticmethod
+    def _queue_emits(queue, res, depth, root):
         for e in res.events:
             if e.get("kind") != "emit" or not isinstance(e.get("event"), dict):
                 continue

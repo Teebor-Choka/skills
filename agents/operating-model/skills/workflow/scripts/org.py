@@ -38,7 +38,7 @@ dispatcher state records `"outside_check": "disabled"`.
 Restart: at startup `serve` resumes every dispatcher pair left "starting" (a crash after the state write) with
 `OrgRuntime.resume`, instead of reporting a redelivered event as a duplicate. A pair whose ledger is missing or does
 not verify is reported (exit 1) and left as it is: not resumed and not started again. The events a resumed run
-emitted are not dispatched again.
+emitted are dispatched once it ends, one hop deeper than its pair and under the same chain bound as a normal run.
 
 A run the runtime refused (a changed root with no new signed snapshot, for example) is marked done by the dispatcher,
 so the same event id never starts it again. After the owner fixes the root, emit the event again with a new id
@@ -295,13 +295,15 @@ def _resume_starting(disp, state, make_runtime):
             _say(f"org: not resumed {where}: the ledger does not verify: {e}", sys.stderr)
             code = max(code, 1)
             continue
-        disp.finish_pair(key, res)
+        records = disp.finish_pair(key, res)  # also dispatches the events the resumed run emitted
         _say(f"resumed {workflow} event={event} run={res.run_id} status={res.status}"
              + (f": {'; '.join(res.errors)}" if res.status != "success" and res.errors else ""))
         if res.status == "refused":
             code = 2
         elif res.status != "success":
             code = max(code, 1)
+        for rec in records:
+            code = max(code, _account(disp, rec))
     return code
 
 
@@ -314,6 +316,18 @@ def _describe(rec):
         text = f"started {wf} event={ev} run={rec['run_id']} status={rec['status']}"
         return text + (f": {'; '.join(rec['errors'])}" if rec["status"] != "success" and rec.get("errors") else "")
     return f"{rec['outcome']} {wf} event={ev}: {rec.get('reason')}"
+
+
+def _account(disp, rec):
+    """Print one dispatch record, keep a failed run's reason on its pair; the exit code it contributes."""
+    _say(_describe(rec))
+    if rec["outcome"] == "started":
+        if rec["status"] != "success" and rec.get("errors"):
+            disp.record_reason(f"{rec['event']}\n{rec['workflow']}", "; ".join(rec["errors"]))
+        return 2 if rec["status"] == "refused" else int(rec["status"] != "success")
+    if rec["outcome"] == "refused" and str(rec.get("reason", "")).startswith("run could not start"):
+        return 1
+    return 0
 
 
 def _serve(args, host, verifier, clock, sleep):
@@ -389,18 +403,9 @@ def _serve_locked(args, host, verifier, clock, sleep, root, state, inbox):
                     return 2
                 refused = False
                 for rec in records:
-                    _say(_describe(rec))
-                    if rec["outcome"] == "started" and rec["status"] != "success" and rec.get("errors"):
-                        disp.record_reason(f"{rec['event']}\n{rec['workflow']}", "; ".join(rec["errors"]))
+                    code = max(code, _account(disp, rec))
                     if rec["outcome"] == "refused":
                         refused = refused or rec.get("event") == event.get("id")
-                        if str(rec.get("reason", "")).startswith("run could not start"):
-                            code = max(code, 1)
-                    elif rec["outcome"] == "started":
-                        if rec["status"] == "refused":
-                            code = 2
-                        elif rec["status"] != "success" and code != 2:
-                            code = 1
                 start.ack_path(path, ".rejected" if refused else ".seen")
                 report()
                 if stop:
