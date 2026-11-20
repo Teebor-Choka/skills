@@ -1638,3 +1638,64 @@ def test_new_program_errors_are_declared():
     declared = contract()["program_errors"]
     for code in ("bad-harness", "bad-manifest", "terminated", "internal-error", "signer-error"):
         assert code in declared
+
+
+# ---------------------------------------------------------------- P37: the model child never learns the run id
+
+RUN2 = "5ec0ffee" * 4
+
+
+def _everything_the_child_gets(call):
+    return json.dumps([call["argv"], call["stdin"], call["env"], call["cwd"]])
+
+
+def test_the_run_id_never_reaches_the_child_stdin_argv_env_or_cwd():
+    runner = FakeRunner(result=f"I worked on run {RUN2}")
+    store = ar.SessionStore()
+    task = {"run": RUN2, "task": "design"}
+    ar.run_agent(claude(runner), store, role="worker", brief="Brief.", task=task, isolated=True, manifest=MANIFEST)
+    ar.run_agent(
+        ar.ClaudeCodeAdapter(runner=runner, platform="linux", environ={**FULL_ENV, "ORG_RUN": RUN2}), store,
+        role="reviewer", brief="Brief.", task={"run": RUN2, "task": "review"}, isolated=False, manifest=MANIFEST,
+        task_input={"run": RUN2, "keep": 1, "nested": [{"run": RUN2, "deep": {"run": RUN2, "ok": True}}],
+                    "text": f"see run {RUN2}"},
+        reasons={"gate": f"redo run {RUN2}"})
+    second = runner.calls[1]
+    assert RUN2 not in _everything_the_child_gets(second)
+    assert "ORG_RUN" not in second["env"] and '"run"' not in second["stdin"]
+    # what is not a run id survives
+    assert '"keep": 1' in second["stdin"] and '"ok": true' in second["stdin"] and "review" in second["stdin"]
+
+
+def test_the_first_call_of_a_run_also_hides_the_run_id():
+    runner = FakeRunner()
+    ar.run_agent(claude(runner), ar.SessionStore(), role="worker", brief="Brief.",
+                 task={"run": RUN2, "task": "design"}, isolated=True, manifest=MANIFEST)
+    assert RUN2 not in _everything_the_child_gets(runner.calls[0]) and "design" in runner.calls[0]["stdin"]
+
+
+def test_build_prompt_has_no_run_field_and_keeps_the_task_key():
+    prompt = ar.build_prompt("B.", [], {"run": RUN2, "task": "design", "item": 2}, json.dumps({"run": RUN2, "a": 1}),
+                             [{"gate": "g", "reason": RUN2}])
+    assert RUN2 not in prompt and '"task": "design"' in prompt and '"item": 2' in prompt and '"a": 1' in prompt
+
+
+def test_cli_hides_the_run_id_the_input_file_and_the_session_dir_from_the_child(org, monkeypatch):
+    root, env, _ = org
+    env = {k: v for k, v in env.items() if k not in ("ORG_HARNESS", "ORG_TEST_HARNESS")} | {
+        "ORG_RUN": RUN2, "PATH": "/bin"}
+    f = write_input(Path(env["ORG_SESSION_DIR"]) / "task-input.json", run=RUN2,
+                    input={"run": RUN2, "unit": "U-MARK"}, reasons={"spec-gate": f"retry {RUN2}"})
+    seen = []
+
+    def runner(argv, stdin, timeout, env_, cwd):
+        seen.append({"argv": argv, "stdin": stdin, "env": env_, "cwd": cwd})
+        return 0, json.dumps({"result": "r", "total_cost_usd": 0.1, "duration_ms": 5}), ""
+
+    monkeypatch.setattr(ar, "_default_runner", runner)
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--input", f], env)
+    assert code == 0, err
+    blob = _everything_the_child_gets(seen[0])
+    for secret in (RUN2, f, env["ORG_SESSION_DIR"], "task-input.json"):
+        assert secret not in blob
+    assert "ORG_RUN" not in seen[0]["env"] and "U-MARK" in seen[0]["stdin"]
