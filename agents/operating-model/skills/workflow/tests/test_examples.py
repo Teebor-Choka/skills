@@ -727,9 +727,10 @@ def test_non_agent_commands_are_executable_files_in_bin():
 
 @pytest.mark.parametrize("metric", APPENDIX_A)
 def test_collector_stub_exits_three_with_the_stub_message(metric):
+    # The runtime computes metrics in-process (scripts/metric_collectors.py); the catalog's file is a named shim.
     path = ROOT / "collectors" / (metric.replace("-", "_") + ".py")
     cp = subprocess.run([sys.executable, str(path)], capture_output=True, text=True)
-    assert cp.returncode == 3 and "collector not implemented (U13b)" in cp.stderr
+    assert cp.returncode == 3 and f"{metric}: not a standalone collector" in cp.stderr
 
 
 # ---------------------------------------------------------------- 4. rubrics state numbered rules and a fail report
