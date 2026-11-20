@@ -1,0 +1,228 @@
+{
+  "port": "Tracker",
+  "operations": {
+    "create-item": {
+      "name": "create-item",
+      "input": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": ["key", "title"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          }
+        },
+        "required": ["item_id", "created"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "network": "reaches the adapter's backing service",
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["idempotent"],
+      "errors": ["invalid-input", "tracker-unavailable"],
+      "metrics": []
+    },
+    "update-item": {
+      "name": "update-item",
+      "input": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["open", "closed"]
+          }
+        },
+        "required": ["item_id"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["open", "closed"]
+          }
+        },
+        "required": ["item_id", "title", "body", "state"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "network": "reaches the adapter's backing service",
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["idempotent"],
+      "errors": ["invalid-input", "not-found", "tracker-unavailable"],
+      "metrics": []
+    },
+    "get-item": {
+      "name": "get-item",
+      "input": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          }
+        },
+        "required": ["item_id"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["open", "closed"]
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["item_id", "title", "body", "state", "links"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "network": "reaches the adapter's backing service",
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["read-only"],
+      "errors": ["invalid-input", "not-found", "tracker-unavailable"],
+      "metrics": []
+    },
+    "search-items": {
+      "name": "search-items",
+      "input": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["open", "closed"]
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "item_id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["open", "closed"]
+                }
+              },
+              "required": ["item_id", "title", "state"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "network": "reaches the adapter's backing service",
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["read-only"],
+      "errors": ["invalid-input", "tracker-unavailable"],
+      "metrics": []
+    },
+    "link-items": {
+      "name": "link-items",
+      "input": {
+        "type": "object",
+        "properties": {
+          "from_id": {
+            "type": "string"
+          },
+          "to_id": {
+            "type": "string"
+          }
+        },
+        "required": ["from_id", "to_id"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "linked": {
+            "type": "boolean"
+          }
+        },
+        "required": ["linked"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "network": "reaches the adapter's backing service",
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["idempotent"],
+      "errors": ["invalid-input", "not-found", "tracker-unavailable"],
+      "metrics": []
+    }
+  },
+  "notes": [
+    "key is the idempotency key of create-item.",
+    "No first-catalog metric (execution plan, Appendix A) is something these operations emit, so every metrics list is empty, and metrics emission is not tested."
+  ]
+}
