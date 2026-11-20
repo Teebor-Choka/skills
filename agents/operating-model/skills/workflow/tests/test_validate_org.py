@@ -1127,3 +1127,30 @@ def test_p51_value_after_bare_flag_gets_no_error_of_its_own():
     d = copy.deepcopy(SW)
     shell(d, "align")["arguments"] = ["--tools", "Bash"]
     assert [e for e in vo.validate_org(d, CAT, MAN) if e.startswith("align:")] == ["align: " + _STACK.format("--tools")]
+
+
+# P39, W120: agent output never enters check evidence, so agent-run may not run on a by: code task
+def w120(d):
+    shell(d, "merge").update({"command": "agent-run", "arguments": []})
+    org(d, "merge")["brief"] = "briefs/merge.md"
+
+
+def not_code(by):
+    def f(d):
+        w120(d)
+        org(d, "merge")["by"] = by
+        org(d, "merge")["acceptance"] = [{"check": "spec-check"}]  # a fact check may sit only on by: code
+    return f
+
+
+P39_CASES = [
+    ("W120", SW, w120, "merge: run.shell.command: agent-run may not run on a by: code task", MAN),
+    ("W120-model-ok", SW, not_code("model"), None, MAN),
+    ("W120-human-ok", SW, not_code("human"), None, MAN),
+    ("W120-other-command-ok", SW, lambda d: None, None, MAN),
+]
+
+
+@pytest.mark.parametrize("case", P39_CASES, ids=[c[0] for c in P39_CASES])
+def test_agent_run_on_code_task(case):
+    check_cases([case])
