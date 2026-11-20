@@ -29,6 +29,20 @@ PROVISIONAL choices (the spec and the brief are silent; listed in the unit repor
   - `--once` takes polls until one finds no start event; a gate that nobody decides ends at its timeout;
   - the frozen-outside list of the repository is not enforced (the CLI has no repository root);
   - `emit` takes a JSON object for `--data`.
+
+Frozen-outside protection (spec 13.1): `serve` enforces the runtime's default frozen-outside list against `--repo`
+(default: the git top level of the org root, found by walking up to a `.git`). With no repository and no `--repo`
+it refuses to start. The only way to run without it is `--no-outside-check`: a warning goes to stderr and the
+dispatcher state records `"outside_check": "disabled"`.
+
+Restart: at startup `serve` resumes every dispatcher pair left "starting" (a crash after the state write) with
+`OrgRuntime.resume`, instead of reporting a redelivered event as a duplicate. A pair whose ledger is missing or does
+not verify is reported (exit 1) and left as it is: not resumed and not started again. The events a resumed run
+emitted are not dispatched again.
+
+A run the runtime refused (a changed root with no new signed snapshot, for example) is marked done by the dispatcher,
+so the same event id never starts it again. After the owner fixes the root, emit the event again with a new id
+(`emit --id`). `status` prints the refusal reason of such a pair.
 """
 
 import argparse
@@ -144,10 +158,11 @@ class _Inbox(ort.InboxFeed):
     def __init__(self, path, mode, ring, key, poll_limit=100):
         super().__init__(path, max_per_poll=poll_limit, max_total=NO_LIMIT)
         self.mode, self.ring, self.key = mode, ring, key
-        self.items, self._ledger, self._run = [], None, None
+        self.items, self._ledger, self._run, self._skip = [], None, None, {}
 
     def bind(self, ledger_path):
         self._ledger, self._run = ledger_path, None
+        self._skip.clear()  # a new run may be the one a left decision names
 
     def _run_id(self):
         if self._run is None and self._ledger and os.path.exists(self._ledger):
@@ -175,12 +190,20 @@ class _Inbox(ort.InboxFeed):
         except OSError as e:
             self.rejected.append(f"{self.dir}: {e.strerror}")
             return out
+        self._skip = {p: k for p, k in self._skip.items() if os.path.basename(p) in names}
         for name in names:
             if not name.endswith(".json"):
                 continue
             if len(out) >= self.max_per_poll:
                 break
             path = os.path.join(self.dir, name)
+            try:
+                st = os.lstat(path)
+            except OSError:
+                continue
+            stamp = (st.st_mtime_ns, st.st_size)
+            if self._skip.get(path) == stamp:  # left here before and unchanged: no new read, no new verification
+                continue
             try:
                 event = self._load(path)
             except Exception as e:  # noqa: BLE001  every escape is a rejected file, never a crash
@@ -197,8 +220,11 @@ class _Inbox(ort.InboxFeed):
                     self._reject(name, path, "decision event does not name a run")
                     continue
                 if self.mode == "start" or run != self._run_id():
+                    if self.mode == "start" or self._run is not None:
+                        self._skip[path] = stamp
                     continue
             elif self.mode == "decision":
+                self._skip[path] = stamp
                 continue
             self._pending.append(path)
             self.items.append((path, event))
@@ -223,6 +249,97 @@ class _LiveRun:
         self.feed.bind(self.ledger_path)
         return self.runtime.run(name, input=input, feed=self.feed)
 
+    def resume(self):
+        self.feed.bind(self.ledger_path)
+        return self.runtime.resume(feed=self.feed)
+
+
+# ---------------------------------------------------------------- state patches (the dispatcher's own file)
+
+
+def _patch_state(state_file, patch):
+    """Apply `patch(state)` to the dispatcher state under the dispatcher's own lock; same shape, atomic replace."""
+    lock = open(state_file + ".lock", "a")
+    try:
+        if fcntl is not None:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            with open(state_file, encoding="utf-8") as f:
+                st = json.load(f)
+        except FileNotFoundError:
+            st = {"pairs": {}, "starts": {}, "refusals": []}
+        patch(st)
+        tmp = state_file + ".tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(st, f, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, state_file)
+    finally:
+        lock.close()
+
+
+def _finish_pair(state_file, key, res):
+    def patch(st):
+        pair = st["pairs"].setdefault(key, {})
+        pair.update(state="done", run_id=res.run_id, status=res.status)
+        if res.status != "success" and res.errors:
+            pair["reason"] = "; ".join(res.errors)
+    _patch_state(state_file, patch)
+
+
+def _frozen(args, root):
+    """(FrozenOutside, disabled) from `--repo`, the git top level of the root, or `--no-outside-check`."""
+    if args.no_outside_check:
+        _say("org: warning: the outside check is off: files outside the org root are not compared with the "
+             "signed snapshot", sys.stderr)
+        return ort.NO_OUTSIDE, True
+    repo = args.repo
+    if repo is None:
+        here = os.path.realpath(root)
+        while not os.path.lexists(os.path.join(here, ".git")):
+            parent = os.path.dirname(here)
+            if parent == here:
+                raise Refused(f"{root}: no git repository above the org root: pass --repo <path>, or "
+                              "--no-outside-check to run without the frozen-outside protection")
+            here = parent
+        repo = here
+    if not os.path.isdir(repo):
+        raise Refused(f"{repo}: --repo is not a directory")
+    return ort.FrozenOutside(os.path.abspath(repo), ort.DEFAULT_FROZEN_OUTSIDE), False
+
+
+def _resume_starting(disp, state, make_runtime):
+    """Resume every pair left 'starting'. Returns the exit code contribution (0, 1 or 2)."""
+    code = 0
+    state_file = os.path.join(state, STATE_FILE)
+    for key, rec in sorted(disp.state()["pairs"].items()):
+        if rec.get("state") != "starting":
+            continue
+        event, _, workflow = key.partition("\n")
+        name = str(rec.get("ledger"))
+        path = os.path.join(state, "ledgers", name)
+        where = f"{workflow} event={event} ledger={name}"
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            _say(f"org: not resumed {where}: no ledger", sys.stderr)
+            code = max(code, 1)
+            continue
+        try:
+            res = make_runtime(path).resume()
+        except (ort.LedgerError, ValueError, OSError) as e:
+            _say(f"org: not resumed {where}: the ledger does not verify: {e}", sys.stderr)
+            code = max(code, 1)
+            continue
+        _finish_pair(state_file, key, res)
+        _say(f"resumed {workflow} event={event} run={res.run_id} status={res.status}"
+             + (f": {'; '.join(res.errors)}" if res.status != "success" and res.errors else ""))
+        if res.status == "refused":
+            code = 2
+        elif res.status != "success":
+            code = max(code, 1)
+    return code
+
 
 # ---------------------------------------------------------------- serve
 
@@ -230,7 +347,8 @@ class _LiveRun:
 def _describe(rec):
     wf, ev = rec.get("workflow") or "-", rec.get("event") or "-"
     if rec["outcome"] == "started":
-        return f"started {wf} event={ev} run={rec['run_id']} status={rec['status']}"
+        text = f"started {wf} event={ev} run={rec['run_id']} status={rec['status']}"
+        return text + (f": {'; '.join(rec['errors'])}" if rec["status"] != "success" and rec.get("errors") else "")
     return f"{rec['outcome']} {wf} event={ev}: {rec.get('reason')}"
 
 
@@ -271,14 +389,17 @@ def _serve_locked(args, host, verifier, clock, sleep, root, state, inbox):
     decisions = _Inbox(inbox, "decision", ring, key)
     decisions.closed = args.once  # with no timer left, nothing can wake a run that must not wait for the inbox
     store = ort.SnapshotStore(snapshots)
+    frozen, outside_off = _frozen(args, root)
 
     def make_runtime(ledger_path):
         rt = ort.OrgRuntime(root, ledger_path=ledger_path, ledger_key=key, ring=ring, host=host, snapshots=store,
-                            frozen=ort.NO_OUTSIDE, clock=clock, sleep=sleep, poll=args.poll)
+                            frozen=frozen, clock=clock, sleep=sleep, poll=args.poll)
         return _LiveRun(rt, decisions, ledger_path)
 
     disp = dp.Dispatcher(root, os.path.join(state, STATE_FILE), os.path.join(state, "ledgers"), make_runtime)
     stop, old, shown, code = [], {}, [0, 0], 0
+    _patch_state(os.path.join(state, STATE_FILE), lambda st: st.update(
+        outside_check="disabled" if outside_off else "enabled"))
 
     def report():
         for i, feed in enumerate((start, decisions)):
@@ -292,6 +413,7 @@ def _serve_locked(args, host, verifier, clock, sleep, root, state, inbox):
         except ValueError:  # not the main thread: the caller owns the signals
             pass
     try:
+        code = _resume_starting(disp, state, make_runtime)
         while not stop:
             events = start.poll()
             items = list(start.items)
@@ -305,6 +427,9 @@ def _serve_locked(args, host, verifier, clock, sleep, root, state, inbox):
                 refused = False
                 for rec in records:
                     _say(_describe(rec))
+                    if rec["outcome"] == "started" and rec["status"] != "success" and rec.get("errors"):
+                        _patch_state(os.path.join(state, STATE_FILE), lambda st, r=rec: st["pairs"].get(
+                            f"{r['event']}\n{r['workflow']}", {}).update(reason="; ".join(r["errors"])))
                     if rec["outcome"] == "refused":
                         refused = refused or rec.get("event") == event.get("id")
                         if str(rec.get("reason", "")).startswith("run could not start"):
@@ -429,11 +554,15 @@ def _status(args):
             except (ort.LedgerError, OSError, ValueError):
                 verified = False
         pairs.append({"event": event, "workflow": workflow, "state": rec.get("state"), "run_id": rec.get("run_id"),
-                      "status": rec.get("status"), "ledger": rec.get("ledger"), "verified": verified,
+                      "status": rec.get("status"), "reason": rec.get("reason"), "ledger": rec.get("ledger"),
+                      "verified": verified,
                       "last": _last_line(path)})
     if args.json:
-        _say(json.dumps({"pairs": pairs, "refusals": data["refusals"]}, sort_keys=True))
+        _say(json.dumps({"pairs": pairs, "refusals": data["refusals"], "outside_check": data.get("outside_check")},
+                        sort_keys=True))
         return 0
+    if data.get("outside_check") == "disabled":
+        _say("outside check: DISABLED (files outside the org root are not compared with the snapshot)")
     if not pairs and not data["refusals"]:
         _say("no events dispatched yet")
     for p in pairs:
@@ -444,7 +573,7 @@ def _status(args):
             tail = f"ledger entry {last['seq']} {last['kind']}" + (f"/{last['event_kind']}" if last["event_kind"] else "")
         check = {True: "verified", False: "NOT VERIFIED", None: "unchecked"}[p["verified"]]
         _say(f"{p['workflow']} event={p['event']} {p['state']} run={p['run_id'] or '-'} "
-             f"status={p['status'] or '-'} | {tail} ({check})")
+             f"status={p['status'] or '-'} | {tail} ({check})" + (f" reason={p['reason']}" if p["reason"] else ""))
     for r in data["refusals"][-20:]:
         _say(f"refused {r.get('workflow') or '-'} event={r.get('event') or '-'}: {r.get('reason')}")
     return 0
@@ -461,6 +590,11 @@ def _parser():
     s.add_argument("--state", required=True, help="the state directory")
     s.add_argument("--inbox", required=True, help="the inbox directory")
     s.add_argument("--once", action="store_true", help="handle what is there, then exit")
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("--repo", help="the repository whose frozen files are compared with the snapshot "
+                                  "(default: the git top level of the org root)")
+    g.add_argument("--no-outside-check", action="store_true",
+                   help="run without the frozen-outside protection (warns, and is recorded in the state)")
     s.add_argument("--poll", type=float, default=1.0, metavar="SECONDS", help="seconds between inbox polls")
     e = sub.add_parser("emit", help="write one event file into the inbox")
     e.add_argument("--inbox", required=True)

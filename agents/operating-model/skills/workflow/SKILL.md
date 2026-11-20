@@ -62,4 +62,9 @@ python3 scripts/org.py status --state STATE [--json]
 - `STATE` must hold `ledger.key` (mode 0600, 32 bytes or more), `keys/` (public keys, `<role> <key>` per line) and
   `snapshots/`. The org root must hold `stack.yaml` or `stack.json`. `serve` refuses to start without them.
 - Exit codes of `serve`: 0 ok, 1 a run ended in error, 2 usage or a refusal. One `serve` per `STATE`.
-- `status` only reads. It lists each started pair with its run result and the last ledger entry.
+- `serve` compares the frozen files outside the org root with the signed snapshot. The repository is `--repo`, or the
+  git top level of the org root; with neither, `serve` refuses. `--no-outside-check` turns this off, warns, and is
+  recorded in the state.
+- After a crash `serve` resumes each run left "starting". A run whose ledger does not verify is reported and left.
+- A run the runtime refused is marked done: after fixing the root, `emit --id <new id>` starts it again.
+- `status` only reads. It lists each started pair with its run result (and the refusal reason) and the last ledger entry.

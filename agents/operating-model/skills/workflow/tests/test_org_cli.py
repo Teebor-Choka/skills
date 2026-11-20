@@ -507,7 +507,8 @@ def test_no_repo_and_no_flag_refuses_to_start(tmp_path):
 
 
 def test_the_no_outside_check_flag_runs_with_a_warning_and_is_recorded(tmp_path):
-    o = frozen_org(tmp_path)
+    o = Org(tmp_path, chain_root(tmp_path))
+    os.rmdir(tmp_path / ".git")  # without the flag this start is refused
     o.emit("org.scan-requested", "--id", "s-1")
     code, out, err = o.serve("--no-outside-check")
     assert code == 0, (out, err)
@@ -615,6 +616,7 @@ def test_a_decision_left_in_the_inbox_is_verified_once_until_it_changes(gated):
     gated.emit("org.work-item-ready", "--id", "w-1")
     seen = []
     gated.clock.on_sleep.append((1, lambda: gated.decision("f" * 32, name="other.json")))
+    gated.clock.on_sleep.append((50, lambda: seen.append(verifier.calls)))
 
     def rewrite():
         seen.append(verifier.calls)
@@ -623,5 +625,5 @@ def test_a_decision_left_in_the_inbox_is_verified_once_until_it_changes(gated):
     gated.clock.on_sleep.append((100, rewrite))
     code, out, err = gated.serve(verifier=verifier)
     assert code == 1 and (gated.inbox / "other.json").exists()  # nobody decided this run: it timed out
-    assert seen == [1]  # ~99 polls, one verification
-    assert seen[0] < verifier.calls <= 3  # the changed file was verified again
+    assert seen[0] == seen[1]  # 50 polls in between, no new verification
+    assert seen[1] < verifier.calls <= seen[1] + 2  # the changed file is verified again, not once per poll
