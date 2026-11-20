@@ -1,0 +1,4 @@
+#!/bin/sh
+# tdd-evidence: not implemented. U14 builds it; until then the step fails loudly.
+echo "tdd-evidence: not implemented (U14)" >&2
+exit 3
