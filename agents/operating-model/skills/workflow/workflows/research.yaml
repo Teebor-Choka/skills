@@ -61,6 +61,7 @@ do:
                   by: model
                   role: researcher
                   brief: briefs/research/web-search.md
+                  network: research.source-allowlist
                   metrics: [sources-consulted]
                   acceptance:
                     - rubric: criteria/research/sources.md
@@ -73,6 +74,7 @@ do:
                   by: model
                   role: researcher
                   brief: briefs/research/literature-search.md
+                  network: research.source-allowlist
                   metrics: [sources-consulted]
                   acceptance:
                     - rubric: criteria/research/sources.md
@@ -96,6 +98,7 @@ do:
           by: model
           role: researcher
           brief: briefs/research/lookup.md
+          network: research.source-allowlist
           metrics: [sources-consulted]
           acceptance:
             - rubric: criteria/research/sources.md
@@ -144,19 +147,19 @@ do:
                 by: model
                 role: reviewer
                 brief: briefs/research/check-claim.md
+                network: research.source-allowlist
                 metrics: [claims-unverified]
                 acceptance:
                   - rubric: criteria/research/check-claim.md
                     judge: lead
                     sample: 0.3
   - claims-checked:
-      if: ${ ($context.claims | length) != 0 }
       listen:
         to:
           any:
             - with:
-                type: org.claim-checked
-          until: ${ ($context.checked | length) == ($context.claims | length) }
+                type: org.task-ended
+          until: ${ ($events | length) == ($context.claims | length) }
       timeout:
         after: { hours: 4 }
       metadata:
@@ -215,6 +218,22 @@ do:
           title: Note not accepted after three review rounds
       metadata:
         org: { to: lead }
+  - requester-accepts:
+      listen:
+        to:
+          one:
+            with:
+              type: org.research-note-accepted
+      timeout:
+        after: { days: 7 }
+      metadata:
+        org:
+          by: human
+          role: requester
+          signer: requester
+          metrics: [question-turnaround]
+          acceptance:
+            - human: the requester accepts the note
   - publish:
       run:
         shell: { command: note-publish, arguments: [research.notes-sink] }
