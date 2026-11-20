@@ -21,6 +21,10 @@ and the validators. Around the interpreter, without editing it (spec 13.1):
      the runtime must be launched from a trusted copy of `scripts/`.
   4. `InboxFeed`, `QueueFeed` and `LiveScheduler`, the real-time driver.
   5. `OrgProcessHost`: `ProcessHost` plus the `agent-run` environment and `run_judge` (6.1).
+  6. Metrics (spec update 13, P62 to P64): per-node `metric` rows through `RegistryCollector` (the
+     `metric_collectors` registry; `ProcessCollector` stays injectable), one `org.metric` entry per catalog metric
+     at run end, and `TurnBoundary`, the P61 order (export, metrics, reflection, turn-complete) as ledger entries.
+     All of them go through `RunLedger.append`: the ledger is never rewritten, pruned or summarised.
 
 Private names of `interpreter` this module still uses (a note for U13a: public hooks would replace them):
 `_Run` (subclassed for decision ids; `events`, `sched`, `execute`, `decision_test`), `_Scheduler` (subclassed:
@@ -32,7 +36,8 @@ PROVISIONAL choices (the spec is silent; listed in the unit report):
   - the rung base is the newest snapshot of a signed chain (`seq`, `prev`, `root_id`);
   - the proposer's rungs come from the base manifest role named by `proposer_role` (default `improver`);
   - file maps follow a file symlink that resolves inside the root and refuse every other symlink;
-  - the collector convention (`ProcessCollector`) and an unreadable metric as an error row, never 0;
+  - the script collector convention (`ProcessCollector`, no longer the default) and an unreadable metric as an
+    error row, never 0;
   - the time a resumed run spent down does not count toward its timeouts (the clock resumes at the last event).
 """
 
@@ -55,13 +60,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import check_change  # noqa: E402
 import interpreter as it  # noqa: E402
+import metric_collectors as mc  # noqa: E402
 import validate_catalog as vc  # noqa: E402
 import validate_manifest as vman  # noqa: E402
 
 __all__ = (
     "UNENFORCED", "NO_OUTSIDE", "DEFAULT_FROZEN_OUTSIDE", "LedgerError", "DivergenceError", "OwnerKeyError",
     "FileMapError", "SnapshotError", "IntegrityError", "FrozenOutside", "RunLedger", "KeyRing", "SshKeygenVerifier",
-    "SnapshotStore", "ProcessCollector", "InboxFeed", "QueueFeed", "LiveScheduler", "OrgProcessHost", "OrgRuntime",
+    "SnapshotStore", "ProcessCollector", "RegistryCollector", "TurnBoundary", "TurnOrderError", "InboxFeed", "QueueFeed", "LiveScheduler", "OrgProcessHost", "OrgRuntime",
     "load_ring", "validate_stack", "event_payload", "snapshot_event", "build_file_map", "check_collisions",
 )
 
@@ -226,18 +232,23 @@ class RunLedger:
         self.head_path = self.path + ".head"
         self._last, self._seq, self._good, self._run_id = GENESIS, 0, 0, None
         if os.path.exists(self.path):
-            entries = self.read()
+            entries, _, self._good = self._load()
             if entries:
                 self._last, self._seq = entries[-1]["mac"], entries[-1]["seq"]
                 if entries[0]["kind"] == "header":
                     self._run_id = entries[0]["body"].get("run_id")
 
     def read(self):
+        """The verified entries. Reading never moves this writer's position: only `__init__` and `append` do."""
+        return self._load()[0]
+
+    def _load(self):
+        """(entries, their line bytes, byte length of the verified lines), all from one read of the file."""
         try:
             with open(self.path, "rb") as f:
                 raw = f.read()
         except FileNotFoundError:
-            return []
+            return [], [], 0
         lines = raw.split(b"\n")
         self.torn = bool(lines.pop())
         entries, prev, good = [], GENESIS, 0
@@ -255,8 +266,7 @@ class RunLedger:
                 raise LedgerError(f"{self.path}: entry {n} has a bad signature")
             entries.append(entry)
             prev, good = entry["mac"], good + len(line) + 1
-        self._good = good
-        return entries
+        return entries, lines, good
 
     def _head_mac(self, run_id, count, last):
         return hmac.new(self.key, f"head\n{run_id}\n{count}\n{last}".encode(), hashlib.sha256).hexdigest()
@@ -274,9 +284,15 @@ class RunLedger:
     def append(self, kind, body):
         if self.readonly:
             raise LedgerError(f"{self.path}: replay would write a '{kind}' entry")
-        if os.path.exists(self.path) and os.path.getsize(self.path) > self._good:
-            with open(self.path, "r+b") as f:  # cut a torn tail before writing after it
-                f.truncate(self._good)
+        size = os.path.getsize(self.path) if os.path.exists(self.path) else 0
+        if size < self._good:
+            raise LedgerError(f"{self.path}: the ledger shrank under this writer")
+        if size > self._good:
+            with open(self.path, "r+b") as f:
+                f.seek(self._good)
+                if b"\n" in f.read():  # whole lines another writer appended: refuse, never cut them
+                    raise LedgerError(f"{self.path}: the ledger grew under this writer (a second writer?)")
+                f.truncate(self._good)  # a torn tail: cut it before writing after it
         entry = {"seq": self._seq + 1, "prev": self._last, "kind": kind, "body": json.loads(json.dumps(body, default=str))}
         entry["mac"] = _mac(self.key, entry)
         line = json.dumps(entry, sort_keys=True, separators=(",", ":")) + "\n"
@@ -289,6 +305,14 @@ class RunLedger:
             self._run_id = entry["body"].get("run_id")
         self._write_head()
         return entry
+
+    def prefix(self, seq, mac):
+        """The verified bytes of entries 1..seq (a collector's input), from the same read that verified them.
+        Refused unless entry `seq` carries `mac`."""
+        entries, lines, _ = self._load()
+        if seq < 1 or len(entries) < seq or entries[seq - 1]["mac"] != mac:
+            raise LedgerError(f"{self.path}: entry {seq} is not the one the metrics were computed from")
+        return b"".join(line + b"\n" for line in lines[:seq])
 
     def verify_head(self, entries, expected_head=None):
         """Refuse a ledger that is shorter than its head file, belongs to another run, or has no valid head."""
@@ -1266,6 +1290,202 @@ def _digest(files):
     return h.hexdigest()
 
 
+class RegistryCollector:
+    """The default per-node collector: the metric over the ledger so far, through the registry (P64).
+
+    Same call shape as `ProcessCollector`. A metric with no value raises `NoValue` (a `reason` row), a collector
+    failure `CollectorError` (an `error` row). The input is the run writer's verified bytes (`bind_ledger`). A metric
+    whose sources the registry serves but no built-in computes (an org-authored metric) goes to `fallback`, the
+    catalog's own collector script, so the catalog `collector` field keeps its meaning."""
+
+    def __init__(self, registry, fallback=None):
+        self.registry, self.fallback, self.ledger = registry, fallback, None
+
+    def bind(self, files):
+        if hasattr(self.fallback, "bind"):
+            self.fallback.bind(files)
+
+    def bind_ledger(self, ledger):
+        self.ledger = ledger
+
+    def __call__(self, metric, entry, key, run_id, ledger_path):
+        if self.ledger is not None:
+            data = self.ledger.prefix(self.ledger._seq, self.ledger._last)
+        else:
+            with open(ledger_path, "rb") as f:
+                data = f.read()
+        res = self.registry.compute(metric, entry, {mc.RUN_LEDGER: data}, key)
+        if self.fallback is not None and res.get("reason") == f"no collector computes {metric}":
+            return self.fallback(metric, entry, key, run_id, ledger_path)
+        if "reason" in res:
+            raise mc.NoValue(res["reason"])
+        if "error" in res:
+            raise CollectorError(res["error"])
+        return res["value"]
+
+
+class TurnOrderError(Exception):
+    """A turn-boundary entry was asked for out of the P61 order; nothing was appended."""
+
+
+def _ref(e):
+    return {"seq": e["seq"], "mac": e["mac"]}
+
+
+class TurnBoundary:
+    """The P61 order as ledger entries, for one turn of an agent session (spec 13.3, P63).
+
+    export (the U11 session record's digest) -> one org.metric per catalog metric -> reflection -> turn-complete.
+    Each call reads the ledger through a separate read-only view, verifies the chain and the head file, and refuses
+    (TurnOrderError, nothing appended) when its predecessors are missing. It writes only through `writer`, the run's
+    own `RunLedger`, and only while that writer's last entry is the file's last entry: a second writer, a rollback
+    or a ledger of another run raises LedgerError. With no writer (no run in this runtime) it only reads. It runs no
+    reflection and compacts nothing: `compaction_allowed(turn)` only reads the ledger.
+    """
+
+    def __init__(self, path, key, writer, catalog, registry, run_id=None):
+        self.path, self.key, self.ledger = str(path), bytes(key), writer
+        self.catalog, self.registry, self.run_id = catalog, registry, run_id
+
+    @staticmethod
+    def _turn(turn):
+        if not isinstance(turn, str) or not 0 < len(turn) <= 200:
+            raise TurnOrderError("a turn id is a string of 1 to 200 characters")
+        return turn
+
+    def _entries(self):
+        """The verified entries of this run's ledger, or LedgerError."""
+        led = RunLedger(self.path, self.key, readonly=True)
+        es = led.read()
+        led.verify_head(es)
+        if not es or es[0]["kind"] != "header" or not isinstance(es[0]["body"], dict):
+            raise LedgerError(f"{self.path}: no header: no run to record a turn for")
+        if self.run_id is not None and es[0]["body"].get("run_id") != self.run_id:
+            raise LedgerError(f"{self.path}: the ledger belongs to another run")
+        return es
+
+    def _state(self, turn, es):
+        st = {"export": None, "metrics": {}, "reflection": None, "complete": None}
+        for e in es:
+            b = e["body"]
+            if not (e["kind"].startswith("org.") and isinstance(b, dict) and b.get("turn") == turn):
+                continue
+            if e["kind"] == "org.session-export":
+                st["export"] = e
+            elif e["kind"] == "org.metric" and b.get("at") == "turn":
+                st["metrics"].setdefault(b.get("metric"), e)
+            elif e["kind"] == "org.reflection":
+                st["reflection"] = e
+            elif e["kind"] == "org.turn-complete":
+                st["complete"] = e
+        return st
+
+    def _open(self, turn):
+        self._turn(turn)
+        if self.ledger is None:
+            raise TurnOrderError("no run in this runtime: run or resume first; the turn seam never opens a writer")
+        es = self._entries()
+        if (es[-1]["seq"], es[-1]["mac"]) != (self.ledger._seq, self.ledger._last):
+            raise LedgerError(f"{self.path}: the ledger changed under this run's writer")
+        st = self._state(turn, es)
+        st["last"] = es[-1]
+        if st["complete"]:
+            raise TurnOrderError(f"turn {turn}: already complete")
+        return st
+
+    def _full(self, st):
+        return self.catalog is not None and set(st["metrics"]) >= set(self.catalog)
+
+    def export(self, turn, record):
+        st = self._open(turn)
+        if st["export"]:
+            raise TurnOrderError(f"turn {turn}: the session record is already exported")
+        if not isinstance(record, (bytes, bytearray)):
+            raise TypeError("the session record must be bytes")
+        return self.ledger.append("org.session-export", {"turn": turn, "sha256": _sha(bytes(record)),
+                                                         "bytes": len(record)})
+
+    def collect(self, turn, record):
+        st = self._open(turn)
+        if not st["export"]:
+            raise TurnOrderError(f"turn {turn}: metrics before the session record export")
+        if self.catalog is None:
+            raise TurnOrderError("no catalog loaded: run, resume or replay first")
+        if not isinstance(record, (bytes, bytearray)) or _sha(bytes(record)) != st["export"]["body"]["sha256"]:
+            raise TurnOrderError(f"turn {turn}: the record differs from the exported one")
+        if self._full(st):
+            raise TurnOrderError(f"turn {turn}: metrics are already recorded")
+        sha = {"sha256": st["export"]["body"]["sha256"]}
+        if st["metrics"]:  # a kill between rows: finish with the boundary the first rows used
+            boundary = next(iter(st["metrics"].values()))["body"]["inputs"][mc.RUN_LEDGER]
+        else:
+            boundary = _ref(st["last"])
+        inputs = {mc.RUN_LEDGER: self.ledger.prefix(boundary["seq"], boundary["mac"]),
+                  mc.SESSION_RECORD: bytes(record)}
+        out, parsed = [], {}
+        for m in sorted(self.catalog):
+            if m in st["metrics"]:
+                continue
+            res = self.registry.compute(m, self.catalog[m], inputs, None, parsed)
+            out.append(self.ledger.append("org.metric", {"metric": m, "at": "turn", "turn": turn,
+                                                         "inputs": {mc.RUN_LEDGER: boundary,
+                                                                    mc.SESSION_RECORD: sha}, **res}))
+        return out
+
+    def reflect(self, turn, ref):
+        st = self._open(turn)
+        if not (st["export"] and self._full(st)):
+            raise TurnOrderError(f"turn {turn}: reflection before the turn's metrics")
+        if st["reflection"]:
+            raise TurnOrderError(f"turn {turn}: the reflection is already recorded")
+        if not isinstance(ref, str) or not ref:
+            raise TurnOrderError("a reflection reference is a non-empty string")
+        return self.ledger.append("org.reflection", {"turn": turn, "ref": ref})
+
+    def complete(self, turn):
+        st = self._open(turn)
+        exp, refl = st["export"], st["reflection"]
+        if not (exp and self._full(st) and refl):
+            raise TurnOrderError(f"turn {turn}: turn-complete needs the export, the metrics and the reflection")
+        rows = [st["metrics"][m] for m in sorted(self.catalog)]
+        if not (exp["seq"] < min(r["seq"] for r in rows) and max(r["seq"] for r in rows) < refl["seq"]):
+            raise TurnOrderError(f"turn {turn}: export, metrics and reflection are out of order")
+        return self.ledger.append("org.turn-complete", {"turn": turn, "export": _ref(exp),
+                                                        "metrics": [_ref(r) for r in rows],
+                                                        "reflection": _ref(refl)})
+
+    def compaction_allowed(self, turn, record=None):
+        """True only when this run's verified ledger holds the turn's turn-complete and the entries it names, in
+        order; with `record`, also only when that is the exported session record."""
+        try:
+            es = self._entries()
+        except (LedgerError, OSError):
+            return False
+        if not isinstance(turn, str):
+            return False
+        done = next((e for e in es if e["kind"] == "org.turn-complete" and isinstance(e["body"], dict)
+                     and e["body"].get("turn") == turn), None)
+        if done is None:
+            return False
+        b = done["body"]
+
+        def at(r, kind):
+            try:
+                e = es[r["seq"] - 1]
+            except (TypeError, KeyError, IndexError):
+                return None
+            ok = e["mac"] == r["mac"] and e["kind"] == kind and e["body"].get("turn") == turn
+            return e["seq"] if ok else None
+
+        seqs = [at(b.get("export"), "org.session-export")] + [at(r, "org.metric") for r in b.get("metrics") or []]
+        seqs += [at(b.get("reflection"), "org.reflection")]
+        if record is not None and (seqs[0] is None or not isinstance(record, (bytes, bytearray))
+                                   or es[seqs[0] - 1]["body"].get("sha256") != _sha(bytes(record))):
+            return False
+        return len(seqs) > 2 and None not in seqs and seqs[0] < min(seqs[1:-1]) and max(seqs[1:-1]) < seqs[-1] \
+            < done["seq"]
+
+
 def _no_collector(*args, **kw):
     raise LedgerError("replay would run a collector")
 
@@ -1286,7 +1506,7 @@ class OrgRuntime:
 
     def __init__(self, root, *, ledger_path, ledger_key, ring, host, snapshots, frozen, proposer_rungs=None,
                  proposer_role="improver", collector=None, clock=time.monotonic, sleep=time.sleep, poll=1.0,
-                 root_id=None, allow_run_id=False, used_ids_path=None):
+                 root_id=None, allow_run_id=False, used_ids_path=None, registry=None):
         if not isinstance(ledger_key, (bytes, bytearray)) or len(ledger_key) < MIN_KEY:
             raise ValueError(f"the ledger key must be at least {MIN_KEY} bytes")
         if proposer_rungs is not None and "frozen" in proposer_rungs:
@@ -1294,7 +1514,9 @@ class OrgRuntime:
         self.root, self.ledger_path, self.ledger_key = str(root), str(ledger_path), bytes(ledger_key)
         self.ring, self.host, self.snapshots, self.frozen = ring, host, snapshots, frozen
         self.proposer_rungs, self.proposer_role = proposer_rungs, proposer_role
-        self.collector = collector or ProcessCollector(self.root)
+        self.registry = registry or mc.default_registry()
+        self.collector = collector or RegistryCollector(self.registry, ProcessCollector(self.root))
+        self._ledger, self._catalog, self._run_id = None, None, None  # the last run's, for `turn_boundary`
         self.clock, self.sleep, self.poll = clock, sleep, poll
         self.root_id = root_id or hashlib.sha256(os.path.realpath(self.root).encode()).hexdigest()[:32]
         self.allow_run_id = allow_run_id
@@ -1452,6 +1674,8 @@ class OrgRuntime:
         collector = _no_collector if readonly else self.collector
         if hasattr(collector, "bind"):
             collector.bind(loaded.files)
+        if hasattr(collector, "bind_ledger"):
+            collector.bind_ledger(ledger)
 
         def collect(e, done=()):
             if e["kind"] != "accept" or e.get("status") == "cancelled":
@@ -1462,6 +1686,8 @@ class OrgRuntime:
                 row = {"key": e["key"], "metric": metric}
                 try:
                     row["value"] = collector(metric, catalog[metric], e["key"], rid, ledger.path)
+                except mc.NoValue as exc:
+                    row["reason"] = str(exc)
                 except Exception as exc:  # noqa: BLE001  an unreadable metric is an error row, never a zero
                     row["error"] = str(exc) or type(exc).__name__
                 ledger.append("metric", row)
@@ -1482,10 +1708,54 @@ class OrgRuntime:
             sched.on_event = run.sched.on_event
             run.sched = sched
             jhost.sched = sched
+        self._catalog, self._run_id = catalog, rid
+        self._ledger = None if readonly else ledger
         try:
-            return run.execute(name, inp)
+            res = run.execute(name, inp)
         finally:
             tee.closed = True  # a crash writes nothing more; neither does unwinding after one
+        if readonly:
+            self._check_run_end(ledger, catalog)
+        else:
+            self._collect_run_end(ledger, catalog)
+        return res
+
+    @staticmethod
+    def _run_end_rows(ledger):
+        return {e["body"]["metric"]: e["body"] for e in ledger.read()
+                if e["kind"] == "org.metric" and isinstance(e["body"], dict) and e["body"].get("at") == "run-end"}
+
+    def _collect_run_end(self, ledger, catalog):
+        """One `org.metric` per catalog metric after the run ends (P62). A resume adds only the missing rows, computed
+        from the boundary the first rows recorded, so a kill between rows changes no value."""
+        done = self._run_end_rows(ledger)
+        if set(catalog) <= set(done):
+            return
+        boundary = next(iter(done.values()))["inputs"][mc.RUN_LEDGER] if done else {"seq": ledger._seq,
+                                                                                      "mac": ledger._last}
+        inputs = {mc.RUN_LEDGER: ledger.prefix(boundary["seq"], boundary["mac"])}
+        parsed = {}
+        for m in sorted(catalog):
+            if m not in done:
+                res = self.registry.compute(m, catalog[m], inputs, None, parsed)
+                ledger.append("org.metric", {"metric": m, "at": "run-end", "inputs": {mc.RUN_LEDGER: boundary}, **res})
+
+    def _check_run_end(self, ledger, catalog):
+        """Replay: recompute each recorded run-end metric from its boundary; a different result is a divergence.
+        Turn rows are not rechecked: the ledger holds the session record's digest, not its bytes."""
+        cache = {}  # boundary -> (input bytes, parsed sources)
+        for m, body in sorted(self._run_end_rows(ledger).items()):
+            if m not in catalog:
+                raise DivergenceError(f"org.metric {m}: not in the catalog this replay loaded")
+            b = body["inputs"][mc.RUN_LEDGER]
+            k = (b["seq"], b["mac"])
+            if k not in cache:
+                cache[k] = (ledger.prefix(b["seq"], b["mac"]), {})
+            data, parsed = cache[k]
+            again = self.registry.compute(m, catalog[m], {mc.RUN_LEDGER: data}, None, parsed)
+            held = {k: body[k] for k in ("value", "reason", "error") if k in body}
+            if json.dumps(again, sort_keys=True) != json.dumps(held, sort_keys=True):
+                raise DivergenceError(f"org.metric {m}: replay computes {again}, the ledger holds {held}")
 
     def _used(self):
         try:
@@ -1552,6 +1822,12 @@ class OrgRuntime:
             return refused
         ledger, h, loaded, entries = ctx
         return self._execute(h["workflow"], h["input"], h["run_id"], ledger, loaded, entries, feed=feed)
+
+    def turn_boundary(self):
+        """The P61 turn seam over this runtime's ledger. It writes only through the writer of the last run or resume
+        in this runtime; after a replay, or with no run, it can only read (`compaction_allowed`)."""
+        return TurnBoundary(self.ledger_path, self.ledger_key, self._ledger, self._catalog, self.registry,
+                            self._run_id)
 
     def replay(self):
         """Rebuild the run's result from its ledger alone: no live call, no collector and no write."""
