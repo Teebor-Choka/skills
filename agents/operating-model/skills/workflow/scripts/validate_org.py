@@ -750,6 +750,31 @@ def _dup_hook(label):
     return hook
 
 
+MAX_LOAD_DEPTH = 512  # same refusal on every Python: the json module's own recursion limit differs by version
+
+
+def _json_depth_exceeds(text, limit):
+    """One linear pass: track string and escape state and bracket depth. No recursion."""
+    depth, in_str, esc = 0, False, False
+    for ch in text:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch in "[{":
+            depth += 1
+            if depth > limit:
+                return True
+        elif ch in "]}":
+            depth -= 1
+    return False
+
+
 def _load_json(path):
     def bad(text):
         raise LoadError(f"{path}: non-finite number {text}")
@@ -760,7 +785,10 @@ def _load_json(path):
             bad(text)
         return v
     with open(path, encoding="utf-8") as f:
-        return json.load(f, object_pairs_hook=_dup_hook(path), parse_constant=bad, parse_float=flt)
+        text = f.read()
+    if _json_depth_exceeds(text, MAX_LOAD_DEPTH):
+        raise LoadError(f"{path}: nesting too deep to load")
+    return json.loads(text, object_pairs_hook=_dup_hook(path), parse_constant=bad, parse_float=flt)
 
 
 def _yaml_loader(yaml, label):
