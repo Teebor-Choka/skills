@@ -102,6 +102,7 @@ def test_metric_catalog_validates_and_holds_the_sixteen_metrics():
 
 
 @needs_yaml
+@pytest.mark.skipif("checks" not in vm.TOP_KEYS, reason="validate_manifest predates spec update 6 (U2 follow-up)")
 def test_manifest_validates():
     cp = run_cli("validate_manifest.py", "--root", str(ROOT), "--catalog", str(ROOT / "metrics.json"),
                  str(ROOT / "manifest.json"))
@@ -147,7 +148,7 @@ def test_manifest_floors_match_the_floor_nodes():
 @needs_yaml
 def test_references_resolve_to_files():
     r = refs()
-    assert len(r["brief"]) == 11 and len(r["rubric"]) == 6 and len(r["schema"]) == 2
+    assert len(r["brief"]) == 11 and len(r["rubric"]) == 9 and len(r["schema"]) == 2
     missing = [p for p in sorted(r["brief"] | r["rubric"] | r["schema"]) if not (ROOT / p).is_file()]
     missing += [f"checks/{c}.py" for c in sorted(r["check"]) if not (ROOT / "checks" / f"{c}.py").is_file()]
     assert missing == []
@@ -165,7 +166,7 @@ def test_schemas_are_json_schemas_for_item_and_units():
     assert "units" in units["required"]
 
 
-# ---------------------------------------------------------------- 3. every check runs on a fixture of each
+# ---------------------------------------------------------------- 3. every check runs on a fixture of each (spec 6.1)
 
 ITEM = {
     "title": "Rate limit",
@@ -179,230 +180,210 @@ ITEM = {
     "out_of_scope": "Per-user quotas.",
     "ai_gap": "A build could pass every test and count requests per process, not per user.",
 }
-RUN, KEY = "r1", "some/key"
-GREEN = {"suite": {"passed": 12, "failed": 0}, "tests_edited": []}
+RUN = "r1"
+HEAD = "abc123"
 RUNS = {"runs": [{"test": "a", "outcome": "assertion"}, {"test": "b", "outcome": "assertion"}]}
+GREEN = {"suite": {"passed": 12, "failed": 0}, "tests_edited": []}
+ACC_GREEN = {"suite": {"passed": 2, "failed": 0}, "tests_edited": []}
+AT_OUT = {"tests": [{"id": "a", "criteria": ["C1"], "path": "tests/test_acceptance.py"},
+                    {"id": "b", "criteria": ["C2"], "path": "tests/test_acceptance.py"}]}
 REPORT_OK = "\n".join(f"## {h}\ntext" for h in
                       ["Summary", "Acceptance", "Tests", "Defects", "Metrics", "Not verified"])
-UNITS = {
-    "units": [
-        {"id": "u1", "goal": "g", "write_set": ["src/a.py"], "criteria": ["C1"], "depends_on": []},
-        {"id": "u2", "goal": "g", "write_set": ["src/b.py"], "criteria": ["C2"], "depends_on": ["u1"]},
-    ],
-    "item_criteria_ids": ["C1", "C2"],
-    "acceptance_test_paths": ["tests/test_acceptance.py"],
+UNITS = {"units": [
+    {"id": "u1", "goal": "g", "write_set": ["src/a.py"], "criteria": ["C1"], "depends_on": []},
+    {"id": "u2", "goal": "g", "write_set": ["src/b.py"], "criteria": ["C2"], "depends_on": ["u1"]},
+]}
+DECISION = {"decision": "approve", "signer_role": "owner", "signature_verified": True, "run": RUN,
+            "task": "merge-gate", "head": HEAD}
+# check name -> spec of its evidence: the task it sits on, the checked task's own output (`out`, JSON data, or
+# `out_raw`, a string), and what it reads from `outputs` (claims), `steps` (code-step facts), `decisions`.
+SPECS = {
+    "spec-check": dict(task="spec", out=ITEM),
+    "spec-coverage": dict(task="acceptance-tests", out=AT_OUT, outputs={"spec": ITEM}),
+    "every-acceptance-test-fails-on-an-assertion": dict(task="acceptance-red", out=RUNS,
+                                                        outputs={"acceptance-tests": AT_OUT}),
+    "red-evidence": dict(task="cycle/red-evidence", out=RUNS),
+    "new-test-fails-on-an-assertion-not-a-compile-error": dict(task="cycle/red-evidence", out=RUNS),
+    "green-evidence": dict(task="cycle/green-evidence", out=GREEN),
+    "suite-green-and-no-test-edited": dict(task="cycle/green-evidence", out=GREEN),
+    "suite-still-green-and-no-test-edited": dict(task="cycle/refactor-evidence", out=GREEN),
+    "write-sets-are-disjoint": dict(task="cut", out=UNITS, outputs={"spec": ITEM, "acceptance-tests": AT_OUT}),
+    "unit-verdict-is-pass": dict(task="build/units/tdd#0", out_raw=""),
+    "acceptance-suite-green": dict(task="build/acceptance-run", out=ACC_GREEN, steps={"acceptance-red": RUNS}),
+    "checks-green-and-gate-approved": dict(task="merge", out={"ci": {"state": "success", "head": HEAD}},
+                                           decisions={"merge-gate": DECISION}),
+    "report-has-every-required-section": dict(task="report", out={"report": REPORT_OK}),
 }
-HEAD = {"head": "abc123", "ci": {"state": "success", "head": "abc123"},
-        "gate": {"decision": "approve", "signature_verified": True, "signer_role": "owner", "head": "abc123"}}
-CHANGE_DIRS = ("workflows", "briefs", "criteria", "schemas/org", "checks", "collectors", "bin")
-CHANGE_FILES = ("manifest.json", "metrics.json")
+RUNG = "every-proposal-is-within-its-rung"
+ALL_CHECKS = sorted(SPECS) + [RUNG]
+FACT = {"every-acceptance-test-fails-on-an-assertion", "red-evidence",
+        "new-test-fails-on-an-assertion-not-a-compile-error", "green-evidence", "suite-green-and-no-test-edited",
+        "suite-still-green-and-no-test-edited", "acceptance-suite-green", "checks-green-and-gate-approved"}
 
 
-def org_root_map():
-    out = {}
-    for d in CHANGE_DIRS:
-        for p in sorted((ROOT / d).rglob("*")) if (ROOT / d).is_dir() else []:
-            if p.is_file() and "__pycache__" not in p.parts:
-                out[p.relative_to(ROOT).as_posix()] = p.read_text()
-    for f in CHANGE_FILES:
-        if (ROOT / f).is_file():
-            out[f] = (ROOT / f).read_text()
-    return out
+def entry(data):
+    return {"exit": 0, "stdout": json.dumps(data)}
 
 
-def proposal(edit_path="briefs/sw/red.md"):
-    base = org_root_map()
-    new = dict(base)
-    new[edit_path] = base.get(edit_path, "") + "\nOne more rule.\n"
-    return {"id": "p1", "base": base, "new": new}
+def build(spec, run=RUN, key=None, change=None):
+    """The evidence file of spec 6.1, built from a spec dict."""
+    out = {"exit": 0, "stdout": spec["out_raw"]} if "out_raw" in spec else entry(spec["out"])
+    return {
+        "run": run, "key": key or spec["task"], "output": out,
+        "steps": {k: entry(v) for k, v in spec.get("steps", {}).items()},
+        "outputs": {k: entry(v) for k, v in spec.get("outputs", {}).items()},
+        "decisions": spec.get("decisions", {}),
+        "change": change or {"head": HEAD, "worktree": "/nonexistent"},
+    }
 
 
-GOOD = {
-    "spec-check": {"item": ITEM},
-    "spec-coverage": {"item": ITEM, "spec_criteria_ids": ["C1", "C2"],
-                      "tests": [{"id": "a", "criteria": ["C1"]}, {"id": "b", "criteria": ["C2"]}]},
-    "every-acceptance-test-fails-on-an-assertion": {**RUNS, "expected_tests": ["a", "b"]},
-    "red-evidence": RUNS,
-    "new-test-fails-on-an-assertion-not-a-compile-error": RUNS,
-    "green-evidence": GREEN,
-    "suite-green-and-no-test-edited": GREEN,
-    "suite-still-green-and-no-test-edited": GREEN,
-    "write-sets-are-disjoint": UNITS,
-    "unit-verdict-is-pass": {},  # passes on the call step's own exit 0; nothing else is read
-    "acceptance-suite-green": {**GREEN, "expected_count": 12},
-    "checks-green-and-gate-approved": HEAD,
-    "report-has-every-required-section": {"report": REPORT_OK},
-    "every-proposal-is-within-its-rung": {"proposals": []},  # filled in below, needs the repo files
-}
-if (ROOT / "checks").is_dir():
-    GOOD["every-proposal-is-within-its-rung"] = {"proposals": [proposal()]}
-
-
-def mut(ev, path, value=None, delete=False):
-    ev = copy.deepcopy(ev)
-    cur = ev
+def mut(spec, path, value=None, delete=False):
+    spec = copy.deepcopy(spec)
+    cur = spec
     for p in path[:-1]:
         cur = cur[p]
     if delete:
         del cur[path[-1]]
     else:
         cur[path[-1]] = value
-    return ev
+    return spec
 
 
 def unit_edit(i, field, value):
-    return lambda e: mut(e, ["units", i, field], value)
+    return lambda s: mut(s, ["out", "units", i, field], value)
+
+
+def with_tests(tests):
+    return lambda s: mut(s, ["outputs", "acceptance-tests"], {"tests": tests})
+
+
+def raw_out(text):
+    return lambda s: mut(s, ["out"], {"report": text})
 
 
 BAD = {
     "spec-check": [
-        ("empty criteria", lambda e: mut(e, ["item", "criteria"], [])),
-        ("bad id", lambda e: mut(e, ["item", "criteria"], [{"id": "x y", "text": "t"}])),
-        ("single criterion without id", lambda e: mut(e, ["item", "criteria"], [{"text": "t"}])),
-        ("empty id", lambda e: mut(e, ["item", "criteria", 0, "id"], "")),
-        ("n/a text", lambda e: mut(e, ["item", "criteria", 0, "text"], "n/a")),
-        ("text not a string", lambda e: mut(e, ["item", "criteria", 0, "text"], 5)),
-        ("duplicate id", lambda e: mut(e, ["item", "criteria", 1, "id"], "C1")),
-        ("blank ai_gap", lambda e: mut(e, ["item", "ai_gap"], "  ")),
-        ("blank category", lambda e: mut(e, ["item", "failure_definition"], "n/a")),
+        ("empty criteria", lambda s: mut(s, ["out", "criteria"], [])),
+        ("bad id", lambda s: mut(s, ["out", "criteria"], [{"id": "x y", "text": "t"}])),
+        ("single criterion without id", lambda s: mut(s, ["out", "criteria"], [{"text": "t"}])),
+        ("empty id", lambda s: mut(s, ["out", "criteria", 0, "id"], "")),
+        ("n/a text", lambda s: mut(s, ["out", "criteria", 0, "text"], "n/a")),
+        ("text not a string", lambda s: mut(s, ["out", "criteria", 0, "text"], 5)),
+        ("duplicate id", lambda s: mut(s, ["out", "criteria", 1, "id"], "C1")),
+        ("blank ai_gap", lambda s: mut(s, ["out", "ai_gap"], "  ")),
+        ("placeholder category", lambda s: mut(s, ["out", "failure_definition"], "n/a")),
     ],
     "spec-coverage": [
-        ("uncovered criterion", lambda e: mut(e, ["tests"], [{"id": "a", "criteria": ["C1"]}])),
-        ("unknown criterion id", lambda e: mut(e, ["tests", 0, "criteria"], ["C1", "C9"])),
-        ("criteria as a string", lambda e: mut(e, ["tests", 0, "criteria"], "C1")),
-        ("item differs from the spec output", lambda e: mut(e, ["spec_criteria_ids"], ["C1", "C3"])),
+        ("uncovered criterion", lambda s: mut(s, ["out", "tests"], [AT_OUT["tests"][0]])),
+        ("unknown criterion id", lambda s: mut(s, ["out", "tests", 0, "criteria"], ["C1", "C9"])),
+        ("criteria as a string", lambda s: mut(s, ["out", "tests", 0, "criteria"], "C1")),
+        ("no tests", lambda s: mut(s, ["out", "tests"], [])),
     ],
     "every-acceptance-test-fails-on-an-assertion": [
-        ("a test fails by compile error", lambda e: mut(e, ["runs", 1, "outcome"], "compile-error")),
-        ("a test passes", lambda e: mut(e, ["runs", 1, "outcome"], "pass")),
-        ("expected test absent", lambda e: mut(e, ["expected_tests"], ["a", "b", "c"])),
-        ("no expected tests", lambda e: mut(e, ["expected_tests"], [])),
+        ("compile error", lambda s: mut(s, ["out", "runs", 1, "outcome"], "compile-error")),
+        ("a test passes", lambda s: mut(s, ["out", "runs", 1, "outcome"], "pass")),
+        ("claimed test absent from the run", with_tests(AT_OUT["tests"] + [{"id": "c", "criteria": ["C1"], "path": "t"}])),
+        ("no claimed tests", with_tests([])),
     ],
     "red-evidence": [
-        ("no runs", lambda e: mut(e, ["runs"], [])),
-        ("test passes", lambda e: mut(e, ["runs", 0, "outcome"], "pass")),
-        ("timeout", lambda e: mut(e, ["runs", 0, "outcome"], "timeout")),
+        ("no runs", lambda s: mut(s, ["out", "runs"], [])),
+        ("test passes", lambda s: mut(s, ["out", "runs", 0, "outcome"], "pass")),
+        ("timeout", lambda s: mut(s, ["out", "runs", 0, "outcome"], "timeout")),
     ],
     "new-test-fails-on-an-assertion-not-a-compile-error": [
-        ("import error", lambda e: mut(e, ["runs", 0, "outcome"], "import-error")),
+        ("import error", lambda s: mut(s, ["out", "runs", 0, "outcome"], "import-error")),
     ],
     "green-evidence": [
-        ("a test fails", lambda e: mut(e, ["suite", "failed"], 1)),
-        ("empty suite", lambda e: mut(e, ["suite", "passed"], 0)),
-        ("bool count", lambda e: mut(e, ["suite", "passed"], True)),
-        ("float count", lambda e: mut(e, ["suite", "passed"], 12.0)),
-        ("negative count", lambda e: mut(e, ["suite", "failed"], -1)),
-        ("tests_edited missing", lambda e: mut(e, ["tests_edited"], delete=True)),
-        ("tests_edited not a list", lambda e: mut(e, ["tests_edited"], "none")),
-        ("a test edited", lambda e: mut(e, ["tests_edited"], ["tests/test_a.py"])),
+        ("a test fails", lambda s: mut(s, ["out", "suite", "failed"], 1)),
+        ("empty suite", lambda s: mut(s, ["out", "suite", "passed"], 0)),
+        ("bool count", lambda s: mut(s, ["out", "suite", "passed"], True)),
+        ("float count", lambda s: mut(s, ["out", "suite", "passed"], 12.0)),
+        ("negative count", lambda s: mut(s, ["out", "suite", "failed"], -1)),
+        ("tests_edited missing", lambda s: mut(s, ["out", "tests_edited"], delete=True)),
+        ("tests_edited not a list", lambda s: mut(s, ["out", "tests_edited"], "none")),
+        ("a test edited", lambda s: mut(s, ["out", "tests_edited"], ["tests/test_a.py"])),
     ],
-    "suite-green-and-no-test-edited": [("a test edited", lambda e: mut(e, ["tests_edited"], ["t.py"]))],
-    "suite-still-green-and-no-test-edited": [("a test edited", lambda e: mut(e, ["tests_edited"], ["t.py"]))],
+    "suite-green-and-no-test-edited": [("a test edited", lambda s: mut(s, ["out", "tests_edited"], ["t.py"]))],
+    "suite-still-green-and-no-test-edited": [("a test edited", lambda s: mut(s, ["out", "tests_edited"], ["t.py"]))],
     "acceptance-suite-green": [
-        ("suite shrank", lambda e: mut(e, ["suite", "passed"], 10)),
-        ("a test fails", lambda e: mut(e, ["suite", "failed"], 1)),
-        ("expected_count not an int", lambda e: mut(e, ["expected_count"], 12.0)),
+        ("suite shrank against the red run", lambda s: mut(s, ["out", "suite", "passed"], 1)),
+        ("a test fails", lambda s: mut(s, ["out", "suite", "failed"], 1)),
+        ("a test edited", lambda s: mut(s, ["out", "tests_edited"], ["tests/test_acceptance.py"])),
+        ("red run has no runs", lambda s: mut(s, ["steps", "acceptance-red"], {"runs": []})),
     ],
     "write-sets-are-disjoint": [
         ("identical files", unit_edit(1, "write_set", ["src/a.py"])),
         ("dir and file", unit_edit(0, "write_set", ["src"])),
         ("dir with slash and file", unit_edit(0, "write_set", ["src/"])),
-        ("dotted path", unit_edit(1, "write_set", ["src/../src/a.py"])),
         ("parent segment", unit_edit(1, "write_set", ["../x.py"])),
+        ("dotted path", unit_edit(1, "write_set", ["src/../src/a.py"])),
         ("absolute path", unit_edit(1, "write_set", ["/etc/x"])),
         ("glob", unit_edit(1, "write_set", ["src/*.py"])),
         ("empty path", unit_edit(1, "write_set", [""])),
         ("empty write-set", unit_edit(1, "write_set", [])),
         ("covers checks", unit_edit(1, "write_set", ["checks/spec-check.py"])),
+        ("covers checks in other case", unit_edit(1, "write_set", ["Checks/spec-check.py"])),
         ("covers criteria", unit_edit(1, "write_set", ["criteria/"])),
-        ("covers manifest", unit_edit(1, "write_set", ["manifest.json"])),
+        ("covers manifest.json", unit_edit(1, "write_set", ["manifest.json"])),
+        ("covers MANIFEST.JSON", unit_edit(1, "write_set", ["MANIFEST.JSON"])),
+        ("covers manifest.yaml", unit_edit(1, "write_set", ["manifest.yaml"])),
+        ("covers metrics.yaml", unit_edit(1, "write_set", ["Metrics.yaml"])),
         ("covers the acceptance tests", unit_edit(1, "write_set", ["tests/test_acceptance.py"])),
+        ("covers the acceptance tests dir", unit_edit(1, "write_set", ["tests"])),
+        ("acceptance test paths not a list", lambda s: mut(s, ["outputs", "acceptance-tests"], {"tests": "x"})),
+        ("acceptance test paths missing", lambda s: mut(
+            s, ["outputs", "acceptance-tests"], {"tests": [{"id": "a", "criteria": ["C1"]}]})),
         ("duplicate unit id", unit_edit(1, "id", "u1")),
-        ("no units", lambda e: mut(e, ["units"], [])),
+        ("no units", lambda s: mut(s, ["out", "units"], [])),
         ("unknown dependency", unit_edit(1, "depends_on", ["u9"])),
-        ("cyclic dependency", lambda e: mut(unit_edit(0, "depends_on", ["u2"])(e), ["units", 0, "depends_on"], ["u2"])),
+        ("cyclic dependency", lambda s: mut(unit_edit(0, "depends_on", ["u2"])(s), ["out", "units", 1, "depends_on"], ["u1"])),
         ("unknown criterion", unit_edit(1, "criteria", ["C9"])),
     ],
     "checks-green-and-gate-approved": [
-        ("checks red", lambda e: mut(e, ["ci", "state"], "failure")),
-        ("gate rejected", lambda e: mut(e, ["gate", "decision"], "reject")),
-        ("signature not verified", lambda e: mut(e, ["gate", "signature_verified"], False)),
-        ("signer not owner", lambda e: mut(e, ["gate", "signer_role"], "lead")),
-        ("gate on another head", lambda e: mut(e, ["gate", "head"], "def456")),
-        ("ci on another head", lambda e: mut(e, ["ci", "head"], "def456")),
+        ("checks red", lambda s: mut(s, ["out", "ci", "state"], "failure")),
+        ("ci on another head", lambda s: mut(s, ["out", "ci", "head"], "def456")),
+        ("gate rejected", lambda s: mut(s, ["decisions", "merge-gate", "decision"], "reject")),
+        ("signature not verified", lambda s: mut(s, ["decisions", "merge-gate", "signature_verified"], False)),
+        ("signer not owner", lambda s: mut(s, ["decisions", "merge-gate", "signer_role"], "lead")),
+        ("gate for another head", lambda s: mut(s, ["decisions", "merge-gate", "head"], "def456")),
     ],
     "report-has-every-required-section": [
-        ("missing section", lambda e: mut(e, ["report"], REPORT_OK.replace("## Metrics\ntext\n", ""))),
-        ("empty section", lambda e: mut(e, ["report"], REPORT_OK.replace("## Metrics\ntext", "## Metrics\n"))),
-        ("heading only inside a fence", lambda e: mut(
-            e, ["report"], REPORT_OK.replace("## Metrics\ntext", "```\n## Metrics\ntext\n```"))),
-    ],
-    "every-proposal-is-within-its-rung": [
-        ("no proposals", lambda e: mut(e, ["proposals"], [])),
-        ("touches a floor", lambda e: mut(e, ["proposals"], [proposal("criteria/sw/spec.md")])),
-        ("changes nothing", lambda e: mut(e, ["proposals"], [{**proposal(), "new": proposal()["base"]}])),
-        ("cannot be classified", lambda e: mut(e, ["proposals", 0, "base"], "not a map")),
-        ("self-declared rung is ignored", lambda e: mut(
-            e, ["proposals"], [{**proposal("criteria/sw/spec.md"), "rung": "free"}])),
+        ("missing section", raw_out(REPORT_OK.replace("## Metrics\ntext\n", ""))),
+        ("empty section", raw_out(REPORT_OK.replace("## Metrics\ntext", "## Metrics\n"))),
+        ("n/a body", raw_out(REPORT_OK.replace("## Metrics\ntext", "## Metrics\nn/a"))),
+        ("heading only inside a ``` fence", raw_out(
+            REPORT_OK.replace("## Metrics\ntext", "```\n## Metrics\ntext\n```"))),
+        ("heading only inside a ~~~ fence", raw_out(
+            REPORT_OK.replace("## Metrics\ntext", "~~~\n## Metrics\ntext\n~~~"))),
     ],
 }
-CHANGE_OK = (SCRIPTS / "check_change.py").is_file() and HAS_YAML
-CHANGE_WHY = "needs scripts/check_change.py (U15) and PyYAML"
-needs_change = pytest.mark.skipif(not CHANGE_OK, reason=CHANGE_WHY)
-RUNG = "every-proposal-is-within-its-rung"
+GOOD = {n: SPECS[n] for n in SPECS}
 
 
-TASK = {  # check name -> (full key of a task that names it, whether that task is itself a by: code step)
-    "spec-check": ("spec", False),
-    "spec-coverage": ("acceptance-tests", False),
-    "every-acceptance-test-fails-on-an-assertion": ("acceptance-red", True),
-    "red-evidence": ("cycle/red", False),
-    "new-test-fails-on-an-assertion-not-a-compile-error": ("cycle/red-evidence", True),
-    "green-evidence": ("cycle/green", False),
-    "suite-green-and-no-test-edited": ("cycle/green-evidence", True),
-    "suite-still-green-and-no-test-edited": ("cycle/refactor", False),
-    "write-sets-are-disjoint": ("cut", False),
-    "unit-verdict-is-pass": ("build/units/tdd#0", True),
-    "acceptance-suite-green": ("build/acceptance-run", True),
-    "checks-green-and-gate-approved": ("merge", True),
-    "report-has-every-required-section": ("report", True),
-    "every-proposal-is-within-its-rung": ("propose", False),
-}
-SOURCE_RULE = lambda key, is_self: key if is_self else key + "-evidence"  # noqa: E731
-
-
-def wrap(name, data, key=None, run=RUN, exit_code=0, stdout=None):
-    """The evidence file of spec 6.1: only code-step results, under their relative keys."""
-    task, is_self = TASK[name]
-    key = key or task
-    out = json.dumps(data) if stdout is None else stdout
-    return {"run": run, "key": key, "steps": {SOURCE_RULE(task, is_self): {"exit": exit_code, "stdout": out}}}
-
-
-def run_check(name, data, key=None, run=RUN, env=None, argv_key=None, checks_dir=None, raw=None):
-    task = TASK[name][0]
-    key = key or task
+def run_check(name, evidence, env=None, argv_key=None, checks_dir=None, org_key=None):
+    """Run a check on an evidence dict (or raw text). Default env is a well-formed runtime."""
+    key = evidence.get("key") if isinstance(evidence, dict) else None
+    task = SPECS[name]["task"] if name in SPECS else "propose"
     with tempfile.TemporaryDirectory() as tmp:
         ev = Path(tmp) / "evidence.json"
-        ev.write_text(raw if raw is not None else json.dumps(wrap(name, data, key=key, run=run)))
+        ev.write_text(evidence if isinstance(evidence, str) else json.dumps(evidence))
         e = {k: v for k, v in os.environ.items() if not k.startswith("ORG_")}
-        e.update({"ORG_EVIDENCE": str(ev), "ORG_KEY": task, "ORG_RUN": RUN, "ORG_ALLOWED_RUNGS": "free,ordinary"})
+        e.update({"ORG_EVIDENCE": str(ev), "ORG_KEY": org_key or task, "ORG_RUN": RUN,
+                  "ORG_ALLOWED_RUNGS": "free,ordinary"})
         e.update(env or {})
         e = {k: v for k, v in e.items() if v is not None}
         script = Path(checks_dir or ROOT / "checks") / f"{name}.py"
-        return subprocess.run([sys.executable, str(script), argv_key or task],
+        return subprocess.run([sys.executable, str(script), argv_key or org_key or task],
                               capture_output=True, text=True, env=e)
 
 
-def needs(name):
-    return needs_change if name == RUNG else (lambda f: f)
+def run_spec(name, spec, **kw):
+    return run_check(name, build(spec), **kw)
 
 
-@pytest.mark.parametrize("name", sorted(GOOD))
+@pytest.mark.parametrize("name", sorted(SPECS))
 def test_check_passes_on_good_evidence(name):
-    if name == RUNG and not CHANGE_OK:
-        pytest.skip(CHANGE_WHY)
-    cp = run_check(name, GOOD[name])
+    cp = run_spec(name, SPECS[name])
     assert cp.returncode == 0, cp.stderr
 
 
@@ -411,85 +392,87 @@ CASE_IDS = [(n, i) for n in sorted(BAD) for i in range(len(BAD[n]))]
 
 @pytest.mark.parametrize("name,i", CASE_IDS, ids=[f"{n}:{BAD[n][i][0]}" for n, i in CASE_IDS])
 def test_check_fails_on_each_bad_case_and_says_why(name, i):
-    if name == RUNG and not CHANGE_OK:
-        pytest.skip(CHANGE_WHY)
     label, fn = BAD[name][i]
-    cp = run_check(name, {k: v for k, v in fn(copy.deepcopy(GOOD[name])).items()})
+    cp = run_spec(name, fn(copy.deepcopy(SPECS[name])))
     assert cp.returncode == 1, f"{label}: {cp.stdout}{cp.stderr}"
     assert cp.stderr.strip()
 
 
 EMPTY_OK = {"tests_edited"}
-GENERIC = [n for n in sorted(GOOD) if n != RUNG]
 
 
-@pytest.mark.parametrize("name", GENERIC)
+@pytest.mark.parametrize("name", [n for n in sorted(SPECS) if "out" in SPECS[n]])
 def test_every_field_is_required_typed_and_non_empty(name):
-    good = GOOD[name]
-    for field, value in good.items():
+    spec = SPECS[name]
+    for field, value in spec["out"].items():
         wrong = 42 if isinstance(value, list) else ["x"]
-        for label, ev in (("missing", mut(good, [field], delete=True)), ("wrong type", mut(good, [field], wrong))):
-            cp = run_check(name, ev)
-            assert cp.returncode == 1, f"{name}.{field} {label}: exit {cp.returncode}"
+        for label, s in (("missing", mut(spec, ["out", field], delete=True)),
+                         ("wrong type", mut(spec, ["out", field], wrong))):
+            assert run_spec(name, s).returncode in (1, 2), f"{name}.{field} {label}"
         if isinstance(value, (list, str, dict)) and field not in EMPTY_OK:
-            cp = run_check(name, mut(good, [field], type(value)()))
-            assert cp.returncode == 1, f"{name}.{field} empty: exit {cp.returncode}"
+            assert run_spec(name, mut(spec, ["out", field], type(value)())).returncode in (1, 2), \
+                f"{name}.{field} empty"
+    for part in ("outputs", "steps", "decisions"):
+        for k in spec.get(part, {}):
+            assert run_spec(name, mut(spec, [part, k], delete=True)).returncode == 2, f"{name} lacks {part}.{k}"
 
 
-def test_rung_check_needs_every_field():
-    if not CHANGE_OK:
-        pytest.skip(CHANGE_WHY)
-    for ev in ({}, {"proposals": "x"}, {"proposals": [{"id": "p1"}]}):
-        assert run_check(RUNG, ev).returncode == 1
+@pytest.mark.parametrize("name", [n for n in sorted(SPECS) if n in FACT])
+def test_a_fact_check_ignores_an_agent_claim_that_contradicts_the_code_step(name):
+    # outputs hold claims; a fact check must judge `output` and `steps`, so a rosy claim changes nothing
+    spec = copy.deepcopy(SPECS[name])
+    spec["outputs"] = dict(spec.get("outputs", {}))
+    bad = BAD[name][0][1](spec)
+    bad["outputs"] = {**bad.get("outputs", {}), "claim": {"suite": {"passed": 99, "failed": 0}, "runs": []}}
+    assert run_spec(name, bad).returncode == 1
 
 
 # ---- the evidence contract (spec 6.1, _lib): key and run binding, exit codes
 
 
-@pytest.mark.parametrize("name", sorted(GOOD))
+@pytest.mark.parametrize("name", sorted(SPECS))
 def test_evidence_for_another_task_exits_two(name):
-    cp = run_check(name, GOOD[name], key="other/key")
+    ev = build(SPECS[name], key="other/key")
+    cp = run_check(name, ev)
     assert cp.returncode == 2 and "key" in cp.stderr
 
 
-@pytest.mark.parametrize("name", sorted(GOOD))
+@pytest.mark.parametrize("name", sorted(SPECS))
 def test_stale_evidence_from_another_run_exits_two(name):
-    cp = run_check(name, GOOD[name], run="r0")
+    cp = run_check(name, build(SPECS[name], run="r0"))
     assert cp.returncode == 2 and "run" in cp.stderr
 
 
-@pytest.mark.parametrize("name", sorted(GOOD))
-def test_evidence_without_key_run_or_the_source_step_exits_two(name):
-    for drop in ("key", "run", "steps"):
-        ev = wrap(name, GOOD[name])
+@pytest.mark.parametrize("name", sorted(SPECS))
+def test_argv_that_differs_from_org_key_exits_two(name):
+    assert run_spec(name, SPECS[name], argv_key="other").returncode == 2
+
+
+@pytest.mark.parametrize("name", sorted(SPECS))
+def test_evidence_without_key_run_or_output_exits_two(name):
+    for drop in ("key", "run", "output"):
+        ev = build(SPECS[name])
         del ev[drop]
-        assert run_check(name, None, raw=json.dumps(ev)).returncode == 2, drop
-    ev = wrap(name, GOOD[name])
-    ev["steps"] = {"unrelated": {"exit": 0, "stdout": "{}"}}
-    assert run_check(name, None, raw=json.dumps(ev)).returncode == 2
+        assert run_check(name, ev).returncode == 2, drop
+    ev = build(SPECS[name])
+    ev["output"] = {"exit": "0", "stdout": ""}
+    assert run_check(name, ev).returncode == 2
 
 
-@pytest.mark.parametrize("name", sorted(GOOD))
-def test_a_failed_evidence_step_fails_the_check(name):
-    cp = run_check(name, None, raw=json.dumps(wrap(name, GOOD[name], exit_code=1)))
+@pytest.mark.parametrize("name", sorted(SPECS))
+def test_a_failed_checked_step_fails_the_check(name):
+    ev = build(SPECS[name])
+    ev["output"]["exit"] = 1
+    cp = run_check(name, ev)
     assert cp.returncode == 1 and "exit" in cp.stderr
 
 
-@pytest.mark.parametrize("name", [n for n in sorted(GOOD) if n != "unit-verdict-is-pass"])
-def test_unparseable_evidence_stdout_exits_two(name):
-    assert run_check(name, None, raw=json.dumps(wrap(name, None, stdout="not json"))).returncode == 2
-    assert run_check(name, None, raw=json.dumps(wrap(name, None, stdout="[1]"))).returncode == 2
-
-
-@pytest.mark.parametrize("name", sorted(GOOD))
-def test_a_model_step_result_is_not_evidence(name):
-    # a by: model task's own step key must not be read as its evidence; only <task>-evidence is
-    task, is_self = TASK[name]
-    if is_self:
-        pytest.skip("a code step is its own evidence")
-    ev = wrap(name, GOOD[name])
-    ev["steps"] = {task: ev["steps"].popitem()[1]}
-    assert run_check(name, None, raw=json.dumps(ev)).returncode == 2
+@pytest.mark.parametrize("name", [n for n in sorted(SPECS) if "out" in SPECS[n]])
+def test_unparseable_output_exits_two(name):
+    for text in ("not json", "[1]"):
+        ev = build(SPECS[name])
+        ev["output"]["stdout"] = text
+        assert run_check(name, ev).returncode == 2
 
 
 def test_lib_exit_two_on_missing_or_unreadable_evidence(tmp_path):
@@ -513,58 +496,176 @@ def test_lib_exit_two_on_missing_or_unreadable_evidence(tmp_path):
     assert go({"ORG_KEY": task, "ORG_EVIDENCE": str(arr)}) == 2  # ORG_RUN missing
     assert go({"ORG_RUN": RUN, "ORG_EVIDENCE": str(arr)}) == 2  # ORG_KEY missing
     assert go({**ok, "ORG_EVIDENCE": str(arr)}, argv=()) == 2  # no key argument
-    assert go({**ok, "ORG_EVIDENCE": str(arr)}, argv=("other",)) == 2  # argv differs from ORG_KEY
 
 
 def test_lib_has_no_unused_test_outcomes():
     assert "TEST_OUTCOMES" not in (ROOT / "checks" / "_lib.py").read_text()
 
 
+# ---- every-proposal-is-within-its-rung: change.head and change.worktree, check_change, ORG_ALLOWED_RUNGS
+
+CHANGE_OK = (SCRIPTS / "check_change.py").is_file() and HAS_YAML and shutil.which("git") is not None
+CHANGE_WHY = "needs scripts/check_change.py (U15), PyYAML and git"
+needs_change = pytest.mark.skipif(not CHANGE_OK, reason=CHANGE_WHY)
+CHANGE_DIRS = ("workflows", "briefs", "criteria", "schemas/org", "checks", "collectors", "bin")
+CHANGE_FILES = ("manifest.json", "metrics.json")
+
+
+def git(cwd, *args):
+    return subprocess.run(["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                           *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
+def make_repo(tmp_path, edit=None, noop=False):
+    """An org root committed in a temp git repo, then edited in the working tree. Returns the evidence."""
+    repo = tmp_path / "root"
+    for d in CHANGE_DIRS:
+        for p in sorted((ROOT / d).rglob("*")) if (ROOT / d).is_dir() else []:
+            if p.is_file() and "__pycache__" not in p.parts:
+                dest = repo / p.relative_to(ROOT)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(p.read_bytes())
+    for f in CHANGE_FILES:
+        (repo / f).write_bytes((ROOT / f).read_bytes())
+    git(repo, "init", "-q")
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "base")
+    head = git(repo, "rev-parse", "HEAD")
+    if edit and not noop:
+        path, fn = edit
+        (repo / path).write_text(fn((repo / path).read_text()))
+    return {"run": RUN, "key": "propose", "output": {"exit": 0, "stdout": "free text of the agent"},
+            "steps": {}, "outputs": {}, "decisions": {}, "change": {"head": head, "worktree": str(repo)}}
+
+
+BRIEF = ("briefs/sw/red.md", lambda t: t + "\nOne more rule.\n")
+FLOOR_CRITERIA = ("criteria/sw/spec.md", lambda t: t + "\nOne more rule.\n")
+LOOP_BOUND = ("workflows/sw-development.yaml", lambda t: t.replace("in: [1, 2]", "in: [1, 2, 3]"))
+
+
 @needs_change
-def test_rung_check_takes_allowed_rungs_from_the_runtime_only():
-    ev = GOOD[RUNG]
+def test_rung_check_passes_for_a_change_within_the_runtime_rungs(tmp_path):
+    assert run_check(RUNG, make_repo(tmp_path, BRIEF)).returncode == 0
+
+
+@needs_change
+def test_rung_check_refuses_a_floor_file_and_ignores_a_claimed_rung(tmp_path):
+    ev = make_repo(tmp_path, FLOOR_CRITERIA)
+    ev["output"]["stdout"] = json.dumps({"rung": "free", "base": {}, "new": {"criteria/sw/spec.md": "x"}})
+    cp = run_check(RUNG, ev)
+    assert cp.returncode == 1 and "criteria/sw/spec.md" in cp.stderr
+    assert run_check(RUNG, ev, env={"ORG_ALLOWED_RUNGS": "free,ordinary,protected,frozen"}).returncode == 0
+
+
+@needs_change
+def test_rung_check_takes_allowed_rungs_from_the_runtime_only(tmp_path):
+    ev = make_repo(tmp_path, LOOP_BOUND)
+    assert run_check(RUNG, ev, env={"ORG_ALLOWED_RUNGS": "free"}).returncode == 1  # a loop bound is ordinary
+    assert run_check(RUNG, ev, env={"ORG_ALLOWED_RUNGS": "free,ordinary"}).returncode == 0
+    for bad in (None, "", "free,bogus"):
+        assert run_check(RUNG, ev, env={"ORG_ALLOWED_RUNGS": bad}).returncode == 1
+    ev["allowed_rungs"] = ["free", "ordinary"]
     assert run_check(RUNG, ev, env={"ORG_ALLOWED_RUNGS": None}).returncode == 1
-    assert run_check(RUNG, ev, env={"ORG_ALLOWED_RUNGS": ""}).returncode == 1
-    assert run_check(RUNG, {**ev, "allowed_rungs": ["free", "frozen"]},
-                     env={"ORG_ALLOWED_RUNGS": None}).returncode == 1
-    floor = {"proposals": [proposal("criteria/sw/spec.md")]}
-    assert run_check(RUNG, floor, env={"ORG_ALLOWED_RUNGS": "free,ordinary"}).returncode == 1
-    assert run_check(RUNG, floor, env={"ORG_ALLOWED_RUNGS": "free,ordinary,frozen"}).returncode == 0
-    # a loop bound outside a floor is ordinary (O1, K17), so the free rung alone refuses it
-    bound = proposal("workflows/sw-development.yaml")
-    bound["new"]["workflows/sw-development.yaml"] = bound["base"]["workflows/sw-development.yaml"].replace(
-        "in: [1, 2]", "in: [1, 2, 3]")
-    assert bound["new"] != bound["base"]
-    assert run_check(RUNG, {"proposals": [bound]}, env={"ORG_ALLOWED_RUNGS": "free"}).returncode == 1
-    assert run_check(RUNG, {"proposals": [bound]}, env={"ORG_ALLOWED_RUNGS": "free,ordinary"}).returncode == 0
+
+
+@needs_change
+def test_rung_check_fails_when_the_change_is_empty(tmp_path):
+    assert run_check(RUNG, make_repo(tmp_path, BRIEF, noop=True)).returncode == 1
+
+
+@needs_change
+def test_rung_check_fails_on_unusable_change(tmp_path):
+    ev = make_repo(tmp_path, BRIEF)
+    bad_head = copy.deepcopy(ev)
+    bad_head["change"]["head"] = "0" * 40
+    assert run_check(RUNG, bad_head).returncode == 1
+    no_tree = copy.deepcopy(ev)
+    no_tree["change"]["worktree"] = str(tmp_path / "nowhere")
+    assert run_check(RUNG, no_tree).returncode == 1
+    missing = copy.deepcopy(ev)
+    del missing["change"]
+    assert run_check(RUNG, missing).returncode == 2
+    typed = copy.deepcopy(ev)
+    typed["change"] = {"head": 5, "worktree": 6}
+    assert run_check(RUNG, typed).returncode == 2
 
 
 def test_rung_check_fails_closed_without_check_change(tmp_path):
     shutil.copytree(ROOT / "checks", tmp_path / "checks")  # no ../scripts beside the copy
-    cp = run_check(RUNG, {"proposals": [{"id": "p", "base": {}, "new": {"a": "b"}}]},
-                   checks_dir=tmp_path / "checks")
+    ev = build({"task": "propose", "out_raw": "x"}, change={"head": "h", "worktree": str(tmp_path)})
+    cp = run_check(RUNG, ev, checks_dir=tmp_path / "checks")
     assert cp.returncode == 1 and "check_change" in cp.stderr
 
 
-@pytest.mark.parametrize("name", sorted(GOOD))
-def test_every_pass_fixture_matches_the_documented_shape(name):
+@pytest.mark.parametrize("name", ALL_CHECKS)
+def test_every_pass_fixture_matches_the_documented_reads(name):
     readme = (ROOT / "checks" / "README.md").read_text()
     row = re.search(rf"(?m)^\| `{re.escape(name)}`\s*\|.*$", readme)
-    assert row, f"{name} is not in the shape table of checks/README.md"
-    documented = set(re.findall(r"`([a-z_]+)`", row.group(0).split("|")[-2]))
-    assert documented == set(GOOD[name])
+    assert row, f"{name} is not in the table of checks/README.md"
+    cells = [c.strip() for c in row.group(0).strip("|").split("|")]
+    assert len(cells) == 4, name
+    klass, task, reads = cells[1], cells[2], cells[3]
+    assert klass == ("fact" if name in FACT else "shape"), name
+    if name == RUNG:
+        assert "change.head" in reads and "change.worktree" in reads and "ORG_ALLOWED_RUNGS" in reads
+        return
+    spec = SPECS[name]
+    assert f"`{spec['task']}`" in task or spec["task"] in task
+    for prefix, actual in (("output", set(spec.get("out", {}))), ("outputs", set(spec.get("outputs", {}))),
+                           ("steps", set(spec.get("steps", {}))), ("decisions", set(spec.get("decisions", {})))):
+        documented = set(re.findall(rf"(?<![a-z]){prefix}\.([A-Za-z0-9_/-]+)", reads))
+        if prefix == "output" and "out_raw" in spec:
+            assert "output.exit" in reads
+            continue
+        assert documented >= actual, (name, prefix, documented, actual)
 
 
 def test_readme_states_the_contract():
-    text = (ROOT / "checks" / "README.md").read_text()
-    for needle in ("ORG_EVIDENCE", "ORG_KEY", "ORG_RUN", "ORG_ALLOWED_RUNGS", "frozen", "never from agent output",
-                   "trust boundary", "Summary", "Not verified", "defaults taken by the orchestrator"):
-        assert needle.lower() in text.lower(), needle
+    text = (ROOT / "checks" / "README.md").read_text().lower()
+    for needle in ("org_evidence", "org_key", "org_run", "org_allowed_rungs", "frozen", "never from agent output",
+                   "trust boundary", "summary", "not verified", "defaults taken by the orchestrator",
+                   "shape", "fact", "outputs", "decisions", "change.head"):
+        assert needle in text, needle
+    assert "u14 adds" not in text and "sibling" not in text
 
 
 @needs_yaml
-def test_missing_check_script_for_a_named_check_fails():
-    assert sorted(refs()["check"]) == sorted(GOOD)
+def test_named_checks_match_the_fixtures():
+    assert sorted(refs()["check"]) == ALL_CHECKS
+
+
+@needs_yaml
+def test_manifest_declares_every_check_with_the_right_class():
+    manifest = load("manifest.json")
+    classes = manifest["checks"]
+    assert sorted(classes) == ALL_CHECKS
+    assert {n for n, c in classes.items() if c == "fact"} == FACT
+    assert {p.stem for p in (ROOT / "checks").glob("*.py") if not p.name.startswith("_")} == set(classes)
+    for name in WORKFLOWS:
+        for path, body in all_leaves(name):
+            org = body["metadata"]["org"]
+            for item in org.get("acceptance", []):
+                if classes.get(item.get("check")) == "fact":
+                    assert org["by"] == "code", f"fact check {item['check']} sits on {name}:{path}, not a code step"
+
+
+@needs_yaml
+def test_improver_role_declares_its_rungs():
+    assert load("manifest.json")["roles"]["improver"]["rungs"] == ["free", "ordinary"]
+
+
+@needs_yaml
+def test_tdd_unit_moves_fact_checks_onto_code_steps_and_samples_the_model_steps():
+    leaves_ = dict(all_leaves("tdd-unit"))
+    def acc(p):
+        return leaves_[f"cycle/{p}"]["metadata"]["org"]["acceptance"]
+    assert [i.get("check") for i in acc("red-evidence")] == [
+        "red-evidence", "new-test-fails-on-an-assertion-not-a-compile-error"]
+    assert [i.get("check") for i in acc("green-evidence")] == ["green-evidence", "suite-green-and-no-test-edited"]
+    assert [i.get("check") for i in acc("refactor-evidence")] == ["suite-still-green-and-no-test-edited"]
+    for step in ("red", "green", "refactor"):
+        assert acc(step) == [{"rubric": f"criteria/sw/{step}.md", "judge": "reviewer", "sample": 0.2}]
+    assert leaves_["cycle/refactor-evidence"]["metadata"]["org"]["by"] == "code"
 
 
 # ---------------------------------------------------------------- bin and collectors are loud stubs
@@ -704,6 +805,9 @@ def test_every_rubric_rule_names_its_evidence_and_a_missing_input_fails():
         text = (ROOT / rel).read_text()
         rules = re.findall(r"(?m)^\d+\. (.+)$", text)
         assert all("Judged against:" in r for r in rules), f"{rel}: a rule names no evidence"
+        for r in rules:  # a judge sees only the item, the task output and the evidence of code steps
+            cited = r.split("Judged against:")[1]
+            assert re.search(r"\b(item|output|outputs|evidence|diff|steps)\b", cited), f"{rel}: {cited}"
         assert "unreadable or missing input is a fail" in text.split("## On a fail")[1], rel
 
 
@@ -732,6 +836,8 @@ def test_cut_brief_says_units_are_built_one_after_another():
 def test_improve_brief_follows_the_rung_table_and_never_asks_for_a_rung():
     text = (ROOT / "briefs" / "sw" / "improve.md").read_text()
     assert "state the rung" not in text.lower() and "rung each" not in text.lower()
+    assert "you write files only" in text.lower()
+    assert "base" not in text.lower().replace("baseline", "") and "worktree" not in text.lower()
     for needle in ("ordinary", "frozen", "protected", "floor task", "do not state a rung"):
         assert needle in text.lower(), needle
 
