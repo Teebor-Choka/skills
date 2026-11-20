@@ -132,22 +132,39 @@ def validate_harness_contract(doc):
 # ------------------------------------------------------------------ prompt and adapters
 
 
+def _strip_run(value):
+    """Drop every `run` key, at any depth."""
+    if isinstance(value, dict):
+        return {k: _strip_run(v) for k, v in value.items() if k != "run"}
+    if isinstance(value, list):
+        return [_strip_run(v) for v in value]
+    return value
+
+
 def build_prompt(brief, context, task, task_input=None, reasons=None):
     """The exact text sent to the model: brief, context, task, task input, reasons. Nothing else.
 
     Everything but the brief is JSON, so no value an author wrote can open a section or name another role.
+    The model never learns the run id (P37): no `run` field is handed over, and the id text is replaced by
+    `[run]` wherever it still appears in free text.
     """
     parts = [brief.rstrip()]
     if context:
         parts.append("## Context (JSON)\n" + json.dumps(context, sort_keys=True))
-    parts.append("## Task\n" + json.dumps(task, sort_keys=True))
+    parts.append("## Task\n" + json.dumps(_strip_run(task), sort_keys=True))
     if task_input:
+        try:
+            task_input = json.dumps(_strip_run(json.loads(task_input)), sort_keys=True)
+        except ValueError:
+            pass
         parts.append("## Input\n" + task_input)
     if reasons:
         parts.append("## Reasons (JSON)\n" + json.dumps(reasons, sort_keys=True))
     if "item" in task:
         parts.append("## Verdict\nEnd your answer with one line: VERDICT: pass or VERDICT: fail.")
-    return "\n\n".join(parts)
+    text = "\n\n".join(parts)
+    run = task.get("run")
+    return text.replace(run, "[run]") if isinstance(run, str) and run else text
 
 
 def prompt_for(req):
