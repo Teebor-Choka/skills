@@ -2,9 +2,11 @@
 
 Case ids (W1, W2, ...) are the spec's. Every negative case asserts an exact error prefix.
 """
+import contextlib
 import copy
 import json
 import os
+import signal
 import subprocess
 import sys
 
@@ -661,13 +663,14 @@ def check_cases(cases):
             assert any(e.startswith(prefix) for e in errs), (cid, prefix, errs)
 
 
-def with_alarm(seconds):
-    import signal
-
+@contextlib.contextmanager
+def alarm(seconds):
+    """Old behaviour kept for the red run: sets the alarm and never cancels it."""
     def handler(*_):
         raise AssertionError(f"did not finish in {seconds}s")
     signal.signal(signal.SIGALRM, handler)
     signal.alarm(seconds)
+    yield
 
 
 def rename_task(d, old, new):
@@ -783,47 +786,47 @@ def test_directory_as_workflow_file_is_a_load_error(tmp_path):
 
 # S2: cyclic and exponentially shared values
 def test_cyclic_document_returns_an_error():
-    with_alarm(20)
-    a = {}
-    a["x"] = a
-    a["y"] = a
-    errs = vo.validate_org(a, CAT, MAN)
-    assert any("refers to itself" in e for e in errs), errs
+    with alarm(5):
+        a = {}
+        a["x"] = a
+        a["y"] = a
+        errs = vo.validate_org(a, CAT, MAN)
+        assert any("refers to itself" in e for e in errs), errs
 
 
 def test_exponentially_shared_document_is_capped():
-    with_alarm(20)
-    node = []
-    for _ in range(60):
-        node = [node, node]
-    errs = vo.validate_org({"do": [{"a": {"set": node}}]}, CAT, MAN)
-    assert any(e.startswith("(root): document has more than 1000000 values") for e in errs), errs
+    with alarm(5):
+        node = []
+        for _ in range(60):
+            node = [node, node]
+        errs = vo.validate_org({"do": [{"a": {"set": node}}]}, CAT, MAN)
+        assert any(e.startswith("(root): document has more than 1000000 values") for e in errs), errs
 
 
 # S3: task cap and linear scans
 def test_task_count_is_capped_with_a_located_error():
-    with_alarm(60)
-    d = copy.deepcopy(TDD)
-    d["do"] = [{f"t{i}": {"set": {"a": 1}}} for i in range(10001)]
-    errs = vo.validate_org(d, CAT, MAN)
-    assert "t10000: more than 10000 tasks in the workflow" in errs
+    with alarm(30):
+        d = copy.deepcopy(TDD)
+        d["do"] = [{f"t{i}": {"set": {"a": 1}}} for i in range(10001)]
+        errs = vo.validate_org(d, CAT, MAN)
+        assert "t10000: more than 10000 tasks in the workflow" in errs
 
 
 def test_wide_workflow_validates_quickly():
-    with_alarm(60)
-    d = copy.deepcopy(SW)
-    tasks = []
-    for i in range(9000):
-        t = {"set": {"a": 1}, "then": f"t{i + 1}"}
-        if i % 30 == 0:
-            t = {"emit": {"event": {"with": {"type": f"org.x-{i}"}}},
-                 "metadata": {"org": {"floor": True}}}
-        tasks.append({f"t{i}": t})
-    d["do"] = tasks
-    start = time.time()
-    errs = vo.validate_org(d, CAT, MAN)
-    assert time.time() - start < 10, "validation is not linear"
-    assert errs
+    with alarm(30):
+        d = copy.deepcopy(SW)
+        tasks = []
+        for i in range(9000):
+            t = {"set": {"a": 1}, "then": f"t{i + 1}"}
+            if i % 30 == 0:
+                t = {"emit": {"event": {"with": {"type": f"org.x-{i}"}}},
+                     "metadata": {"org": {"floor": True}}}
+            tasks.append({f"t{i}": t})
+        d["do"] = tasks
+        start = time.time()
+        errs = vo.validate_org(d, CAT, MAN)
+        assert time.time() - start < 10, "validation is not linear"
+        assert errs
 
 
 # S4: author values print with repr
@@ -1068,3 +1071,33 @@ def test_manifest_fixture_has_checks_for_every_example_check():
     walk(SW)
     walk(TDD)
     assert names <= set(MAN["checks"]) and set(MAN["checks"].values()) <= {"fact", "shape"}
+
+
+# alarm helper: it must cancel itself and restore the previous handler
+def test_alarm_is_cancelled_and_handler_restored_after_the_block():
+    def previous(*_):
+        raise AssertionError("previous handler must not fire")
+    old = signal.signal(signal.SIGALRM, previous)
+    try:
+        with alarm(30):
+            pass
+        assert signal.alarm(0) == 0, "alarm still pending after the block"
+        assert signal.getsignal(signal.SIGALRM) is previous
+    finally:
+        signal.signal(signal.SIGALRM, old)
+
+
+def test_alarm_is_cancelled_when_the_block_raises():
+    old = signal.getsignal(signal.SIGALRM)
+    with pytest.raises(ValueError):
+        with alarm(30):
+            raise ValueError("boom")
+    assert signal.alarm(0) == 0
+    assert signal.getsignal(signal.SIGALRM) is old
+
+
+def test_alarm_fails_a_block_that_hangs():
+    with pytest.raises(AssertionError, match="did not finish in 1s"):
+        with alarm(1):
+            time.sleep(5)
+    assert signal.alarm(0) == 0
