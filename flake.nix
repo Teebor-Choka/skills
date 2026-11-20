@@ -241,6 +241,7 @@
                   pkgs.rust-code-analysis
                   pkgs.git
                   pkgs.jq
+                  pkgs.openssh # org runtime tests verify real ssh-keygen -Y signatures
                   codeQualityTools.cargo-crap
                   codeQualityTools.cargo-iceberg4rust
                   codeQualityTools.cargo-anatomy
