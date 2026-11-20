@@ -898,7 +898,9 @@ def test_a_key_that_is_not_a_string_is_refused_not_raised():
 def _stack(text, name="stack.yaml"):
     base = _root()
     base["stack.yaml"] = None
-    base[name] = b"tools: []\nroles:\n  tdd-unit: {worker: {tools: [Read]}}\nbin-env:\n  tdd-unit: {TDD_BASE: main}\n"
+    base[name] = (b'{"tools": [], "roles": {"tdd-unit": {"worker": {"tools": ["Read"]}}}, '
+                  b'"bin-env": {"tdd-unit": {"TDD_BASE": "main"}}}' if name.endswith(".json") else
+                  b"tools: []\nroles:\n  tdd-unit: {worker: {tools: [Read]}}\nbin-env:\n  tdd-unit: {TDD_BASE: main}\n")
     new = dict(base)
     new[name] = text
     return base, new
