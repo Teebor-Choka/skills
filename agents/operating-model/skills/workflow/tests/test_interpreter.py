@@ -137,7 +137,7 @@ def fixture_workflows():
     return {"sw-development": sw_doc(), "tdd-unit": tdd_doc(), "improve": improve_doc()}
 
 
-def sw_events(extra=(), review_at=10):
+def sw_events(extra=(), review_at=10):  # noqa: D103
     return [(review_at, decision("review", item=0, type_="org.owner-review"))] + list(extra)
 
 
@@ -498,26 +498,26 @@ def test_event_of_another_type_is_not_even_logged_as_ignored():
 
 
 def test_plain_gate_completes_on_an_unsigned_event_with_the_run_id_and_runs_its_check():  # R14
-    doc = wf(("join", {"listen": {"to": {"one": {"with": {"type": "org.unit-done"}}}}, "timeout": {"after": {"hours": 1}},
+    doc = wf(("join", {"listen": {"to": {"one": {"with": {"type": "org.ping"}}}}, "timeout": {"after": {"hours": 1}},
                        "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk("join-ok")]}}}))
-    host = ScriptedHost(events=[(7, event("org.unit-done", {"run": RID}, signature=None))])
+    host = ScriptedHost(events=[(7, event("org.ping", {"run": RID}, signature=None))])
     res = go(doc, host)
     assert res.status == "success"
     assert ("check", "join-ok", "join") in [c[:3] for c in host.calls]
 
 
 def test_plain_gate_ignores_an_event_of_another_run():
-    doc = wf(("join", {"listen": {"to": {"one": {"with": {"type": "org.unit-done"}}}}, "timeout": {"after": {"seconds": 30}},
+    doc = wf(("join", {"listen": {"to": {"one": {"with": {"type": "org.ping"}}}}, "timeout": {"after": {"seconds": 30}},
                        "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}))
-    res = go(doc, ScriptedHost(events=[(7, event("org.unit-done", {"run": "e" * 32}, signature=None))]))
+    res = go(doc, ScriptedHost(events=[(7, event("org.ping", {"run": "e" * 32}, signature=None))]))
     assert res.errors[0] == "join: timeout"
 
 
 def test_plain_gate_with_correlate_skips_the_run_id_test():
-    flt = {"with": {"type": "org.unit-done"}, "correlate": {"unit": {"from": "${ .data.unit }", "expect": "u1"}}}
+    flt = {"with": {"type": "org.ping"}, "correlate": {"unit": {"from": "${ .data.unit }", "expect": "u1"}}}
     doc = wf(("join", {"listen": {"to": {"one": flt}}, "timeout": {"after": {"seconds": 30}},
                        "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}))
-    ev = [(3, event("org.unit-done", {"unit": "u2"}, signature=None)), (4, event("org.unit-done", {"unit": "u1"}, signature=None))]
+    ev = [(3, event("org.ping", {"unit": "u2"}, signature=None)), (4, event("org.ping", {"unit": "u1"}, signature=None))]
     res = go(doc, ScriptedHost(events=ev))
     assert res.status == "success"
     assert [e for e in res.events if e["kind"] == "task-end" and e["key"] == "join"][0]["t"] == 4
@@ -932,7 +932,7 @@ def test_fork_compete_completes_on_the_first_branch_and_cancels_the_rest():
     host = ScriptedHost(steps={"par/a": StepOutcome(duration=10), "par/b": StepOutcome(duration=30)})
     res = go(doc, host)
     assert starts(res, "after")[0]["t"] == 10
-    assert "par/b" not in res.accepted
+    assert res.statuses["par/b"] == "cancelled"
 
 
 def test_branches_ending_at_the_same_moment_do_not_overwrite_each_other_r25():
@@ -949,14 +949,14 @@ def test_a_failing_branch_error_cancels_the_other_branches():
     host = ScriptedHost(steps={"par/a": StepOutcome(exit_code=1, error="x", duration=1), "par/b": StepOutcome(duration=50)})
     res = go(doc, host)
     assert res.errors[0] == "par/a: x"
-    assert "par/b" not in res.accepted
+    assert res.accepted.get("par/b") is False
 
 
 def _fanout_doc(n, join_timeout=None, unit_floor=False):
     unit = {"run": {"workflow": {"namespace": "org", "name": "unit-wf", "version": "1", "input": {"unit": "${ $u }"}}, "await": False},
             "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk("unit-ok")]}}}
-    join = {"listen": {"to": {"any": [{"with": {"type": "org.unit-done"}}],
-                              "until": "${ ($context.results | length) == ($context.units | length) }"}},
+    join = {"listen": {"to": {"any": [{"with": {"type": "org.task-ended"}}],
+                              "until": "${ ($events | length) == ($context.units | length) }"}},
             "timeout": join_timeout or {"after": {"hours": 1}},
             "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk("join-ok")]}}}
     return wf(("seed", {"set": {"units": list(range(n))}, "export": {"as": "${ $context + . }"}}),
@@ -992,10 +992,11 @@ def test_join_over_zero_units_completes_at_once():
     assert res.status == "success"
 
 
-def test_each_unit_reports_once_so_results_never_double_count():
+def test_each_unit_reports_once_so_the_join_never_double_counts():
     res = _fanout_run(3)
-    assert len(res.context["results"]) == 3
-    assert len({r["task"] for r in res.context["results"]}) == 3
+    ended = kinds(res, "event")
+    ended = [e for e in ended if e["type"] == "org.task-ended"]
+    assert sorted(e["event"]["data"]["task"] for e in ended) == [f"fan/units/unit#{i}" for i in range(3)]
 
 
 def test_run_does_not_end_until_started_work_has_ended():
@@ -1338,3 +1339,338 @@ def test_process_host_symlink_that_stays_inside_the_root_is_allowed(org):
     (org / "briefs" / "alias.md").symlink_to(org / "briefs" / "real.md")
     assert ProcessHost(str(org)).confined("briefs/alias.md") is True
     assert ProcessHost(str(org)).confined("briefs/missing.md") is False
+
+
+# ================================================================= update 1: spec updates 3 and 4 (R26 to R34)
+
+
+def _ended(res):
+    return [e["event"] for e in kinds(res, "event") if e["type"] == "org.task-ended"]
+
+
+def test_r26_each_unit_end_emits_task_ended_and_until_sees_events_one_then_two():
+    host = ScriptedHost(steps={"fan/units/unit#0>work": StepOutcome(duration=10), "fan/units/unit#1>work": StepOutcome(duration=40)})
+    res = _fanout_run(2, host)
+    ev = _ended(res)
+    assert [e["data"] for e in ev] == [
+        {"run": RID, "task": "fan/units/unit#0", "accepted": True},
+        {"run": RID, "task": "fan/units/unit#1", "accepted": True}]
+    untils = [(e["events"], e["result"]) for e in kinds(res, "until")]
+    assert untils == [(0, False), (1, False), (2, True)]
+    assert "org.unit-done" not in [e["type"] for e in kinds(res, "event")]
+
+
+def test_task_ended_accepted_is_false_for_a_failed_unit_and_cancelled_work_emits_nothing():
+    doc = wf(("bg", dict(leaf("work", [chk("late")]), run={"shell": {"command": "work", "arguments": []}, "await": False})))
+    res = go(doc, ScriptedHost(checks={"late": False}))
+    assert _ended(res)[0]["data"]["accepted"] is False
+
+
+def test_r27_join_over_zero_units_completes_before_any_event_and_not_by_timeout():
+    res = _fanout_run(0)
+    end = [e for e in res.events if e["kind"] == "task-end" and e["key"] == "fan/join"][0]
+    assert end["t"] == 0
+    assert [(e["events"], e["result"]) for e in kinds(res, "until")] == [(0, True)]
+
+
+def test_a_join_consumes_only_events_of_its_own_workflow_execution():
+    child = wf(("w", dict(leaf("work"), run={"shell": {"command": "work", "arguments": []}, "await": False})),
+               ("join", {"listen": {"to": {"any": [{"with": {"type": "org.task-ended"}}], "until": "${ ($events | length) == 1 }"}},
+                         "timeout": {"after": {"hours": 1}},
+                         "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}), name="child")
+    root = wf(("bg", dict(leaf("work"), run={"shell": {"command": "work", "arguments": []}, "await": False})),
+              ("c", {"run": {"workflow": {"namespace": "org", "name": "child", "version": "1"}},
+                     "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}), name="root")
+    host = ScriptedHost(steps={"bg": StepOutcome(duration=5), "c>w": StepOutcome(duration=10)})
+    res = go({"root": root, "child": child}, host, name="root")
+    end = [e for e in res.events if e["kind"] == "task-end" and e["key"] == "c>join"][0]
+    assert end["t"] == 10  # root's `bg` ended at 5 and must not count
+
+
+def test_a_join_ignores_task_ended_events_it_did_not_see_started_work_for():
+    flt = {"with": {"type": "org.task-ended"}}
+    doc = wf(("join", {"listen": {"to": {"any": [flt], "until": "${ ($events | length) == 1 }"}}, "timeout": {"after": {"seconds": 30}},
+                       "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}))
+    forged = event("org.task-ended", {"run": RID, "task": "x", "accepted": True}, signature=None)
+    res = go(doc, ScriptedHost(events=[(3, forged)]))
+    assert res.errors[0] == "join: timeout"
+
+
+def test_emit_of_a_reserved_prefix_is_refused_at_run_time():
+    for t in ("org.task-ended", "org.owner-decided"):
+        doc = wf(("e", {"emit": {"event": {"with": {"type": t}}}, "metadata": {"org": {"by": "code", "role": "ci", "acceptance": [chk()]}}}))
+        res = go(doc)
+        prefix = "org.task-" if t.startswith("org.task-") else "org.owner-"
+        assert res.errors[0] == f"e: emit.event.with.type: '{t}' uses the reserved prefix {prefix}"
+
+
+# ---- R28: the runtime-owned input file, --network, runtime-only flags
+
+
+def _agent(name="a", network=None, arguments=(), role="pm", **extra):
+    org = {"by": "model", "role": role, "brief": "briefs/a.md"}
+    if network is not None:
+        org["network"] = network
+    task = {"run": {"shell": {"command": "agent-run", "arguments": list(arguments)}}, "metadata": {"org": org}}
+    task.update(extra)
+    return task
+
+
+def _capture(store, outcome=None):
+    def fn(req):
+        store.append((req, json.loads(Path(req.input_file).read_text())))
+        return outcome or StepOutcome()
+    return fn
+
+
+def test_r28_agent_run_gets_input_file_role_brief_network_in_that_order():
+    seen = []
+    doc = wf(("design", _agent(network="none")))
+    host = ScriptedHost(steps={"design": _capture(seen)})
+    go(doc, host, input={"spec": "s"})
+    req, body = seen[0]
+    assert req.argv == ["agent-run", "--role", "pm", "--brief", "briefs/a.md", "--network", "none", "--input", req.input_file]
+    assert body == {"run": RID, "key": "design", "input": {"spec": "s"}, "reasons": {}}
+
+
+def test_r28_input_file_holds_the_input_after_input_from_and_is_read_only_outside_the_org_root():
+    seen = []
+    doc = wf(("design", dict(_agent(), input={"from": "${ .spec }"})))
+    host = ScriptedHost(steps={"design": _capture(seen)})
+    go(doc, host, input={"spec": {"k": 1}})
+    req, body = seen[0]
+    assert body["input"] == {"k": 1}
+    assert not os.access(req.input_file, os.W_OK) or os.geteuid() == 0
+    assert "root" not in req.input_file.split(os.sep)[-3:]
+
+
+def test_no_network_flag_when_the_step_declares_none():
+    seen = []
+    go(wf(("a", _agent())), ScriptedHost(steps={"a": _capture(seen)}))
+    assert "--network" not in seen[0][0].argv
+
+
+@pytest.mark.parametrize("args,text", [
+    (["--network", "all"], "run.shell.arguments: --network is set by the runtime from metadata.org; remove it"),
+    (["--network=all"], "run.shell.arguments: --network is set by the runtime from metadata.org; remove it"),
+    (["--brief=x"], "run.shell.arguments: --brief is set by the runtime from metadata.org; remove it"),
+    (["--input", "/etc/passwd"], "run.shell.arguments: --input is set by the runtime from the task input; remove it"),
+    (["--input=/x"], "run.shell.arguments: --input is set by the runtime from the task input; remove it"),
+    (["--isolated", "--isolated"], "run.shell.arguments: --isolated given more than once"),
+    (["--verbose"], "run.shell.arguments: '--verbose' is not an allowed agent-run flag (allowed: --isolated)"),
+])
+def test_a_step_cannot_carry_a_runtime_flag(args, text):
+    host = ScriptedHost()
+    res = go(wf(("a", _agent(arguments=args))), host)
+    assert res.errors[0] == f"a: {text}"
+    assert not any(c[0] == "step" for c in host.calls)
+
+
+def test_model_judge_input_file_holds_the_item_and_the_judged_output():
+    seen = []
+
+    def judge(req):
+        seen.append((req, json.loads(Path(req.input_file).read_text())))
+        return {"invocation": req.invocation, "type": "org.rubric-verdict",
+                "data": {"run": req.run_id, "task": req.key, "item": req.item, "verdict": "pass"}}
+    doc = wf(("t1", leaf("work", [{"rubric": "criteria/x.md", "judge": "reviewer"}])))
+    go(doc, ScriptedHost(steps={"t1": StepOutcome(output={"diff": 3})}, judges={"t1": judge}))
+    req, body = seen[0]
+    assert body == {"run": RID, "key": "t1", "input": {"item": 0, "output": {"diff": 3}}, "reasons": {}}
+    assert req.argv == ["agent-run", "--role", "reviewer", "--brief", "criteria/x.md", "--input", req.input_file]
+
+
+# ---- R29: evidence is a snapshot from before the task started
+
+
+def test_a_check_on_a_code_step_does_not_see_that_steps_own_result():
+    seen = []
+    doc = wf(("s", leaf("w", [chk("probe")], by="code")))
+    go(doc, ScriptedHost(checks={"probe": lambda n, k, e: seen.append(e["steps"]) or True}))
+    assert seen == [{}]
+
+
+def test_r29_check_on_the_model_step_gets_no_entry_for_the_code_step_that_runs_after_it(org):
+    _script(org / "bin" / "w", "echo 1\n")
+    (org / "checks" / "red-evidence.py").write_text(
+        "import json, os, sys\n"
+        "ev = json.load(open(os.environ['ORG_EVIDENCE']))\n"
+        "sys.exit(0 if 'red-evidence' in ev['steps'] else 2)\n")
+    doc = wf(("red", leaf("w", [chk("red-evidence")], by="model", role="worker")),
+             ("red-evidence", leaf("w", by="code", role="ci")))
+    res = go(doc, ProcessHost(str(org)))
+    assert res.accepted["red"] is False
+    assert res.errors == ["red: acceptance failed"]
+
+
+def test_a_rework_round_clears_the_evidence_of_earlier_rounds():
+    seen = []
+    doc = wf(("rework", {"for": {"in": [1, 2]}, "while": "${ true }",
+                         "do": [{"code": leaf("w", by="code")}, {"chk": leaf("w", [chk("probe")], by="model")}]}))
+    host = ScriptedHost(checks={"probe": lambda n, k, e: seen.append(sorted(e["steps"])) or True})
+    go(doc, host)
+    assert seen == [["rework/code"], ["rework/code"]]  # round 2 holds only round 2's step, never two generations
+
+
+# ---- R30 handled, R31 cancelled
+
+
+def test_r30_non_floor_gate_timing_out_inside_a_caught_try_records_handled_and_the_run_succeeds():
+    doc = wf(("g", {"try": [{"waiter": gate(after={"minutes": 1}, role="lead", by="code", acceptance=[chk()])}],
+                    "catch": {"errors": {"with": {"status": 408}}, "do": [{"fallback": {"set": {"ok": True}}}]}}))
+    res = go(doc)
+    assert res.status == "success", res.errors
+    assert res.statuses["g/waiter"] == "handled"
+    assert res.accepted["g/waiter"] is False
+
+
+def test_a_catch_that_itself_raises_leaves_fail():
+    doc = wf(("g", {"try": [{"waiter": gate(after={"minutes": 1}, role="lead", by="code", acceptance=[chk()])}],
+                    "catch": {"do": [{"boom": {"raise": {"error": {"type": "https://x/e", "status": 500, "title": "again"}}}}]}}))
+    res = go(doc)
+    assert res.status == "error" and res.statuses["g/waiter"] == "fail"
+
+
+def test_a_try_without_catch_do_also_records_handled():
+    doc = wf(("g", {"try": [{"bad": leaf("w")}], "catch": {}}))
+    res = go(doc, ScriptedHost(steps={"g/bad": StepOutcome(exit_code=1, error="x")}))
+    assert res.statuses["g/bad"] == "handled" and res.status == "success"
+
+
+def test_r31_losing_compete_branch_records_cancelled_and_the_run_succeeds():
+    doc = wf(("race", {"fork": {"compete": True, "branches": [{"a": leaf("a")}, {"b": leaf("b", [chk("cb")])}]}}))
+    host = ScriptedHost(steps={"race/a": StepOutcome(duration=1), "race/b": StepOutcome(duration=9)}, checks={"cb": False})
+    res = go(doc, host)
+    assert res.statuses == {"race/a": "pass", "race/b": "cancelled"}
+    assert res.status == "success", res.errors
+
+
+def test_r31_a_winner_that_fails_ends_the_run_in_error():
+    doc = wf(("race", {"fork": {"compete": True, "branches": [{"a": leaf("a", [chk("ca")])}, {"b": leaf("b")}]}}))
+    host = ScriptedHost(steps={"race/a": StepOutcome(duration=1), "race/b": StepOutcome(duration=9)}, checks={"ca": False})
+    res = go(doc, host)
+    assert res.errors == ["race/a: acceptance failed"]
+
+
+# ---- R32 signer
+
+
+def _signer_gate(signer="pm"):
+    g = gate(role="lead", by="human", acceptance=[{"human": "ok"}])
+    g["metadata"]["org"]["signer"] = signer
+    return g
+
+
+def test_r32_gate_with_a_signer_ignores_the_owner_and_accepts_the_signer():
+    doc = wf(("gate", _signer_gate()))
+    ev = [(1, decision("gate", signature="owner")), (2, decision("gate", signature="pm"))]
+    res = go(doc, ScriptedHost(events=ev))
+    assert res.status == "success", res.errors
+    assert [e["reason"] for e in kinds(res, "ignored")] == ["not signed by the pm"]
+    assert [e for e in res.events if e["kind"] == "task-end"][0]["t"] == 2
+
+
+def test_a_signer_alone_makes_a_decision_gate():
+    g = _signer_gate()
+    g["metadata"]["org"]["acceptance"] = [chk()]
+    res = go(wf(("gate", g)), ScriptedHost(events=[(1, decision("gate", signature="pm", run="f" * 32))]))
+    assert kinds(res, "ignored")  # a decision gate tests data.run; a plain gate would also, so check the reason
+    assert kinds(res, "ignored")[0]["reason"] == "data.run is not this run"
+
+
+def test_default_verifier_of_the_process_host_refuses_every_decision(org):
+    doc = wf(("gate", gate(after={"seconds": 5})))
+    host = ProcessHost(str(org), events=[(1, decision("gate"))])
+    assert go(doc, host).errors[0] == "gate: timeout"
+
+
+def test_injected_verifier_of_the_process_host_gets_the_event_and_the_signer(org):
+    seen = []
+    host = ProcessHost(str(org), events=[(1, decision("gate"))], verify=lambda e, s: seen.append(s) or True)
+    assert go(wf(("gate", gate())), host).status == "success"
+    assert seen == ["owner"]
+
+
+# ---- R33 and R34: rework rounds
+
+
+def _rework(body, n=3, cond=None):
+    return wf(("rework", {"for": {"in": list(range(n))}, "while": cond or "${ true }", "do": body}))
+
+
+def test_r33_new_round_cancels_unfinished_await_false_work_of_the_earlier_round():
+    doc = _rework([{"bg": dict(leaf("work"), run={"shell": {"command": "work", "arguments": []}, "await": False})}], n=2)
+    host = ScriptedHost(steps={"rework/bg": [StepOutcome(duration=100), StepOutcome(duration=1)]})
+    res = go(doc, host)
+    accepts = [e for e in kinds(res, "accept") if e["key"] == "rework/bg"]
+    assert [e["status"] for e in accepts] == ["cancelled", "pass"]
+    assert accepts[0]["t"] == 0  # cancelled at the start of round 2, not at 100
+    ended = _ended(res)
+    assert len(ended) == 1 and ended[0]["data"]["task"] == "rework/bg"
+    assert res.now == 1
+
+
+def test_r33_round_two_join_never_sees_round_one_work():
+    join = {"listen": {"to": {"any": [{"with": {"type": "org.task-ended"}}], "until": "${ ($events | length) == 1 }"}},
+            "timeout": {"after": {"hours": 1}}, "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}
+    bg = dict(leaf("work"), run={"shell": {"command": "work", "arguments": []}, "await": False})
+    doc = _rework([{"bg": bg}, {"join": join}], n=2, cond='${ $accepted["rework/join"] != true }')
+    host = ScriptedHost(steps={"rework/bg": [StepOutcome(duration=0), StepOutcome(duration=7)]}, checks={})
+    res = go(doc, host)
+    assert res.status == "success", res.errors
+    ends = [e["t"] for e in res.events if e["kind"] == "task-end" and e["key"] == "rework/join"]
+    assert ends == [0.0]  # round 1's join completed on round 1's own event; the loop then stopped
+
+
+def test_r34_reject_in_a_rework_loop_whose_while_names_the_gate_records_fail_without_raising():
+    g = gate(role="lead", by="human", acceptance=[{"human": "ok"}])
+    g["metadata"]["org"]["signer"] = "owner"
+    doc = _rework([{"approve": g}, {"after": leaf("after")}], n=2, cond='${ $accepted["rework/approve"] != true }')
+    ev = [(5, decision("rework/approve", "reject")), (9, decision("rework/approve"))]
+    res = go(doc, ScriptedHost(events=ev))
+    assert res.status == "success", res.errors
+    accepts = [(e["t"], e["status"]) for e in kinds(res, "accept") if e["key"] == "rework/approve"]
+    assert accepts == [(5, "fail"), (9, "pass")]
+    assert len(starts(res, "rework/after")) == 2
+
+
+def test_r34_reject_outside_such_a_loop_still_raises():
+    res = go(_gate_doc(), ScriptedHost(events=[(5, decision("merge-gate", "reject"))]))
+    assert res.errors[0] == "merge-gate: decision rejected"
+
+
+def test_r28_reject_reason_reaches_the_next_rounds_input_file_reasons_map():
+    seen = []
+    g = gate(role="lead", by="human", acceptance=[{"human": "ok"}])
+    doc = _rework([{"approve": g}, {"design": _agent("design")}], n=2, cond='${ $accepted["rework/approve"] != true }')
+    ev = [(5, event("org.owner-decided", {"run": RID, "task": "rework/approve", "decision": "reject", "reason": "too vague"})),
+          (9, decision("rework/approve"))]
+    go(doc, ScriptedHost(events=ev, steps={"rework/design": _capture(seen)}))
+    assert [b["reasons"] for _, b in seen] == [{}, {"rework/approve": "too vague"}]
+
+
+# ---- final examples (12.6): sw-development in the W89 shape
+
+
+def sw_w89_doc():
+    doc = sw_doc()
+    build = [t for item in doc["do"] for n, t in item.items() if n == "build"][0]
+    build["do"][0]["units"]["do"][0]["tdd"]["run"]["await"] = False
+    join = {"listen": {"to": {"any": [{"with": {"type": "org.task-ended"}}],
+                              "until": "${ ($events | length) == ($context.units | length) }"}},
+            "timeout": {"after": {"hours": 1}},
+            "metadata": {"org": {"by": "code", "role": "lead", "metrics": ["escalations"], "acceptance": [chk("unit-verdict-is-pass")]}}}
+    build["do"].insert(1, {"join": join})
+    return doc
+
+
+def test_sw_development_w89_fan_out_with_the_join_runs_to_success_on_the_final_examples():
+    wfs = fixture_workflows()
+    wfs["sw-development"] = sw_w89_doc()
+    host = sw_host(sw_events([(20, decision("merge-gate"))]),
+                   steps={"build/units/tdd#0>cycle/red": StepOutcome(duration=30), "build/units/tdd#1>cycle/red": StepOutcome(duration=10)})
+    res = go(wfs, host, name="sw-development", catalog=CAT, manifest=MAN)
+    assert res.status == "success", res.errors
+    join_end = [e["t"] for e in res.events if e["kind"] == "task-end" and e["key"] == "build/join"][0]
+    assert join_end == 30  # the slower unit decides when the join completes
+    assert len(_ended(res)) == 2
