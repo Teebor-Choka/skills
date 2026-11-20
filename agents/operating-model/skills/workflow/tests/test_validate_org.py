@@ -2,9 +2,11 @@
 
 Case ids (W1, W2, ...) are the spec's. Every negative case asserts an exact error prefix.
 """
+import contextlib
 import copy
 import json
 import os
+import signal
 import subprocess
 import sys
 
@@ -351,10 +353,11 @@ def test_examples_pass():
     assert vo.validate_org(copy.deepcopy(TDD), CAT, MAN) == []
 
 
+# tdd-unit has 7 steps since 12.6 change 11 added the code step refactor-evidence; the spec section 4 table still says 6
 def test_example_counts_match_spec_section_4():
     sw_kinds = _kinds(SW)
     assert sw_kinds == {"step": 9, "call": 2, "gate": 1, "emit": 1, "escalation": 1, "container": 2}
-    assert _kinds(TDD) == {"step": 6, "escalation": 1, "container": 1}
+    assert _kinds(TDD) == {"step": 7, "escalation": 1, "container": 1}
 
 
 def _kinds(doc):
@@ -660,13 +663,19 @@ def check_cases(cases):
             assert any(e.startswith(prefix) for e in errs), (cid, prefix, errs)
 
 
-def with_alarm(seconds):
-    import signal
-
+@contextlib.contextmanager
+def alarm(seconds):
+    """Fail the guarded block if it runs longer than `seconds`. Always cancels the alarm and restores the
+    previous handler, so nothing fires later in an unrelated test of the same pytest process."""
     def handler(*_):
         raise AssertionError(f"did not finish in {seconds}s")
-    signal.signal(signal.SIGALRM, handler)
+    old = signal.signal(signal.SIGALRM, handler)
     signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
 
 
 def rename_task(d, old, new):
@@ -782,47 +791,47 @@ def test_directory_as_workflow_file_is_a_load_error(tmp_path):
 
 # S2: cyclic and exponentially shared values
 def test_cyclic_document_returns_an_error():
-    with_alarm(20)
-    a = {}
-    a["x"] = a
-    a["y"] = a
-    errs = vo.validate_org(a, CAT, MAN)
-    assert any("refers to itself" in e for e in errs), errs
+    with alarm(5):
+        a = {}
+        a["x"] = a
+        a["y"] = a
+        errs = vo.validate_org(a, CAT, MAN)
+        assert any("refers to itself" in e for e in errs), errs
 
 
 def test_exponentially_shared_document_is_capped():
-    with_alarm(20)
-    node = []
-    for _ in range(60):
-        node = [node, node]
-    errs = vo.validate_org({"do": [{"a": {"set": node}}]}, CAT, MAN)
-    assert any(e.startswith("(root): document has more than 1000000 values") for e in errs), errs
+    with alarm(5):
+        node = []
+        for _ in range(60):
+            node = [node, node]
+        errs = vo.validate_org({"do": [{"a": {"set": node}}]}, CAT, MAN)
+        assert any(e.startswith("(root): document has more than 1000000 values") for e in errs), errs
 
 
 # S3: task cap and linear scans
 def test_task_count_is_capped_with_a_located_error():
-    with_alarm(60)
-    d = copy.deepcopy(TDD)
-    d["do"] = [{f"t{i}": {"set": {"a": 1}}} for i in range(10001)]
-    errs = vo.validate_org(d, CAT, MAN)
-    assert "t10000: more than 10000 tasks in the workflow" in errs
+    with alarm(30):
+        d = copy.deepcopy(TDD)
+        d["do"] = [{f"t{i}": {"set": {"a": 1}}} for i in range(10001)]
+        errs = vo.validate_org(d, CAT, MAN)
+        assert "t10000: more than 10000 tasks in the workflow" in errs
 
 
 def test_wide_workflow_validates_quickly():
-    with_alarm(60)
-    d = copy.deepcopy(SW)
-    tasks = []
-    for i in range(9000):
-        t = {"set": {"a": 1}, "then": f"t{i + 1}"}
-        if i % 30 == 0:
-            t = {"emit": {"event": {"with": {"type": f"org.x-{i}"}}},
-                 "metadata": {"org": {"floor": True}}}
-        tasks.append({f"t{i}": t})
-    d["do"] = tasks
-    start = time.time()
-    errs = vo.validate_org(d, CAT, MAN)
-    assert time.time() - start < 10, "validation is not linear"
-    assert errs
+    with alarm(30):
+        d = copy.deepcopy(SW)
+        tasks = []
+        for i in range(9000):
+            t = {"set": {"a": 1}, "then": f"t{i + 1}"}
+            if i % 30 == 0:
+                t = {"emit": {"event": {"with": {"type": f"org.x-{i}"}}},
+                     "metadata": {"org": {"floor": True}}}
+            tasks.append({f"t{i}": t})
+        d["do"] = tasks
+        start = time.time()
+        errs = vo.validate_org(d, CAT, MAN)
+        assert time.time() - start < 10, "validation is not linear"
+        assert errs
 
 
 # S4: author values print with repr
@@ -1012,7 +1021,7 @@ U3_CASES = [
     ("signer-makes-decision-gate", SW,
      lambda d: d["do"].append({"g": {"listen": {"to": {"any": [{"with": {"type": "org.x"}}]}}, "timeout": {"after": {"hours": 1}},
                                      "metadata": {"org": {"by": "code", "role": "lead", "signer": "lead",
-                                                          "metrics": ["escalations"], "acceptance": [{"check": "c"}]}}}}),
+                                                          "metrics": ["escalations"], "acceptance": [{"check": "workers-done"}]}}}}),
      "g: listen.to: a decision gate listens with to.one only", MAN),
 ]
 
@@ -1020,3 +1029,80 @@ U3_CASES = [
 @pytest.mark.parametrize("case", U3_CASES, ids=[c[0] for c in U3_CASES])
 def test_update_3_cases(case):
     check_cases([case])
+
+
+# update 6: check classes (P25), cases W117 to W119
+def w117(d):
+    org(d, "red")["acceptance"].append({"check": "red-evidence"})
+
+
+U6_CASES = [
+    ("W117", TDD, w117,
+     "cycle/red: metadata.org.acceptance[1].check: fact check 'red-evidence' may sit only on a by: code task; "
+     "put it on the code step that produces the fact", MAN),
+    ("W117-gate", SW, lambda d: org(d, "merge-gate")["acceptance"].append({"check": "acceptance-suite-green"}),
+     "merge-gate: metadata.org.acceptance[1].check: fact check 'acceptance-suite-green' may sit only on a by: code task; "
+     "put it on the code step that produces the fact", MAN),
+    ("W117-code-ok", TDD, lambda d: org(d, "green-evidence")["acceptance"].append({"check": "red-evidence"}), None, MAN),
+    ("W118", SW, lambda d: org(d, "spec")["acceptance"].append({"check": "write-sets-are-disjoint"}), None, MAN),
+    ("W119", SW, lambda d: org(d, "merge")["acceptance"].append({"check": "no-such-check"}),
+     "merge: metadata.org.acceptance[1].check: unknown check 'no-such-check' (not in manifest.checks)", MAN),
+    ("W119-no-checks-map", SW, lambda d: None,
+     "spec: metadata.org.acceptance[0].check: unknown check 'spec-check' (not in manifest.checks)",
+     manifest_with(lambda m: m.pop("checks", None))),
+    ("W119-checks-not-a-map", SW, lambda d: None,
+     "spec: metadata.org.acceptance[0].check: unknown check 'spec-check' (not in manifest.checks)",
+     manifest_with(lambda m: m.__setitem__("checks", ["spec-check"]))),
+]
+
+
+@pytest.mark.parametrize("case", U6_CASES, ids=[c[0] for c in U6_CASES])
+def test_update_6_cases(case):
+    check_cases([case])
+
+
+def test_manifest_fixture_has_checks_for_every_example_check():
+    names = set()
+
+    def walk(x):
+        if isinstance(x, dict):
+            if isinstance(x.get("check"), str):
+                names.add(x["check"])
+            for y in x.values():
+                walk(y)
+        elif isinstance(x, list):
+            for y in x:
+                walk(y)
+    walk(SW)
+    walk(TDD)
+    assert names <= set(MAN["checks"]) and set(MAN["checks"].values()) <= {"fact", "shape"}
+
+
+# alarm helper: it must cancel itself and restore the previous handler
+def test_alarm_is_cancelled_and_handler_restored_after_the_block():
+    def previous(*_):
+        raise AssertionError("previous handler must not fire")
+    old = signal.signal(signal.SIGALRM, previous)
+    try:
+        with alarm(30):
+            pass
+        assert signal.alarm(0) == 0, "alarm still pending after the block"
+        assert signal.getsignal(signal.SIGALRM) is previous
+    finally:
+        signal.signal(signal.SIGALRM, old)
+
+
+def test_alarm_is_cancelled_when_the_block_raises():
+    old = signal.getsignal(signal.SIGALRM)
+    with pytest.raises(ValueError):
+        with alarm(30):
+            raise ValueError("boom")
+    assert signal.alarm(0) == 0
+    assert signal.getsignal(signal.SIGALRM) is old
+
+
+def test_alarm_fails_a_block_that_hangs():
+    with pytest.raises(AssertionError, match="did not finish in 1s"):
+        with alarm(1):
+            time.sleep(5)
+    assert signal.alarm(0) == 0

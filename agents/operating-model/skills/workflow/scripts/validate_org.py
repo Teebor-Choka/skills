@@ -312,7 +312,7 @@ def _document_errors(doc, manifest, errs):
         errs.append(f"document.namespace: {_r(ns)} differs from manifest namespace")
 
 
-def _acceptance_errors(items, p, kind, roles, errs):
+def _acceptance_errors(items, p, kind, roles, checks, by, errs):
     for i, it in enumerate(items):
         loc = f"{p}: metadata.org.acceptance[{i}]"
         if not isinstance(it, dict):
@@ -332,8 +332,15 @@ def _acceptance_errors(items, p, kind, roles, errs):
             for k in ("judge", "sample"):
                 if k in it:
                     errs.append(f"{loc}: {k} needs rubric")
-        if form == "check" and not (isinstance(it["check"], str) and KEBAB.fullmatch(it["check"])):
-            errs.append(f"{loc}.check: must be a kebab-case check name")
+        if form == "check":
+            name = it["check"]
+            if not (isinstance(name, str) and KEBAB.fullmatch(name)):
+                errs.append(f"{loc}.check: must be a kebab-case check name")
+            elif name not in checks:
+                errs.append(f"{loc}.check: unknown check '{name}' (not in manifest.checks)")
+            elif checks[name] == "fact" and by != "code":
+                errs.append(f"{loc}.check: fact check '{name}' may sit only on a by: code task; "
+                            "put it on the code step that produces the fact")
         if form == "human" and not (isinstance(it["human"], str) and it["human"].strip()):
             errs.append(f"{loc}.human: must be a non-empty string")
         if form == "rubric":
@@ -347,7 +354,7 @@ def _acceptance_errors(items, p, kind, roles, errs):
                 errs.append(f"{loc}.sample: must be a number in (0, 1]")
 
 
-def _org_errors(task, p, kind, catalog, roles, errs):
+def _org_errors(task, p, kind, catalog, roles, ctx, errs):
     """Check `metadata.org` of one task. Returns the org map, or None when the map itself is unusable."""
     meta = task.get("metadata")
     if meta is None:
@@ -396,7 +403,7 @@ def _org_errors(task, p, kind, catalog, roles, errs):
         elif not a:
             errs.append(f"{p}: metadata.org.acceptance: must not be empty")
         else:
-            _acceptance_errors(a, p, kind, roles, errs)
+            _acceptance_errors(a, p, kind, roles, ctx["checks"], o.get("by"), errs)
     if "brief" in o and not _relpath(o["brief"], "briefs/", ".md"):
         errs.append(f"{p}: metadata.org.brief: must be a relative path under briefs/ ending .md")
     if "network" in o and not (isinstance(o["network"], str) and POLICY.fullmatch(o["network"])):
@@ -583,7 +590,7 @@ def _task_errors(n, nodes, ctx, errs):
         _call_errors(n, ctx, errs)
     if kind == "emit":
         _emit_errors(n, ctx, errs)
-    o = _org_errors(t, p, kind, ctx["catalog"], ctx["roles"], errs)
+    o = _org_errors(t, p, kind, ctx["catalog"], ctx["roles"], ctx, errs)
     if o is None:
         return
     if kind == "step":
@@ -711,6 +718,7 @@ def validate_org(doc, catalog, manifest):
     wfs = _map(manifest.get("workflows"))
     entry = wfs.get(wfname) if isinstance(wfname, str) else None
     ctx = {"catalog": catalog, "manifest": manifest, "wfs": wfs, "wfname": wfname, "floors": [], "realfloors": [], "decision_types": {},
+           "checks": _map(manifest.get("checks")),
            "roles": set(_map(manifest.get("roles"))) | {OWNER},
            "entry": _map(entry) if entry is not None else None}
     nodes = []
