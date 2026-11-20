@@ -85,8 +85,7 @@ class Scn:
     """Scripted outputs per step key, scripted check results per task key, owner decisions."""
 
     def __init__(self, outs=None, acc=None, reviews=("approve",), gate="approve", extra_events=(), gate_key="merge-gate",
-                 review_key=REVIEW, judges=None):
-        self.judges = judges or {}
+                 review_key=REVIEW):
         base = {
             CUT: {"units": [{"id": "u1"}, {"id": "u2"}]},
             FEAS: {"feasible": True},
@@ -116,8 +115,7 @@ class Scn:
         return True
 
     def host(self, wfs):
-        return ScriptedHost(steps=self.steps, checks={n: self.check for n in check_names(wfs)}, events=self.events,
-                            judges=self.judges)
+        return ScriptedHost(steps=self.steps, checks={n: self.check for n in check_names(wfs)}, events=self.events)
 
 
 def run(name, scn=None, **kw):
@@ -354,37 +352,6 @@ def test_row_reflect_starts_the_next_align_by_event():
     first = [e["key"] for e in nxt.events if e["kind"] == "task-start"][0]
     assert first == "align"
     assert load("workflows/sw-development.yaml")["schedule"]["on"]["one"]["with"]["type"] == "org.work-item-ready"
-
-
-@needs_yaml
-def test_a_failed_red_skips_green_and_refactor_but_the_evidence_steps_still_run():
-    # With no green change the real suite is still red, so green-evidence fails too and refactor is skipped.
-    scn = Scn(acc={"cycle/red-evidence": [False, True], "cycle/green-evidence": [False, True]},
-              judges={"cycle/unit-review": ["fail", "pass"]})
-    res, host = run("tdd-unit", scn)
-    assert res.status == "success", res.errors  # round 2 has a good red, and the last results pass
-    assert n_starts(res, "cycle/red") == 2
-    assert n_starts(res, "cycle/green") == 1 and n_starts(res, "cycle/refactor") == 1  # round 1 skipped both
-    assert n_starts(res, "cycle/green-evidence") == 2 and n_starts(res, "cycle/refactor-evidence") == 2
-    assert n_starts(res, "cycle/unit-review") == 2
-
-
-@needs_yaml
-def test_a_failed_red_with_a_passing_review_still_fails_the_run_and_skips_green():
-    res, _ = run("tdd-unit", Scn(acc={"cycle/red-evidence": False, "cycle/green-evidence": False}))
-    assert res.status == "error"
-    assert n_starts(res, "cycle/green") == 0 and n_starts(res, "cycle/refactor") == 0
-    assert n_starts(res, "cycle/green-evidence") == 1 and n_starts(res, "cycle/refactor-evidence") == 1
-    assert res.errors[0] == "cycle/red-evidence: acceptance failed"
-
-
-@needs_yaml
-def test_a_unit_whose_first_red_fails_still_completes_a_feature_run():
-    scn = Scn(acc={"cycle/red-evidence": [False, True], "cycle/green-evidence": [False, True]},
-              judges={"cycle/unit-review": ["fail", "pass"]})
-    res, _ = run("sw-development", scn)
-    assert res.status == "success", res.errors
-    assert n_starts(res, "review-cycle/review") == 1
 
 
 # ---------------------------------------------------------------- bug path

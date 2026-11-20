@@ -21,9 +21,8 @@ Layout: `<domain>/<plugin>/skills/<skill>`. The host shows `plugin:skill`.
 |                     | `component-docs`    | Write and update one docs page per component                     |
 |                     | `tracker`           | Live dependency map of a multi-unit build's progress             |
 | `orchestrate`       | `assign`, `pull`    | Multi-agent runs over a shared board; ships guard hooks          |
-| `operating-model`   | `policy`            | The `.agents/policy` format and loader                           |
-|                     | `procedure`         | Define and validate a named graph of stages                      |
-|                     | `agents-dir`        | The `.agents/` layout: process as documents                      |
+| `organization`      | `workflow`          | Organization workflows (OWS): validate, run, check changes       |
+|                     | `policy`            | The `.agents/policy` format and loader                           |
 | `models`            | `extension-author`  | Author and port skills and plugins across agents                 |
 |                     | `reflect`           | Mine sessions for agent struggles and propose fixes              |
 | `writing`           | `unslop`            | Remove AI tells from prose                                       |
