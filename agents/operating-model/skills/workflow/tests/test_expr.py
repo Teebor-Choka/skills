@@ -77,7 +77,7 @@ def test_accepted_keys_finds_every_spelling(source, keys):
 
 def test_accepted_keys_refuses_what_parse_refuses():
     with pytest.raises(ExprError):
-        accepted_keys('$accepted["a"] | length')
+        accepted_keys('$accepted["a"] | keys')
 
 
 def test_an_absent_accepted_key_is_null():
@@ -178,7 +178,7 @@ def test_result_is_a_copy_not_an_alias():
 # --- Acceptance 3: refused constructs, each error names the construct -------
 
 REFUSED = [
-    (". | length", "pipe '|'"),
+    (". | keys", "pipe '|' (only 'X | not' and 'X | length' are accepted)"),
     (".a, .b", "comma ','"),
     (".a // 1", "alternative '//'"),
     (".a?", "optional '?'"),
@@ -485,16 +485,94 @@ def test_non_finite_input_numbers_are_refused(source, value):
     assert "non-finite number" in str(err.value)
 
 
-# --- Acceptance 4: parallel units, decision "sequential for only" -----------
+# --- Acceptance 4: parallel units (owner decision: allowed) -----------------
 
 
-def test_counting_until_for_fan_in_is_refused():
-    # A variable-count join (run await:false + listen to.any until) needs a count;
-    # the OWS reference's own example uses `length`.
-    for until in ["($context.done | length) == ($context.units | length)", "length == 2", "$context.done | length"]:
-        with pytest.raises(ExprError) as err:
-            parse(until)
-        assert "pipe '|'" in str(err.value) or "function 'length'" in str(err.value)
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        (". | length", 6),
+        (".l | length", 3),
+        (".o | length", 2),
+        (".s | length", 5),  # code points, as jq
+        (".n | length", 0),
+        (".missing | length", 0),
+        (".neg | length", 5),  # jq: absolute value of a number
+        (".frac | length", 2.5),
+        ("[] | length", 0),
+        ("(.l | length) == 3", True),
+        (".l | length | not", False),
+        ("(.l | length) > (.o | length)", True),
+        ('.["l"] | length', 3),
+        (".l[(.o | length)]", 30),
+    ],
+)
+def test_pipe_length_is_accepted(source, expected):
+    data = {"l": [10, 20, 30], "o": {"a": 1, "b": 2}, "s": "héllo", "n": None, "neg": -5, "frac": -2.5}
+    assert evaluate(source, data, {}) == expected
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_length_of_a_boolean_is_an_error_as_in_jq(value):
+    with pytest.raises(ExprError) as err:
+        evaluate(". | length", value, {})
+    assert "'length' on boolean" in str(err.value)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        ".a | length == 2",  # jq: .a | (length == 2): a pipe into more than length
+        ".a | length + 1",
+        ".a | length and true",
+        "[.a | length]",
+        ".a | keys",
+        ".a | .b",
+        ".a | lengthy",
+    ],
+)
+def test_other_pipes_stay_refused(source):
+    with pytest.raises(ExprError) as err:
+        parse(source)
+    assert "pipe '|'" in str(err.value)
+    assert "'X | not' and 'X | length'" in str(err.value) or "inside an array literal" in str(err.value)
+
+
+def test_bare_length_stays_refused():
+    with pytest.raises(ExprError) as err:
+        parse("length == 2")
+    assert "function 'length'" in str(err.value)
+
+
+def test_ows_counted_until_evaluates():
+    # OWS 1.1.0 dsl-reference.md, AsyncAPI subscription example.
+    until = "${ ($context.messages | length) == 5 }"
+    assert evaluate(unwrap(until), None, {"context": {"messages": [1, 2, 3, 4, 5]}}) is True
+    assert evaluate(unwrap(until), None, {"context": {"messages": [1, 2, 3, 4]}}) is False
+    assert evaluate(unwrap(until), None, {"context": {}}) is False
+
+
+@pytest.mark.parametrize(
+    "context,expected",
+    [
+        ({"units": [{"id": "u1"}, {"id": "u2"}], "results": [{"id": "u1"}]}, False),
+        ({"units": [{"id": "u1"}, {"id": "u2"}], "results": [{"id": "u2"}, {"id": "u1"}]}, True),
+        ({"units": [], "results": []}, True),
+        ({"units": [], "results": None}, True),
+        ({"units": [{"id": "u1"}]}, False),
+    ],
+)
+def test_fan_out_join_expression(context, expected):
+    join = "${ ($context.results | length) == ($context.units | length) }"
+    assert evaluate(unwrap(join), None, {"context": context}) is expected
+
+
+def test_join_expression_stays_inside_the_safety_caps():
+    join = "($context.results | length) == ($context.units | length)"
+    assert accepted_keys(join) == []
+    with pytest.raises(ExprError) as err:
+        evaluate("$x" + " | length" * 300, None, {"x": []})
+    assert "256" in str(err.value)
 
 
 def test_sequential_for_data_flow_is_expressible_in_the_subset():
