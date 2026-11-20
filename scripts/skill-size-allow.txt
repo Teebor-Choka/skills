@@ -2,4 +2,3 @@
 # Format: <skill dir relative to repo root> | <reason> | <split by>
 # Remove an entry when the skill drops under 16 KB. Do not add new entries; split the skill.
 engineering/design/skills/architect | 24 KB monolith, predates the cap | move per-phase detail (research, spec, DAG, deploy) into references/, keep trigger, steps and pointers
-agents/operating-model/skills/procedure | 41 KB monolith, predates the cap | move each procedure variant into references/, keep the router and selection rules

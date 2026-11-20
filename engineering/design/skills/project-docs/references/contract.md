@@ -33,9 +33,8 @@ AGENTS.md                  # required: points into docs/
 - `spec.md` is **opt-in by size**: required only when the project has real behavior to specify (a
   pipeline, a protocol, stateful subsystems). A trivial project (a static page, a docs-only or
   notes-only effort) omits it. See "Spec opt-in" below. When present, it must conform.
-- `process.md` is **required when the project has a procedure** (a markdown file directly in
-  `.agents/procedures/`) and optional otherwise: a project with no procedure omits it, and a repo with
-  no `.agents/` needs none. See "Process doc" below. When present, it must conform.
+- `process.md` is **optional**: a project with no defined process omits it. See "Process doc" below.
+  When present, it must conform.
 - `components/` is the **component layer**. It is opt-in: a repo without `docs/components/` is checked
   by the rules above and no others. See "Components".
 - A project may keep extra docs (`design/`, `providers/`, `architecture/`); the contract neither
@@ -45,21 +44,19 @@ AGENTS.md                  # required: points into docs/
 
 Every doc under `docs/` starts with YAML frontmatter, except `docs/generated/`. Keys per kind:
 
-| File                  | `kind`            | required keys                                      | optional keys                 |
-| --------------------- | ----------------- | -------------------------------------------------- | ----------------------------- |
-| `overview.md`         | `overview`        | `title`, `kind`, `project`, `updated`              | none                          |
-| `spec.md`             | `spec`            | `title`, `kind`, `project`, `updated`              | none                          |
-| `process.md`          | `process`         | `title`, `kind`, `project`, `updated`, `procedure` | none                          |
-| `decisions/README.md` | `decisions-index` | `title`, `kind`, `project`, `updated`              | none                          |
-| `decisions/<slug>.md` | (ADR, no `kind`)  | `title`, `status`, `project`, `updated`            | `supersedes`, `superseded-by` |
-| `components/<n>.md`   | `component`       | see "Components"                                   | none                          |
+| File                  | `kind`            | required keys                           | optional keys                 |
+| --------------------- | ----------------- | --------------------------------------- | ----------------------------- |
+| `overview.md`         | `overview`        | `title`, `kind`, `project`, `updated`   | none                          |
+| `spec.md`             | `spec`            | `title`, `kind`, `project`, `updated`   | none                          |
+| `process.md`          | `process`         | `title`, `kind`, `project`, `updated`   | none                          |
+| `decisions/README.md` | `decisions-index` | `title`, `kind`, `project`, `updated`   | none                          |
+| `decisions/<slug>.md` | (ADR, no `kind`)  | `title`, `status`, `project`, `updated` | `supersedes`, `superseded-by` |
+| `components/<n>.md`   | `component`       | see "Components"                        | none                          |
 
 - `title`: non-empty string.
 - `project`: the project's short name; the same value across every doc in that project. `repo` is
   accepted as a deprecated alias (the validator reads it but prefers `project`).
 - `updated`: an ISO date `YYYY-MM-DD`.
-- `procedure` (`process.md` only): the name of the procedure the project runs, a non-empty kebab-case
-  name (`^[a-z0-9]+(-[a-z0-9]+)*$`), such as `sw-development`.
 - `status` (ADR only): one of `proposed`, `accepted`. Only active decisions get a file (see below).
 
 ## ADR structure
@@ -114,23 +111,13 @@ are **not** authored into `docs/`; link to them instead.
 
 ## Process doc
 
-A project can define its process as documents under `.agents/` (`policy.md`, `procedures/<name>.md`,
-`charter.md`, `iterations/`). `docs/process.md` tells a reader of `docs/` which procedure the project
-runs, where its documents live, and who decides what.
+A project can define its process as documents: `.agents/policy.md` and an organization of workflows.
+`docs/process.md` tells a reader of `docs/` which workflows the project runs, where their documents
+live, and who decides what.
 
-- `docs/process.md` is required when the project has a procedure: at least one `.md` file directly in
-  `.agents/procedures/`. If it is absent then, the validator raises `process-doc-missing`. A bare
-  `.agents/` (other tools' files, a `policy.md`, an empty or non-markdown `procedures/`) needs none.
-- When present: frontmatter valid, `kind: process`, `procedure` a non-empty kebab-case name.
-- If the project root has `.agents/procedures/`, the file `.agents/procedures/<procedure>.md` must
-  exist. If the project root has no `.agents/procedures/`, the file is not checked.
-- The content of that file is checked by the `procedure` skill's validator when one is installed: the
-  validator runs `PROCEDURE_VALIDATOR`, else the skill at its standard install paths, as a subprocess
-  with no environment, and raises `process-procedure-invalid` with its first lines when it refuses the
-  file. With none installed the content is not checked, so the two skills stay independent. Setting
-  `PROCEDURE_VALIDATOR` to an empty value turns the check off.
-- The authoring flow writes `docs/process.md` whenever the project has a procedure, and the validator
-  now requires it.
+- `docs/process.md` is optional. The validator checks only that it conforms: valid frontmatter,
+  `kind: process`, and a diagram. It does not read `.agents/` or validate a workflow; the workflow
+  skill's validators do that.
 
 ## Views
 
