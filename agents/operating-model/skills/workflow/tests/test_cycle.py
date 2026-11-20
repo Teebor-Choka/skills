@@ -287,7 +287,7 @@ def test_row_review_a_defect_goes_back_to_the_layer_test():
     res, _ = run("sw-development", Scn(reviews=("reject", "approve")))
     assert res.status == "success", res.errors
     assert n_starts(res, re.escape(REVIEW)) == 2
-    assert n_starts(res, "review-cycle/rework-units/tdd#[0-9]+") == 2  # the units run again, once
+    assert n_starts(res, "review-cycle/rework-units/rework-tdd#[0-9]+") == 2  # the units run again, once
     assert n_starts(res, "review-cycle/rework-layer-run") == 1
     assert n_starts(res, re.escape(SPEC)) == 1 and n_starts(res, re.escape(DESIGN)) == 1
 
@@ -354,7 +354,7 @@ def test_bug_without_a_committed_failing_test_never_reaches_review():  # [A] 7
 def test_bug_reproduce_evidence_is_a_floor_in_the_manifest():
     man = load("manifest.json")
     assert "reproduce-evidence" in man["workflows"]["bug"]["floors"]
-    assert "review-cycle/review" in man["workflows"]["bug"]["floors"]
+    assert "review" in man["workflows"]["bug"]["floors"]
 
 
 @needs_yaml
@@ -499,8 +499,8 @@ def test_system_fault_is_the_widest_declared_and_undeclared_fails_closed(repo):
     assert out(tdd(repo, "system", "run"))["system_fault"] == "spec"
     faults(repo, {"system": {"test_s.py::test_a": "design", "test_s.py": "design"}})
     assert out(tdd(repo, "system", "run"))["system_fault"] == "design"
-    faults(repo, {"system": {"test_old.py": "design", "test_s.py::test_a": "design"}})
-    assert out(tdd(repo, "system", "run"))["system_fault"] == "spec"  # test_b is not declared
+    faults(repo, {"system": {"test_old.py": "design", "test_s.py::test_a": "bogus"}})
+    assert out(tdd(repo, "system", "run"))["system_fault"] == "spec"  # an unknown declaration fails closed
 
 
 def test_system_without_a_declaration_runs_nothing_and_blames_the_spec(repo):
@@ -537,6 +537,7 @@ def test_bug_red_needs_the_failing_test_committed(repo):
     assert ev["committed"] is True and ev["uncommitted"] == []
     assert ev["runs"] == [{"test": "test_bug.py::test_bug", "outcome": "assertion"}]
     assert ev["head"] == git(repo, "rev-parse", "HEAD")
+    assert out(tdd(repo, "acceptance", "green", TDD_BASE=base))["expected_count"] == 2  # the bug flow's acceptance-run
 
 
 def test_bug_red_that_passes_is_reported_as_pass(repo):
