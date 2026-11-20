@@ -365,7 +365,10 @@ def sign_event(event, key_path, ns=NS):
 def ssh_ring(tmp):
     owner_key, owner_pub = keygen(tmp, "owner")
     pm_key, pm_pub = keygen(tmp, "pm")
-    return ort.KeyRing({"owner": [owner_pub], "pm": [pm_pub]}, verifier=ort.SshKeygenVerifier()), owner_key, pm_key
+    # The same ssh-keygen that signed: the default lookup skips PATH by design, and a nix build sandbox has
+    # ssh-keygen only on PATH (no /usr/bin, no profile), so the default verifier would fail closed there.
+    verifier = ort.SshKeygenVerifier(ssh_keygen=shutil.which("ssh-keygen"))
+    return ort.KeyRing({"owner": [owner_pub], "pm": [pm_pub]}, verifier=verifier), owner_key, pm_key
 
 
 @needs_ssh
