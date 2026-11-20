@@ -358,7 +358,9 @@ def test_row_reflect_starts_the_next_align_by_event():
 
 @needs_yaml
 def test_a_failed_red_skips_green_and_refactor_but_the_evidence_steps_still_run():
-    scn = Scn(acc={"cycle/red-evidence": [False, True]}, judges={"cycle/unit-review": ["fail", "pass"]})
+    # With no green change the real suite is still red, so green-evidence fails too and refactor is skipped.
+    scn = Scn(acc={"cycle/red-evidence": [False, True], "cycle/green-evidence": [False, True]},
+              judges={"cycle/unit-review": ["fail", "pass"]})
     res, host = run("tdd-unit", scn)
     assert res.status == "success", res.errors  # round 2 has a good red, and the last results pass
     assert n_starts(res, "cycle/red") == 2
@@ -369,7 +371,7 @@ def test_a_failed_red_skips_green_and_refactor_but_the_evidence_steps_still_run(
 
 @needs_yaml
 def test_a_failed_red_with_a_passing_review_still_fails_the_run_and_skips_green():
-    res, _ = run("tdd-unit", Scn(acc={"cycle/red-evidence": False}))
+    res, _ = run("tdd-unit", Scn(acc={"cycle/red-evidence": False, "cycle/green-evidence": False}))
     assert res.status == "error"
     assert n_starts(res, "cycle/green") == 0 and n_starts(res, "cycle/refactor") == 0
     assert n_starts(res, "cycle/green-evidence") == 1 and n_starts(res, "cycle/refactor-evidence") == 1
@@ -378,7 +380,8 @@ def test_a_failed_red_with_a_passing_review_still_fails_the_run_and_skips_green(
 
 @needs_yaml
 def test_a_unit_whose_first_red_fails_still_completes_a_feature_run():
-    scn = Scn(acc={"cycle/red-evidence": [False, True]}, judges={"cycle/unit-review": ["fail", "pass"]})
+    scn = Scn(acc={"cycle/red-evidence": [False, True], "cycle/green-evidence": [False, True]},
+              judges={"cycle/unit-review": ["fail", "pass"]})
     res, _ = run("sw-development", scn)
     assert res.status == "success", res.errors
     assert n_starts(res, "review-cycle/review") == 1
