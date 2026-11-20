@@ -15,16 +15,17 @@ exits 0; the check judges them. A non-zero exit means the program itself could n
 Settings come from the environment (the runtime or the stack sets them):
   TDD_WORKTREE    the project working tree (default: the current directory)
   TDD_BASE        commit the change started from (default HEAD)
-  TDD_TEST_CMD    JSON argv of the test command; it prints pytest `-rA` summary lines (default: pytest)
+  TDD_TEST_CMD    JSON argv or a command line for the tests; it prints pytest `-rA` summary lines (default: pytest)
   TDD_TIMEOUT     seconds per test run (default 600)
   TDD_FAULTS      faults file (default <worktree>/.org/faults.json):
                   {"layer": {<test id or file>: "unit"|"design"}, "system": {<id>: "design"|"spec"}}
-  TDD_VERIFY_CMD  JSON argv of the deploy verification command
+  TDD_VERIFY_CMD  JSON argv or a command line for the deploy verification
 Standard library only.
 """
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -49,6 +50,20 @@ def emit(obj):
     sys.exit(0)
 
 
+def argv_of(raw):
+    """A command from the environment: a JSON list of strings, or a plain command line (stack bin-env, spec 8.6)."""
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        value = None
+    if isinstance(value, list):
+        return value
+    try:
+        return shlex.split(raw)
+    except ValueError:
+        return None
+
+
 class Tree:
     def __init__(self):
         self.path = os.path.abspath(os.environ.get("TDD_WORKTREE") or os.getcwd())
@@ -61,12 +76,9 @@ class Tree:
         except ValueError:
             die("TDD_TIMEOUT must be a number of seconds")
         raw = os.environ.get("TDD_TEST_CMD")
-        try:
-            self.cmd = json.loads(raw) if raw else DEFAULT_CMD
-        except ValueError:
-            self.cmd = None
+        self.cmd = argv_of(raw) if raw else DEFAULT_CMD
         if not (isinstance(self.cmd, list) and self.cmd and all(isinstance(a, str) for a in self.cmd)):
-            die("TDD_TEST_CMD must be a JSON list of strings")
+            die("TDD_TEST_CMD must be a JSON list of strings or a command line")
 
     def git(self, *args, check=True):
         r = subprocess.run(["git", "-C", self.path, *args], capture_output=True, text=True)
@@ -209,12 +221,9 @@ def deploy_verify(tree):
     raw = os.environ.get("TDD_VERIFY_CMD")
     if not raw:
         return {"verified": False, "exit": None, "reason": "no verification command configured (TDD_VERIFY_CMD)"}
-    try:
-        cmd = json.loads(raw)
-    except ValueError:
-        cmd = None
+    cmd = argv_of(raw)
     if not (isinstance(cmd, list) and cmd and all(isinstance(a, str) for a in cmd)):
-        return {"verified": False, "exit": None, "reason": "TDD_VERIFY_CMD must be a JSON list of strings"}
+        return {"verified": False, "exit": None, "reason": "TDD_VERIFY_CMD must be a JSON list of strings or a command line"}
     try:
         r = subprocess.run(cmd, cwd=tree.path, capture_output=True, text=True, timeout=tree.timeout, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
