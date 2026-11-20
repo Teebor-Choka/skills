@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills \u2014 practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "2.4.0"
+    "version": "2.5.0"
   },
   "plugins": [
     {
@@ -19,12 +19,12 @@
       }
     },
     {
-      "name": "operating-model",
-      "description": "Run work, independent of the domain: policy (the layered .agents/policy settings a skill reads instead of hardcoding a constant), procedure (a named graph of stages with a validator and a reducer that runs it) and agents-dir (the .agents/ layout contract: the documents that define the process and how they evolve).",
+      "name": "organization",
+      "description": "Run work, independent of the domain: workflow (organization workflows in the Open Workflow Specification with governance metadata, a validator, an interpreter and a run ledger) and policy (the layered .agents/policy settings a skill reads instead of hardcoding a constant).",
       "source": "./agents/operating-model",
       "strict": true,
       "metadata": {
-        "version": "1.18.0"
+        "version": "2.0.0"
       }
     },
     {
@@ -101,11 +101,11 @@
     },
     {
       "name": "swe",
-      "description": "Engineering practice skills: rust and typescript (house guidelines on every change), performance (profile, optimize, benchmark) and component-docs (write and update component pages).",
+      "description": "Engineering practice skills: rust and typescript (house guidelines on every change), performance (profile, optimize, benchmark), component-docs (write and update component pages) and tracker (live dependency map of a build's progress).",
       "source": "./engineering/swe",
       "strict": true,
       "metadata": {
-        "version": "2.4.0"
+        "version": "2.5.0"
       }
     },
     {

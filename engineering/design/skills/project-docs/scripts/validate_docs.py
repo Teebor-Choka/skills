@@ -31,7 +31,6 @@ import importlib.util
 import json
 import os
 import re
-import subprocess
 import sys
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -379,13 +378,6 @@ def validate_project(project_path: Path, project_label: str | None = None) -> li
     if index in texts:
         findings.extend(_check_index(project, project_path, texts[index], decisions, adr_files))
 
-    # --- optional process.md: procedure name and its file ------------------
-    process = docs / "process.md"
-    if process in texts:
-        findings.extend(_check_process(project, project_path, texts[process]))
-    else:
-        findings.extend(_check_process_required(project, project_path))
-
     # --- optional views: docs/views/*.html ---------------------------------
     views = docs / "views"
     if _dir_unreadable(views):
@@ -533,92 +525,6 @@ def _index_links_in_dir(text: str) -> set[str]:
             continue
         out.add(t)
     return out
-
-
-PROCEDURE_TIMEOUT = 30  # seconds the procedure validator may take
-STANDARD_VALIDATORS = (
-    "~/.config/agents/skills/procedure/scripts/validate_procedure.py",
-    "~/.claude/skills/procedure/scripts/validate_procedure.py",
-    "~/.agents/skills/procedure/scripts/validate_procedure.py",
-)
-
-
-def _procedure_files(project_path: Path) -> list[Path]:
-    """The markdown files directly in .agents/procedures/, which is where a project's procedures live."""
-    folder = project_path / ".agents" / "procedures"
-    if not folder.is_dir():
-        return []
-    return sorted(p for p in folder.glob("*.md") if p.is_file())
-
-
-def _check_process_required(project: str, project_path: Path) -> list[Finding]:
-    """A project that has a procedure must say in docs/ which one it runs."""
-    found = _procedure_files(project_path)
-    if not found:
-        return []
-    names = ", ".join(p.stem for p in found)
-    return [Finding(project, "docs/process.md", "process-doc-missing",
-                    f"the project has a procedure ({names}) but no docs/process.md to say which one it runs")]
-
-
-def _procedure_validator() -> Path | None:
-    """The procedure skill's validator: PROCEDURE_VALIDATOR if set (empty turns the check off), else
-    the standard install paths. None when there is none, and then the content is not checked."""
-    env = os.environ.get("PROCEDURE_VALIDATOR")
-    if env is not None:
-        return Path(env).expanduser() if env and Path(env).expanduser().is_file() else None
-    for candidate in STANDARD_VALIDATORS:
-        path = Path(candidate).expanduser()
-        if path.is_file():
-            return path
-    return None
-
-
-def _check_procedure_content(project: str, project_path: Path, name: str) -> list[Finding]:
-    """Run the procedure validator on the named file. It runs as a subprocess with no environment and no
-    user site, so nothing here imports its code or hands it a secret."""
-    validator = _procedure_validator()
-    if validator is None:
-        return []
-    procedure = project_path / ".agents" / "procedures" / f"{name}.md"
-    rel = f".agents/procedures/{name}.md"
-    try:
-        run = subprocess.run([sys.executable, "-E", "-s", str(validator), str(procedure)], capture_output=True,
-                             text=True, timeout=PROCEDURE_TIMEOUT, env={}, cwd=str(project_path))
-    except subprocess.TimeoutExpired:
-        return [Finding(project, "docs/process.md", "process-procedure-invalid",
-                        f"{rel}: the procedure validator timed out after {PROCEDURE_TIMEOUT}s")]
-    except OSError as exc:
-        return [Finding(project, "docs/process.md", "process-procedure-invalid", f"{rel}: the procedure validator could not run: {exc}")]
-    if run.returncode == 0:
-        return []
-    detail = (run.stderr or run.stdout).strip().splitlines()
-    return [Finding(project, "docs/process.md", "process-procedure-invalid",
-                    f"{rel} is not a valid procedure: {' '.join(detail[:3])[:300] or 'the validator refused it'}")]
-
-
-def _check_process(project: str, project_path: Path, text: str) -> list[Finding]:
-    """docs/process.md names the procedure the project runs. The name must be
-    kebab-case; when .agents/procedures/ exists, <name>.md must be a file there.
-    Its existence is checked here; its content is checked by the procedure
-    skill's validator when one is installed."""
-    rel = "docs/process.md"
-    fm, _ = split_frontmatter(text)
-    if fm is None:
-        return []  # frontmatter-missing is already reported
-    procedure = fm.get("procedure")
-    if not _nonempty_str(procedure) or not KEBAB_RE.match(procedure.strip()):  # type: ignore[union-attr]
-        return [Finding(project, rel, "process-procedure",
-                        f"procedure {procedure!r} must be a non-empty kebab-case name "
-                        r"(^[a-z0-9]+(-[a-z0-9]+)*$)")]
-    name = procedure.strip()  # type: ignore[union-attr]
-    procedures = project_path / ".agents" / "procedures"
-    if procedures.is_dir() and not (procedures / f"{name}.md").is_file():
-        return [Finding(project, rel, "process-procedure-missing",
-                        f"procedure {name!r} has no file .agents/procedures/{name}.md")]
-    if procedures.is_dir():
-        return _check_procedure_content(project, project_path, name)
-    return []
 
 
 class _ViewScan(HTMLParser):
