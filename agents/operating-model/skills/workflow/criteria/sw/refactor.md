@@ -4,9 +4,11 @@ The judge passes the work only if every rule holds. Each rule names what it is j
 
 ## Pass conditions
 
-1. The refactor leaves behaviour unchanged. Judged against: the diff and the refactor-evidence output.
-2. No test file was edited in this step. Judged against: the refactor-evidence output tests_edited.
-3. The refactor removes duplication or unclear names the unit introduced, not other code. Judged against: the diff and the unit's write_set in the cut output.
+The judge runs when this step ends, before the next evidence step: the test facts (red, suite green, tests edited) are judged by the checks on that step, not here (P56).
+
+1. The refactor leaves behaviour unchanged. Judged against: `evidence.change.diff`.
+2. No existing test was changed. Judged against: `evidence.change.diff`.
+3. The refactor removes duplication or unclear names the unit introduced, not other code. A refactor that changes nothing passes when the unit's code has nothing to clean up (P60). Judged against: `evidence.change.diff` and `evidence.input.unit.write_set`.
 
 ## On a fail
 

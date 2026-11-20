@@ -4,9 +4,11 @@ The judge passes the work only if every rule holds. Each rule names what it is j
 
 ## Pass conditions
 
-1. The production code is the least that makes the failing test pass. Judged against: the green step's diff.
-2. No test file was edited in this step. Judged against: the green-evidence output tests_edited.
-3. The change stays inside the unit's write-set. Judged against: the diff and the unit's write_set in the cut output.
+The judge runs when this step ends, before the next evidence step: the test facts (red, suite green, tests edited) are judged by the checks on that step, not here (P56).
+
+1. The production code is the least that makes the failing test pass. Judged against: `evidence.change.diff`.
+2. No existing test was changed in this step. Judged against: `evidence.change.diff`.
+3. The change stays inside the unit's write-set. Judged against: `evidence.change.diff` and `evidence.input.unit.write_set`.
 
 ## On a fail
 

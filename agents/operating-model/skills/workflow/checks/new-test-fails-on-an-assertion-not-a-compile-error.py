@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _lib  # noqa: E402
 
 def check(ev):
-    return _lib.assertion_failures(ev.out()["runs"])
+    return _lib.assertion_failures(ev.out()["runs"], missing_symbol_ok=ev.new_symbols())
 
 
 if __name__ == "__main__":

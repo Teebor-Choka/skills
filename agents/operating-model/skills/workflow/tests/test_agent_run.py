@@ -2030,3 +2030,21 @@ def test_run_agent_accepts_a_safe_workdir(tmp_path):
 def test_the_code_explains_why_manifest_and_catalog_files_need_no_rule():
     text = Path(ar.__file__).read_text()
     assert "cannot contain a directory" in text
+
+
+def test_p56_a_rubric_judge_runs_with_its_read_tools_in_the_workdir(org, monkeypatch, tmp_path):
+    root, env, _ = org
+    work = tmp_path / "judge-work"
+    work.mkdir()
+    env = {k: v for k, v in env.items() if k not in ("ORG_HARNESS", "ORG_TEST_HARNESS")} | {"PATH": "/bin"}
+    seen = []
+
+    def runner(argv_, stdin, timeout, env_, cwd):
+        seen.append({"argv": argv_, "cwd": cwd})
+        return 0, json.dumps({"result": "fine\nVERDICT: pass", "total_cost_usd": 0.1, "duration_ms": 5}), ""
+    monkeypatch.setattr(ar, "_default_runner", runner)
+    code, out, err = cli(["--role", "reviewer", "--brief", "criteria/quality.md", "--tools", "Read,Grep,Glob",
+                          "--workdir", str(work)], {**env, "ORG_KEY": "review", "ORG_ITEM": "0"})
+    assert code == 0, err
+    assert json.loads(out)["event"]["data"]["verdict"] == "pass"
+    assert flag_value(seen[0]["argv"], "--tools") == "Read,Grep,Glob" and seen[0]["cwd"] == os.path.realpath(work)

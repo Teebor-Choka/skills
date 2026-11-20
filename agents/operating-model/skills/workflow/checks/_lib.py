@@ -2,13 +2,17 @@
 
 The runtime runs `checks/<name>.py <full task key>` with ORG_EVIDENCE, ORG_KEY and ORG_RUN set (and
 ORG_ALLOWED_RUNGS for the rung check). The evidence file is
-`{"run", "key", "output", "steps", "outputs", "decisions", "change"}`; see README.md for what each check reads.
+`{"run", "key", "output", "steps", "outputs", "decisions", "change", "input"}`; see README.md for what each check
+reads. `input` is the workflow execution's input (P55); tdd-unit's is `{"unit": {..., "write_set", "new_symbols"}}`.
 
 Exit 0 pass, 1 fail (reasons on stderr), 2 evidence missing, unreadable, or for another key or run.
 """
 import json
 import os
+import re
 import sys
+
+TEST_FILE = re.compile(r"(^|/)(test_[^/]*|[^/]*_test)\.py$")  # the same rule as bin/tdd-evidence
 
 
 def die(code, msg):
@@ -84,6 +88,27 @@ class Evidence:
             die(2, f"decision '{rel}' must be a map")
         return found
 
+    def unit(self):
+        """The `unit` of the workflow input (P55), or {} when there is none."""
+        inp = self.raw.get("input")
+        unit = inp.get("unit") if isinstance(inp, dict) else None
+        return unit if isinstance(unit, dict) else {}
+
+    def write_set(self):
+        ws = self.unit().get("write_set")
+        if not (isinstance(ws, list) and ws and all(is_str(w) for w in ws)):
+            die(2, "evidence input has no unit write_set (a non-empty list of paths)")
+        return ws
+
+    def new_symbols(self):
+        """True when the unit declares the names it adds (P59); a malformed declaration is a fail."""
+        names = self.unit().get("new_symbols")
+        if names is None:
+            return False
+        if not (isinstance(names, list) and names and all(is_str(n) for n in names)):
+            die(1, "unit new_symbols must be a non-empty list of names")
+        return True
+
     def change(self):
         c = self._part("change")
         if not (is_str(c.get("head")) and is_str(c.get("worktree"))):
@@ -126,15 +151,22 @@ def run(check, parse_output=True):
     sys.exit(1 if problems else 0)
 
 
-def assertion_failures(runs, expected=None):
-    """Problems unless every recorded run failed on an assertion, and there is at least one run."""
+def in_write_set(path, write_set):
+    return any(path == w.rstrip("/") or path.startswith(w.rstrip("/") + "/") for w in write_set)
+
+
+def assertion_failures(runs, expected=None, missing_symbol_ok=False):
+    """Problems unless every recorded run failed on an assertion, and there is at least one run.
+    With `missing_symbol_ok` (the unit declares `new_symbols`, P59) an `import-error` or `error` run counts too:
+    the test calls a name that does not exist yet. A compile error or a timeout never counts."""
+    allowed = ("assertion", "import-error", "error") if missing_symbol_ok else ("assertion",)
     if not isinstance(runs, list) or not runs:
         return ["no test run recorded"]
     problems = []
     for r in runs:
         if not (isinstance(r, dict) and is_str(r.get("test")) and is_str(r.get("outcome"))):
             return ["each run needs a test id and an outcome"]
-        if r["outcome"] != "assertion":
+        if r["outcome"] not in allowed:
             problems.append(f"{r['test']}: red run ended with '{r['outcome']}', not an assertion failure")
     if expected is not None:
         if not (isinstance(expected, list) and expected and all(is_str(t) for t in expected)):

@@ -4,7 +4,9 @@
 A fact check sits on the code step that runs this program (spec 6.1, P25). The program prints facts and
 exits 0; the check judges them. A non-zero exit means the program itself could not run (2: usage or setup).
 
-  unit red | green | refactor   new tests fail on an assertion; the suite is green; no test was edited
+  unit red | green | refactor   new tests fail on an assertion (red runs only tests added since the base and
+                                lists every changed path); the suite is green; no existing test was edited
+                                (tests are compared per function, P58)
   acceptance red | green        the same for the acceptance suite; green carries the size recorded at red
   layer run | system run        run the tests the faults file declares for that phase, and name the layer to
                                 go back to from the declaration (`layer_fault`, `system_fault`)
@@ -22,6 +24,7 @@ Settings come from the environment (the runtime or the stack sets them):
   TDD_VERIFY_CMD  JSON argv or a command line for the deploy verification
 Standard library only.
 """
+import ast
 import json
 import os
 import re
@@ -96,14 +99,46 @@ class Tree:
         gd = self.git("rev-parse", "--absolute-git-dir").stdout.strip()
         return os.path.join(gd, "tdd-evidence", name)
 
+    def changed(self):
+        """Every path that differs from the base in the working tree, untracked files included (P57)."""
+        files = set(self.lines("diff", "--name-only", "--no-renames", self.base))
+        return sorted(files | set(self.lines("ls-files", "--others", "--exclude-standard")))
+
+    def base_source(self, path):
+        r = self.git("show", f"{self.base}:{path}", check=False)
+        return r.stdout if r.returncode == 0 else None
+
+    def test_changes(self):
+        """(new, edited) since the base (P58). `new`: whole new test files and the ids of tests added to an
+        existing file. `edited`: ids of existing tests whose code changed or that are gone, or the path of a test
+        file that was deleted (a rename is a delete) or no longer parses."""
+        new, edited = [], []
+        added = set(self.lines("diff", "--name-only", "--no-renames", "--diff-filter=A", self.base))
+        added |= set(self.lines("ls-files", "--others", "--exclude-standard"))
+        new += sorted(f for f in added if TEST_FILE.search(f))
+        for f in self.lines("diff", "--name-only", "--no-renames", "--diff-filter=MD", self.base):
+            if not TEST_FILE.search(f):
+                continue
+            try:
+                with open(os.path.join(self.path, f), encoding="utf-8") as fh:
+                    now = test_defs(fh.read())
+            except (OSError, UnicodeDecodeError):
+                now = None  # deleted or unreadable
+            before = test_defs(self.base_source(f) or "")
+            if now is None or before is None:
+                edited.append(f)
+                if os.path.exists(os.path.join(self.path, f)):
+                    new.append(f)  # run it whole: it reports its own compile error
+                continue
+            edited += [f"{f}::{n}" for n in before if now.get(n) != before[n]]
+            new += [f"{f}::{n}" for n in now if n not in before]
+        return sorted(new), sorted(edited)
+
     def new_test_files(self):
-        """Test files added or changed since the base, committed or not."""
-        files = set(self.lines("diff", "--name-only", "--diff-filter=AMR", self.base))
-        files |= set(self.lines("ls-files", "--others", "--exclude-standard"))
-        return sorted(f for f in files if TEST_FILE.search(f))
+        return self.test_changes()[0]
 
     def edited_tests(self):
-        return sorted(f for f in self.lines("diff", "--name-only", "--diff-filter=MD", self.base) if TEST_FILE.search(f))
+        return self.test_changes()[1]
 
     def run_tests(self, targets=()):
         """Run the test command; return (results, timed_out). results: [(id, outcome, reason)]."""
@@ -117,6 +152,23 @@ class Tree:
             proc.communicate()
             return [], True
         return parse(out), False
+
+
+def test_defs(source):
+    """{test id within the file: AST dump} of top-level test functions and `Test*` class methods, or None when
+    the source does not parse. The dump leaves out line numbers, so a test that only moved is unchanged."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return None
+    defs, fn = {}, (ast.FunctionDef, ast.AsyncFunctionDef)
+    for node in tree.body:
+        if isinstance(node, fn) and node.name.startswith("test"):
+            defs[node.name] = ast.dump(node)
+        elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+            defs.update({f"{node.name}::{m.name}": ast.dump(m) for m in node.body
+                         if isinstance(m, fn) and m.name.startswith("test")})
+    return defs
 
 
 def parse(output):
@@ -148,7 +200,7 @@ def runs_of(tree, files):
         if timed_out:
             runs.append({"test": f, "outcome": "timeout"})
         elif not results:
-            runs.append({"test": f, "outcome": "error"})  # collected nothing: not a test that failed
+            runs.append({"test": f, "outcome": "no-tests"})  # collected nothing: never a red, even with new_symbols
         runs += [{"test": i, "outcome": o} for i, o, _ in results]
     return runs
 
@@ -270,7 +322,10 @@ def main(argv):
         runs = runs_of(tree, tree.new_test_files())
         if scope == "acceptance":
             record_count(tree)
-        emit({"runs": runs, "expected_tests": [r["test"] for r in runs]})
+        out = {"runs": runs, "expected_tests": [r["test"] for r in runs]}
+        if scope == "unit":
+            out["changed"] = tree.changed()  # the red check compares it with the unit's write_set (P57)
+        emit(out)
     out = {"suite": suite(tree), "tests_edited": tree.edited_tests()}
     if scope == "acceptance":
         out["layer_fault"] = "none" if out["suite"]["failed"] == 0 else "unit"  # a red acceptance run: back to the unit test

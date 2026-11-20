@@ -859,7 +859,7 @@ class _NoLive:
     def verify_signed(self, event, signer):
         self._no("signature check")
 
-    def change(self):
+    def change(self, worktree=None, base=None):
         self._no("change query")
 
 
@@ -989,12 +989,14 @@ class _JournalHost:
         return res
 
     def change(self, worktree=None, base=None):
-        hit, res = self._take("change", "")
+        args = () if worktree is None else (worktree, base)  # P54: a stack worktree is its own journal key
+        key = "" if not args else json.dumps(args)
+        hit, res = self._take("change", key)
         if hit:
             return res
         fn = getattr(self.inner, "change", None)
-        res = fn() if fn else {"head": None, "worktree": None}
-        self._put("change", "", res)
+        res = fn(*args) if fn else {"head": None, "worktree": None}
+        self._put("change", key, res)
         return res
 
 

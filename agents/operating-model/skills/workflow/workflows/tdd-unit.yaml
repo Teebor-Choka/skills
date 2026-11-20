@@ -11,6 +11,13 @@ input:
     document:
       type: object
       required: [unit]
+      properties:
+        unit:
+          type: object
+          required: [write_set]
+          properties:
+            write_set: { type: array, minItems: 1, items: { type: string } }
+            new_symbols: { type: array, minItems: 1, items: { type: string } }
 do:
   - cycle:
       for: { each: attempt, in: [1, 2, 3] }

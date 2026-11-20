@@ -81,6 +81,7 @@ MAX_ITERATIONS = 10000  # for iterations in one run, nested multiplication inclu
 MAX_CALLS = 8  # 7.7
 MAX_LISTS = 16
 OUTPUT_CAP = 1_000_000
+WORKTREE_VAR, BASE_VAR = "TDD_WORKTREE", "TDD_BASE"  # P54: the stack bin-env names that locate a workflow's change
 TASK_ENDED = "org.task-ended"
 RESERVED_PREFIXES = ("org.owner-", "org.task-")
 DURATION_UNITS = {"days": 86400, "hours": 3600, "minutes": 60, "seconds": 1, "milliseconds": 0.001}
@@ -547,7 +548,7 @@ class ScriptedHost:
         return rel not in self.outside
 
     def change(self, worktree=None, base=None):
-        return dict(self._change() if callable(self._change) else self._change)
+        return dict(self._change(worktree, base) if callable(self._change) else self._change)
 
     def run_step(self, req):
         self.calls.append(("step", req.command, req.key))
@@ -773,17 +774,42 @@ class ProcessHost:
             os.unlink(epath)
 
     def change(self, worktree=None, base=None, cap=OUTPUT_CAP):
-        """The VCS head and working tree of the org root (P28); head is None outside a git tree."""
-        env = {"PATH": os.environ.get("PATH", "")}
+        """The VCS head and working tree of the org root (P28); head is None outside a git tree.
 
-        def git(*args):
-            r = subprocess.run(["git", "-C", self.root, *args], capture_output=True, text=True, timeout=30, env=env)
-            return r.stdout.strip() if r.returncode == 0 else None
+        With `worktree` (P54: the stack's TDD_WORKTREE) the same for that tree, and with `base` also the resolved
+        base commit and `diff`, the working tree against base including untracked files, capped at `cap`
+        characters (`truncated: true` when cut). The index is never touched."""
+        env = {"PATH": os.environ.get("PATH", ""), "GIT_OPTIONAL_LOCKS": "0"}
+        tree = worktree or self.root
+
+        def git(*args, ok=(0,), strip=True):
+            r = subprocess.run(["git", "-C", tree, *args], capture_output=True, text=True, timeout=30, env=env,
+                               stdin=subprocess.DEVNULL)
+            if r.returncode not in ok:
+                return None
+            return r.stdout.strip() if strip else r.stdout
         try:
             head, top = git("rev-parse", "HEAD"), git("rev-parse", "--show-toplevel")
+            out = {"head": head, "worktree": top or tree}
+            if worktree is None or base is None:
+                return out
+            out["base"] = git("rev-parse", "--verify", "--quiet", f"{base}^{{commit}}")
+            if out["base"] is None:
+                out["diff"] = None
+                return out
+            parts = [git("diff", "--no-color", "--no-ext-diff", "--no-renames", out["base"], "--", strip=False) or ""]
+            size = len(parts[0])
+            for f in (git("ls-files", "--others", "--exclude-standard", "-z", strip=False) or "").split("\0"):
+                if f and size <= cap:  # `diff --no-index` exits 1 when the files differ
+                    parts.append(git("diff", "--no-color", "--no-index", "--", "/dev/null", f, ok=(0, 1), strip=False) or "")
+                    size += len(parts[-1])
         except (OSError, subprocess.TimeoutExpired):
-            head = top = None
-        return {"head": head, "worktree": top or self.root}
+            return {"head": None, "worktree": tree}
+        diff = "".join(parts)
+        out["diff"] = diff[:cap]
+        if len(diff) > cap:
+            out["truncated"] = True
+        return out
 
     def run_judge(self, req):
         return None  # the model judge is U12's agent-run; this host has no adapter for it
@@ -865,6 +891,7 @@ class _Ex:
         self.parent, self.call_rel = parent, call_rel
         self.serial = run.nxt()
         self.context, self.accepted, self.ent, self.dec = {}, {}, {}, {}
+        self.input = None  # the execution's input after `input.from` (P55: in every evidence file)
         self.pre = {p: i for i, (p, _) in enumerate(_walk(doc["do"]))}
         self.floors = {p for p, t in _walk(doc["do"]) if run.is_floor(t)}
         self.deadline = None
@@ -1012,7 +1039,12 @@ class _Run:
         for k in [k for k in self.records if k.startswith(fp)]:
             del self.records[k]
 
-    def change(self, t):
+    def change(self, t, ex=None):
+        """P54: the change of the workflow's stack worktree (`bin-env` TDD_WORKTREE, against TDD_BASE) when the
+        stack names one, else the org root's head and tree (P28)."""
+        env = self.stack_env(ex, t) if ex is not None else {}
+        if env.get(WORKTREE_VAR):
+            return self.plain(self.hostcall(t, self.host.change, env[WORKTREE_VAR], env.get(BASE_VAR) or "HEAD"))
         return self.plain(self.hostcall(t, self.host.change))
 
     def rungs(self, t):
@@ -1037,7 +1069,7 @@ class _Run:
         decisions = {k: d for k, (seq, d) in ex.dec.items() if seq <= start_seq}
         # entries are shared by reference and never mutated; the host serialises the file once
         return {"run": self.rid, "key": t.full, "output": t.entry, "steps": steps, "outputs": outputs,
-                "decisions": decisions, "change": self.change(t)}
+                "decisions": decisions, "change": self.change(t, ex), "input": ex.input}
 
     def finish_entry(self, ex, t):
         if t.entry is not None:
@@ -1058,6 +1090,7 @@ class _Run:
         here = ex.prefix.rstrip(">") or ex.name
         if isinstance(wi, dict) and "from" in wi:
             data = self.x(ex, here, wi["from"], data, sc, input=data)
+        ex.input = data
         out, _ = yield from self.tasks(ex, ex.doc["do"], sc, data)
         wo = ex.doc.get("output")
         if isinstance(wo, dict) and "as" in wo:
@@ -1458,9 +1491,11 @@ class _Run:
             out[str(name)] = str(value)
         return out
 
-    def stack_tools(self, ex, t, isolated):
-        """`--tools` and `--workdir` from the stack's `roles` for this workflow and role (P49, P50)."""
-        entry = ((self.interp.stack.get("roles") or {}).get(ex.name) or {}).get(t.org.get("role")) or {}
+    def stack_tools(self, ex, t, isolated, role=None):
+        """`--tools` and `--workdir` from the stack's `roles` for this workflow and role (P49, P50); `role` names a
+        judge's role instead of the task's (P56)."""
+        role = role or t.org.get("role")
+        entry = ((self.interp.stack.get("roles") or {}).get(ex.name) or {}).get(role) or {}
         tools = [x for x in entry.get("tools") or [] if isinstance(x, str)]
         if isolated:
             tools = [x for x in tools if x in READ_TOOLS]
@@ -1470,7 +1505,7 @@ class _Run:
             env = self.stack_env(ex, t)
             if name not in env:
                 raise TaskError(t.full, E_RUNTIME, 500,
-                                f"stack: roles.{ex.name}.{t.org.get('role')}.workdir: '{name}' is not a bin-env variable of {ex.name}", fatal=True)
+                                f"stack: roles.{ex.name}.{role}.workdir: '{name}' is not a bin-env variable of {ex.name}", fatal=True)
             workdir = env[name]
         return tools, workdir, bool(entry)
 
@@ -1771,9 +1806,14 @@ class _Run:
                             f"metadata.org.acceptance[{idx}].rubric: '{item['rubric']}' resolves outside the org root", fatal=True)
         self.inv += 1
         path = self.input_file(t.full, {"item": idx, "output": t.entry, "evidence": evidence}, {})
+        argv = ["agent-run", "--role", item["judge"], "--brief", item["rubric"], "--input", path]
+        tools, workdir, listed = self.stack_tools(ex, t, True, role=item["judge"])  # P56: a judge only reads
+        if listed:
+            argv += ["--tools", ",".join(tools)]
+        if workdir:
+            argv += ["--workdir", workdir]
         req = JudgeRequest(key=t.full, item=idx, role=item["judge"], rubric=item["rubric"], run_id=self.rid,
-                           invocation=f"{self.rid}:{self.inv}", input_file=path,
-                           argv=["agent-run", "--role", item["judge"], "--brief", item["rubric"], "--input", path])
+                           invocation=f"{self.rid}:{self.inv}", input_file=path, argv=argv)
         reply = self.hostcall(t, self.host.run_judge, req)
         if not isinstance(reply, dict):
             return "fail"

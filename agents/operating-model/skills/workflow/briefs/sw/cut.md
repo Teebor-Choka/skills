@@ -10,6 +10,8 @@ Cut the design into units that agents can build in parallel. Output the cut as J
 - Make write-sets disjoint: no two units may write the same file or one inside the other's directory.
 - List the criteria each unit serves.
 - State dependencies between units.
+- List in `new_symbols` the names a unit adds that do not exist yet (functions, classes, modules). Its red test
+  may then fail with an import error; without the list only an assertion failure counts.
 
 ## Output
 

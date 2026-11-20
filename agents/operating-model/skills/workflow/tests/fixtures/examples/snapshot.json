@@ -945,6 +945,28 @@
     "input": {
       "schema": {
         "document": {
+          "properties": {
+            "unit": {
+              "properties": {
+                "new_symbols": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "write_set": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": ["write_set"],
+              "type": "object"
+            }
+          },
           "required": ["unit"],
           "type": "object"
         },
