@@ -5,7 +5,7 @@ A contract file describes one port. Each operation has seven parts: name, input,
 requirements, guarantees, errors, metrics. An adapter is any object with `call(op, input) -> dict`
 that raises `PortError(code, message)` for a declared error.
 
-    conformance.py validate <contracts-dir> [--catalog <metrics.json>]
+    op_conformance.py validate <contracts-dir> [--catalog <metrics.json>]
 
 Exit 0: valid. 1: a contract is refused. 2: usage or load error.
 """

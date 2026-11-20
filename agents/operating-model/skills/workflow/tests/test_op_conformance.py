@@ -14,8 +14,8 @@ HERE = Path(__file__).resolve().parent
 SKILL = HERE.parent
 sys.path.insert(0, str(SKILL / "scripts"))
 
-import conformance as cf  # noqa: E402
-from conformance import PortError  # noqa: E402
+import op_conformance as cf  # noqa: E402
+from op_conformance import PortError  # noqa: E402
 
 CONTRACTS = SKILL / "contracts"
 PORTS = ["Channel", "Tracker", "Documents", "Identity", "Instances", "Sessions", "Memory", "Metrics"]
@@ -579,7 +579,7 @@ def test_schema_subset_catches_the_basic_violations():
 
 
 def run_cli(*args):
-    return subprocess.run([sys.executable, str(SKILL / "scripts" / "conformance.py"), *args], capture_output=True, text=True)
+    return subprocess.run([sys.executable, str(SKILL / "scripts" / "op_conformance.py"), *args], capture_output=True, text=True)
 
 
 def test_cli_validates_the_committed_contracts():
@@ -609,6 +609,6 @@ def test_cli_reads_the_catalog_from_a_file(tmp_path):
 
 
 def test_core_imports_the_standard_library_only():
-    names = {l.split()[1].split(".")[0] for l in (SKILL / "scripts" / "conformance.py").read_text().splitlines()
+    names = {l.split()[1].split(".")[0] for l in (SKILL / "scripts" / "op_conformance.py").read_text().splitlines()
              if l.startswith(("import ", "from "))}
     assert names <= set(sys.stdlib_module_names), names
