@@ -1403,7 +1403,7 @@ class OrgRuntime:
             workflows = {}
             for wname, entry in manifest["workflows"].items():
                 workflows[wname] = vc.load_document(os.path.join(tmp, entry["path"]))
-        interp = it.Interpreter(workflows, self.host, catalog=catalog, manifest=manifest)
+        interp = it.Interpreter(workflows, self.host, catalog=catalog, manifest=manifest, stack=stack)
         return _Loaded(interp.refusals(name), workflows, catalog, manifest, files, snap, stack)
 
     # -- metrics
@@ -1476,7 +1476,7 @@ class OrgRuntime:
             bind(loaded.stack, lambda key: self._workflow_of(index, name, key))
         verified = _VerifiedHost(_NoLive(self.host) if readonly else self.host, self.root, loaded.files)
         jhost = _JournalHost(verified, self.ring, ledger, journal, fed)
-        interp = it.Interpreter(workflows, jhost, catalog=catalog, manifest=manifest)
+        interp = it.Interpreter(workflows, jhost, catalog=catalog, manifest=manifest, stack=loaded.stack)
         run = _OrgRun(interp, rid, ledger, recorded_ids)
         tee = _Tee(ledger, existing, collect, lambda e: collect(e, done=rows_after.get(e["seq"], set())))
         run.events = tee
