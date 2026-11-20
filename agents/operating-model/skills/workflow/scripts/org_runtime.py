@@ -62,15 +62,19 @@ __all__ = (
     "UNENFORCED", "NO_OUTSIDE", "DEFAULT_FROZEN_OUTSIDE", "LedgerError", "DivergenceError", "OwnerKeyError",
     "FileMapError", "SnapshotError", "IntegrityError", "FrozenOutside", "RunLedger", "KeyRing", "SshKeygenVerifier",
     "SnapshotStore", "ProcessCollector", "InboxFeed", "QueueFeed", "LiveScheduler", "OrgProcessHost", "OrgRuntime",
-    "load_ring", "event_payload", "snapshot_event", "build_file_map", "check_collisions",
+    "load_ring", "validate_stack", "event_payload", "snapshot_event", "build_file_map", "check_collisions",
 )
 
 UNENFORCED = object()  # pass as `snapshots` to run with no rung enforcement (tests, throwaway roots)
 NS_EVENT = "org-event"
 NS_SNAPSHOT = "org-snapshot"
 ORG_ENTRIES = ("workflows", "briefs", "criteria", "schemas", "collectors", "checks", "bin")
-ROOT_FILE = re.compile(r"(manifest|metrics[^/]*)\.(json|yaml|yml)")
+ROOT_FILE = re.compile(r"(manifest|metrics[^/]*)\.(json|yaml|yml)|stack\.(json|yaml)")
 MANIFEST_FILE = re.compile(r"manifest\.(json|yaml|yml)")
+STACK_FILES = ("stack.yaml", "stack.json")
+STACK_TOOLS = ("Read", "Grep", "Glob", "Edit", "Write", "Bash")
+ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]*")
+PROTECTED_STACK_KEYS = ("roles", "bin-env")
 KEY_LINE = re.compile(r"(ssh-[a-z0-9-]+|sk-ssh-[a-z0-9@.-]+|ecdsa-sha2-[a-z0-9]+|sk-ecdsa-sha2-[a-z0-9@.-]+) \S+( [^\n]*)?")
 PRINCIPAL = re.compile(r"[A-Za-z0-9._-]+")
 GENESIS = "0" * 64
@@ -1052,7 +1056,19 @@ class OrgProcessHost(it.ProcessHost):
         super().__init__(root, agent_run=agent_run or self.AGENT_RUN, events=events, verify=verify)
         self.session_dir = os.path.realpath(str(session_dir))
         self.env = dict(env or {})
+        self.stack = {"bin-env": {}, "roles": {}}
+        self._workflow_of = lambda key: None
         os.makedirs(self.session_dir, exist_ok=True)
+
+    def bind_stack(self, stack, workflow_of):
+        """The stack data (a plain dict: `bin-env` and `roles`, already checked) and a key-to-workflow function."""
+        self.stack, self._workflow_of = stack, workflow_of
+
+    def _bin_env(self, key, workflow=None):
+        """Exactly the names the stack lists for the step's workflow; never ORG_, LD_, DYLD_ or PATH."""
+        wf = workflow or self._workflow_of(key)
+        names = (self.stack.get("bin-env") or {}).get(wf) or {}
+        return {n: v for n, v in names.items() if _env_name_ok(n) and isinstance(v, str)}
 
     @staticmethod
     def _killpg(pid):
@@ -1113,7 +1129,8 @@ class OrgProcessHost(it.ProcessHost):
 
     def run_step(self, req):
         if req.command != "agent-run":
-            return super().run_step(req)
+            env = self._bin_env(req.key, getattr(req, "workflow", None))
+            return super().run_step(dataclasses.replace(req, shell={**req.shell, "environment": env}))
         out, err, dur, code, timed_out = self._agent_run(req.argv[1:], req.input_file, self._env(req),
                                                          json.dumps(req.input, default=str), req.limit)
         if timed_out:
@@ -1146,6 +1163,99 @@ class OrgProcessHost(it.ProcessHost):
             return None
 
 
+# ---------------------------------------------------------------- the stack document (8.6)
+
+
+def _env_name_ok(name):
+    return (isinstance(name, str) and ENV_NAME.fullmatch(name) is not None and name != "PATH"
+            and not name.startswith(("ORG_", "LD_", "DYLD_")))
+
+
+def validate_stack(stack, manifest):
+    """The first problem in a stack document as `(dotted key path, reason)`, or None. Keys other than `bin-env`
+    and `roles` are outside the spec and are not checked (8.6)."""
+    if not isinstance(stack, dict):
+        return "stack", "must be a map"
+    workflows, roles = manifest.get("workflows") or {}, manifest.get("roles") or {}
+    env = stack.get("bin-env", {})
+    if not isinstance(env, dict):
+        return "bin-env", "must be a map"
+    for wf, names in env.items():
+        if wf not in workflows:
+            return f"bin-env.{wf}", "workflow is not listed in the manifest"
+        if not isinstance(names, dict):
+            return f"bin-env.{wf}", "must be a map"
+        for name, value in names.items():
+            if not _env_name_ok(name):
+                return f"bin-env.{wf}.{name}", "name is not allowed"
+            if not isinstance(value, str) or "\0" in value:
+                return f"bin-env.{wf}.{name}", "value must be a string"
+    table = stack.get("roles", {})
+    if not isinstance(table, dict):
+        return "roles", "must be a map"
+    for wf, entries in table.items():
+        if wf not in workflows:
+            return f"roles.{wf}", "workflow is not listed in the manifest"
+        if not isinstance(entries, dict):
+            return f"roles.{wf}", "must be a map"
+        for role, entry in entries.items():
+            at = f"roles.{wf}.{role}"
+            if role not in roles:
+                return at, "role is not listed in the manifest"
+            if not isinstance(entry, dict):
+                return at, "must be a map"
+            for key in entry:
+                if key not in ("tools", "workdir"):
+                    return f"{at}.{key}", "unknown key"
+            tools = entry.get("tools", [])
+            if not isinstance(tools, list):
+                return f"{at}.tools", "must be a list"
+            for i, tool in enumerate(tools):
+                if tool not in STACK_TOOLS:
+                    return f"{at}.tools", f"'{tool}' is not one of {', '.join(STACK_TOOLS)}"
+                if tool in tools[:i]:
+                    return f"{at}.tools", f"'{tool}' is listed twice"
+            if "workdir" in entry:
+                var, vars_ = entry["workdir"], env.get(wf) or {}
+                if not isinstance(var, str) or var not in vars_:
+                    return f"{at}.workdir", f"'{var}' is not a bin-env variable of this workflow"
+                if not vars_[var].startswith("/"):
+                    return f"{at}.workdir", f"'{var}' must be an absolute path"
+    return None
+
+
+def _parse_bytes(name, data):
+    """A document parsed from bytes with the 2.1 loader, or None when it does not load."""
+    with tempfile.TemporaryDirectory(prefix="org-parse-") as tmp:
+        path = os.path.join(tmp, name)
+        with open(path, "wb") as f:
+            f.write(data)
+        try:
+            return vc.load_document(path)
+        except (vc.LoadError, vc.UsageError):
+            return None
+
+
+def _stack_changes(base_files, new_files):
+    """`(path, rung)` for a stack change, classified per top-level key (P53); an unparseable stack is frozen."""
+    changed = [p for p in STACK_FILES if base_files.get(p) != new_files.get(p)]
+    if not changed:
+        return []
+    docs = []
+    for files in (base_files, new_files):
+        present = [p for p in STACK_FILES if files.get(p) is not None]
+        if len(present) > 1:
+            return [(changed[0], "frozen")]
+        doc_ = {} if not present else _parse_bytes(present[0], files[present[0]])
+        if not isinstance(doc_, dict):
+            return [(changed[0], "frozen")]
+        docs.append(doc_)
+    keys = {k for k in set(docs[0]) | set(docs[1]) if docs[0].get(k) != docs[1].get(k)}
+    if not keys:
+        return []  # the same content in the other format
+    return [(changed[0], "protected" if keys & set(PROTECTED_STACK_KEYS) else "free")]
+
+
 # ---------------------------------------------------------------- the runtime
 
 
@@ -1161,9 +1271,9 @@ def _no_collector(*args, **kw):
 
 
 class _Loaded:
-    def __init__(self, errs=(), workflows=None, catalog=None, manifest=None, files=None, snap=None):
+    def __init__(self, errs=(), workflows=None, catalog=None, manifest=None, files=None, snap=None, stack=None):
         self.errs, self.workflows, self.catalog = list(errs), workflows, catalog
-        self.manifest, self.files, self.snap = manifest, files, snap
+        self.manifest, self.files, self.snap, self.stack = manifest, files, snap, stack
 
 
 class OrgRuntime:
@@ -1227,10 +1337,14 @@ class OrgRuntime:
             if base["outside"].get(p) != out.get(p):
                 errs.append(f"run refused: {p}: change needs rung 'frozen' and has no owner signature")
         if base["files"] != files:
-            paths = set(base["files"]) | set(files)
+            allowed = self._rungs_for(base["files"])
+            for path, rung in _stack_changes(base["files"], files):  # per key (P53); U15 sees no stack file
+                if rung not in allowed:
+                    errs.append(f"run refused: {path}: change needs rung '{rung}' and has no owner signature")
+            paths = (set(base["files"]) | set(files)) - set(STACK_FILES)
             b = {p: base["files"].get(p) for p in paths}
             n = {p: files.get(p) for p in paths}
-            _, refused = check_change.check_change(b, n, self._rungs_for(base["files"]))
+            _, refused = check_change.check_change(b, n, allowed)
             for path, _task, _row, rung in sorted(refused, key=lambda e: (e[0], e[3])):
                 errs.append(f"run refused: {path}: change needs rung '{rung}' and has no owner signature")
         return errs, snap
@@ -1268,11 +1382,24 @@ class OrgRuntime:
             merrs = vman.validate_manifest(manifest, catalog, tmp)
             if merrs:
                 return _Loaded([f"run refused: {mname}: {merrs[0]}"], files=files)
+            present = [n for n in STACK_FILES if n in files]
+            if len(present) > 1:
+                return _Loaded([f"run refused: stack: found {' and '.join(present)}; use one stack file"], files=files)
+            stack = {"bin-env": {}, "roles": {}}
+            if present:
+                try:
+                    raw = vc.load_document(os.path.join(tmp, present[0]))
+                except (vc.LoadError, vc.UsageError) as e:
+                    return _Loaded([f"run refused: {present[0]}: {getattr(e, 'msg', e)}"], files=files)
+                bad = validate_stack(raw, manifest)
+                if bad:
+                    return _Loaded([f"run refused: {present[0]}: {bad[0]}: {bad[1]}"], files=files)
+                stack = {"bin-env": raw.get("bin-env", {}), "roles": raw.get("roles", {})}
             workflows = {}
             for wname, entry in manifest["workflows"].items():
                 workflows[wname] = vc.load_document(os.path.join(tmp, entry["path"]))
         interp = it.Interpreter(workflows, self.host, catalog=catalog, manifest=manifest)
-        return _Loaded(interp.refusals(name), workflows, catalog, manifest, files, snap)
+        return _Loaded(interp.refusals(name), workflows, catalog, manifest, files, snap, stack)
 
     # -- metrics
 
@@ -1291,6 +1418,17 @@ class OrgRuntime:
                 wf = ((task.get("run") or {}).get("workflow") or {}).get("name")
         org = (task.get("metadata") or {}).get("org")
         return list(org.get("metrics") or []) if isinstance(org, dict) else []
+
+    @staticmethod
+    def _workflow_of(index, start, full):
+        """The workflow whose task `full` is: follow each call along the key chain."""
+        wf, parts = start, full.split(">")
+        for part in parts[:-1]:
+            task = index.get(wf, {}).get(re.sub(r"#[0-9]+", "", part))
+            wf = (((task or {}).get("run") or {}).get("workflow") or {}).get("name")
+            if wf is None:
+                return None
+        return wf
 
     # -- execute
 
@@ -1328,6 +1466,9 @@ class OrgRuntime:
                     row["error"] = str(exc) or type(exc).__name__
                 ledger.append("metric", row)
 
+        bind = getattr(self.host, "bind_stack", None)
+        if bind:
+            bind(loaded.stack, lambda key: self._workflow_of(index, name, key))
         verified = _VerifiedHost(_NoLive(self.host) if readonly else self.host, self.root, loaded.files)
         jhost = _JournalHost(verified, self.ring, ledger, journal, fed)
         interp = it.Interpreter(workflows, jhost, catalog=catalog, manifest=manifest)
@@ -1369,7 +1510,8 @@ class OrgRuntime:
         if ledger.read():
             raise LedgerError(f"{self.ledger_path}: the ledger already holds a run; resume it")
         ledger.append("header", {"run_id": rid, "workflow": name, "input": input,
-                                 "root_digest": _digest(loaded.files), "snapshot": loaded.snap})
+                                 "root_digest": _digest(loaded.files), "snapshot": loaded.snap,
+                                 "stack_hash": next((_sha(loaded.files[n]) for n in STACK_FILES if n in loaded.files), None)})
         with open(self.used_ids_path, "a") as f:
             f.write(rid + "\n")
         return self._execute(name, input, rid, ledger, loaded, [], feed=feed)
