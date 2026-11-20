@@ -39,6 +39,11 @@ EXAMPLES = [
     ('${ $accepted["merge-gate"] == true }', {}, {"accepted": {}}, False),
     ('${ $accepted["merge-gate"] == true }', {}, {"accepted": {"merge-gate": True}}, True),
     ('${ $accepted["merge-gate"] == true }', {}, {"accepted": {"merge-gate": False}}, False),
+    # examples/ after the owner's fixes: cut exports into the context, units reads it, tdd gets $unit.
+    ("${ $context + . }", {"units": [{"id": "a"}]}, {"context": {"k": 1}}, {"k": 1, "units": [{"id": "a"}]}),
+    ("${ $context + . }", {"units": []}, {"context": None}, {"units": []}),
+    ("${ $context.units }", {"exit": 1}, {"context": {"units": [{"id": "a"}]}}, [{"id": "a"}]),
+    ("${ $unit }", {}, {"unit": {"id": "a"}}, {"id": "a"}),
 ]
 
 
