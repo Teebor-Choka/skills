@@ -214,7 +214,7 @@ def test_refused_at_evaluation_names_the_types(source, variables, construct):
         (".a.b", {"a": 3}, "cannot index number with \"b\""),
         (".a", "text", "cannot index string with \"a\""),
         (".[0]", {"a": 1}, "cannot index object with number"),
-        ('.["a"]', [1], "cannot index array with string"),
+        ('.["a"]', [1], 'cannot index array with "a"'),
         (".[true]", [1], "index must be a string or an integer"),
         ("$nope", None, "variable '$nope' is not defined"),
     ],
