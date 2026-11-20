@@ -1,0 +1,98 @@
+{
+  "run-duration": {
+    "scope": "process",
+    "unit": "seconds per run",
+    "better": "lower",
+    "formula": "Virtual seconds from run-start to run-end, or to the last event while the run is open. Taken from the ledger's event times, never from the wall clock.",
+    "collector": "collectors/runtime/run_duration.py",
+    "reads": ["run-ledger"]
+  },
+  "model-calls": {
+    "scope": "process",
+    "unit": "count per run",
+    "better": "context",
+    "formula": "agent-run steps whose journaled output carries a cost. Model judges are not counted: the ledger does not journal their cost.",
+    "collector": "collectors/runtime/model_calls.py",
+    "reads": ["run-ledger"]
+  },
+  "model-cost": {
+    "scope": "process",
+    "unit": "US dollars per run",
+    "better": "lower",
+    "formula": "Sum of cost.usd over the journaled agent-run steps. Model judges are not counted.",
+    "collector": "collectors/runtime/model_cost.py",
+    "reads": ["run-ledger"]
+  },
+  "model-tokens": {
+    "scope": "process",
+    "unit": "tokens per run",
+    "better": "context",
+    "formula": "Sum of every count named *_tokens in the journaled agent-run costs. When no step reported a token count the value is not recorded.",
+    "collector": "collectors/runtime/model_tokens.py",
+    "reads": ["run-ledger"]
+  },
+  "task-reruns": {
+    "scope": "process",
+    "unit": "count per run",
+    "better": "lower",
+    "formula": "Task starts after the first start of the same key: rework rounds and retries.",
+    "collector": "collectors/runtime/task_reruns.py",
+    "reads": ["run-ledger"]
+  },
+  "skipped-tasks": {
+    "scope": "process",
+    "unit": "count per run",
+    "better": "context",
+    "formula": "Tasks skipped by their if.",
+    "collector": "collectors/runtime/skipped_tasks.py",
+    "reads": ["run-ledger"]
+  },
+  "check-failures": {
+    "scope": "process",
+    "unit": "count per run",
+    "better": "lower",
+    "formula": "Acceptance check items that failed.",
+    "collector": "collectors/runtime/check_failures.py",
+    "reads": ["run-ledger"]
+  },
+  "judge-failures": {
+    "scope": "process",
+    "unit": "count per run",
+    "better": "lower",
+    "formula": "Acceptance rubric items a judge failed. A pending (unsampled) item is not a failure.",
+    "collector": "collectors/runtime/judge_failures.py",
+    "reads": ["run-ledger"]
+  },
+  "gate-wait": {
+    "scope": "process",
+    "unit": "seconds per run",
+    "better": "lower",
+    "formula": "Virtual seconds from start to acceptance of every task execution that evaluated a listen until or consumed a signed decision.",
+    "collector": "collectors/runtime/gate_wait.py",
+    "reads": ["run-ledger"]
+  },
+  "session-tool-calls": {
+    "scope": "node",
+    "unit": "count per turn",
+    "better": "context",
+    "formula": "tool_call records in the session record exported for the turn.",
+    "collector": "collectors/runtime/session_tool_calls.py",
+    "reads": ["session-record"]
+  },
+  "session-tool-errors": {
+    "scope": "node",
+    "unit": "count per turn",
+    "better": "lower",
+    "formula": "tool_result records with is_error in the session record exported for the turn.",
+    "collector": "collectors/runtime/session_tool_errors.py",
+    "reads": ["session-record"]
+  },
+  "session-compactions": {
+    "scope": "node",
+    "unit": "count per turn",
+    "better": "context",
+    "formula": "compaction records in the session record exported for the turn.",
+    "collector": "collectors/runtime/session_compactions.py",
+    "reads": ["session-record"]
+  }
+}

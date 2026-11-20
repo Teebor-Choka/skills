@@ -1266,6 +1266,27 @@ def _digest(files):
     return h.hexdigest()
 
 
+class TurnOrderError(Exception):
+    pass
+
+
+class TurnBoundary:  # STUB (red)
+    def export(self, turn, record):
+        return {}
+
+    def collect(self, turn, record):
+        return []
+
+    def reflect(self, turn, ref):
+        return {}
+
+    def complete(self, turn):
+        return {"kind": None, "body": {}}
+
+    def compaction_allowed(self, turn):
+        return True
+
+
 def _no_collector(*args, **kw):
     raise LedgerError("replay would run a collector")
 
@@ -1286,7 +1307,7 @@ class OrgRuntime:
 
     def __init__(self, root, *, ledger_path, ledger_key, ring, host, snapshots, frozen, proposer_rungs=None,
                  proposer_role="improver", collector=None, clock=time.monotonic, sleep=time.sleep, poll=1.0,
-                 root_id=None, allow_run_id=False, used_ids_path=None):
+                 root_id=None, allow_run_id=False, used_ids_path=None, registry=None):
         if not isinstance(ledger_key, (bytes, bytearray)) or len(ledger_key) < MIN_KEY:
             raise ValueError(f"the ledger key must be at least {MIN_KEY} bytes")
         if proposer_rungs is not None and "frozen" in proposer_rungs:
@@ -1552,6 +1573,9 @@ class OrgRuntime:
             return refused
         ledger, h, loaded, entries = ctx
         return self._execute(h["workflow"], h["input"], h["run_id"], ledger, loaded, entries, feed=feed)
+
+    def turn_boundary(self):
+        return TurnBoundary()
 
     def replay(self):
         """Rebuild the run's result from its ledger alone: no live call, no collector and no write."""
