@@ -27,8 +27,10 @@ from validate_catalog import (  # noqa: E402
 )
 
 OWNER = "owner"
-TOP_KEYS = ("owner", "namespace", "roles", "workflows", "targets", "vetoes")
-ROLE_KEYS = ("escalates-to", "may-spawn", "summary")
+TOP_KEYS = ("owner", "namespace", "roles", "workflows", "targets", "vetoes", "checks")
+ROLE_KEYS = ("escalates-to", "may-spawn", "summary", "rungs")
+RUNGS = ("free", "ordinary", "protected")
+CHECK_CLASSES = ("fact", "shape")
 WORKFLOW_KEYS = ("path", "floors")
 TARGET_KEYS = ("at-most", "at-least", "per")
 PER = ("item", "run", "unit")
@@ -69,6 +71,20 @@ def _chain(roles, role):
         role = nxt
 
 
+def _rung_errors(loc, rungs):
+    if not (isinstance(rungs, list) and rungs):
+        return [f"{loc}.rungs: must be a non-empty list of rungs"]
+    errs = []
+    for rung in rungs:
+        if rung == "frozen":
+            errs.append(f"{loc}.rungs: 'frozen' cannot be granted")
+        elif not (isinstance(rung, str) and rung in RUNGS):
+            errs.append(f"{loc}.rungs: {rung!r} is not one of {', '.join(RUNGS)}")
+    if len(set(map(repr, rungs))) != len(rungs):
+        errs.append(f"{loc}.rungs: duplicate rung")
+    return errs
+
+
 def _role_errors(roles):
     errs = []
     if OWNER in roles:
@@ -85,6 +101,8 @@ def _role_errors(roles):
                 errs.append(f"{loc}: unknown key '{key}'")
         if "summary" in role and not isinstance(role["summary"], str):
             errs.append(f"{loc}.summary: must be a string")
+        if "rungs" in role:
+            errs += _rung_errors(loc, role["rungs"])
         up = role.get("escalates-to")
         if up is None:
             errs.append(f"{loc}.escalates-to: required")
@@ -297,6 +315,30 @@ def _graph_errors(docs, errs):
         errs.append(cycle)
 
 
+# ---------------------------------------------------------------- checks (8.1)
+
+
+def _check_errors(checks, root):
+    errs = []
+    for name, cls in checks.items():
+        loc = f"manifest: checks.{name}"
+        if not KEBAB.fullmatch(name):
+            errs.append(f"{loc}: name must be kebab-case")
+        if not (isinstance(cls, str) and cls in CHECK_CLASSES):
+            errs.append(f"{loc}: {cls!r} is not one of {', '.join(CHECK_CLASSES)}")
+        if KEBAB.fullmatch(name) and not file_under_root(root, f"checks/{name}.py"):
+            errs.append(f"{loc}: file not found under root: checks/{name}.py")
+    try:
+        found = sorted(os.listdir(os.path.join(root, "checks")))
+    except OSError:
+        found = []
+    for fname in found:
+        if fname.endswith(".py") and not fname.startswith("_") and fname[:-3] not in checks:
+            if os.path.isfile(os.path.join(root, "checks", fname)):
+                errs.append(f"manifest: checks: checks/{fname} is not listed")
+    return errs
+
+
 # ---------------------------------------------------------------- targets (8.4)
 
 
@@ -337,7 +379,7 @@ def validate_manifest(manifest, catalog, root):
     for key in manifest:
         if key not in TOP_KEYS:
             errs.append(f"manifest: unknown key '{key}'")
-    for key in ("owner", "namespace", "roles", "workflows", "vetoes"):
+    for key in ("owner", "namespace", "roles", "workflows", "vetoes", "checks"):
         if key not in manifest:
             errs.append(f"manifest: {key}: required")
     if "owner" in manifest and not (isinstance(manifest["owner"], str) and manifest["owner"].strip()):
@@ -358,6 +400,13 @@ def validate_manifest(manifest, catalog, root):
     if isinstance(workflows, dict):
         errs += _entry_errors(workflows, root)
         _graph_errors(_load_workflows(workflows, root, errs), errs)
+
+    if "checks" in manifest:
+        checks = manifest["checks"]
+        if isinstance(checks, dict) and checks:
+            errs += _check_errors(checks, root)
+        else:
+            errs.append("manifest: checks: must be a non-empty map of check names")
 
     if "targets" in manifest:
         targets = manifest["targets"]
