@@ -65,9 +65,8 @@ plain voice.**
 5. **Write the ADRs.** One `decisions/<slug>.md` per **active** decision, and the
    `decisions/README.md` index listing them. Keep a denied or discarded alternative as a footnote on
    the active decision, not as its own file.
-6. **Write `process.md`** if the project has a procedure (a markdown file in `.agents/procedures/`):
-   the procedure it runs, where its documents live, who decides what. Required then; skip it when
-   there is no procedure.
+6. **Write `process.md`** if the project defines a process (workflows, a policy): the workflows it
+   runs, where their documents live, who decides what. Optional; skip it when there is no process.
 7. **Render a view** (optional) of a doc a reader wants to scan, usually `process.md`: copy
    `assets/view.template.html` to `docs/views/<name>.html`. One self-contained file, no cloud tooling.
 8. **Wire `AGENTS.md`.** Create or update the root `AGENTS.md` to point at `docs/overview.md` and

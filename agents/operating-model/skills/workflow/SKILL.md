@@ -4,8 +4,8 @@ description: >
   Check the governance metadata of an OWS workflow file (`metadata.org` on each task: who acts, role,
   metrics, acceptance items, floors) against the metric catalog and the manifest. Use when asked to
   write, change or validate an organization workflow, to add a task with its acceptance and metrics,
-  or to find out why a workflow is refused. Not for the OWS schema check itself, not for the retired
-  procedure format (use procedure), and not for GitHub Actions workflow YAML.
+  or to find out why a workflow is refused. Not for the OWS schema check itself, and not for GitHub
+  Actions workflow YAML.
 license: MIT
 compatibility: Python 3.10 or newer; PyYAML only to read YAML files
 metadata:

@@ -1081,6 +1081,11 @@ class OrgProcessHost(it.ProcessHost):
         env = {"PATH": os.environ.get("PATH", ""), "ORG_ROOT": self.root, "ORG_RUN": req.run_id, "ORG_KEY": req.key,
                "ORG_SESSION_DIR": self.session_dir}
         env.update({k: v for k, v in self.env.items() if k.startswith("ORG_") and k not in env})
+        # agent-run scrubs its child's environment itself; hand it the names it may pass on (login names, auth)
+        from agent_run import CHILD_ENV_ALLOW, ENV_NAME
+        extra = [n for n in self.env.get("ORG_CHILD_ENV_ALLOW", "").split(",") if ENV_NAME.match(n)]
+        env.update({k: v for k, v in self.env.items() if k in (*CHILD_ENV_ALLOW, *extra) and not k.startswith("ORG_")
+                    and k not in env})
         if item is not None:
             env["ORG_ITEM"] = str(item)
         return env

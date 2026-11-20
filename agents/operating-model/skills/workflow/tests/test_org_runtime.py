@@ -1404,6 +1404,17 @@ def test_staging_the_input_file_failing_is_an_error_outcome_not_a_traceback(tmp_
     assert out.exit_code != 0 and "input" in out.error
 
 
+def test_agent_run_gets_the_login_names_the_claude_child_needs_but_no_other_host_variable(tmp_path):
+    # live smoke: without HOME and USER the claude child cannot find its login ("OAuth session expired")
+    root = make_root(tmp_path)
+    script = fake_agent_run(tmp_path, "import json, os, sys\nprint(json.dumps(dict(os.environ)))\n")
+    env = {"HOME": "/h", "USER": "u", "LOGNAME": "u", "GITHUB_TOKEN": "t", "EXTRA_OK": "x", "ORG_CHILD_ENV_ALLOW": "EXTRA_OK"}
+    host = ort.OrgProcessHost(root, session_dir=tmp_path / "s", agent_run=script, env=env)
+    got = host.run_step(step_req(tmp_path)).output
+    assert got["HOME"] == "/h" and got["USER"] == "u" and got["LOGNAME"] == "u" and got["EXTRA_OK"] == "x"
+    assert "GITHUB_TOKEN" not in got
+
+
 def test_agent_run_output_that_is_not_utf8_does_not_raise(tmp_path):
     root = make_root(tmp_path)
     script = fake_agent_run(tmp_path, "import sys\nsys.stdout.buffer.write(b'\\xff\\xfe')\n")
