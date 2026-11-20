@@ -58,5 +58,22 @@
   "vetoes": [
     "no merge without the merge-gate decision",
     "no node weakens a floor, a target or a criteria file"
-  ]
+  ],
+  "checks": {
+    "spec-check": "shape",
+    "spec-coverage": "shape",
+    "write-sets-are-disjoint": "shape",
+    "unit-verdict-is-pass": "shape",
+    "report-has-every-required-section": "shape",
+    "every-proposal-is-within-its-rung": "shape",
+    "workers-done": "shape",
+    "every-acceptance-test-fails-on-an-assertion": "fact",
+    "acceptance-suite-green": "fact",
+    "checks-green-and-gate-approved": "fact",
+    "red-evidence": "fact",
+    "new-test-fails-on-an-assertion-not-a-compile-error": "fact",
+    "green-evidence": "fact",
+    "suite-green-and-no-test-edited": "fact",
+    "suite-still-green-and-no-test-edited": "fact"
+  }
 }
