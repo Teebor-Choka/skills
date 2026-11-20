@@ -150,6 +150,7 @@ do:
                     judge: lead
                     sample: 0.3
   - claims-checked:
+      if: ${ ($context.claims | length) != 0 }
       listen:
         to:
           any:
