@@ -116,6 +116,15 @@ class Dispatcher:
     def state(self):
         return self._read()
 
+    def set_outside_check(self, enabled):
+        raise NotImplementedError
+
+    def finish_pair(self, key, res):
+        raise NotImplementedError
+
+    def record_reason(self, key, reason):
+        raise NotImplementedError
+
     # -- routing
 
     def _routes(self):

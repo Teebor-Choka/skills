@@ -403,3 +403,47 @@ def test_the_dispatcher_does_not_choose_the_run_id(tmp_path):
     d, log = fake(tmp_path, pipeline_root(tmp_path))
     d.deliver(event())
     assert log and all(len(x) == 3 for x in log)  # FakeRuntime.run takes no run_id from the dispatcher
+
+
+# ---------------------------------------------------------------- state methods the command line calls
+
+
+def test_set_outside_check_records_the_flag_without_touching_the_rest(tmp_path):
+    d, _ = fake(tmp_path, pipeline_root(tmp_path))
+    d.deliver(event("org.work-item-ready"))
+    before = d.state()
+    d.set_outside_check(False)
+    assert d.state()["outside_check"] == "disabled"
+    d.set_outside_check(True)
+    after = d.state()
+    assert after.pop("outside_check") == "enabled"
+    assert after == before
+
+
+def test_set_outside_check_on_a_new_state_file_keeps_the_shape(tmp_path):
+    d, _ = fake(tmp_path, pipeline_root(tmp_path))
+    d.set_outside_check(True)
+    assert d.state() == {"pairs": {}, "starts": {}, "refusals": [], "outside_check": "enabled"}
+
+
+def test_finish_pair_marks_a_starting_pair_done_and_keeps_the_error_reason(tmp_path):
+    d, _ = fake(tmp_path, pipeline_root(tmp_path))
+    d.deliver(event("org.work-item-ready"))
+    (key,) = d.state()["pairs"]
+    st = d.state()
+    st["pairs"][key]["state"] = "starting"
+    d._write(st)
+    res = it.RunResult(status="error", run_id="r-1", errors=["boom", "bang"])
+    assert d.finish_pair(key, res) == []
+    pair = d.state()["pairs"][key]
+    assert (pair["state"], pair["run_id"], pair["status"], pair["reason"]) == ("done", "r-1", "error", "boom; bang")
+
+
+def test_record_reason_sets_it_on_one_pair_and_ignores_an_unknown_pair(tmp_path):
+    d, _ = fake(tmp_path, pipeline_root(tmp_path))
+    d.deliver(event("org.work-item-ready"))
+    (key,) = d.state()["pairs"]
+    d.record_reason(key, "why")
+    d.record_reason("nope\nnothing", "ignored")
+    st = d.state()
+    assert st["pairs"][key]["reason"] == "why" and list(st["pairs"]) == [key]
