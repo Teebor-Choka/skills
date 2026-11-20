@@ -129,21 +129,25 @@ class Killed(BaseException):
 
 
 def test_a_kill_between_run_end_rows_records_each_metric_once_with_the_first_boundary(tmp_path):
-    root = root_with(tmp_path)
+    cat = {"m1": CATALOG["m1"], "m4": {**CATALOG["m1"], "collector": "collectors/m4.py"}}
+    root = make_root(tmp_path, catalog=cat)
+    (root / "collectors" / "m4.py").write_text("print(0)\n")
 
     def die(d, k):
         raise Killed()
 
-    rt = runtime(tmp_path, root=root, registry=registry(m3=die))
+    rt = runtime(tmp_path, root=root, registry=mc.Registry([Fake("run-ledger", {"m1": lines, "m4": die})]))
     with pytest.raises(Killed):
         rt.run("t", run_id=RID)
     del rt
     gc.collect()
-    assert [e["body"]["metric"] for e in org_metrics(tmp_path)] == ["m1", "m2"]
-    runtime(tmp_path, root=root, registry=registry()).resume()
+    assert [e["body"]["metric"] for e in org_metrics(tmp_path)] == ["m1"]
+    healthy = mc.Registry([Fake("run-ledger", {"m1": lines, "m4": lines})])
+    runtime(tmp_path, root=root, registry=healthy).resume()
     om = org_metrics(tmp_path)
-    assert [e["body"]["metric"] for e in om] == ["m1", "m2", "m3"]
+    assert [e["body"]["metric"] for e in om] == ["m1", "m4"]
     assert len({canon(e["body"]["inputs"]) for e in om}) == 1
+    assert result_of(om[1]["body"]) == result_of(om[0]["body"])  # m4 saw the same bytes m1 saw
 
 
 def test_resuming_a_finished_run_adds_no_second_set_of_run_end_rows(tmp_path):
