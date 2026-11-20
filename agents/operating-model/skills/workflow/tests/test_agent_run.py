@@ -20,7 +20,7 @@ sys.path.insert(0, str(SKILL / "scripts"))
 import agent_run as ar  # noqa: E402
 from op_conformance import PortError, check_schema  # noqa: E402
 
-CONTRACT_PATH = SKILL / "contracts" / "harness.json"
+CONTRACT_PATH = SKILL / "harness" / "harness.json"
 MARKER = "AUTHOR-SECRET-7731"
 RUN = "a" * 32
 ROLES = {
@@ -845,3 +845,302 @@ def test_no_local_paths_in_the_committed_sources():
         text = (SKILL / rel).read_text()
         for needle in ("claude" + "-501", "/Us" + "ers/", "~/" + "Fun", "/private" + "/tmp"):
             assert needle not in text
+
+
+# ---------------------------------------------------------------- update 1: location of the contract
+
+
+def test_harness_contract_lives_beside_contracts_not_in_it():
+    assert CONTRACT_PATH.is_file()
+    assert not (SKILL / "contracts" / "harness.json").exists()
+
+
+def test_the_u9_validator_accepts_the_contracts_directory():
+    r = subprocess.run([sys.executable, str(SKILL / "scripts" / "op_conformance.py"), "validate",
+                        str(SKILL / "contracts")], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+# ---------------------------------------------------------------- update 1: task input (P14)
+
+TASK = {"run": RUN, "task": "design"}
+
+
+def test_contract_has_task_input_and_reasons_but_no_network():
+    props = contract()["operations"]["run"]["input"]["properties"]
+    assert "task_input" in props and "reasons" in props and "network" not in props
+    assert "task-input-in-prompt" in contract()["operations"]["run"]["guarantees"]
+
+
+def test_build_prompt_carries_the_task_input_and_reasons():
+    prompt = ar.build_prompt("Brief.", [], TASK, '{"spec": "S1"}', [{"gate": "spec-gate", "reason": "too vague"}])
+    assert '{"spec": "S1"}' in prompt and "spec-gate: too vague" in prompt
+    assert ar.build_prompt("Brief.", [], TASK) == ar.build_prompt("Brief.", [], TASK, None, [])
+
+
+def test_conformance_catches_an_adapter_that_drops_the_task_input():
+    class Drops(ar.ScriptedAdapter):
+        def call(self, op, inp):
+            return super().call(op, {k: v for k, v in inp.items() if k not in ("task_input", "reasons")})
+
+    assert any("task-input-in-prompt" in f for f in _fails(Drops(platform="darwin")))
+
+
+def test_run_agent_puts_task_input_and_reasons_in_the_model_input():
+    adapter = Recording(script=[{"result": "r"}])
+    ar.run_agent(adapter, ar.SessionStore(), role="worker", brief="b", task=TASK, isolated=True,
+                 manifest=MANIFEST, task_input={"spec": "S-MARK"}, reasons={"spec-gate": "too vague"})
+    seen = adapter.seen[0]
+    assert json.loads(seen["task_input"]) == {"spec": "S-MARK"}
+    assert seen["reasons"] == [{"gate": "spec-gate", "reason": "too vague"}]
+
+
+def test_run_agent_leaves_the_keys_out_when_there_is_no_input():
+    adapter = Recording(script=[{"result": "r"}])
+    ar.run_agent(adapter, ar.SessionStore(), role="worker", brief="b", task=TASK, isolated=True, manifest=MANIFEST)
+    assert "task_input" not in adapter.seen[0] and "reasons" not in adapter.seen[0]
+
+
+def test_claude_adapter_sends_the_task_input_on_stdin():
+    runner = FakeRunner()
+    claude(runner).call("run", request(task_input='{"spec": "S-MARK"}'))
+    assert "S-MARK" in runner.calls[0]["stdin"]
+
+
+def test_a_prompt_that_drops_the_task_input_is_refused():
+    class Drops(ar.ScriptedAdapter):
+        def call(self, op, inp):
+            return super().call(op, {k: v for k, v in inp.items() if k != "task_input"})
+
+    with pytest.raises(PortError) as e:
+        ar.run_agent(Drops(), ar.SessionStore(), role="worker", brief="b", task=TASK, isolated=True,
+                     manifest=MANIFEST, task_input={"a": 1})
+    assert e.value.code == "harness-error"
+
+
+def write_input(path, **over):
+    doc = {"run": RUN, "key": "build", "input": {"unit": "U-MARK"}, "reasons": {}}
+    doc.update(over)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(json.dumps(doc))
+    return str(path)
+
+
+def test_cli_reads_the_input_file_into_the_prompt(org):
+    root, env, tmp = org
+    f = write_input(Path(env["ORG_SESSION_DIR"]) / "task-input.json", reasons={"spec-gate": "too vague"})
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--input", f], env)
+    assert code == 0, err
+    want = ar.build_prompt("Write the code.", [], {"run": RUN, "task": "build"}, json.dumps({"unit": "U-MARK"}, sort_keys=True),
+                           [{"gate": "spec-gate", "reason": "too vague"}])
+    assert {e["name"]: e["sha256"] for e in json.loads(out)["evidence"]}["prompt"] == sha(want)
+
+
+def test_cli_accepts_an_input_file_under_the_org_root(org):
+    root, env, _ = org
+    f = write_input(root / "task-input.json")
+    assert cli(["--role", "worker", "--brief", "briefs/build.md", "--input", f], env)[0] == 0
+
+
+@pytest.mark.parametrize("where", ["outside", "dotdot", "symlink"])
+def test_cli_refuses_an_input_path_outside_the_session_and_org_root(org, where):
+    root, env, tmp = org
+    outside = write_input(tmp / "elsewhere" / "in.json")
+    sessions = Path(env["ORG_SESSION_DIR"])
+    sessions.mkdir(parents=True, exist_ok=True)
+    if where == "outside":
+        path = outside
+    elif where == "dotdot":
+        path = str(sessions / ".." / "elsewhere" / "in.json")
+    else:
+        (sessions / "link.json").symlink_to(outside)
+        path = str(sessions / "link.json")
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--input", path], env)
+    assert code == 1 and "input-refused" in err and out == ""
+
+
+@pytest.mark.parametrize(
+    "body",
+    ["not json", "[]", '{"run": "%s"}' % RUN,
+     json.dumps({"run": RUN, "key": "build", "input": 1, "reasons": []}),
+     json.dumps({"run": RUN, "key": "build", "input": 1, "reasons": {"g": 5}}),
+     json.dumps({"run": "b" * 32, "key": "build", "input": 1, "reasons": {}}),
+     json.dumps({"run": RUN, "key": "other", "input": 1, "reasons": {}}),
+     json.dumps({"run": RUN, "key": "build", "input": 1, "reasons": {}, "extra": 1})],
+)
+def test_cli_refuses_a_malformed_or_mismatched_input_file(org, body):
+    root, env, _ = org
+    f = Path(env["ORG_SESSION_DIR"]) / "in.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(body)
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--input", str(f)], env)
+    assert code == 1 and "input-refused" in err
+
+
+def test_cli_refuses_a_missing_or_oversized_input_file(org):
+    root, env, _ = org
+    sessions = Path(env["ORG_SESSION_DIR"])
+    code, _, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--input", str(sessions / "nope.json")], env)
+    assert code == 1 and "input-refused" in err
+    big = sessions / "big.json"
+    big.write_text(json.dumps({"run": RUN, "key": "build", "input": "x" * 2_000_000, "reasons": {}}))
+    code, _, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--input", str(big)], env)
+    assert code == 1 and "input-refused" in err
+
+
+def test_judge_gets_the_judged_output_through_the_input_file(org):
+    root, env, tmp = org
+    (tmp / "script.json").write_text(json.dumps([{"result": "ok", "verdict": "pass"}]))
+    f = write_input(Path(env["ORG_SESSION_DIR"]) / "j.json", key="review",
+                    input={"item": 3, "output": {"patch": "JUDGED-OUTPUT-MARK"}})
+    code, out, err = cli(["--role", "reviewer", "--brief", "criteria/quality.md", "--input", f],
+                         {**env, "ORG_KEY": "review"})
+    assert code == 0, err
+    outcome = json.loads(out)
+    assert outcome["event"]["data"]["item"] == 3 and outcome["event"]["type"] == "org.rubric-verdict"
+    want = ar.build_prompt("Is it clear?", [], {"run": RUN, "task": "review", "item": 3},
+                           json.dumps({"item": 3, "output": {"patch": "JUDGED-OUTPUT-MARK"}}, sort_keys=True), [])
+    assert {e["name"]: e["sha256"] for e in outcome["evidence"]}["prompt"] == sha(want)
+
+
+def test_judge_item_in_the_file_must_match_org_item(org):
+    root, env, _ = org
+    f = write_input(Path(env["ORG_SESSION_DIR"]) / "j.json", key="review", input={"item": 3, "output": "x"})
+    code, out, err = cli(["--role", "reviewer", "--brief", "criteria/quality.md", "--input", f],
+                         {**env, "ORG_KEY": "review", "ORG_ITEM": "4"})
+    assert code == 1 and "invalid-input" in err
+
+
+# ---------------------------------------------------------------- update 1: network policy (P19)
+
+POLICIES = {"research.source-allowlist": {"mode": "allow-list", "allow": ["example.org"]}}
+
+
+def test_scripted_instances_honours_and_releases_a_request():
+    inst = ar.ScriptedInstances()
+    got = inst.call("acquire", {"isolation": "process", "network": {"mode": "none"}, "trust": "trusted",
+                                "lifetime_seconds": 5})
+    assert got["granted"]["network"] == {"mode": "none"}
+    inst.call("release", {"instance_id": got["instance_id"]})
+    assert inst.released == [got["instance_id"]]
+
+
+def test_network_policy_goes_to_the_instance_request_and_never_to_the_model():
+    inst, adapter = ar.ScriptedInstances(), Recording(script=[{"result": "r"}])
+    ar.run_agent(adapter, ar.SessionStore(), role="worker", brief="b", task=TASK, isolated=True, manifest=MANIFEST,
+                 network="research.source-allowlist", instances=inst, network_policies=POLICIES)
+    assert inst.acquired == [{"isolation": "process", "network": POLICIES["research.source-allowlist"],
+                              "trust": "trusted", "lifetime_seconds": ar.DEFAULT_TIMEOUT}]
+    assert "research.source-allowlist" not in json.dumps(adapter.seen[0]) and "example.org" not in json.dumps(adapter.seen[0])
+    assert len(inst.released) == 1
+
+
+def test_instance_request_carries_only_the_four_keys():
+    inst = ar.ScriptedInstances()
+    ar.run_agent(ar.ScriptedAdapter(), ar.SessionStore(), role="worker", brief="b", task=TASK, isolated=True,
+                 manifest=MANIFEST, network="research.source-allowlist", instances=inst, network_policies=POLICIES,
+                 timeout_seconds=90, trust="untrusted")
+    assert set(inst.acquired[0]) == {"isolation", "network", "trust", "lifetime_seconds"}
+    assert inst.acquired[0]["lifetime_seconds"] == 90 and inst.acquired[0]["trust"] == "untrusted"
+
+
+def test_no_instance_is_acquired_without_a_network_policy():
+    inst = ar.ScriptedInstances()
+    ar.run_agent(ar.ScriptedAdapter(), ar.SessionStore(), role="worker", brief="b", task=TASK, isolated=True,
+                 manifest=MANIFEST, instances=inst, network_policies=POLICIES)
+    assert inst.acquired == []
+
+
+def test_instance_is_released_when_the_model_call_fails():
+    inst = ar.ScriptedInstances()
+    with pytest.raises(PortError):
+        ar.run_agent(claude(FakeRunner(rc=1)), ar.SessionStore(), role="worker", brief="b", task=TASK,
+                     isolated=True, manifest=MANIFEST, network="research.source-allowlist", instances=inst,
+                     network_policies=POLICIES)
+    assert len(inst.released) == 1
+
+
+@pytest.mark.parametrize("kw", [{"network_policies": POLICIES}, {"instances": "x"}, {}])
+def test_network_policy_without_an_instance_tool_or_policy_table_is_refused(kw):
+    if kw.get("instances") == "x":
+        kw = {"instances": ar.ScriptedInstances()}
+    store = ar.SessionStore()
+    with pytest.raises(PortError) as e:
+        ar.run_agent(ar.ScriptedAdapter(), store, role="worker", brief="b", task=TASK, isolated=True,
+                     manifest=MANIFEST, network="research.source-allowlist", **kw)
+    assert e.value.code == "network-refused" and store.calls(RUN) == []
+
+
+def test_unknown_network_policy_is_refused_before_any_call():
+    inst, adapter = ar.ScriptedInstances(), Recording()
+    with pytest.raises(PortError) as e:
+        ar.run_agent(adapter, ar.SessionStore(), role="worker", brief="b", task=TASK, isolated=True,
+                     manifest=MANIFEST, network="no.such-policy", instances=inst, network_policies=POLICIES)
+    assert e.value.code == "network-refused" and inst.acquired == [] and adapter.seen == []
+
+
+def test_instance_refusal_is_recorded_and_no_model_call_is_made():
+    class Refusing(ar.ScriptedInstances):
+        def call(self, op, inp):
+            raise PortError("refused-untrusted", "no")
+
+    adapter, store = Recording(), ar.SessionStore()
+    with pytest.raises(PortError) as e:
+        ar.run_agent(adapter, store, role="worker", brief="b", task=TASK, isolated=True, manifest=MANIFEST,
+                     network="research.source-allowlist", instances=Refusing(), network_policies=POLICIES,
+                     trust="untrusted")
+    assert e.value.code == "refused-untrusted" and adapter.seen == []
+    assert store.calls(RUN)[0]["error"] == "refused-untrusted"
+
+
+def test_call_record_names_the_network_policy_and_instance():
+    store, inst = ar.SessionStore(), ar.ScriptedInstances()
+    ar.run_agent(ar.ScriptedAdapter(), store, role="worker", brief="b", task=TASK, isolated=True, manifest=MANIFEST,
+                 network="research.source-allowlist", instances=inst, network_policies=POLICIES)
+    rec = store.calls(RUN)[0]
+    assert rec["network"] == "research.source-allowlist" and rec["instance_id"] == inst.released[0]
+
+
+@pytest.fixture
+def net_org(org):
+    root, env, tmp = org
+    pol = tmp / "policies.json"
+    pol.write_text(json.dumps(POLICIES))
+    return root, {**env, "ORG_INSTANCES": "scripted", "ORG_NETWORK_POLICIES": str(pol)}, tmp
+
+
+def test_cli_passes_the_network_policy_to_the_instance_request(net_org):
+    root, env, _ = net_org
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--network", "research.source-allowlist"], env)
+    assert code == 0, err
+
+
+def test_cli_network_policy_without_an_instance_tool_is_refused(net_org):
+    root, env, _ = net_org
+    env = {k: v for k, v in env.items() if k != "ORG_INSTANCES"}
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--network", "research.source-allowlist"], env)
+    assert code == 1 and "network-refused" in err and out == ""
+
+
+def test_cli_unknown_network_policy_is_refused(net_org):
+    root, env, _ = net_org
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--network", "no.such-policy"], env)
+    assert code == 1 and "network-refused" in err
+
+
+@pytest.mark.parametrize("value", ["allowlist", "Research.Policy", "a..b", ".a.b", "a.b.", "a b.c", "a.b/c"])
+def test_cli_refuses_a_network_value_that_is_not_a_dotted_name(net_org, value):
+    root, env, _ = net_org
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--network", value], env)
+    assert code == 2 and "bad-arguments" in err
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [["--input"], ["--network"], ["--input=x.json"], ["--network=research.source-allowlist"],
+     ["--input", "a.json", "--input", "b.json"], ["--network", "a.b", "--network", "c.d"]],
+)
+def test_cli_refuses_a_repeated_or_malformed_runtime_flag(net_org, extra):
+    root, env, _ = net_org
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", *extra], env)
+    assert code == 2 and "bad-arguments" in err
