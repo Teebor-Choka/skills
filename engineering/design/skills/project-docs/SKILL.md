@@ -7,7 +7,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # project-docs

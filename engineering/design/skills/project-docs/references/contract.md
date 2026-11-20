@@ -111,13 +111,13 @@ are **not** authored into `docs/`; link to them instead.
 
 ## Process doc
 
-A project can define its process as documents: `.agents/policy.md` and an organization of workflows.
+A project can define its process as documents: `.agents/policy.md` and the workflow files it runs.
 `docs/process.md` tells a reader of `docs/` which workflows the project runs, where their documents
 live, and who decides what.
 
 - `docs/process.md` is optional. The validator checks only that it conforms: valid frontmatter,
-  `kind: process`, and a diagram. It does not read `.agents/` or validate a workflow; the workflow
-  skill's validators do that.
+  `kind: process`, and a diagram. It does not read `.agents/` or validate a workflow; the workflow's
+  own tooling does that.
 
 ## Views
 

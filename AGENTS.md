@@ -20,6 +20,10 @@ A skill never names a skill from another repo. Cross-repo binding goes through `
   Validate: `python3 models/models/skills/extension-author/scripts/validate_skill.py <skill-dir>`.
 - Add a plugin: create the dir with `plugin.json`, add a `marketplace.json` entry, bump the top-level
   `metadata.version` (minor), and add a README row.
+- Remove a plugin: `git rm -r` its dir, delete its `marketplace.json` entry, add `"<name>": null`
+  under `renames` so installs clean up, bump the top-level `metadata.version` (major), delete its
+  README rows, and drop the `flake.nix` wiring and tests only it needed (grep first). History stays:
+  no force-push.
 - Edit a skill: bump the plugin's version in `plugin.json` and `marketplace.json` (patch fix, minor
   addition, major breaking).
 - Check: `python3 scripts/check-marketplace.py .` and `python3 scripts/validate-skills.py .`.

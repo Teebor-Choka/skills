@@ -14,11 +14,10 @@ name its tasks and link its file.
 
 <!-- Keep only the rows the project has. -->
 
-| Path                           | Role                                  |
-| ------------------------------ | ------------------------------------- |
-| `.agents/policy.md`            | settings every workflow obeys         |
-| `<organization root>/manifest` | the roles, workflows and floors       |
-| `<workflow file>`              | the tasks, acceptance items and gates |
+| Path                | Role                                  |
+| ------------------- | ------------------------------------- |
+| `.agents/policy.md` | settings every workflow obeys         |
+| `<workflow file>`   | the tasks, acceptance items and gates |
 
 ## Who decides
 

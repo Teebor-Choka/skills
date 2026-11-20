@@ -1,21 +1,21 @@
 ---
 name: deploy
 description: >
-  Deploy stage for the development procedure: take a released or integrated revision, deploy it to a
+  Deploy stage of a delivery pipeline: take a released or integrated revision, deploy it to a
   target, and prove it works from real logs or state, with the diff shown first where the repo
   defines one. A failed verification leaves the stage open with the evidence attached. Use when a
-  procedure has a deploy stage, when asked to "deploy this revision", "roll this out", "verify the
+  pipeline has a deploy stage, when asked to "deploy this revision", "roll this out", "verify the
   deploy", or when a design from architect names what to verify and observe and someone must run
   it. Not for cutting the release (the release stage), not for designing what to verify (architect),
   not for authoring CI workflows (github-actions).
 license: MIT
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # deploy
 
-Optional stage, separate from release. A repo inserts it into its procedure with `needs: [release]`
+Optional stage, separate from release. A repo inserts it into its pipeline with `needs: [release]`
 or `needs: [integrate]`. `architect` states what to verify and observe (criteria, technology). This
 stage owns the how: the orchestrator, the verification harness and the observability.
 

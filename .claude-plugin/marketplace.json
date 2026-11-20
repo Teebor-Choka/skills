@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills \u2014 practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "2.6.0"
+    "version": "3.0.0"
   },
   "plugins": [
     {
@@ -16,15 +16,6 @@
       "strict": true,
       "metadata": {
         "version": "2.3.0"
-      }
-    },
-    {
-      "name": "organization",
-      "description": "Run work, independent of the domain: workflow (organization workflows in the Open Workflow Specification with governance metadata, a validator, an interpreter and a run ledger) and status (a local live site of the organization, its runs and its build).",
-      "source": "./agents/operating-model",
-      "strict": true,
-      "metadata": {
-        "version": "2.1.1"
       }
     },
     {
@@ -47,11 +38,11 @@
     },
     {
       "name": "deploy",
-      "description": "Deploy stage for the development procedure: deploy a released or integrated revision and verify it from real logs or state. A failed verification leaves the stage open with the evidence.",
+      "description": "Deploy stage of a delivery pipeline: deploy a released or integrated revision and verify it from real logs or state. A failed verification leaves the stage open with the evidence.",
       "source": "./engineering/ci/deploy",
       "strict": true,
       "metadata": {
-        "version": "1.0.0"
+        "version": "1.0.1"
       }
     },
     {
@@ -78,7 +69,7 @@
       "source": "./engineering/design",
       "strict": true,
       "metadata": {
-        "version": "5.1.0"
+        "version": "5.1.1"
       }
     },
     {
@@ -114,7 +105,7 @@
       "source": "./engineering/swe",
       "strict": true,
       "metadata": {
-        "version": "2.5.0"
+        "version": "2.5.1"
       }
     },
     {
