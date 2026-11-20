@@ -19,6 +19,7 @@ Layout: `<domain>/<plugin>/skills/<skill>`. The host shows `plugin:skill`.
 | `swe`               | `rust`              | Rust house guidelines on every change                            |
 |                     | `typescript`        | TypeScript and JavaScript house guidelines on every change       |
 |                     | `component-docs`    | Write and update one docs page per component                     |
+|                     | `tracker`           | Live dependency map of a multi-unit build's progress             |
 | `orchestrate`       | `assign`, `pull`    | Multi-agent runs over a shared board; ships guard hooks          |
 | `organization`      | `workflow`          | Organization workflows (OWS): validate, run, check changes       |
 |                     | `policy`            | The `.agents/policy` format and loader                           |
