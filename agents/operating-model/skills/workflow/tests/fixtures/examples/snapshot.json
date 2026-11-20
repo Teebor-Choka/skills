@@ -787,6 +787,7 @@
             },
             {
               "green": {
+                "if": "${ $accepted[\"cycle/red-evidence\"] == true }",
                 "metadata": {
                   "org": {
                     "acceptance": [
@@ -837,6 +838,7 @@
             },
             {
               "refactor": {
+                "if": "${ $accepted[\"cycle/green-evidence\"] == true }",
                 "metadata": {
                   "org": {
                     "acceptance": [
