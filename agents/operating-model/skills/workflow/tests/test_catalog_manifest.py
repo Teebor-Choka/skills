@@ -520,10 +520,16 @@ def test_target_with_no_bound(root):
     assert has(errs, "manifest: targets.spec-rework: exactly one of at-least, at-most")
 
 
-@pytest.mark.parametrize("value", ["1", True, False, None, [1], float("inf"), float("nan"), float("-inf")])
+@pytest.mark.parametrize("value", ["1", True, False, None, [1]])
 def test_target_bound_must_be_a_finite_number(root, value):
     errs = check_manifest(root, lambda m: m["targets"].__setitem__("spec-rework", {"at-most": value}))
     assert has(errs, "manifest: targets.spec-rework.at-most: must be a finite number")
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("nan"), float("-inf")])
+def test_non_finite_target_bound_is_a_shape_error(root, value):
+    errs = check_manifest(root, lambda m: m["targets"].__setitem__("spec-rework", {"at-most": value}))
+    assert has(errs, "manifest: targets.spec-rework.at-most: non-finite number")
 
 
 @pytest.mark.parametrize("value", [0, 1, 1.5, -2, 0.0])
@@ -718,11 +724,11 @@ def _nest(depth, leaf):
 
 
 def test_list_16_is_valid_and_list_17_is_refused(root):
-    # top-level do is list 1; n1 holds list 2, ..., n14 holds list 15, n15 holds list 16.
-    ok = [{"n1": _nest(14, {"set": {"a": 1}})}]
+    # The top-level do is list 1. Each _nest level adds one list, so the leaf of _nest(15) is in list 16.
+    ok = [{"n1": _nest(15, {"set": {"a": 1}})}]
     set_improve(root, ok)
     assert not any("nesting" in e for e in check_manifest(root))
-    too_deep = [{"n1": _nest(15, {"set": {"a": 1}})}]
+    too_deep = [{"n1": _nest(16, {"set": {"a": 1}})}]
     set_improve(root, too_deep)
     assert any("nesting deeper than 16 task lists" in e for e in check_manifest(root))
 
