@@ -1729,3 +1729,11 @@ def test_the_same_stack_in_the_other_format_is_no_change(tmp_path):
     (root / "stack.json").unlink()
     (root / "stack.yaml").write_text(yaml.safe_dump(BASE_STACK))
     assert rt_with(tmp_path, root, store, proposer_rungs=("free",)).run("t", run_id=RID).status == "success"
+
+
+def test_a_change_that_leaves_two_stack_files_is_frozen(tmp_path):
+    root = stack_root(tmp_path, BASE_STACK)
+    store = stack_store(tmp_path, root)
+    (root / "stack.yaml").write_text("models: {}\n")
+    res = rt_with(tmp_path, root, store, proposer_rungs=("free", "ordinary", "protected")).run("t", run_id=RID)
+    assert res.errors[0] == "run refused: stack.yaml: change needs rung 'frozen' and has no owner signature"
