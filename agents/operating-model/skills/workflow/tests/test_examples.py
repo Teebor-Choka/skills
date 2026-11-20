@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -176,78 +177,415 @@ ITEM = {
     "performance": "100 requests per second, 5 ms budget.",
     "dependencies": "The store returns within 50 ms or the call counts as failed.",
     "out_of_scope": "Per-user quotas.",
+    "ai_gap": "A build could pass every test and count requests per process, not per user.",
 }
+RUN, KEY = "r1", "some/key"
 GREEN = {"suite": {"passed": 12, "failed": 0}, "tests_edited": []}
-ASSERT_RUNS = {"runs": [{"test": "t1", "outcome": "assertion"}, {"test": "t2", "outcome": "assertion"}]}
-BAD_RUNS = {"runs": [{"test": "t1", "outcome": "assertion"}, {"test": "t2", "outcome": "compile-error"}]}
+RUNS = {"runs": [{"test": "a", "outcome": "assertion"}, {"test": "b", "outcome": "assertion"}]}
 REPORT_OK = "\n".join(f"## {h}\ntext" for h in
                       ["Summary", "Acceptance", "Tests", "Defects", "Metrics", "Not verified"])
-CASES = {
-    "spec-check": ({"item": ITEM}, {"item": {**ITEM, "criteria": []}}),
-    "spec-coverage": (
-        {"item": ITEM, "tests": [{"id": "a", "criteria": ["C1"]}, {"id": "b", "criteria": ["C2"]}]},
-        {"item": ITEM, "tests": [{"id": "a", "criteria": ["C1"]}]},
-    ),
-    "every-acceptance-test-fails-on-an-assertion": (ASSERT_RUNS, BAD_RUNS),
-    "red-evidence": (ASSERT_RUNS, {"runs": []}),
-    "new-test-fails-on-an-assertion-not-a-compile-error": (ASSERT_RUNS, BAD_RUNS),
-    "green-evidence": (GREEN, {**GREEN, "suite": {"passed": 11, "failed": 1}}),
-    "suite-green-and-no-test-edited": (GREEN, {**GREEN, "tests_edited": ["tests/test_a.py"]}),
-    "suite-still-green-and-no-test-edited": (GREEN, {**GREEN, "tests_edited": ["tests/test_a.py"]}),
-    "write-sets-are-disjoint": (
-        {"units": [{"id": "u1", "write_set": ["a.py"]}, {"id": "u2", "write_set": ["b.py"]}]},
-        {"units": [{"id": "u1", "write_set": ["src/"]}, {"id": "u2", "write_set": ["src/b.py"]}]},
-    ),
-    "unit-verdict-is-pass": ({"verdict": "pass"}, {"verdict": "fail"}),
-    "acceptance-suite-green": (GREEN, {"suite": {"passed": 0, "failed": 0}, "tests_edited": []}),
-    "checks-green-and-gate-approved": (
-        {"ci": {"state": "success"}, "gate": {"decision": "approve"}},
-        {"ci": {"state": "success"}, "gate": {"decision": "reject"}},
-    ),
-    "report-has-every-required-section": (
-        {"report": REPORT_OK}, {"report": REPORT_OK.replace("## Metrics\ntext\n", "")}
-    ),
-    "every-proposal-is-within-its-rung": (
-        {"allowed_rungs": ["free"], "proposals": [{"id": "p1", "rung": "free"}]},
-        {"allowed_rungs": ["free"], "proposals": [{"id": "p1", "rung": "frozen"}]},
-    ),
+UNITS = {
+    "units": [
+        {"id": "u1", "goal": "g", "write_set": ["src/a.py"], "criteria": ["C1"], "depends_on": []},
+        {"id": "u2", "goal": "g", "write_set": ["src/b.py"], "criteria": ["C2"], "depends_on": ["u1"]},
+    ],
+    "item_criteria_ids": ["C1", "C2"],
+    "acceptance_test_paths": ["tests/test_acceptance.py"],
 }
+HEAD = {"head": "abc123", "ci": {"state": "success", "head": "abc123"},
+        "gate": {"decision": "approve", "signature_verified": True, "signer_role": "owner", "head": "abc123"}}
+CHANGE_DIRS = ("workflows", "briefs", "criteria", "schemas/org", "checks", "collectors", "bin")
+CHANGE_FILES = ("manifest.json", "metrics.json")
 
 
-def run_check(name, evidence, key="some/key"):
+def org_root_map():
+    out = {}
+    for d in CHANGE_DIRS:
+        for p in sorted((ROOT / d).rglob("*")) if (ROOT / d).is_dir() else []:
+            if p.is_file() and "__pycache__" not in p.parts:
+                out[p.relative_to(ROOT).as_posix()] = p.read_text()
+    for f in CHANGE_FILES:
+        if (ROOT / f).is_file():
+            out[f] = (ROOT / f).read_text()
+    return out
+
+
+def proposal(edit_path="briefs/sw/red.md"):
+    base = org_root_map()
+    new = dict(base)
+    new[edit_path] = base.get(edit_path, "") + "\nOne more rule.\n"
+    return {"id": "p1", "base": base, "new": new}
+
+
+GOOD = {
+    "spec-check": {"item": ITEM},
+    "spec-coverage": {"item": ITEM, "spec_criteria_ids": ["C1", "C2"],
+                      "tests": [{"id": "a", "criteria": ["C1"]}, {"id": "b", "criteria": ["C2"]}]},
+    "every-acceptance-test-fails-on-an-assertion": {**RUNS, "expected_tests": ["a", "b"]},
+    "red-evidence": RUNS,
+    "new-test-fails-on-an-assertion-not-a-compile-error": RUNS,
+    "green-evidence": GREEN,
+    "suite-green-and-no-test-edited": GREEN,
+    "suite-still-green-and-no-test-edited": GREEN,
+    "write-sets-are-disjoint": UNITS,
+    "unit-verdict-is-pass": {},  # passes on the call step's own exit 0; nothing else is read
+    "acceptance-suite-green": {**GREEN, "expected_count": 12},
+    "checks-green-and-gate-approved": HEAD,
+    "report-has-every-required-section": {"report": REPORT_OK},
+    "every-proposal-is-within-its-rung": {"proposals": []},  # filled in below, needs the repo files
+}
+if (ROOT / "checks").is_dir():
+    GOOD["every-proposal-is-within-its-rung"] = {"proposals": [proposal()]}
+
+
+def mut(ev, path, value=None, delete=False):
+    ev = copy.deepcopy(ev)
+    cur = ev
+    for p in path[:-1]:
+        cur = cur[p]
+    if delete:
+        del cur[path[-1]]
+    else:
+        cur[path[-1]] = value
+    return ev
+
+
+def unit_edit(i, field, value):
+    return lambda e: mut(e, ["units", i, field], value)
+
+
+BAD = {
+    "spec-check": [
+        ("empty criteria", lambda e: mut(e, ["item", "criteria"], [])),
+        ("bad id", lambda e: mut(e, ["item", "criteria"], [{"id": "x y", "text": "t"}])),
+        ("single criterion without id", lambda e: mut(e, ["item", "criteria"], [{"text": "t"}])),
+        ("empty id", lambda e: mut(e, ["item", "criteria", 0, "id"], "")),
+        ("n/a text", lambda e: mut(e, ["item", "criteria", 0, "text"], "n/a")),
+        ("text not a string", lambda e: mut(e, ["item", "criteria", 0, "text"], 5)),
+        ("duplicate id", lambda e: mut(e, ["item", "criteria", 1, "id"], "C1")),
+        ("blank ai_gap", lambda e: mut(e, ["item", "ai_gap"], "  ")),
+        ("blank category", lambda e: mut(e, ["item", "failure_definition"], "n/a")),
+    ],
+    "spec-coverage": [
+        ("uncovered criterion", lambda e: mut(e, ["tests"], [{"id": "a", "criteria": ["C1"]}])),
+        ("unknown criterion id", lambda e: mut(e, ["tests", 0, "criteria"], ["C1", "C9"])),
+        ("criteria as a string", lambda e: mut(e, ["tests", 0, "criteria"], "C1")),
+        ("item differs from the spec output", lambda e: mut(e, ["spec_criteria_ids"], ["C1", "C3"])),
+    ],
+    "every-acceptance-test-fails-on-an-assertion": [
+        ("a test fails by compile error", lambda e: mut(e, ["runs", 1, "outcome"], "compile-error")),
+        ("a test passes", lambda e: mut(e, ["runs", 1, "outcome"], "pass")),
+        ("expected test absent", lambda e: mut(e, ["expected_tests"], ["a", "b", "c"])),
+        ("no expected tests", lambda e: mut(e, ["expected_tests"], [])),
+    ],
+    "red-evidence": [
+        ("no runs", lambda e: mut(e, ["runs"], [])),
+        ("test passes", lambda e: mut(e, ["runs", 0, "outcome"], "pass")),
+        ("timeout", lambda e: mut(e, ["runs", 0, "outcome"], "timeout")),
+    ],
+    "new-test-fails-on-an-assertion-not-a-compile-error": [
+        ("import error", lambda e: mut(e, ["runs", 0, "outcome"], "import-error")),
+    ],
+    "green-evidence": [
+        ("a test fails", lambda e: mut(e, ["suite", "failed"], 1)),
+        ("empty suite", lambda e: mut(e, ["suite", "passed"], 0)),
+        ("bool count", lambda e: mut(e, ["suite", "passed"], True)),
+        ("float count", lambda e: mut(e, ["suite", "passed"], 12.0)),
+        ("negative count", lambda e: mut(e, ["suite", "failed"], -1)),
+        ("tests_edited missing", lambda e: mut(e, ["tests_edited"], delete=True)),
+        ("tests_edited not a list", lambda e: mut(e, ["tests_edited"], "none")),
+        ("a test edited", lambda e: mut(e, ["tests_edited"], ["tests/test_a.py"])),
+    ],
+    "suite-green-and-no-test-edited": [("a test edited", lambda e: mut(e, ["tests_edited"], ["t.py"]))],
+    "suite-still-green-and-no-test-edited": [("a test edited", lambda e: mut(e, ["tests_edited"], ["t.py"]))],
+    "acceptance-suite-green": [
+        ("suite shrank", lambda e: mut(e, ["suite", "passed"], 10)),
+        ("a test fails", lambda e: mut(e, ["suite", "failed"], 1)),
+        ("expected_count not an int", lambda e: mut(e, ["expected_count"], 12.0)),
+    ],
+    "write-sets-are-disjoint": [
+        ("identical files", unit_edit(1, "write_set", ["src/a.py"])),
+        ("dir and file", unit_edit(0, "write_set", ["src"])),
+        ("dir with slash and file", unit_edit(0, "write_set", ["src/"])),
+        ("dotted path", unit_edit(1, "write_set", ["src/../src/a.py"])),
+        ("parent segment", unit_edit(1, "write_set", ["../x.py"])),
+        ("absolute path", unit_edit(1, "write_set", ["/etc/x"])),
+        ("glob", unit_edit(1, "write_set", ["src/*.py"])),
+        ("empty path", unit_edit(1, "write_set", [""])),
+        ("empty write-set", unit_edit(1, "write_set", [])),
+        ("covers checks", unit_edit(1, "write_set", ["checks/spec-check.py"])),
+        ("covers criteria", unit_edit(1, "write_set", ["criteria/"])),
+        ("covers manifest", unit_edit(1, "write_set", ["manifest.json"])),
+        ("covers the acceptance tests", unit_edit(1, "write_set", ["tests/test_acceptance.py"])),
+        ("duplicate unit id", unit_edit(1, "id", "u1")),
+        ("no units", lambda e: mut(e, ["units"], [])),
+        ("unknown dependency", unit_edit(1, "depends_on", ["u9"])),
+        ("cyclic dependency", lambda e: mut(unit_edit(0, "depends_on", ["u2"])(e), ["units", 0, "depends_on"], ["u2"])),
+        ("unknown criterion", unit_edit(1, "criteria", ["C9"])),
+    ],
+    "checks-green-and-gate-approved": [
+        ("checks red", lambda e: mut(e, ["ci", "state"], "failure")),
+        ("gate rejected", lambda e: mut(e, ["gate", "decision"], "reject")),
+        ("signature not verified", lambda e: mut(e, ["gate", "signature_verified"], False)),
+        ("signer not owner", lambda e: mut(e, ["gate", "signer_role"], "lead")),
+        ("gate on another head", lambda e: mut(e, ["gate", "head"], "def456")),
+        ("ci on another head", lambda e: mut(e, ["ci", "head"], "def456")),
+    ],
+    "report-has-every-required-section": [
+        ("missing section", lambda e: mut(e, ["report"], REPORT_OK.replace("## Metrics\ntext\n", ""))),
+        ("empty section", lambda e: mut(e, ["report"], REPORT_OK.replace("## Metrics\ntext", "## Metrics\n"))),
+        ("heading only inside a fence", lambda e: mut(
+            e, ["report"], REPORT_OK.replace("## Metrics\ntext", "```\n## Metrics\ntext\n```"))),
+    ],
+    "every-proposal-is-within-its-rung": [
+        ("no proposals", lambda e: mut(e, ["proposals"], [])),
+        ("touches a floor", lambda e: mut(e, ["proposals"], [proposal("criteria/sw/spec.md")])),
+        ("changes nothing", lambda e: mut(e, ["proposals"], [{**proposal(), "new": proposal()["base"]}])),
+        ("cannot be classified", lambda e: mut(e, ["proposals", 0, "base"], "not a map")),
+        ("self-declared rung is ignored", lambda e: mut(
+            e, ["proposals"], [{**proposal("criteria/sw/spec.md"), "rung": "free"}])),
+    ],
+}
+needs_change = pytest.mark.skipif(not (SCRIPTS / "check_change.py").is_file(),
+                                  reason="scripts/check_change.py (U15) is not on this base")
+RUNG = "every-proposal-is-within-its-rung"
+
+
+TASK = {  # check name -> (full key of a task that names it, whether that task is itself a by: code step)
+    "spec-check": ("spec", False),
+    "spec-coverage": ("acceptance-tests", False),
+    "every-acceptance-test-fails-on-an-assertion": ("acceptance-red", True),
+    "red-evidence": ("cycle/red", False),
+    "new-test-fails-on-an-assertion-not-a-compile-error": ("cycle/red-evidence", True),
+    "green-evidence": ("cycle/green", False),
+    "suite-green-and-no-test-edited": ("cycle/green-evidence", True),
+    "suite-still-green-and-no-test-edited": ("cycle/refactor", False),
+    "write-sets-are-disjoint": ("cut", False),
+    "unit-verdict-is-pass": ("build/units/tdd#0", True),
+    "acceptance-suite-green": ("build/acceptance-run", True),
+    "checks-green-and-gate-approved": ("merge", True),
+    "report-has-every-required-section": ("report", True),
+    "every-proposal-is-within-its-rung": ("propose", False),
+}
+SOURCE_RULE = lambda key, is_self: key if is_self else key + "-evidence"  # noqa: E731
+
+
+def wrap(name, data, key=None, run=RUN, exit_code=0, stdout=None):
+    """The evidence file of spec 6.1: only code-step results, under their relative keys."""
+    task, is_self = TASK[name]
+    key = key or task
+    out = json.dumps(data) if stdout is None else stdout
+    return {"run": run, "key": key, "steps": {SOURCE_RULE(task, is_self): {"exit": exit_code, "stdout": out}}}
+
+
+def run_check(name, data, key=None, run=RUN, env=None, argv_key=None, checks_dir=None, raw=None):
+    task = TASK[name][0]
+    key = key or task
     with tempfile.TemporaryDirectory() as tmp:
         ev = Path(tmp) / "evidence.json"
-        ev.write_text(json.dumps(evidence))
-        env = {**os.environ, "ORG_EVIDENCE": str(ev)}
-        return subprocess.run([sys.executable, str(ROOT / "checks" / f"{name}.py"), key],
-                              capture_output=True, text=True, env=env)
+        ev.write_text(raw if raw is not None else json.dumps(wrap(name, data, key=key, run=run)))
+        e = {k: v for k, v in os.environ.items() if not k.startswith("ORG_")}
+        e.update({"ORG_EVIDENCE": str(ev), "ORG_KEY": task, "ORG_RUN": RUN, "ORG_ALLOWED_RUNGS": "free,ordinary"})
+        e.update(env or {})
+        e = {k: v for k, v in e.items() if v is not None}
+        script = Path(checks_dir or ROOT / "checks") / f"{name}.py"
+        return subprocess.run([sys.executable, str(script), argv_key or task],
+                              capture_output=True, text=True, env=e)
 
 
-@pytest.mark.parametrize("name", sorted(CASES))
+def needs(name):
+    return needs_change if name == RUNG else (lambda f: f)
+
+
+@pytest.mark.parametrize("name", sorted(GOOD))
 def test_check_passes_on_good_evidence(name):
-    good, _ = CASES[name]
-    cp = run_check(name, good)
+    if name == RUNG and not (SCRIPTS / "check_change.py").is_file():
+        pytest.skip("scripts/check_change.py (U15) is not on this base")
+    cp = run_check(name, GOOD[name])
     assert cp.returncode == 0, cp.stderr
 
 
-@pytest.mark.parametrize("name", sorted(CASES))
-def test_check_fails_on_bad_evidence_and_says_why(name):
-    _, bad = CASES[name]
-    cp = run_check(name, bad)
-    assert cp.returncode == 1, cp.stdout + cp.stderr
+CASE_IDS = [(n, i) for n in sorted(BAD) for i in range(len(BAD[n]))]
+
+
+@pytest.mark.parametrize("name,i", CASE_IDS, ids=[f"{n}:{BAD[n][i][0]}" for n, i in CASE_IDS])
+def test_check_fails_on_each_bad_case_and_says_why(name, i):
+    if name == RUNG and not (SCRIPTS / "check_change.py").is_file():
+        pytest.skip("scripts/check_change.py (U15) is not on this base")
+    label, fn = BAD[name][i]
+    cp = run_check(name, {k: v for k, v in fn(copy.deepcopy(GOOD[name])).items()})
+    assert cp.returncode == 1, f"{label}: {cp.stdout}{cp.stderr}"
     assert cp.stderr.strip()
 
 
-@pytest.mark.parametrize("name", sorted(CASES))
-def test_check_fails_when_evidence_is_missing(name):
-    cp = subprocess.run([sys.executable, str(ROOT / "checks" / f"{name}.py"), "k"], capture_output=True,
-                        text=True, env={k: v for k, v in os.environ.items() if k != "ORG_EVIDENCE"})
-    assert cp.returncode != 0
+EMPTY_OK = {"tests_edited"}
+GENERIC = [n for n in sorted(GOOD) if n != RUNG]
+
+
+@pytest.mark.parametrize("name", GENERIC)
+def test_every_field_is_required_typed_and_non_empty(name):
+    good = GOOD[name]
+    for field, value in good.items():
+        wrong = 42 if isinstance(value, list) else ["x"]
+        for label, ev in (("missing", mut(good, [field], delete=True)), ("wrong type", mut(good, [field], wrong))):
+            cp = run_check(name, ev)
+            assert cp.returncode == 1, f"{name}.{field} {label}: exit {cp.returncode}"
+        if isinstance(value, (list, str, dict)) and field not in EMPTY_OK:
+            cp = run_check(name, mut(good, [field], type(value)()))
+            assert cp.returncode == 1, f"{name}.{field} empty: exit {cp.returncode}"
+
+
+def test_rung_check_needs_every_field():
+    if not (SCRIPTS / "check_change.py").is_file():
+        pytest.skip("scripts/check_change.py (U15) is not on this base")
+    for ev in ({}, {"proposals": "x"}, {"proposals": [{"id": "p1"}]}):
+        assert run_check(RUNG, ev).returncode == 1
+
+
+# ---- the evidence contract (spec 6.1, _lib): key and run binding, exit codes
+
+
+@pytest.mark.parametrize("name", sorted(GOOD))
+def test_evidence_for_another_task_exits_two(name):
+    cp = run_check(name, GOOD[name], key="other/key")
+    assert cp.returncode == 2 and "key" in cp.stderr
+
+
+@pytest.mark.parametrize("name", sorted(GOOD))
+def test_stale_evidence_from_another_run_exits_two(name):
+    cp = run_check(name, GOOD[name], run="r0")
+    assert cp.returncode == 2 and "run" in cp.stderr
+
+
+@pytest.mark.parametrize("name", sorted(GOOD))
+def test_evidence_without_key_run_or_the_source_step_exits_two(name):
+    for drop in ("key", "run", "steps"):
+        ev = wrap(name, GOOD[name])
+        del ev[drop]
+        assert run_check(name, None, raw=json.dumps(ev)).returncode == 2, drop
+    ev = wrap(name, GOOD[name])
+    ev["steps"] = {"unrelated": {"exit": 0, "stdout": "{}"}}
+    assert run_check(name, None, raw=json.dumps(ev)).returncode == 2
+
+
+@pytest.mark.parametrize("name", sorted(GOOD))
+def test_a_failed_evidence_step_fails_the_check(name):
+    cp = run_check(name, None, raw=json.dumps(wrap(name, GOOD[name], exit_code=1)))
+    assert cp.returncode == 1 and "exit" in cp.stderr
+
+
+@pytest.mark.parametrize("name", [n for n in sorted(GOOD) if n != "unit-verdict-is-pass"])
+def test_unparseable_evidence_stdout_exits_two(name):
+    assert run_check(name, None, raw=json.dumps(wrap(name, None, stdout="not json"))).returncode == 2
+    assert run_check(name, None, raw=json.dumps(wrap(name, None, stdout="[1]"))).returncode == 2
+
+
+@pytest.mark.parametrize("name", sorted(GOOD))
+def test_a_model_step_result_is_not_evidence(name):
+    # a by: model task's own step key must not be read as its evidence; only <task>-evidence is
+    task, is_self = TASK[name]
+    if is_self:
+        pytest.skip("a code step is its own evidence")
+    ev = wrap(name, GOOD[name])
+    ev["steps"] = {task: ev["steps"].popitem()[1]}
+    assert run_check(name, None, raw=json.dumps(ev)).returncode == 2
+
+
+def test_lib_exit_two_on_missing_or_unreadable_evidence(tmp_path):
+    script = ROOT / "checks" / "unit-verdict-is-pass.py"
+    task = "build/units/tdd#0"
+    base = {k: v for k, v in os.environ.items() if not k.startswith("ORG_")}
+
+    def go(env, argv=(task,)):
+        return subprocess.run([sys.executable, str(script), *argv], capture_output=True, text=True,
+                              env={**base, **env}).returncode
+
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    arr = tmp_path / "arr.json"
+    arr.write_text("[]")
+    ok = {"ORG_RUN": RUN, "ORG_KEY": task}
+    assert go({}) == 2
+    assert go({**ok, "ORG_EVIDENCE": str(tmp_path / "none.json")}) == 2
+    assert go({**ok, "ORG_EVIDENCE": str(bad)}) == 2
+    assert go({**ok, "ORG_EVIDENCE": str(arr)}) == 2
+    assert go({"ORG_KEY": task, "ORG_EVIDENCE": str(arr)}) == 2  # ORG_RUN missing
+    assert go({"ORG_RUN": RUN, "ORG_EVIDENCE": str(arr)}) == 2  # ORG_KEY missing
+    assert go({**ok, "ORG_EVIDENCE": str(arr)}, argv=()) == 2  # no key argument
+    assert go({**ok, "ORG_EVIDENCE": str(arr)}, argv=("other",)) == 2  # argv differs from ORG_KEY
+
+
+def test_lib_has_no_unused_test_outcomes():
+    assert "TEST_OUTCOMES" not in (ROOT / "checks" / "_lib.py").read_text()
+
+
+@needs_change
+def test_rung_check_takes_allowed_rungs_from_the_runtime_only():
+    ev = GOOD[RUNG]
+    assert run_check(RUNG, ev, env={"ORG_ALLOWED_RUNGS": None}).returncode == 1
+    assert run_check(RUNG, ev, env={"ORG_ALLOWED_RUNGS": ""}).returncode == 1
+    assert run_check(RUNG, {**ev, "allowed_rungs": ["free", "frozen"]},
+                     env={"ORG_ALLOWED_RUNGS": None}).returncode == 1
+    floor = {"proposals": [proposal("criteria/sw/spec.md")]}
+    assert run_check(RUNG, floor, env={"ORG_ALLOWED_RUNGS": "free,ordinary"}).returncode == 1
+    assert run_check(RUNG, floor, env={"ORG_ALLOWED_RUNGS": "free,ordinary,frozen"}).returncode == 0
+    # brief content is ordinary (O1), so the free rung alone refuses it
+    assert run_check(RUNG, ev, env={"ORG_ALLOWED_RUNGS": "free"}).returncode == 1
+    assert run_check(RUNG, ev, env={"ORG_ALLOWED_RUNGS": "free,ordinary"}).returncode == 0
+
+
+def test_rung_check_fails_closed_without_check_change(tmp_path):
+    shutil.copytree(ROOT / "checks", tmp_path / "checks")  # no ../scripts beside the copy
+    cp = run_check(RUNG, {"proposals": [{"id": "p", "base": {}, "new": {"a": "b"}}]},
+                   checks_dir=tmp_path / "checks")
+    assert cp.returncode == 1 and "check_change" in cp.stderr
+
+
+@pytest.mark.parametrize("name", sorted(GOOD))
+def test_every_pass_fixture_matches_the_documented_shape(name):
+    readme = (ROOT / "checks" / "README.md").read_text()
+    row = re.search(rf"(?m)^\| `{re.escape(name)}` \|.*$", readme)
+    assert row, f"{name} is not in the shape table of checks/README.md"
+    documented = set(re.findall(r"`([a-z_]+)`", row.group(0).split("|")[-2]))
+    assert documented == set(GOOD[name])
+
+
+def test_readme_states_the_contract():
+    text = (ROOT / "checks" / "README.md").read_text()
+    for needle in ("ORG_EVIDENCE", "ORG_KEY", "ORG_RUN", "ORG_ALLOWED_RUNGS", "frozen", "never from agent output",
+                   "trust boundary", "Summary", "Not verified", "defaults taken by the orchestrator"):
+        assert needle in text, needle
 
 
 @needs_yaml
-def test_every_named_check_has_a_fixture_pair():
-    assert sorted(refs()["check"]) == sorted(CASES)
+def test_missing_check_script_for_a_named_check_fails():
+    assert sorted(refs()["check"]) == sorted(GOOD)
+
+
+# ---------------------------------------------------------------- bin and collectors are loud stubs
+
+
+@needs_yaml
+def test_non_agent_commands_are_files_in_bin_and_exit_three():
+    cmds = set()
+    for name in WORKFLOWS:
+        for _, body in all_leaves(name):
+            shell = (body.get("run") or {}).get("shell")
+            if shell and shell["command"] != "agent-run":
+                cmds.add(shell["command"])
+    assert cmds == {"tdd-evidence", "merge-change"}
+    for c in cmds:
+        f = ROOT / "bin" / c
+        assert f.is_file() and os.access(f, os.X_OK), c
+        cp = subprocess.run([str(f)], capture_output=True, text=True)
+        assert cp.returncode == 3 and "not implemented (U14)" in cp.stderr
+
+
+@pytest.mark.parametrize("metric", APPENDIX_A)
+def test_collector_stub_exits_three_with_the_stub_message(metric):
+    path = ROOT / "collectors" / (metric.replace("-", "_") + ".py")
+    cp = subprocess.run([sys.executable, str(path)], capture_output=True, text=True)
+    assert cp.returncode == 3 and "collector not implemented (U13b)" in cp.stderr
 
 
 # ---------------------------------------------------------------- 4. rubrics state numbered rules and a fail report
@@ -334,3 +672,88 @@ def test_yaml_without_pyyaml_exits_two_with_the_hint(tmp_path):
     cp = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert cp.returncode == 2
     assert "PyYAML" in cp.stderr
+
+
+# ---------------------------------------------------------------- review 1: rubrics, briefs, catalog, snapshot
+
+
+def rubric_text(name):
+    return (ROOT / "criteria" / "sw" / f"{name}.md").read_text()
+
+
+def test_review_floor_rubric_requires_an_approving_verdict():
+    text = rubric_text("review")
+    assert re.search(r"(?m)^\d+\. The reviewer's verdict is approve and no upheld defect is open", text)
+    assert "reject verdict fails the item" in text.split("## On a fail")[1]
+
+
+def test_unit_review_rubric_requires_a_passing_verdict():
+    text = rubric_text("unit-review")
+    assert re.search(r"(?m)^\d+\. The reviewer's verdict is pass and no upheld defect is open", text)
+    assert "fail verdict fails the item" in text.split("## On a fail")[1]
+
+
+@needs_yaml
+def test_every_rubric_rule_names_its_evidence_and_a_missing_input_fails():
+    for rel in sorted(refs()["rubric"]):
+        text = (ROOT / rel).read_text()
+        rules = re.findall(r"(?m)^\d+\. (.+)$", text)
+        assert all("Judged against:" in r for r in rules), f"{rel}: a rule names no evidence"
+        assert "unreadable or missing input is a fail" in text.split("## On a fail")[1], rel
+
+
+def test_acceptance_tests_rubric_splits_rule_four_and_scopes_edge_cases():
+    text = rubric_text("acceptance-tests")
+    assert "where meaningful" in text
+    assert len(re.findall(r"(?m)^\d+\. ", text)) >= 5
+
+
+def test_spec_item_has_an_ai_gap_field():
+    schema = json.loads((ROOT / "schemas" / "org" / "item.json").read_text())
+    assert "ai_gap" in schema["required"] and schema["properties"]["ai_gap"]["minLength"] == 1
+    assert "ai_gap" in (ROOT / "briefs" / "sw" / "spec.md").read_text()
+
+
+@pytest.mark.parametrize("brief", ["red", "acceptance-tests", "cut"])
+def test_briefs_state_the_write_set(brief):
+    assert "write-set" in (ROOT / "briefs" / "sw" / f"{brief}.md").read_text().lower()
+
+
+def test_cut_brief_says_units_are_built_one_after_another():
+    text = (ROOT / "briefs" / "sw" / "cut.md").read_text()
+    assert "one after another" in text and "not in parallel" in text
+
+
+def test_improve_brief_follows_the_rung_table_and_never_asks_for_a_rung():
+    text = (ROOT / "briefs" / "sw" / "improve.md").read_text()
+    assert "state the rung" not in text.lower() and "rung each" not in text.lower()
+    for needle in ("ordinary", "frozen", "protected", "never a floor"):
+        assert needle in text, needle
+
+
+@needs_yaml
+def test_improve_step_has_an_inline_timeout():
+    (name, body), = workflow("improve")["do"][0].items()
+    assert body["timeout"]["after"]
+
+
+@needs_yaml
+def test_catalog_definitions_match_their_units():
+    m = load("metrics.json")
+    assert "per change" in m["defects-escaped"]["unit"] and "30 days" in m["defects-escaped"]["formula"]
+    assert "outcome 'pass'" in m["red-for-wrong-reason"]["formula"] or "passed" in m["red-for-wrong-reason"]["formula"]
+    assert "zero" in m["proposals-accepted"]["formula"] and "free" in m["proposals-accepted"]["formula"]
+    assert "never green" in m["acceptance-rounds"]["formula"]
+    assert "upheld" in m["defects-found-in-review"]["formula"] and "per change" in m["defects-found-in-review"]["unit"]
+    assert "paths" in m["write-set-collisions"]["formula"]
+    for section in ("Summary", "Acceptance", "Tests", "Defects", "Metrics", "Not verified"):
+        assert section in m["report-complete"]["formula"]
+    for name in ("review-rounds", "green-rounds", "escalations"):
+        assert len(m[name]["formula"].split()) > 12, name
+
+
+@needs_yaml
+@pytest.mark.parametrize("name", ["sw-development", "tdd-unit"])
+def test_shipped_workflow_equals_the_normalised_example_snapshot(name):
+    snap = json.loads((HERE / "fixtures" / "examples" / "snapshot.json").read_text())
+    assert workflow(name) == snap[name]
