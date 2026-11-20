@@ -1012,7 +1012,7 @@ U3_CASES = [
     ("signer-makes-decision-gate", SW,
      lambda d: d["do"].append({"g": {"listen": {"to": {"any": [{"with": {"type": "org.x"}}]}}, "timeout": {"after": {"hours": 1}},
                                      "metadata": {"org": {"by": "code", "role": "lead", "signer": "lead",
-                                                          "metrics": ["escalations"], "acceptance": [{"check": "c"}]}}}}),
+                                                          "metrics": ["escalations"], "acceptance": [{"check": "workers-done"}]}}}}),
      "g: listen.to: a decision gate listens with to.one only", MAN),
 ]
 
@@ -1020,3 +1020,50 @@ U3_CASES = [
 @pytest.mark.parametrize("case", U3_CASES, ids=[c[0] for c in U3_CASES])
 def test_update_3_cases(case):
     check_cases([case])
+
+
+# update 6: check classes (P25), cases W117 to W119
+def w117(d):
+    org(d, "red")["acceptance"].append({"check": "red-evidence"})
+
+
+U6_CASES = [
+    ("W117", TDD, w117,
+     "cycle/red: metadata.org.acceptance[1].check: fact check 'red-evidence' may sit only on a by: code task; "
+     "put it on the code step that produces the fact", MAN),
+    ("W117-gate", SW, lambda d: org(d, "merge-gate")["acceptance"].append({"check": "acceptance-suite-green"}),
+     "merge-gate: metadata.org.acceptance[1].check: fact check 'acceptance-suite-green' may sit only on a by: code task; "
+     "put it on the code step that produces the fact", MAN),
+    ("W117-code-ok", TDD, lambda d: org(d, "green-evidence")["acceptance"].append({"check": "red-evidence"}), None, MAN),
+    ("W118", SW, lambda d: org(d, "spec")["acceptance"].append({"check": "write-sets-are-disjoint"}), None, MAN),
+    ("W119", SW, lambda d: org(d, "merge")["acceptance"].append({"check": "no-such-check"}),
+     "merge: metadata.org.acceptance[1].check: unknown check 'no-such-check' (not in manifest.checks)", MAN),
+    ("W119-no-checks-map", SW, lambda d: None,
+     "spec: metadata.org.acceptance[0].check: unknown check 'spec-check' (not in manifest.checks)",
+     manifest_with(lambda m: m.pop("checks", None))),
+    ("W119-checks-not-a-map", SW, lambda d: None,
+     "spec: metadata.org.acceptance[0].check: unknown check 'spec-check' (not in manifest.checks)",
+     manifest_with(lambda m: m.__setitem__("checks", ["spec-check"]))),
+]
+
+
+@pytest.mark.parametrize("case", U6_CASES, ids=[c[0] for c in U6_CASES])
+def test_update_6_cases(case):
+    check_cases([case])
+
+
+def test_manifest_fixture_has_checks_for_every_example_check():
+    names = set()
+
+    def walk(x):
+        if isinstance(x, dict):
+            if isinstance(x.get("check"), str):
+                names.add(x["check"])
+            for y in x.values():
+                walk(y)
+        elif isinstance(x, list):
+            for y in x:
+                walk(y)
+    walk(SW)
+    walk(TDD)
+    assert names <= set(MAN["checks"]) and set(MAN["checks"].values()) <= {"fact", "shape"}
