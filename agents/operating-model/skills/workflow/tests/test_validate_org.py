@@ -1106,3 +1106,24 @@ def test_alarm_fails_a_block_that_hangs():
         with alarm(1):
             time.sleep(5)
     assert signal.alarm(0) == 0
+
+
+# update 9: --tools and --workdir are runtime-owned (P51), W122 and W123
+_STACK = "run.shell.arguments: {} is set by the runtime from the stack document; remove it"
+P51_CASES = [
+    ("W122", SW, lambda d: shell(d, "align").__setitem__("arguments", ["--tools", "Bash"]), "align: " + _STACK.format("--tools"), MAN),
+    ("W122-eq", SW, lambda d: shell(d, "align").__setitem__("arguments", ["--tools=Bash"]), "align: " + _STACK.format("--tools"), MAN),
+    ("W123", SW, lambda d: shell(d, "align").__setitem__("arguments", ["--workdir=/tmp"]), "align: " + _STACK.format("--workdir"), MAN),
+    ("W123-bare", SW, lambda d: shell(d, "align").__setitem__("arguments", ["--workdir", "/tmp"]), "align: " + _STACK.format("--workdir"), MAN),
+]
+
+
+@pytest.mark.parametrize("case", P51_CASES, ids=[c[0] for c in P51_CASES])
+def test_p51_runtime_flags_are_refused(case):
+    check_cases([case])
+
+
+def test_p51_value_after_bare_flag_gets_no_error_of_its_own():
+    d = copy.deepcopy(SW)
+    shell(d, "align")["arguments"] = ["--tools", "Bash"]
+    assert [e for e in vo.validate_org(d, CAT, MAN) if e.startswith("align:")] == ["align: " + _STACK.format("--tools")]
