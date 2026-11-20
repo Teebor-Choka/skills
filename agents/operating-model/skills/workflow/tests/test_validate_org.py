@@ -384,8 +384,6 @@ def test_error_inside_each_nested_task_list_is_found(where):
     d["do"].append(copy.deepcopy(task))
     errs = vo.validate_org(d, CAT, MAN)
     assert f"{path}: metadata.org.by: required for kind step" in errs, errs
-    d2 = copy.deepcopy(TDD)
-    assert vo.validate_org(d2, CAT, MAN) == []
 
 
 # ---------------------------------------------------------------- never raises on any JSON value
@@ -414,10 +412,25 @@ def test_non_map_workflow_gives_only_the_root_error():
     assert vo.validate_org([], CAT, MAN) == ["(root): workflow must be a map"]
 
 
+def _reverse_keys(v):
+    if isinstance(v, dict):
+        return {k: _reverse_keys(x) for k, x in reversed(list(v.items()))}
+    if isinstance(v, list):
+        return [_reverse_keys(x) for x in v]
+    return v
+
+
 def test_deterministic():
     d = copy.deepcopy(SW)
     org(d, "align")["by"] = "robot"
-    assert vo.validate_org(copy.deepcopy(d), CAT, MAN) == vo.validate_org(copy.deepcopy(d), CAT, MAN)
+    org(d, "spec")["metrics"] = ["nope"]
+    find(d, "merge")["then"] = "align"
+    org(d, "report")["acceptance"] = []
+    first = vo.validate_org(copy.deepcopy(d), CAT, MAN)
+    assert len(first) >= 4
+    assert vo.validate_org(copy.deepcopy(d), CAT, MAN) == first
+    # key order is not part of the contract, but the set of errors is
+    assert sorted(vo.validate_org(_reverse_keys(d), CAT, MAN)) == sorted(first)
 
 
 def test_does_not_mutate_inputs():
@@ -596,16 +609,17 @@ def test_cli_validates_a_yaml_workflow_end_to_end(tmp_path):
 
 def test_script_imports_only_the_standard_library():
     with open(SCRIPT, encoding="utf-8") as f:
-        text = f.read()
-    mods = set()
-    for line in text.splitlines():
+        lines = f.read().splitlines()
+    top, nested = set(), set()
+    for line in lines:
         s = line.strip()
+        target = top if line == s else nested
         if s.startswith("import "):
-            mods |= {m.strip().split(" ")[0].split(".")[0] for m in s[7:].split(",")}
+            target |= {m.strip().split(" ")[0].split(".")[0] for m in s[7:].split(",")}
         elif s.startswith("from "):
-            mods.add(s.split()[1].split(".")[0])
-    allowed = set(sys.stdlib_module_names) | {"yaml"}
-    assert mods <= allowed, mods - allowed
+            target.add(s.split()[1].split(".")[0])
+    assert top <= set(sys.stdlib_module_names), top - set(sys.stdlib_module_names)
+    assert nested <= set(sys.stdlib_module_names) | {"yaml"}, nested
 
 
 def test_no_local_paths_in_this_unit():
@@ -617,3 +631,271 @@ def test_no_local_paths_in_this_unit():
                 with open(os.path.join(dp, fn), encoding="utf-8") as fh:
                     text = fh.read()
                 assert not any(n in text for n in needles), os.path.join(dp, fn)
+
+
+# ================================================================ review 1 additions
+
+import time  # noqa: E402
+
+
+def check_cases(cases):
+    for cid, base, mut, prefix, man in cases:
+        d = copy.deepcopy(base)
+        mut(d)
+        errs = vo.validate_org(d, CAT, man)
+        if prefix is None:
+            assert errs == [], cid
+        else:
+            assert any(e.startswith(prefix) for e in errs), (cid, prefix, errs)
+
+
+def with_alarm(seconds):
+    import signal
+
+    def handler(*_):
+        raise AssertionError(f"did not finish in {seconds}s")
+    signal.signal(signal.SIGALRM, handler)
+    signal.alarm(seconds)
+
+
+def rename_task(d, old, new):
+    i = index_of(d, old)
+    d["do"][i] = {new: d["do"][i][old]}
+
+
+# B1: `$` in a pattern accepts a trailing newline, so every pattern must match the whole string
+B1_CASES = [
+    ("B1-sh", SW, lambda d: shell(d, "merge").__setitem__("command", "sh\n"),
+     "merge: run.shell.command: must be a bare command name with no path, space or arguments", MAN),
+    ("B1-agent-run", SW, lambda d: shell(d, "align").__setitem__("command", "agent-run\n"),
+     "align: run.shell.command: must be a bare command name with no path, space or arguments", MAN),
+    ("B1-task-name", SW, lambda d: d["do"].append({"a\n": {"set": {"x": 1}}}), "a\n: task name must be kebab-case", MAN),
+    ("B1-check", SW, lambda d: org(d, "spec")["acceptance"][0].__setitem__("check", "spec-ok\n"),
+     "spec: metadata.org.acceptance[0].check: must be a kebab-case check name", MAN),
+    ("B1-policy", SW, lambda d: d["document"]["metadata"]["org"].__setitem__("policy", ["vcs.remote\n"]),
+     "document.metadata.org.policy: must be a list of dotted names like vcs.remote", MAN),
+    ("B1-brief", SW, lambda d: org(d, "align").__setitem__("brief", "briefs/align.md\n"),
+     "align: metadata.org.brief: must be a relative path under briefs/ ending .md", MAN),
+    ("B1-rubric", SW, lambda d: org(d, "spec")["acceptance"][1].__setitem__("rubric", "criteria/spec.md\n"),
+     "spec: metadata.org.acceptance[1].rubric: must be a relative path under criteria/ ending .md", MAN),
+    ("B1-namespace", SW, lambda d: d["document"].__setitem__("namespace", "org\n"),
+     "document.namespace: 'org\\n' differs from manifest namespace", MAN),
+]
+
+
+@pytest.mark.parametrize("case", B1_CASES, ids=[c[0] for c in B1_CASES])
+def test_trailing_newline_is_not_accepted_by_any_pattern(case):
+    check_cases([case])
+
+
+# B2: numbers that overflow float conversion must not raise
+BIG = 10 ** 400
+B2_DOCS = [
+    {"do": [{"a": {"set": 1, "metadata": {"org": {"acceptance": [{"rubric": "criteria/x.md", "judge": "owner",
+                                                                   "sample": BIG}]}}}}]},
+    {"do": [{"a": {"set": 1, "metadata": {"org": {"by": 10 ** 5000, "role": 10 ** 5000, "floor": 10 ** 5000}}}}]},
+    {"document": {"name": 10 ** 5000, "namespace": 10 ** 5000}, "do": []},
+    {"do": [{"a": {"wait": BIG}}, {"b": {"wait": {"days": BIG}}}]},
+    {"do": [{"a": {"try": [], "catch": {"retry": {"limit": {"attempt": {"count": BIG}}}}}}]},
+]
+
+
+@pytest.mark.parametrize("doc", B2_DOCS, ids=range(len(B2_DOCS)))
+def test_huge_integers_do_not_raise(doc):
+    errs = vo.validate_org(copy.deepcopy(doc), CAT, MAN)
+    assert all(isinstance(e, str) for e in errs)
+
+
+def test_huge_sample_is_an_error():
+    d = copy.deepcopy(SW)
+    org(d, "review")["acceptance"][0]["sample"] = BIG
+    assert any(e.startswith("review: metadata.org.acceptance[0].sample: must be a number in (0, 1]")
+               for e in vo.validate_org(d, CAT, MAN))
+
+
+# B3: schema endpoints at root level and on `export`
+B3_CASES = [
+    ("B3-root-input", SW, lambda d: d.__setitem__("input", {"schema": {"resource": {"endpoint": "https://evil/x.json"}}}),
+     "input.schema.resource.endpoint: must be a relative path under schemas/ ending .json", MAN),
+    ("B3-root-output", SW, lambda d: d.__setitem__("output", {"schema": {"resource": {"endpoint": "../x.json"}}}),
+     "output.schema.resource.endpoint: must be a relative path under schemas/ ending .json", MAN),
+    ("B3-task-export", SW, lambda d: find(d, "spec").__setitem__("export", {"schema": {"resource": {"endpoint": "/etc/x.json"}}}),
+     "spec: export.schema.resource.endpoint: must be a relative path under schemas/ ending .json", MAN),
+    ("B3-task-input", SW, lambda d: find(d, "spec").__setitem__("input", {"schema": {"resource": {"endpoint": "x.json"}}}),
+     "spec: input.schema.resource.endpoint: must be a relative path under schemas/ ending .json", MAN),
+    ("B3-no-endpoint", SW, lambda d: d.__setitem__("input", {"schema": {"resource": {}}}),
+     "input.schema.resource.endpoint: must be a relative path under schemas/ ending .json", MAN),
+    ("B3-ok-root", SW, lambda d: d.__setitem__("input", {"schema": {"resource": {"endpoint": "schemas/in.json"}}}), None, MAN),
+    ("B3-ok-export", SW, lambda d: find(d, "spec").__setitem__("export", {"schema": {"resource": {"endpoint": "schemas/e.json"}}}), None, MAN),
+    ("B3-inline-schema-ok", SW, lambda d: d.__setitem__("input", {"schema": {"format": "json", "document": {"type": "object"}}}), None, MAN),
+]
+
+
+@pytest.mark.parametrize("case", B3_CASES, ids=[c[0] for c in B3_CASES])
+def test_schema_endpoints_are_checked_everywhere(case):
+    check_cases([case])
+
+
+# S1: only the integer-conversion error is the 4300-digit message
+def _cli_load_error(tmp_path, name, data):
+    f = tmp_path / name
+    if isinstance(data, bytes):
+        f.write_bytes(data)
+    else:
+        f.write_text(data)
+    p = run_cli("--catalog", fx("catalog.json"), "--manifest", fx("manifest.json"), str(f))
+    return f, p
+
+
+def test_json_syntax_error_at_char_4300_is_a_parse_error(tmp_path):
+    f, p = _cli_load_error(tmp_path, "w.json", '{"a": 1,' + " " * (4300 - 8) + "x")
+    assert p.returncode == 1
+    assert p.stderr.startswith(f"ERROR: {f}: parse error: ")
+    assert "4300 digits" not in p.stderr
+
+
+def test_bad_utf8_byte_at_offset_4300_is_a_parse_error(tmp_path):
+    f, p = _cli_load_error(tmp_path, "w.json", b'{"a": "' + b"x" * (4300 - 7) + b'\xff"}')
+    assert p.returncode == 1
+    assert p.stderr.startswith(f"ERROR: {f}: parse error: ")
+    assert "4300 digits" not in p.stderr
+
+
+def test_directory_as_workflow_file_is_a_load_error(tmp_path):
+    d = tmp_path / "d.json"
+    d.mkdir()
+    p = run_cli("--catalog", fx("catalog.json"), "--manifest", fx("manifest.json"), str(d))
+    assert p.returncode == 1
+    assert p.stderr.startswith(f"ERROR: {d}: ") and "Traceback" not in p.stderr
+
+
+# S2: cyclic and exponentially shared values
+def test_cyclic_document_returns_an_error():
+    with_alarm(20)
+    a = {}
+    a["x"] = a
+    a["y"] = a
+    errs = vo.validate_org(a, CAT, MAN)
+    assert any("refers to itself" in e for e in errs), errs
+
+
+def test_exponentially_shared_document_is_capped():
+    with_alarm(20)
+    node = []
+    for _ in range(60):
+        node = [node, node]
+    errs = vo.validate_org({"do": [{"a": {"set": node}}]}, CAT, MAN)
+    assert any(e.startswith("(root): document has more than 1000000 values") for e in errs), errs
+
+
+# S3: task cap and linear scans
+def test_task_count_is_capped_with_a_located_error():
+    with_alarm(60)
+    d = copy.deepcopy(TDD)
+    d["do"] = [{f"t{i}": {"set": {"a": 1}}} for i in range(10001)]
+    errs = vo.validate_org(d, CAT, MAN)
+    assert "t10000: more than 10000 tasks in the workflow" in errs
+
+
+def test_wide_workflow_validates_quickly():
+    with_alarm(60)
+    d = copy.deepcopy(SW)
+    tasks = []
+    for i in range(9000):
+        t = {"set": {"a": 1}, "then": f"t{i + 1}"}
+        if i % 30 == 0:
+            t = {"emit": {"event": {"with": {"type": f"org.x-{i}"}}},
+                 "metadata": {"org": {"floor": True}}}
+        tasks.append({f"t{i}": t})
+    d["do"] = tasks
+    start = time.time()
+    errs = vo.validate_org(d, CAT, MAN)
+    assert time.time() - start < 10, "validation is not linear"
+    assert errs
+
+
+# S4: author values print with repr
+S4_CASES = [
+    ("S4-name", SW, lambda d: d["document"].__setitem__("name", 5), "document.name: workflow 5 is not in manifest.workflows", MAN),
+    ("S4-name-none", SW, lambda d: d["document"].pop("name"), "document.name: workflow None is not in manifest.workflows", MAN),
+    ("S4-namespace", SW, lambda d: d["document"].__setitem__("namespace", 5), "document.namespace: 5 differs from manifest namespace", MAN),
+    ("S4-floor", SW, lambda d: None, "manifest: workflows.sw-development.floors: floor 5 is not a task in the workflow",
+     manifest_with(lambda m: m["workflows"]["sw-development"]["floors"].append(5))),
+    ("S4-role", SW, lambda d: org(d, "align").__setitem__("role", 5), "align: metadata.org.role: unknown role 5", MAN),
+]
+
+
+@pytest.mark.parametrize("case", S4_CASES, ids=[c[0] for c in S4_CASES])
+def test_author_values_are_printed_with_repr(case):
+    check_cases([case])
+
+
+# S5: spec rules that had no test
+S5_CASES = [
+    ("document.metadata non-map", SW, lambda d: d["document"].__setitem__("metadata", "x"), "document.metadata: must be a map", MAN),
+    ("document.metadata.org non-map", SW, lambda d: d["document"]["metadata"].__setitem__("org", []), "document.metadata.org: must be a map", MAN),
+    ("duplicate policy", SW, lambda d: d["document"]["metadata"]["org"].__setitem__("policy", ["vcs.remote", "vcs.remote"]),
+     "document.metadata.org.policy: duplicate name", MAN),
+    ("evaluate.language", SW, lambda d: d.__setitem__("evaluate", {"language": "jsonata"}), "evaluate.language: not in the accepted subset", MAN),
+    ("schedule.every", SW, lambda d: d.__setitem__("schedule", {"every": {"hours": 1}}), "schedule.every: not in the accepted subset", MAN),
+    ("schedule.after", SW, lambda d: d.__setitem__("schedule", {"after": {"hours": 1}}), "schedule.after: not in the accepted subset", MAN),
+    ("root timeout named", SW, lambda d: d.__setitem__("timeout", "t"),
+     "timeout: a named timeout needs 'use', which is refused; write it inline", MAN),
+    ("root timeout zero", SW, lambda d: d.__setitem__("timeout", {"after": {"seconds": 0}}), "timeout.after: duration must be greater than zero", MAN),
+    ("root timeout 31 days", SW, lambda d: d.__setitem__("timeout", {"after": {"days": 31}}), "timeout.after: duration must be at most 30 days", MAN),
+    ("root timeout 30 days ok", SW, lambda d: d.__setitem__("timeout", {"after": {"days": 30}}), None, MAN),
+    ("wait 31 days", TDD, lambda d: d["do"].insert(0, {"pause": {"wait": {"days": 31}}}), "pause: wait: duration must be at most 30 days", MAN),
+    ("retry delay", SW, lambda d: append_try(d, {"limit": {"attempt": {"count": 1}}, "delay": "PT1S"}),
+     "retrying: catch.retry.delay: duration must be a literal map of days, hours, minutes, seconds, milliseconds", MAN),
+    ("retry limit.duration", SW, lambda d: append_try(d, {"limit": {"attempt": {"count": 1}, "duration": {"seconds": 0}}}),
+     "retrying: catch.retry.limit.duration: duration must be greater than zero", MAN),
+    ("retry attempt.duration", SW, lambda d: append_try(d, {"limit": {"attempt": {"count": 1, "duration": {"days": 31}}}}),
+     "retrying: catch.retry.limit.attempt.duration: duration must be at most 30 days", MAN),
+    ("for.at reserved", SW, lambda d: find(d, "units")["for"].__setitem__("at", "input"),
+     "build/units: for.at: 'input' is a reserved variable name", MAN),
+    ("catch.as reserved", SW, lambda d: d["do"].append({"retrying": {"try": [{"inner": {"set": {"a": 1}}}], "catch": {"as": "task"}}}),
+     "retrying: catch.as: 'task' is a reserved variable name", MAN),
+    ("catch.then", SW, lambda d: d["do"].append({"retrying": {"try": [{"inner": {"set": {"a": 1}}}], "catch": {"then": "nowhere"}}}),
+     "retrying: catch.then: 'nowhere' is not a task in the same list", MAN),
+    ("top-level exit", SW, lambda d: find(d, "design").__setitem__("then", "exit"), "design: then: 'exit' skips floor 'review'", MAN),
+    ("floor call under if", SW, lambda d: find(d, "build").__setitem__("if", "${ true }"),
+     "build/units/tdd: a call to a workflow with floors may not sit inside 'build', which has 'if'", MAN_TF),
+    ("task metadata non-map", SW, lambda d: find(d, "align").__setitem__("metadata", "x"), "align: metadata: must be a map", MAN),
+]
+
+
+@pytest.mark.parametrize("case", S5_CASES, ids=[c[0] for c in S5_CASES])
+def test_previously_untested_spec_rules(case):
+    check_cases([case])
+
+
+VALUE_CASES = [
+    ({"x": {1, 2}}, "x: value of type set is not JSON"),
+    ({"x": object()}, "x: value of type object is not JSON"),
+    ({"x": float("nan")}, "x: non-finite number"),
+    ({"x": [float("inf")]}, "x[0]: non-finite number"),
+    ({1: "a"}, "(root): key 1 is not a string (YAML 1.1 reads on, off, yes and no as booleans; quote it)"),
+]
+
+
+@pytest.mark.parametrize("doc,msg", VALUE_CASES, ids=[m[:24] for _, m in VALUE_CASES])
+def test_value_errors_stop_other_checks(doc, msg):
+    assert vo.validate_org(doc, CAT, MAN) == [msg]
+
+
+# nits: wrong container types and bare-string arguments
+NIT_CASES = [
+    ("root timeout list", SW, lambda d: d.__setitem__("timeout", []), "timeout: must be a map", MAN),
+    ("schedule string", SW, lambda d: d.__setitem__("schedule", "x"), "schedule: must be a map", MAN),
+    ("evaluate list", SW, lambda d: d.__setitem__("evaluate", []), "evaluate: must be a map", MAN),
+    ("task timeout list", SW, lambda d: find(d, "merge").__setitem__("timeout", []), "merge: timeout: must be a map", MAN),
+    ("for string", SW, lambda d: find(d, "units").__setitem__("for", "x"), "build/units: for: must be a map", MAN),
+    ("fork string", SW, lambda d: d["do"].append({"par": {"fork": "x"}}), "par: fork: must be a map", MAN),
+    ("arguments string", SW, lambda d: shell(d, "align").__setitem__("arguments", "--isolated"),
+     "align: run.shell.arguments: must be a list", MAN),
+]
+
+
+@pytest.mark.parametrize("case", NIT_CASES, ids=[c[0] for c in NIT_CASES])
+def test_wrong_container_types_are_reported(case):
+    check_cases([case])
