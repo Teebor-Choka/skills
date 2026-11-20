@@ -1,0 +1,104 @@
+{
+  "segments": [
+    {
+      "id": "software-engineering",
+      "name": "Software engineering",
+      "items": ["improvement-scan", "sw-development", "bug", "tdd-unit"],
+      "about": "From a work item to a merged, deployed and reported change, with bug fixes and improvement scans as entries."
+    },
+    {
+      "id": "research",
+      "name": "Research",
+      "items": ["research"],
+      "about": "From one question to one note in which every claim cites a primary source."
+    },
+    {
+      "id": "self-improvement",
+      "name": "Self-improvement",
+      "items": ["improve"],
+      "about": "Proposals that change the process after a run, inside the improver's rungs."
+    },
+    {
+      "id": "platform",
+      "name": "Platform",
+      "items": [
+        "validators",
+        "interpreter",
+        "org-runtime",
+        "dispatcher",
+        "harness",
+        "cli"
+      ],
+      "about": "The machinery that checks and runs the workflows. It has no workflows of its own."
+    }
+  ],
+  "components": [
+    {
+      "id": "validators",
+      "name": "Validators",
+      "files": [
+        "scripts/validate_org.py",
+        "scripts/check_flow_schema.py",
+        "scripts/validate_catalog.py",
+        "scripts/validate_manifest.py",
+        "scripts/expr.py"
+      ]
+    },
+    {
+      "id": "interpreter",
+      "name": "Interpreter",
+      "files": ["scripts/interpreter.py"]
+    },
+    {
+      "id": "org-runtime",
+      "name": "Org runtime and ledger",
+      "files": ["scripts/org_runtime.py"]
+    },
+    {
+      "id": "harness",
+      "name": "Harness adapter and bindings",
+      "files": [
+        "scripts/agent_run.py",
+        "harness/harness.json",
+        "bindings/github.py",
+        "bindings/terminal.py",
+        "bindings/events.py",
+        "scripts/op_conformance.py",
+        "contracts/",
+        "scripts/session_export.py"
+      ]
+    },
+    {
+      "id": "dispatcher",
+      "name": "Event dispatcher",
+      "files": ["scripts/dispatcher.py"]
+    },
+    {
+      "id": "cli",
+      "name": "Command line",
+      "files": ["scripts/org.py"]
+    }
+  ],
+  "describe": {
+    "sw-development": "A pm aligns the work item. The lead writes a specification with testable criteria and an ai_gap, and a tester writes acceptance tests that must fail on an assertion before any build. An architect designs the smallest change and declares where each failing layer or system test sends the work back. The lead cuts the design into units with disjoint write-sets, and each unit runs through tdd-unit. An isolated reviewer reviews the whole change for you, you sign the merge gate, and ci deploys and verifies. A failed verification files a bug. The pm writes a six-section report, and the improver proposes changes inside its rung.",
+    "tdd-unit": "A worker writes one failing test, and code steps prove that it fails on an assertion, not on a compile error. The worker writes the least code that passes without editing a test, then refactors under green. Green is skipped after a failed red-evidence, and refactor after a failed green-evidence; the evidence steps and the review still run. An isolated reviewer checks that each test would catch a real regression and that the diff stays inside the unit's write-set. The cycle repeats up to three rounds until the review passes, then raises to the lead.",
+    "bug": "A tester writes one acceptance test at the level where the user sees the bug and commits it. A code step proves that the committed test fails (a floor). The fix runs as one tdd-unit, the acceptance suite must pass, and an isolated reviewer reviews the change for you, with one rework round. After your merge gate, ci deploys and verifies. A failed verification raises to you instead of filing another bug.",
+    "improve": "The improver reads one finished run's ledger and metrics and changes files in the working tree: briefs, routing, loop bounds and retry counts on the ordinary rung, the stack on the free rung. Floors, checks, criteria, the manifest and targets are frozen, and the set and order of tasks and their guards need your signature. A code check classifies the change and refuses anything outside the improver's rungs. Today this is a one-step placeholder.",
+    "improvement-scan": "The improver reads the code, the metrics and the run ledger and picks one improvement, with its evidence and a criterion that shows it worked. It changes no file. The scan files a work item, and its org.work-item-ready event starts sw-development.",
+    "research": "A researcher restates the question, splits it into at most five sub-questions and picks a route: one authoritative source (lookup), or a survey that searches the web, the literature and prior notes in parallel. Claims are extracted with URL, access date and quote. A code step refuses uncited claims, and isolated reviewers judge each claim against its sources as verified, hearsay, refuted or unreachable. The note is drafted and reviewed for up to three rounds, the requester accepts it, and it is published to the notes sink."
+  },
+  "inferred_edges": [
+    {
+      "from": "software-engineering",
+      "to": "self-improvement",
+      "label": "org.lessons-recorded",
+      "why": "emitted by sw-development; no workflow listens yet"
+    },
+    {
+      "from": "research",
+      "to": "software-engineering",
+      "label": "note",
+      "why": "published to research.notes-sink; no event connects it"
+    }
+  ]
+}

@@ -23,6 +23,7 @@ Layout: `<domain>/<plugin>/skills/<skill>`. The host shows `plugin:skill`.
 | `orchestrate`       | `assign`, `pull`    | Multi-agent runs over a shared board; ships guard hooks          |
 | `organization`      | `workflow`          | Organization workflows (OWS): validate, run, check changes       |
 |                     | `policy`            | The `.agents/policy` format and loader                           |
+|                     | `status`            | Local live site: org graph, runs, build units, owner items       |
 | `models`            | `extension-author`  | Author and port skills and plugins across agents                 |
 |                     | `reflect`           | Mine sessions for agent struggles and propose fixes              |
 | `writing`           | `unslop`            | Remove AI tells from prose                                       |
