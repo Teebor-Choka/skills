@@ -1154,3 +1154,15 @@ P39_CASES = [
 @pytest.mark.parametrize("case", P39_CASES, ids=[c[0] for c in P39_CASES])
 def test_agent_run_on_code_task(case):
     check_cases([case])
+
+
+# 12.6 changes 13 and 14: the shipped tdd-unit guards green and refactor with `if` on $accepted
+def test_w124_shipped_tdd_unit_has_guards_and_is_valid():
+    assert "$accepted" in find(TDD, "green")["if"] and "$accepted" in find(TDD, "refactor")["if"]
+    assert vo.validate_org(copy.deepcopy(TDD), CAT, MAN) == []
+
+
+def test_w125_guard_on_a_floor_is_still_refused():
+    d = copy.deepcopy(SW)
+    find(d, "spec")["if"] = '${ $accepted["align"] == true }'
+    assert "spec: a floor may not have 'if'" in vo.validate_org(d, CAT, MAN)
