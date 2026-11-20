@@ -1,0 +1,222 @@
+{
+  "document": {
+    "dsl": "1.1.0",
+    "namespace": "org",
+    "name": "tdd-unit",
+    "version": "0.2.0",
+    "title": "One unit of work, inner cycle (TDD)",
+    "summary": "Red, green, refactor for one unit, then an isolated review. Three rounds at most."
+  },
+  "input": {
+    "schema": {
+      "format": "json",
+      "document": {
+        "type": "object",
+        "required": ["unit"]
+      }
+    }
+  },
+  "do": [
+    {
+      "cycle": {
+        "for": {
+          "each": "attempt",
+          "in": [1, 2, 3]
+        },
+        "while": "${ $accepted[\"cycle/unit-review\"] != true }",
+        "do": [
+          {
+            "red": {
+              "run": {
+                "shell": {
+                  "command": "agent-run",
+                  "arguments": []
+                }
+              },
+              "metadata": {
+                "org": {
+                  "by": "model",
+                  "role": "worker",
+                  "brief": "briefs/red.md",
+                  "metrics": ["tests-per-unit"],
+                  "acceptance": [
+                    {
+                      "rubric": "criteria/red.md",
+                      "judge": "reviewer",
+                      "sample": 0.2
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "red-evidence": {
+              "run": {
+                "shell": {
+                  "command": "tdd-evidence",
+                  "arguments": ["unit", "red"]
+                }
+              },
+              "metadata": {
+                "org": {
+                  "by": "code",
+                  "role": "ci",
+                  "metrics": ["red-for-wrong-reason"],
+                  "acceptance": [
+                    {
+                      "check": "red-evidence"
+                    },
+                    {
+                      "check": "new-test-fails-on-an-assertion-not-a-compile-error"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "green": {
+              "if": "${ $accepted[\"cycle/red-evidence\"] == true }",
+              "run": {
+                "shell": {
+                  "command": "agent-run",
+                  "arguments": []
+                }
+              },
+              "metadata": {
+                "org": {
+                  "by": "model",
+                  "role": "worker",
+                  "brief": "briefs/green.md",
+                  "metrics": ["diff-lines"],
+                  "acceptance": [
+                    {
+                      "rubric": "criteria/green.md",
+                      "judge": "reviewer",
+                      "sample": 0.2
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "green-evidence": {
+              "run": {
+                "shell": {
+                  "command": "tdd-evidence",
+                  "arguments": ["unit", "green"]
+                }
+              },
+              "metadata": {
+                "org": {
+                  "by": "code",
+                  "role": "ci",
+                  "metrics": ["green-rounds"],
+                  "acceptance": [
+                    {
+                      "check": "green-evidence"
+                    },
+                    {
+                      "check": "suite-green-and-no-test-edited"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "refactor": {
+              "if": "${ $accepted[\"cycle/green-evidence\"] == true }",
+              "run": {
+                "shell": {
+                  "command": "agent-run",
+                  "arguments": []
+                }
+              },
+              "metadata": {
+                "org": {
+                  "by": "model",
+                  "role": "worker",
+                  "brief": "briefs/refactor.md",
+                  "metrics": ["diff-lines"],
+                  "acceptance": [
+                    {
+                      "rubric": "criteria/refactor.md",
+                      "judge": "reviewer",
+                      "sample": 0.2
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "refactor-evidence": {
+              "run": {
+                "shell": {
+                  "command": "tdd-evidence",
+                  "arguments": ["unit", "refactor"]
+                }
+              },
+              "metadata": {
+                "org": {
+                  "by": "code",
+                  "role": "ci",
+                  "metrics": ["diff-lines"],
+                  "acceptance": [
+                    {
+                      "check": "suite-still-green-and-no-test-edited"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "unit-review": {
+              "run": {
+                "shell": {
+                  "command": "agent-run",
+                  "arguments": ["--isolated"]
+                }
+              },
+              "metadata": {
+                "org": {
+                  "by": "model",
+                  "role": "reviewer",
+                  "brief": "briefs/unit-review.md",
+                  "metrics": ["review-rounds", "defects-found-in-review"],
+                  "acceptance": [
+                    {
+                      "rubric": "criteria/unit-review.md",
+                      "judge": "lead"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "exhausted": {
+        "if": "${ $accepted[\"cycle/unit-review\"] != true }",
+        "raise": {
+          "error": {
+            "type": "https://org.example/errors/unit-not-accepted",
+            "status": 409,
+            "title": "Unit not accepted after three rounds"
+          }
+        },
+        "metadata": {
+          "org": {
+            "to": "lead"
+          }
+        }
+      }
+    }
+  ]
+}

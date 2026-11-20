@@ -1,0 +1,419 @@
+{
+  "document": {
+    "dsl": "1.1.0",
+    "namespace": "org",
+    "name": "sw-development",
+    "version": "0.2.0",
+    "title": "Software development, outer cycle (ATDD)",
+    "summary": "One work item from an idea to a merged, reported change. The inner cycle is tdd-unit.",
+    "metadata": {
+      "org": {
+        "policy": [
+          "work.tracker",
+          "vcs.remote",
+          "vcs.default-branch",
+          "comms.channel",
+          "report.sink"
+        ]
+      }
+    }
+  },
+  "schedule": {
+    "on": {
+      "one": {
+        "with": {
+          "type": "org.work-item-ready"
+        }
+      }
+    }
+  },
+  "do": [
+    {
+      "align": {
+        "run": {
+          "shell": {
+            "command": "agent-run",
+            "arguments": []
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "model",
+            "role": "pm",
+            "brief": "briefs/align.md",
+            "metrics": ["escalations"],
+            "acceptance": [
+              {
+                "rubric": "criteria/brief.md",
+                "judge": "lead"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": {
+        "run": {
+          "shell": {
+            "command": "agent-run",
+            "arguments": []
+          }
+        },
+        "output": {
+          "schema": {
+            "format": "json",
+            "resource": {
+              "endpoint": "schemas/item.json"
+            }
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "model",
+            "role": "lead",
+            "brief": "briefs/spec.md",
+            "floor": true,
+            "metrics": ["spec-rework"],
+            "acceptance": [
+              {
+                "check": "spec-check"
+              },
+              {
+                "rubric": "criteria/spec.md",
+                "judge": "reviewer"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "acceptance-tests": {
+        "run": {
+          "shell": {
+            "command": "agent-run",
+            "arguments": []
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "model",
+            "role": "tester",
+            "brief": "briefs/acceptance-tests.md",
+            "metrics": ["acceptance-coverage"],
+            "acceptance": [
+              {
+                "check": "spec-coverage"
+              },
+              {
+                "rubric": "criteria/acceptance-tests.md",
+                "judge": "reviewer"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "acceptance-red": {
+        "run": {
+          "shell": {
+            "command": "tdd-evidence",
+            "arguments": ["acceptance", "red"]
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "code",
+            "role": "ci",
+            "metrics": ["red-for-wrong-reason"],
+            "acceptance": [
+              {
+                "check": "every-acceptance-test-fails-on-an-assertion"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "design": {
+        "run": {
+          "shell": {
+            "command": "agent-run",
+            "arguments": []
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "model",
+            "role": "architect",
+            "brief": "briefs/design.md",
+            "metrics": ["escalations"],
+            "acceptance": [
+              {
+                "rubric": "criteria/design.md",
+                "judge": "reviewer"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "cut": {
+        "run": {
+          "shell": {
+            "command": "agent-run",
+            "arguments": []
+          }
+        },
+        "output": {
+          "schema": {
+            "format": "json",
+            "resource": {
+              "endpoint": "schemas/units.json"
+            }
+          }
+        },
+        "export": {
+          "as": "${ $context + . }"
+        },
+        "metadata": {
+          "org": {
+            "by": "model",
+            "role": "lead",
+            "brief": "briefs/cut.md",
+            "metrics": ["write-set-collisions"],
+            "acceptance": [
+              {
+                "check": "write-sets-are-disjoint"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "build": {
+        "for": {
+          "each": "round",
+          "in": [1, 2]
+        },
+        "while": "${ $accepted[\"build/acceptance-run\"] != true }",
+        "do": [
+          {
+            "units": {
+              "for": {
+                "each": "unit",
+                "in": "${ $context.units }"
+              },
+              "do": [
+                {
+                  "tdd": {
+                    "run": {
+                      "workflow": {
+                        "namespace": "org",
+                        "name": "tdd-unit",
+                        "version": "0.2.0",
+                        "input": {
+                          "unit": "${ $unit }"
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "org": {
+                        "by": "code",
+                        "role": "lead",
+                        "metrics": ["escalations"],
+                        "acceptance": [
+                          {
+                            "check": "unit-verdict-is-pass"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "acceptance-run": {
+              "run": {
+                "shell": {
+                  "command": "tdd-evidence",
+                  "arguments": ["acceptance", "green"]
+                }
+              },
+              "metadata": {
+                "org": {
+                  "by": "code",
+                  "role": "ci",
+                  "metrics": ["acceptance-rounds"],
+                  "acceptance": [
+                    {
+                      "check": "acceptance-suite-green"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "not-accepted": {
+        "if": "${ $accepted[\"build/acceptance-run\"] != true }",
+        "raise": {
+          "error": {
+            "type": "https://org.example/errors/acceptance-not-met",
+            "status": 409,
+            "title": "Acceptance suite still red after the round bound"
+          }
+        },
+        "metadata": {
+          "org": {
+            "to": "lead"
+          }
+        }
+      }
+    },
+    {
+      "review": {
+        "run": {
+          "shell": {
+            "command": "agent-run",
+            "arguments": ["--isolated"]
+          }
+        },
+        "timeout": {
+          "after": {
+            "days": 7
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "model",
+            "role": "reviewer",
+            "brief": "briefs/review.md",
+            "floor": true,
+            "metrics": ["defects-found-in-review", "defects-escaped"],
+            "acceptance": [
+              {
+                "rubric": "criteria/review.md",
+                "judge": "owner"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "merge-gate": {
+        "listen": {
+          "to": {
+            "one": {
+              "with": {
+                "type": "org.owner-decided"
+              }
+            }
+          }
+        },
+        "timeout": {
+          "after": {
+            "days": 2
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "human",
+            "role": "owner",
+            "floor": true,
+            "metrics": ["escalations", "decision-latency"],
+            "acceptance": [
+              {
+                "human": "decision signed and verified"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "merge": {
+        "if": "${ $accepted[\"merge-gate\"] == true }",
+        "run": {
+          "shell": {
+            "command": "merge-change",
+            "arguments": ["--into", "vcs.default-branch"]
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "code",
+            "role": "ci",
+            "metrics": ["lead-time"],
+            "acceptance": [
+              {
+                "check": "checks-green-and-gate-approved"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "report": {
+        "emit": {
+          "event": {
+            "with": {
+              "type": "org.run-reported",
+              "source": "sw-development"
+            }
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "code",
+            "role": "ci",
+            "metrics": ["report-complete"],
+            "acceptance": [
+              {
+                "check": "report-has-every-required-section"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "improve": {
+        "run": {
+          "workflow": {
+            "namespace": "org",
+            "name": "improve",
+            "version": "latest",
+            "input": {
+              "run": "${ $workflow.id }"
+            }
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "model",
+            "role": "improver",
+            "metrics": ["proposals-accepted"],
+            "acceptance": [
+              {
+                "check": "every-proposal-is-within-its-rung"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
