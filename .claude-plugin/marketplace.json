@@ -101,11 +101,11 @@
     },
     {
       "name": "swe",
-      "description": "Engineering practice skills: rust and typescript (house guidelines on every change), performance (profile, optimize, benchmark) and component-docs (write and update component pages).",
+      "description": "Engineering practice skills: rust and typescript (house guidelines on every change), performance (profile, optimize, benchmark), component-docs (write and update component pages) and tracker (live dependency map of a build's progress).",
       "source": "./engineering/swe",
       "strict": true,
       "metadata": {
-        "version": "2.4.0"
+        "version": "2.5.0"
       }
     },
     {
