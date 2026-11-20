@@ -213,7 +213,8 @@ def test_K4_swap_merge_and_report_is_protected():
 
 def test_K5_brief_text_is_ordinary_but_brief_path_is_frozen():
     entries, refused = check(_root(), {**_root(), "briefs/review.md": b"new text\n"})
-    assert top(entries) == "ordinary" and refused == []
+    assert top(entries) == "ordinary" and [e[3] for e in refused] == ["ordinary"]
+    assert check(_root(), {**_root(), "briefs/review.md": b"new text\n"}, {"free", "ordinary"})[1] == []
     assert top(check(_root(), {**_root(), "briefs/spec.md": b"new text\n"})[0]) == "ordinary"
     assert rung(lambda d: org(d, "review").update(brief="briefs/spec.md")) == "frozen"
 
@@ -439,7 +440,8 @@ def test_removal_of_acceptance_or_metrics_is_frozen_whatever_else_changes():
     new["briefs/review.md"] = b"new text\n"
     entries, refused = check(base, new)
     assert {e[3] for e in entries} == {"ordinary", "frozen"}
-    assert refused and all(e[3] == "frozen" for e in refused)
+    assert any(e[3] == "frozen" for e in refused)
+    assert all(e[3] == "frozen" for e in check(base, new, {"free", "ordinary"})[1])
 
 
 def test_removing_one_metrics_entry_or_acceptance_item_is_frozen():
@@ -743,7 +745,7 @@ def test_one_and_true_are_different_values():
 
 
 def test_nested_non_floor_edits_use_the_full_task_path():
-    base, new = pair(lambda d: org(d, "acceptance-run").update(role="lead"))
+    base, new = pair(lambda d: org(d, "acceptance-run").update(brief="briefs/spec.md"))
     entries, _ = check(base, new)
     assert [(e[1], e[3]) for e in entries] == [("build/acceptance-run", "protected")]
 

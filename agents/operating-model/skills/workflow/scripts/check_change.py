@@ -12,7 +12,14 @@ Fail closed: a file that cannot be loaded or a workflow whose tasks cannot be pa
 file whose class depends on what the unreadable document says (floors, targets, catalog).
 
 The grammar (kind table, accepted subset, the spec) is frozen too but lives outside the org root, so a map of
-org-root files never holds it.
+org-root files never holds it. Grammar changes are classified by U13b's path list, not here; a grammar path
+given to this function falls under "any other file" (protected).
+
+Notes for the caller (U13b):
+- Catalog files are found by the root pattern `metrics*.yaml|yml|json`. U13b should name the real catalog files.
+- Reordering acceptance items is protected, not a no-op: item indices name rubric verdicts.
+- Build the file maps by following symlinks or refusing them, and refuse paths that collide when compared
+  case-insensitively. This function sees only the maps.
 """
 import json
 import os
@@ -39,10 +46,12 @@ R_WEAKEN = "weakening an acceptance item"
 R_CRITERIA = "criteria content"
 R_CATALOG_EXPOSED = "catalog entry targeted or floor-listed"
 R_FLOOR_FILE = "file named by a floor task"
+R_CHECKS = "file under checks/"
 R_COLLECTOR = "collector of a targeted or floor-listed metric"
 R_ADD_TASK = "adding a task"
 R_REORDER = "reordering tasks"
-R_KEYS = "by, role, to, brief, run or policy"
+R_KEYS = "brief path, run or policy"
+R_ROUTING = "routing: by, role or to"
 R_ADD_ITEM = "adding a metric or acceptance item"
 R_RAISE = "raising a sample"
 R_FLOW = "if, while, then or switch case"
@@ -123,8 +132,18 @@ def _own(task, children):
     return t
 
 
+def _args_text(task):
+    """run.shell.arguments as written: key order is kept, because the order is the command line."""
+    shell = _map(_map(task.get("run")).get("shell"))
+    return json.dumps(shell["arguments"], separators=(",", ":"), allow_nan=False) if "arguments" in shell else ""
+
+
 def _flat(task):
-    return json.loads(_canon(_own(task, lambda lst: CHILDREN)))
+    flat = json.loads(_canon(_own(task, lambda lst: CHILDREN)))
+    shell = _map(_map(flat.get("run")).get("shell"))
+    if "arguments" in shell:
+        shell["arguments"] = "<arguments>"
+    return flat
 
 
 def _list_key(node):
@@ -156,9 +175,11 @@ def _workflow(doc):
         kind = n["kind"]
         if kind is None or kind == "badrun" or str(kind).startswith("refused"):
             return None, f"{n['path']}: task form cannot be walked"
+        if not vo.KEBAB.fullmatch(n["name"]):
+            return None, f"{n['path']}: task name is not kebab-case"
         if n["path"] in out:
             return None, f"{n['path']}: duplicate task path"
-        n["flat"] = _canon(_flat(n["task"]))
+        n["flat"] = _canon(_flat(n["task"])) + "\0" + _args_text(n["task"])
         n["full"] = _canon(_own(n["task"], _names))
         n["listkey"] = _list_key(n)
         out[n["path"]] = n
@@ -173,6 +194,8 @@ def _org(task):
 
 
 def _floor_call(task, manifest):
+    if manifest is None:  # manifest did not load: every call to a workflow may be a floor
+        return isinstance(_map(task.get("run")).get("workflow"), dict)
     name = _map(_map(task.get("run")).get("workflow")).get("name")
     entry = _map(_map(manifest.get("workflows")).get(name)) if isinstance(name, str) else {}
     floors = entry.get("floors")
@@ -197,7 +220,7 @@ def _floor_names(task):
         c = _map(item).get("check")
         if isinstance(c, str):
             paths.add(f"checks/{c}.py")
-    for side in ("input", "output"):
+    for side in ("input", "output", "export"):
         ep = _map(_map(_map(task.get(side)).get("schema")).get("resource")).get("endpoint")
         if isinstance(ep, str):
             paths.add(ep)
@@ -313,10 +336,16 @@ def _task_changes(btask, ntask):
     def both(path):
         return _pop(b, path), _pop(n, path)
 
+    ab, an = _args_text(btask), _args_text(ntask)
+    if ab != an:
+        mapped = any(isinstance(_map(_map(t.get("run")).get("shell")).get("arguments"), dict) for t in (btask, ntask))
+        agent = all(_map(_map(t.get("run")).get("shell")).get("command") == "agent-run" for t in (btask, ntask))
+        out.append((R_BAD, FROZEN) if mapped and not agent else (R_KEYS, PROTECTED))
     out += _metrics_change(*both(("metadata", "org", "metrics")))
     out += _acceptance_change(*both(("metadata", "org", "acceptance")))
     for group, row, rung in (
-        ([("metadata", "org", k) for k in ("by", "role", "to", "brief", "policy")] + [("run",)], R_KEYS, PROTECTED),
+        ([("metadata", "org", k) for k in ("by", "role", "to")], R_ROUTING, ORDINARY),
+        ([("metadata", "org", k) for k in ("brief", "policy")] + [("run",)], R_KEYS, PROTECTED),
         ([(k,) for k in ("if", "then", "while", "switch")], R_FLOW, PROTECTED),
         ([("timeout",), ("catch", "retry", "limit", "attempt", "count")], R_BOUND, ORDINARY),
     ):
@@ -343,10 +372,14 @@ def _parse_all(paths, base, new, is_workflow):
     manifests, docs, bad_docs = {}, {}, {}
     for ver, files in (("base", base), ("new", new)):
         manifests[ver] = {}
-        mpath = next((m for m in MANIFEST_FILES if files.get(m) is not None), None)
-        if mpath:
-            doc, err = _load(mpath, files[mpath])
+        present = [m for m in MANIFEST_FILES if files.get(m) is not None]
+        if len(present) > 1:
+            manifests[ver] = None
+            unsure = True
+        elif present:
+            doc, err = _load(present[0], files[present[0]])
             if err or not isinstance(doc, dict):
+                manifests[ver] = None
                 unsure = True
             else:
                 manifests[ver] = doc
@@ -384,13 +417,24 @@ def _catalogs(paths, base, new):
 
 
 def check_change(base, new, rungs):
-    base = {p: _bytes(v) for p, v in base.items()}
-    new = {p: _bytes(v) for p, v in new.items()}
     rungs = set(rungs)
     entries = []
 
     def emit(path, task, row, rung):
         entries.append((path, task, row, rung))
+
+    def clean(files):
+        out = {}
+        for p, v in files.items():
+            if not isinstance(p, str):
+                emit(repr(p), "", R_BAD_PATH, FROZEN)
+            elif v is None or isinstance(v, (bytes, bytearray, memoryview, str)):
+                out[p] = _bytes(v)
+            else:
+                emit(p, "", R_BAD, FROZEN)
+        return out
+
+    base, new = clean(base), clean(new)
 
     paths = sorted(set(base) | set(new))
     for p in [p for p in paths if not vc.relative_path_ok(p, "", ("",))]:
@@ -417,7 +461,7 @@ def check_change(base, new, rungs):
                 floor_metrics |= fm
     targeted = set()
     for m in manifests.values():
-        if isinstance(m.get("targets"), dict):
+        if m and isinstance(m.get("targets"), dict):
             targeted |= set(m["targets"])
     exposed = floor_metrics | targeted
     exposed_collectors = {c for cat in catalogs.values() for name in exposed
@@ -436,10 +480,12 @@ def check_change(base, new, rungs):
         elif is_workflow(p):
             _workflow_entries(p, docs, bad_docs, manifests, emit)
         elif p.startswith("briefs/") and p.endswith(".md"):
-            emit(p, "", R_BRIEF, FREE)
+            emit(p, "", R_BRIEF, ORDINARY)
         elif p.startswith("criteria/") and p.endswith(".md"):
             emit(p, "", R_CRITERIA, FROZEN)
-        elif p.startswith(("checks/", "schemas/", "bin/", "collectors/")):
+        elif p.startswith("checks/"):
+            emit(p, "", R_FLOOR_FILE if p in floor_paths else R_CHECKS, FROZEN)
+        elif p.startswith(("schemas/", "bin/", "collectors/")):
             named = p in floor_paths or p in exposed_collectors
             if unsure:
                 emit(p, "", R_UNSURE, FROZEN)
