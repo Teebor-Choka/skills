@@ -1375,3 +1375,94 @@ def test_json_depth_100_valid_document_loads(tmp_path):
 def test_json_brackets_inside_strings_do_not_count(tmp_path):
     p = write(tmp_path, "a.json", json.dumps({"a": "[" * 5000, 'b"[': "\\" + "{" * 5000}))
     assert vc.load_document(p)["a"] == "[" * 5000
+
+
+# ---------------------------------------------------------------- checks map and role rungs (spec 8.1, 8.2, M19 to M23)
+
+
+def test_fixture_manifest_lists_every_check_file_and_no_helper(root, manifest):
+    files = {f[:-3] for f in os.listdir(os.path.join(root, "checks")) if f.endswith(".py") and not f.startswith("_")}
+    assert files == set(manifest["checks"])
+    assert os.path.exists(os.path.join(root, "checks", "_lib.py"))
+
+
+def test_m19_check_class(root):
+    errs = check_manifest(root, lambda m: m["checks"].__setitem__("spec-check", "proof"))
+    assert has(errs, "manifest: checks.spec-check: 'proof' is not one of fact, shape")
+
+
+def test_m20_listed_check_without_a_file(root):
+    errs = check_manifest(root, lambda m: m["checks"].__setitem__("ghost-check", "shape"))
+    assert has(errs, "manifest: checks.ghost-check: file not found under root: checks/ghost-check.py")
+
+
+def test_m21_unlisted_check_file(root):
+    Path(root, "checks", "stray.py").write_text("")
+    assert has(check_manifest(root), "manifest: checks: checks/stray.py is not listed")
+
+
+def test_helper_files_and_non_py_files_need_no_listing(root):
+    Path(root, "checks", "_other.py").write_text("")
+    Path(root, "checks", "notes.txt").write_text("")
+    os.makedirs(os.path.join(root, "checks", "sub"))
+    Path(root, "checks", "sub", "deep.py").write_text("")
+    assert check_manifest(root) == []
+
+
+def test_m22_checks_required(root):
+    assert has(check_manifest(root, lambda m: m.pop("checks")), "manifest: checks: required")
+
+
+@pytest.mark.parametrize("value", [{}, [], "x", None])
+def test_checks_must_be_a_non_empty_map(root, value):
+    errs = check_manifest(root, lambda m: m.__setitem__("checks", value))
+    assert has(errs, "manifest: checks: must be a non-empty map of check names")
+
+
+def test_check_name_must_be_kebab_case(root):
+    errs = check_manifest(root, lambda m: m["checks"].__setitem__("Bad_Check", "shape"))
+    assert has(errs, "manifest: checks.Bad_Check: name must be kebab-case")
+
+
+@pytest.mark.parametrize("value", [None, 1, ["fact"], "Fact"])
+def test_check_class_must_be_a_string_in_the_set(root, value):
+    errs = check_manifest(root, lambda m: m["checks"].__setitem__("spec-check", value))
+    assert has(errs, f"manifest: checks.spec-check: {value!r} is not one of fact, shape")
+
+
+def test_checks_map_with_a_symlinked_file_leaving_the_root_is_not_found(root, tmp_path):
+    outside = tmp_path / "o.py"
+    outside.write_text("")
+    os.symlink(outside, os.path.join(root, "checks", "linked.py"))
+    errs = check_manifest(root, lambda m: m["checks"].__setitem__("linked", "shape"))
+    assert has(errs, "manifest: checks.linked: file not found under root: checks/linked.py")
+
+
+def test_m23_frozen_cannot_be_granted(root):
+    errs = check_manifest(root, lambda m: m["roles"]["improver"].__setitem__("rungs", ["free", "frozen"]))
+    assert has(errs, "manifest: roles.improver.rungs: 'frozen' cannot be granted")
+
+
+@pytest.mark.parametrize("value", [[], "free", None, {"a": 1}])
+def test_rungs_must_be_a_non_empty_list(root, value):
+    errs = check_manifest(root, lambda m: m["roles"]["improver"].__setitem__("rungs", value))
+    assert has(errs, "manifest: roles.improver.rungs: must be a non-empty list of rungs")
+
+
+def test_rungs_unknown_rung(root):
+    errs = check_manifest(root, lambda m: m["roles"]["improver"].__setitem__("rungs", ["free", "super"]))
+    assert has(errs, "manifest: roles.improver.rungs: 'super' is not one of free, ordinary, protected")
+
+
+def test_rungs_duplicate(root):
+    errs = check_manifest(root, lambda m: m["roles"]["improver"].__setitem__("rungs", ["free", "free"]))
+    assert has(errs, "manifest: roles.improver.rungs: duplicate rung")
+
+
+@pytest.mark.parametrize("rungs", [["free"], ["free", "ordinary", "protected"], ["protected"]])
+def test_rungs_valid_sets(root, rungs):
+    assert check_manifest(root, lambda m: m["roles"]["improver"].__setitem__("rungs", rungs)) == []
+
+
+def test_rungs_is_optional(root):
+    assert check_manifest(root, lambda m: m["roles"]["improver"].pop("rungs")) == []
