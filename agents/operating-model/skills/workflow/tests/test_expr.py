@@ -10,7 +10,7 @@ HERE = Path(__file__).resolve().parent
 SCRIPT = HERE.parent / "scripts" / "expr.py"
 sys.path.insert(0, str(SCRIPT.parent))
 
-from expr import ExprError, evaluate, is_expression, parse, resolve, unwrap  # noqa: E402
+from expr import ExprError, accepted_keys, evaluate, is_expression, parse, resolve, unwrap  # noqa: E402
 
 
 def ev(source, data=None, **variables):
@@ -53,6 +53,31 @@ def test_example_call_inputs_resolve():
     improve_input = {"run": "${ $workflow.id }"}
     assert resolve(tdd_input, {"unit": "u1"}, {}) == {"unit": "u1"}
     assert resolve(improve_input, {}, {"workflow": {"id": "r9"}}) == {"run": "r9"}
+
+
+@pytest.mark.parametrize(
+    "source,keys",
+    [
+        ('$accepted["build/acceptance-run"] != true', ["build/acceptance-run"]),
+        ('$accepted."merge-gate" == true', ["merge-gate"]),
+        ('$accepted.["cycle/unit-review"]', ["cycle/unit-review"]),
+        ('$accepted [ "a" ]', ["a"]),
+        ("$accepted.plain", ["plain"]),
+        ('($accepted)["p"]', ["p"]),
+        ('$accepted["a"] == true and ($accepted["b"] | not) or $accepted["a"]', ["a", "b"]),
+        ('[$accepted["x"], .y["z"]]', ["x"]),
+        ('$context["a"] == true', []),
+        ('.accepted["a"]', []),
+        ("$accepted == null", []),
+    ],
+)
+def test_accepted_keys_finds_every_spelling(source, keys):
+    assert accepted_keys(source) == keys
+
+
+def test_accepted_keys_refuses_what_parse_refuses():
+    with pytest.raises(ExprError):
+        accepted_keys('$accepted["a"] | length')
 
 
 def test_an_absent_accepted_key_is_null():
@@ -324,7 +349,22 @@ class Probe:
         return "leak-7f3a"
 
 
-@pytest.mark.parametrize("source", ['."__class__"', '.["__globals__"]', ".secret", '.["secret"]', ".[0]", "."])
+@pytest.mark.parametrize(
+    "source",
+    [
+        '."__class__"',
+        '.["__globals__"]',
+        ".secret",
+        '.["secret"]',
+        ".[0]",
+        ".",
+        ". | not",
+        ". and true",
+        ". or true",
+        "true and .",
+        "false or .",
+    ],
+)
 def test_non_json_input_is_never_reached_through_attributes(source):
     with pytest.raises(ExprError) as err:
         evaluate(source, Probe(), {})
@@ -333,9 +373,11 @@ def test_non_json_input_is_never_reached_through_attributes(source):
 
 ALLOWED_IMPORTS = {"json", "math", "re"}
 FORBIDDEN_NAMES = {"eval", "exec", "compile", "open", "__import__", "getattr", "setattr", "globals", "locals", "vars", "input", "breakpoint"}
+FORBIDDEN_ATTRIBUTES = {"__class__", "__bases__", "__subclasses__", "__globals__", "__builtins__"}
 
 
 def test_module_has_no_eval_file_network_or_os_access():
+    # Smoke check on the source, not a proof: it catches the obvious escape hatches.
     tree = ast.parse(SCRIPT.read_text())
     imported = set()
     for node in ast.walk(tree):
@@ -346,6 +388,8 @@ def test_module_has_no_eval_file_network_or_os_access():
     assert imported <= ALLOWED_IMPORTS, imported - ALLOWED_IMPORTS
     names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
     assert not names & FORBIDDEN_NAMES, names & FORBIDDEN_NAMES
+    attributes = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    assert not attributes & FORBIDDEN_ATTRIBUTES, attributes & FORBIDDEN_ATTRIBUTES
 
 
 # --- Hostile size and nesting ------------------------------------------------
@@ -357,14 +401,57 @@ def test_module_has_no_eval_file_network_or_os_access():
         "(" * 200 + "." + ")" * 200,
         "[" * 200 + "]" * 200,
         "." + ".a" * 3000,
+        ".a" * 2000,
+        ".a" + " | not" * 600,
+        "." + "+." * 2000,
         "1e999",
         "-1e999",
         "9" * 5000,
+        "9" * 4000,
+        "٣",
+        "-٣",
+        ".a == ²",
+        "１",
+        "¹",
     ],
 )
 def test_hostile_source_raises_expr_error_only(source):
     with pytest.raises(ExprError):
-        evaluate(source, {}, {})
+        evaluate(source, {"a": 1}, {})
+
+
+def test_int_digit_limit_of_the_host_is_an_expr_error():
+    old = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(640)
+    try:
+        with pytest.raises(ExprError):
+            evaluate("9" * 700, None, {})
+    finally:
+        sys.set_int_max_str_digits(old)
+
+
+def test_huge_result_is_capped():
+    big = {"c": list(range(10000))}
+    source = "[" + ", ".join(["$c"] * 200) + "]"
+    with pytest.raises(ExprError) as err:
+        evaluate(source, None, big)
+    assert "1000000" in str(err.value)
+
+
+def test_deep_definition_in_resolve_is_an_expr_error():
+    deep = "${ . }"
+    for _ in range(5000):
+        deep = {"k": deep}
+    with pytest.raises(ExprError) as err:
+        resolve(deep, None, {})
+    assert "definition nested too deep" in str(err.value)
+
+
+@pytest.mark.parametrize("source", ["1 true", ".a null", ".a false"])
+def test_misplaced_literal_is_unexpected_not_a_function(source):
+    with pytest.raises(ExprError) as err:
+        parse(source)
+    assert "unexpected" in str(err.value) and "function" not in str(err.value)
 
 
 def test_deep_input_data_raises_expr_error_not_recursion_error():
@@ -377,9 +464,25 @@ def test_deep_input_data_raises_expr_error_not_recursion_error():
         evaluate(".", deep, {})
 
 
-def test_non_finite_input_numbers_are_refused():
-    with pytest.raises(ExprError):
-        evaluate(".a", {"a": float("nan")}, {})
+@pytest.mark.parametrize(
+    "source,value",
+    [
+        (".a", float("nan")),
+        (".a < 1", float("nan")),
+        (".a > 0", float("inf")),
+        (".a == .a", float("nan")),
+        (".a != 1", float("-inf")),
+        ("[.a] == [1]", float("nan")),
+        (".a | not", float("nan")),
+        (".a and true", float("inf")),
+        ("$context + .", {"x": float("nan")}),
+    ],
+)
+def test_non_finite_input_numbers_are_refused(source, value):
+    data = value if isinstance(value, dict) else {"a": value}
+    with pytest.raises(ExprError) as err:
+        evaluate(source, data, {"context": {}})
+    assert "non-finite number" in str(err.value)
 
 
 # --- Acceptance 4: parallel units, decision "sequential for only" -----------
@@ -394,8 +497,9 @@ def test_counting_until_for_fan_in_is_refused():
         assert "pipe '|'" in str(err.value) or "function 'length'" in str(err.value)
 
 
-def test_sequential_for_runs_each_unit_in_order_with_context_data_flow():
-    """Drive build/units the way the interpreter would, sequentially."""
+def test_sequential_for_data_flow_is_expressible_in_the_subset():
+    """Every expression a sequential build/units needs evaluates. The loop here is the
+    test's own, so this does not prove the interpreter's runtime behaviour."""
     cut_output = {"units": [{"id": "u1"}, {"id": "u2"}, {"id": "u3"}]}
     # cut: export.as merges its output into the context.
     context = evaluate(unwrap("${ $context + . }"), cut_output, {"context": None})

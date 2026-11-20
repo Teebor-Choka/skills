@@ -517,6 +517,11 @@ def evaluate(source, data=None, variables=None):
         raise ExprError("value nests too deeply") from None
 
 
+def accepted_keys(source):
+    """Stub: implemented in the next commit."""
+    return []
+
+
 def resolve(value, data=None, variables=None):
     """Evaluate every `${ }` string in a definition value; other values stay literal.
 
