@@ -1386,8 +1386,8 @@ def test_r26_each_unit_end_emits_task_ended_and_until_sees_events_one_then_two()
     res = _fanout_run(2, host)
     ev = _ended(res)
     assert [e["data"] for e in ev] == [
-        {"run": RID, "task": "fan/units/unit#0", "accepted": True},
-        {"run": RID, "task": "fan/units/unit#1", "accepted": True}]
+        {"run": RID, "task": "fan/units/unit#0", "accepted": True, "output": {"exit": 0, "stdout": ""}},
+        {"run": RID, "task": "fan/units/unit#1", "accepted": True, "output": {"exit": 0, "stdout": ""}}]
     untils = [(e["events"], e["result"]) for e in kinds(res, "until")]
     assert untils == [(0, False), (1, False), (2, True)]
     assert "org.unit-done" not in [e["type"] for e in kinds(res, "event")]
@@ -2550,3 +2550,66 @@ def test_r37_the_input_file_directory_check_uses_a_root_that_really_contains_the
         res = go(wf(("a", _agent())), host)
         assert res.errors[0].startswith("a: input file directory "), (root, res.errors)
         assert not any(c[0] == "step" for c in host.calls)
+
+
+# ================================================================= P41: org.task-ended carries the ended work's output entry
+
+
+def test_p41_task_ended_data_carries_the_recorded_output_entry_of_the_unit():
+    host = ScriptedHost(steps={"bg": StepOutcome(stdout="verdict-a"), "bg2": StepOutcome(exit_code=3, stdout="partial", error="x")})
+    doc = wf(("bg", _detached()), ("bg2", _detached()))
+    res = go(doc, host)
+    data = {e["data"]["task"]: e["data"] for e in _ended(res)}
+    assert data["bg"]["output"] == {"exit": 0, "stdout": "verdict-a"}
+    assert data["bg2"]["output"] == {"exit": 3, "stdout": "partial"}  # a failed unit reports what it printed
+    assert data["bg"]["accepted"] is True and data["bg2"]["accepted"] is False
+
+
+def test_p41_the_output_of_a_unit_that_failed_before_producing_one_is_exit_one_and_empty():
+    bad = {"run": {"shell": {"command": "agent-run", "arguments": []}, "await": False},
+           "metadata": {"org": {"by": "model", "role": "pm", "brief": "briefs/a.md"}}}
+    res = go(wf(("a", bad)), ScriptedHost(outside={"briefs/a.md"}))
+    assert res.status == "error"  # a fatal error ends the run and emits no event
+    assert _ended(res) == []
+
+
+def test_p41_an_until_can_read_the_output_of_the_events_it_consumed():
+    doc = wf(("fan", {"do": [
+        {"a": _detached()}, {"b": _detached()},
+        {"join": _plain_gate('${ ($events | length) == 2 and $events[0].data.output.stdout == "one" }')}]}))
+    res = go(doc, ScriptedHost(steps={"fan/a": StepOutcome(stdout="one"), "fan/b": StepOutcome(stdout="two")}))
+    assert res.status == "success", res.errors
+    assert kinds(res, "until")[-1]["result"] is True
+
+
+def test_p41_the_output_in_a_task_ended_event_is_capped_like_step_output():
+    big = "x" * (it.OUTPUT_CAP + 50)
+    res = go(wf(("a", _detached())), ScriptedHost(steps={"a": StepOutcome(stdout=big)}))
+    out = _ended(res)[0]["data"]["output"]
+    assert len(out["stdout"]) == it.OUTPUT_CAP and out["truncated"] is True
+
+
+def test_p41_a_cancelled_unit_emits_no_event_and_so_no_output():
+    doc = _rework([{"bg": _detached()}], n=2)
+    res = go(doc, ScriptedHost(steps={"rework/bg": [StepOutcome(duration=100, stdout="stale"), StepOutcome(duration=1, stdout="fresh")]}))
+    assert [e["data"]["output"]["stdout"] for e in _ended(res)] == ["fresh"]
+
+
+def test_p41_a_join_check_can_read_every_claims_verdict_from_the_join_output():
+    """The research join check shape: `every-claim-has-a-verdict` reads the join's consumed events."""
+    seen = []
+
+    def every_claim_has_a_verdict(name, key, evidence):
+        events = json.loads(evidence["output"]["stdout"])
+        verdicts = {e["data"]["task"]: json.loads(e["data"]["output"]["stdout"]).get("verdict") for e in events}
+        seen.append(verdicts)
+        return len(verdicts) == 2 and all(v in ("supported", "refuted") for v in verdicts.values())
+    join = _plain_gate("${ ($events | length) == 2 }")
+    join["metadata"]["org"]["acceptance"] = [chk("every-claim-has-a-verdict")]
+    doc = wf(("research", {"do": [{"claim-a": _detached()}, {"claim-b": _detached()}, {"join": join}]}))
+    host = ScriptedHost(steps={"research/claim-a": StepOutcome(stdout='{"verdict": "supported"}'),
+                               "research/claim-b": StepOutcome(stdout='{"verdict": "refuted"}')},
+                        checks={"every-claim-has-a-verdict": every_claim_has_a_verdict})
+    res = go(doc, host)
+    assert res.status == "success", res.errors
+    assert seen == [{"research/claim-a": "supported", "research/claim-b": "refuted"}]
