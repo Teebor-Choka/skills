@@ -827,7 +827,7 @@ def test_step_request_carries_role_and_brief_from_metadata_and_appends_them_to_a
     seen = []
     host = ScriptedHost(steps={"a": lambda req: seen.append(req) or StepOutcome()})
     go(doc, host)
-    assert seen[0].argv[:-1] == ["agent-run", "--isolated", "--role", "pm", "--brief", "briefs/a.md", "--input"]
+    assert seen[0].argv[:7] == ["agent-run", "--isolated", "--role", "pm", "--brief", "briefs/a.md", "--input"]
 
 
 def test_agent_run_as_owner_is_refused_at_run_time_even_without_static_validation():
@@ -2613,3 +2613,114 @@ def test_p41_a_join_check_can_read_every_claims_verdict_from_the_join_output():
     res = go(doc, host)
     assert res.status == "success", res.errors
     assert seen == [{"research/claim-a": "supported", "research/claim-b": "refuted"}]
+
+
+# ================================================================= spec updates 9 and 10: stack tools, workdir and bin-env (P47, P49 to P51)
+
+
+def _flags(argv):
+    """The runtime flags of an agent-run argv as a dict (flag to value)."""
+    return {a: argv[i + 1] for i, a in enumerate(argv) if a.startswith("--") and i + 1 < len(argv)}
+
+
+def _stack(tools=("Read", "Edit", "Bash"), workdir="TDD_WORKTREE", wf_name="t", role="pm", env=None):
+    return {"bin-env": {wf_name: {"TDD_WORKTREE": "/w", "TDD_BASE": "main", **(env or {})}},
+            "roles": {wf_name: {role: {"tools": list(tools), "workdir": workdir}}}}
+
+
+def _agent_run(**kw):
+    seen = []
+    host = ScriptedHost(steps={"a": lambda req: seen.append(req) or StepOutcome()})
+    return host, seen
+
+
+def _run_agent(stack, arguments=(), name="t"):
+    seen = []
+    doc = wf(("a", _agent(arguments=arguments)), name=name)
+    host = ScriptedHost(steps={"a": lambda req: seen.append(req) or StepOutcome()})
+    res = Interpreter({name: doc}, host, stack=stack).run(name, run_id=RID)
+    return res, seen
+
+
+def test_r58_agent_run_argv_carries_the_stack_tools_and_workdir():
+    res, seen = _run_agent(_stack())
+    flags = _flags(seen[0].argv)
+    assert flags["--tools"] == "Read,Edit,Bash" and flags["--workdir"] == "/w"
+    assert seen[0].argv.index("--input") < seen[0].argv.index("--tools") < seen[0].argv.index("--workdir")
+    assert seen[0].tools == ["Read", "Edit", "Bash"] and seen[0].workdir == "/w"
+
+
+def test_r59_an_isolated_call_gets_only_the_read_tools_and_the_same_workdir():
+    res, seen = _run_agent(_stack(tools=("Read", "Grep", "Glob", "Bash")), arguments=["--isolated"])
+    flags = _flags(seen[0].argv)
+    assert flags["--tools"] == "Read,Grep,Glob" and flags["--workdir"] == "/w"
+    res, seen = _run_agent(_stack(tools=("Bash", "Edit", "Write")), arguments=["--isolated"])
+    assert _flags(seen[0].argv)["--tools"] == ""  # no read tool listed: none passed
+
+
+def test_no_stack_entry_means_no_tools_or_workdir_flag_so_an_older_agent_run_keeps_working():
+    for stack in (None, _stack(role="someone-else")):
+        res, seen = _run_agent(stack)
+        assert "--tools" not in seen[0].argv and "--workdir" not in seen[0].argv and seen[0].tools == []
+
+
+def test_a_subflow_uses_its_own_workflows_roles_and_bin_env():
+    child = wf(("a", _agent("a")), name="child")
+    root = wf(("c", _call("child")), ("b", _agent("b")), name="root")
+    stack = {"bin-env": {"root": {"W": "/root-w"}, "child": {"W": "/child-w"}},
+             "roles": {"root": {"pm": {"tools": ["Read"], "workdir": "W"}}, "child": {"pm": {"tools": ["Bash"], "workdir": "W"}}}}
+    seen = {}
+    host = ScriptedHost(steps={"c>a": lambda req: seen.setdefault("child", req) and StepOutcome(),
+                               "b": lambda req: seen.setdefault("root", req) and StepOutcome()})
+    Interpreter({"root": root, "child": child}, host, stack=stack).run("root", run_id=RID)
+    assert _flags(seen["child"].argv)["--tools"] == "Bash" and _flags(seen["child"].argv)["--workdir"] == "/child-w"
+    assert _flags(seen["root"].argv)["--tools"] == "Read" and _flags(seen["root"].argv)["--workdir"] == "/root-w"
+
+
+def test_a_workdir_naming_a_variable_missing_from_bin_env_is_a_located_error():
+    res, seen = _run_agent(_stack(workdir="NOT_THERE"))
+    assert res.errors[0] == "a: stack: roles.t.pm.workdir: 'NOT_THERE' is not a bin-env variable of t"
+    assert seen == []
+
+
+def test_the_stack_must_be_a_map():
+    with pytest.raises(ValueError):
+        Interpreter({"t": wf(("a", leaf()))}, ScriptedHost(), stack="bad")
+
+
+@pytest.mark.parametrize("args,flag", [(["--tools", "Bash"], "--tools"), (["--workdir=/tmp"], "--workdir"),
+                                       (["--tools=Bash"], "--tools"), (["--workdir", "/tmp"], "--workdir")])
+def test_r63_a_step_carrying_tools_or_workdir_is_refused_before_any_task_runs(args, flag):
+    doc = wf(("first", leaf("first")), ("align", _agent(arguments=args)))
+    host = ScriptedHost()
+    res = go(doc, host)
+    assert res.status == "refused" and host.calls == [] and kinds(res, "task-start") == []
+    assert res.errors[0] == f"run refused: t: align: run.shell.arguments: {flag} is set by the runtime from the stack document; remove it"
+
+
+def test_a_bin_program_gets_exactly_the_stack_bin_env_names_and_the_runtime_variables(org, monkeypatch):
+    monkeypatch.setenv("HOME", "/home/someone")
+    monkeypatch.setenv("TDD_TIMEOUT", "99")
+    _script(org / "bin" / "tdd-evidence", 'echo "BASE=$TDD_BASE CMD=$TDD_TEST_CMD HOME=${HOME-unset} TO=${TDD_TIMEOUT-unset} RUN=$ORG_RUN"\n')
+    stack = {"bin-env": {"t": {"TDD_BASE": "main", "TDD_TEST_CMD": "pytest -q"}}}
+    doc = wf(("s", leaf("tdd-evidence")))
+    res = Interpreter({"t": doc}, ProcessHost(str(org)), stack=stack).run("t", run_id=RID)
+    assert res.output == f"BASE=main CMD=pytest -q HOME=unset TO=unset RUN={RID}"
+
+
+def test_bin_env_names_that_could_hijack_the_program_are_refused(org):
+    _script(org / "bin" / "w", "echo hi\n")
+    for name in ("PATH", "ORG_RUN", "LD_PRELOAD", "DYLD_X", "lower"):
+        stack = {"bin-env": {"t": {name: "x"}}}
+        res = Interpreter({"t": wf(("s", leaf("w")))}, ProcessHost(str(org)), stack=stack).run("t", run_id=RID)
+        assert res.errors[0] == f"s: stack: bin-env.t.{name}: name is not allowed", name
+
+
+def test_bin_env_is_not_passed_to_agent_run(org):
+    stub = org.parent / "agent-run"
+    _script(stub, 'echo "TDD=${TDD_BASE-unset}"\n')
+    (org / "briefs" / "a.md").write_text("b")
+    stack = {"bin-env": {"t": {"TDD_BASE": "main"}}}
+    doc = wf(("a", _agent()))
+    res = Interpreter({"t": doc}, ProcessHost(str(org), agent_run=str(stub)), stack=stack).run("t", run_id=RID)
+    assert res.output == "TDD=unset"
