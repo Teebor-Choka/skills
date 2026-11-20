@@ -2,8 +2,9 @@
 
 Accepted: path access (`.`, `.a`, `."k"`, `.["k"]`, `[n]`), variables bound by the
 caller (`$context`, `$accepted`, `$workflow`, loop variables), JSON literals, array
-literals, `==` `!=` `<` `<=` `>` `>=`, `and`, `or`, `X | not`, and `+` on objects
-(null is the identity). Everything else raises ExprError naming the construct.
+literals, `==` `!=` `<` `<=` `>` `>=`, `and`, `or`, `X | not`, `X | length` (for
+counted joins), and `+` on objects (null is the identity). Everything else raises
+ExprError naming the construct.
 
 Standard library only. No eval, no file, network or environment access: an
 expression sees only the input value and the variables passed in.
@@ -22,6 +23,7 @@ MAX_AST_DEPTH = 256  # any chain (`.a.a...`, `| not | not`, `. + . + ...`); keep
 MAX_RESULT_VALUES = 1_000_000  # JSON values (scalars and containers) in one result
 
 SUBSET = "not in the accepted subset"
+PIPE = "pipe '|' (only 'X | not' and 'X | length' are accepted)"
 
 KEYWORDS = {
     "if", "then", "elif", "else", "end", "as", "def", "reduce", "foreach", "try",
@@ -213,8 +215,8 @@ def _lex(src, out):
 
 # --- parser -----------------------------------------------------------------
 # AST nodes are tuples: ("dot",), ("lit", v), ("var", name), ("index", base, key),
-# ("array", [items]), ("not", e), ("and", a, b), ("or", a, b), ("cmp", op, a, b),
-# ("plus", a, b).
+# ("array", [items]), ("not", e), ("length", e), ("and", a, b), ("or", a, b),
+# ("cmp", op, a, b), ("plus", a, b).
 
 
 class _Parser:
@@ -250,7 +252,7 @@ class _Parser:
         if kind == "op" and value == ",":
             _refuse("comma ','")
         if kind == "op" and value == "|":
-            _refuse("pipe '|' (only 'X | not' is accepted)")
+            _refuse(PIPE)
         if kind == "op" and value == ":":
             _refuse("slice '[:]'")
         if kind == "ident":
@@ -273,13 +275,12 @@ class _Parser:
         node = self.disjunction()
         while self.at("op", "|"):
             self.take()
-            if not self.at("ident", "not"):
-                _refuse("pipe '|' (only 'X | not' is accepted)")
-            self.take()
-            node = ("not", node)
-            # jq reads `X | not and Y` as `X | (not and Y)`: a pipe into more than `not`.
+            if not (self.at("ident", "not") or self.at("ident", "length")):
+                _refuse(PIPE)
+            node = (self.take()[1], node)
+            # jq reads `X | not and Y` as `X | (not and Y)`: a pipe into more than `not` or `length`.
             if not (self.at("end") or self.at("op", "|") or self.at("op", ")") or self.at("op", "]")):
-                _refuse("pipe '|' (only 'X | not' is accepted)")
+                _refuse(PIPE)
         return node
 
     def disjunction(self):
@@ -410,7 +411,7 @@ def _children(node):
         return node[1]
     if tag == "cmp":
         return node[2:]
-    if tag in ("index", "and", "or", "plus", "not"):
+    if tag in ("index", "and", "or", "plus", "not", "length"):
         return node[1:]
     return ()
 
@@ -518,6 +519,16 @@ def _eval(node, data, variables):
         return [_eval(item, data, variables) for item in node[1]]
     if tag == "not":
         return not _truthy(_eval(node[1], data, variables))
+    if tag == "length":
+        v = _eval(node[1], data, variables)
+        t = _type(v)
+        if t == "null":
+            return 0
+        if t == "number":
+            return abs(v)  # jq: the absolute value
+        if t == "boolean":
+            _refuse("'length' on boolean")
+        return len(v)  # string: code points, as jq
     if tag == "and":
         return _truthy(_eval(node[1], data, variables)) and _truthy(_eval(node[2], data, variables))
     if tag == "or":
