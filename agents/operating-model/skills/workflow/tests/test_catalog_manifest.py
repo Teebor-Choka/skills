@@ -1351,3 +1351,27 @@ def test_two_manifest_keys_for_one_file_report_an_emit_error_once(root):
     errs = check_manifest(root, alias)
     assert len([e for e in errs if "is listened on by gate" in e]) == 1
     assert has(errs, "manifest: workflows.improve-copy.path: document.name is 'improve', expected 'improve-copy'")
+
+
+# ---------------------------------------------------------------- JSON depth, independent of the interpreter
+
+
+@pytest.mark.parametrize("text", ["[" * 100000, '{"a":' * 100000, "[" * 513 + "]" * 513])
+def test_json_depth_over_512_is_refused_before_parsing(tmp_path, text):
+    p = write(tmp_path, "a.json", text)
+    assert load_msg(p) == f"{p}: nesting too deep to load"
+
+
+def test_json_depth_600_valid_document_is_refused(tmp_path):
+    p = write(tmp_path, "a.json", "[" * 600 + "]" * 600)
+    assert load_msg(p) == f"{p}: nesting too deep to load"
+
+
+def test_json_depth_100_valid_document_loads(tmp_path):
+    p = write(tmp_path, "a.json", "[" * 100 + "]" * 100)
+    assert vc.load_document(p) is not None
+
+
+def test_json_brackets_inside_strings_do_not_count(tmp_path):
+    p = write(tmp_path, "a.json", json.dumps({"a": "[" * 5000, 'b"[': "\\" + "{" * 5000}))
+    assert vc.load_document(p)["a"] == "[" * 5000
