@@ -351,10 +351,11 @@ def test_examples_pass():
     assert vo.validate_org(copy.deepcopy(TDD), CAT, MAN) == []
 
 
+# tdd-unit has 7 steps since 12.6 change 11 added the code step refactor-evidence; the spec section 4 table still says 6
 def test_example_counts_match_spec_section_4():
     sw_kinds = _kinds(SW)
     assert sw_kinds == {"step": 9, "call": 2, "gate": 1, "emit": 1, "escalation": 1, "container": 2}
-    assert _kinds(TDD) == {"step": 6, "escalation": 1, "container": 1}
+    assert _kinds(TDD) == {"step": 7, "escalation": 1, "container": 1}
 
 
 def _kinds(doc):

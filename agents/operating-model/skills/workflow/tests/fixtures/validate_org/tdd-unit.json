@@ -41,7 +41,9 @@
                   "metrics": ["tests-per-unit"],
                   "acceptance": [
                     {
-                      "check": "red-evidence"
+                      "rubric": "criteria/red.md",
+                      "judge": "reviewer",
+                      "sample": 0.2
                     }
                   ]
                 }
@@ -62,6 +64,9 @@
                   "role": "ci",
                   "metrics": ["red-for-wrong-reason"],
                   "acceptance": [
+                    {
+                      "check": "red-evidence"
+                    },
                     {
                       "check": "new-test-fails-on-an-assertion-not-a-compile-error"
                     }
@@ -86,7 +91,9 @@
                   "metrics": ["diff-lines"],
                   "acceptance": [
                     {
-                      "check": "green-evidence"
+                      "rubric": "criteria/green.md",
+                      "judge": "reviewer",
+                      "sample": 0.2
                     }
                   ]
                 }
@@ -108,6 +115,9 @@
                   "metrics": ["green-rounds"],
                   "acceptance": [
                     {
+                      "check": "green-evidence"
+                    },
+                    {
                       "check": "suite-green-and-no-test-edited"
                     }
                   ]
@@ -128,6 +138,30 @@
                   "by": "model",
                   "role": "worker",
                   "brief": "briefs/refactor.md",
+                  "metrics": ["diff-lines"],
+                  "acceptance": [
+                    {
+                      "rubric": "criteria/refactor.md",
+                      "judge": "reviewer",
+                      "sample": 0.2
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "refactor-evidence": {
+              "run": {
+                "shell": {
+                  "command": "tdd-evidence",
+                  "arguments": ["unit", "refactor"]
+                }
+              },
+              "metadata": {
+                "org": {
+                  "by": "code",
+                  "role": "ci",
                   "metrics": ["diff-lines"],
                   "acceptance": [
                     {
