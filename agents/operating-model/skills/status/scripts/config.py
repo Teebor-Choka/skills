@@ -8,6 +8,8 @@ Every script takes the same options (flags win over the config file, list flags 
                        default: $XDG_STATE_HOME/org-status, else ~/.local/state/org-status
   --ledger GLOB        a run ledger to follow (repeatable)
   --state-dir DIR      an `org.py serve --state DIR` folder: dispatcher.json and ledgers/*.ledger (repeatable)
+  --worktree-root DIR  a ledger's worktree under this folder is inspected with git for changed files and rungs
+                       (repeatable; none by default, because the ledger names the path)
   --work-package DIR   optional: status-units.json, run-log.md, owner-decisions.md, agent-plans/, findings/, site.json
   --repo OWNER/NAME    GitHub repository for `gh pr list`; default: the org root's origin remote
   --no-gh              do not call gh
@@ -26,7 +28,7 @@ from pathlib import Path
 
 SKILL = Path(__file__).resolve().parents[1]
 ASSETS = SKILL / "assets"
-KEYS = {"org_root", "data_dir", "ledgers", "state_dirs", "work_package", "repo", "language_page", "layout"}
+KEYS = {"org_root", "data_dir", "ledgers", "state_dirs", "worktree_roots", "work_package", "repo", "language_page", "layout"}
 
 
 class ConfigError(ValueError):
@@ -40,6 +42,7 @@ class Config:
     layout: Path
     ledgers: list = field(default_factory=list)
     state_dirs: list = field(default_factory=list)
+    worktree_roots: list = field(default_factory=list)
     work_package: Path = None
     repo: str = None
     language_page: Path = None
@@ -61,6 +64,7 @@ def add_args(ap):
     g.add_argument("--data-dir", help="generated data and ingest log (default: $XDG_STATE_HOME/org-status)")
     g.add_argument("--ledger", action="append", default=[], help="run ledger file or glob (repeatable)")
     g.add_argument("--state-dir", action="append", default=[], help="org.py serve state folder (repeatable)")
+    g.add_argument("--worktree-root", action="append", default=[], help="inspect ledger worktrees under this folder (repeatable)")
     g.add_argument("--work-package", help="optional folder with status-units.json, run-log.md, owner-decisions.md, site.json")
     g.add_argument("--repo", help="OWNER/NAME for gh pr list (default: the org root's origin)")
     g.add_argument("--no-gh", action="store_true", help="do not call gh")
@@ -132,7 +136,7 @@ def resolve(ns, env=None):
     if not layout.is_file():
         raise ConfigError("layout %s is not a file" % layout)
     lists = {}
-    for key, flags in (("ledgers", ns.ledger), ("state_dirs", ns.state_dir)):
+    for key, flags in (("ledgers", ns.ledger), ("state_dirs", ns.state_dir), ("worktree_roots", ns.worktree_root)):
         vals = file.get(key) or []
         if not isinstance(vals, list) or not all(isinstance(x, str) for x in vals):
             raise ConfigError("config key %s must be a list of paths" % key)
@@ -144,7 +148,7 @@ def resolve(ns, env=None):
         if repo is not None and not re.match(r"^[\w.-]+/[\w.-]+$", repo):
             raise ConfigError("repo must be OWNER/NAME, got %r" % repo)
     return Config(org_root=org_root.resolve(), data_dir=(pick(ns.data_dir, "data_dir") or default_data_dir(env)).resolve(),
-                  layout=layout.resolve(), ledgers=lists["ledgers"], state_dirs=lists["state_dirs"],
+                  layout=layout.resolve(), ledgers=lists["ledgers"], state_dirs=lists["state_dirs"], worktree_roots=lists["worktree_roots"],
                   work_package=wp.resolve() if wp else None, repo=repo, language_page=lp.resolve() if lp else None,
                   ingest=_path(getattr(ns, "ingest", None), Path.cwd(), env))
 
@@ -156,6 +160,8 @@ def to_argv(cfg):
         argv += ["--ledger", x]
     for x in cfg.state_dirs:
         argv += ["--state-dir", x]
+    for x in cfg.worktree_roots:
+        argv += ["--worktree-root", x]
     if cfg.work_package:
         argv += ["--work-package", str(cfg.work_package)]
     if cfg.language_page:

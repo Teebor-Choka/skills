@@ -498,7 +498,10 @@ def build(cfg, simulate=(), fail_prs=(), needs_seg=()):
 
 def atomic_write(path, text):
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # unit notes, decisions and PR titles: owner only
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    os.chmod(tmp, 0o600)
     os.replace(tmp, path)
 
 
@@ -526,11 +529,12 @@ def main(argv=None):
     out = Path(a.out).resolve() if a.out else cfg.out_dir
     if (sim or fails or needs or cfg.ingest) and out == cfg.out_dir:
         ap.error("simulated states and another ingest log need --out DIR (the served data never holds them)")
-    out.mkdir(parents=True, exist_ok=True)
+    out.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(out, 0o700)
     del S.WARN[:]
     del WARN[:]
     data, gh_ok, gh_err, ing_seq = build(cfg, sim, fails, needs)
-    lv = live.Live({"state_dirs": cfg.state_dirs, "ledgers": cfg.ledgers, "org_root": str(cfg.org_root)})
+    lv = live.Live({"state_dirs": cfg.state_dirs, "ledgers": cfg.ledgers, "org_root": str(cfg.org_root), "worktree_roots": cfg.worktree_roots})
     lv.poll()
     snap = lv.snapshot()
     body = json.dumps(data, sort_keys=True, default=str)

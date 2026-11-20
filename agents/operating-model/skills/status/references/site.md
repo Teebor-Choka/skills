@@ -34,7 +34,13 @@ visible and redraws only when the data hash changes.
 The live layer comes from the runtime, not from a run log: `live.py` tails each `--ledger` glob and the
 `ledgers/*.ledger` plus `dispatcher.json` of each `--state-dir` every 0.5 s, and `serve.py` streams one message
 per new entry on `/api/events`. The ledger MAC is not checked (the key belongs to the runtime and this viewer
-never reads it); the seq and prev chain is.
+never reads it); the seq and prev chain is. An entry that is not an object or has fields of the wrong type
+becomes a run problem; it never stops the poller.
+
+A ledger's `change` host result names a worktree. `live.py` runs `git status` there (and classifies the rung of
+each change) only when the worktree's real path is under a `--worktree-root`; there is none by default, since
+the ledger, not the user, names the path. git runs with `core.fsmonitor=false`, no hooks and no optional locks,
+and classification stops at 2000 files and skips symlinks and files over 1 MiB.
 
 Cost: the ledger carries cost only on step results; judge calls (reviewer, lead) are paid model calls that only the
 runtime's journal `sessions/<run_id>.calls.jsonl` beside the ledger records. `live.py` takes a run's cost from that
@@ -109,7 +115,8 @@ reports a minute across every client. Fields: `unit` (U20, U13a, H1), `state`, o
 The chain has no key: it catches a hand edit, a reordered line or a torn write, not someone who rewrites the whole
 file. Lines after the first break are ignored and shown as a warning on the build page; new reports are refused
 (409) until the file is moved aside. `python3 scripts/ingest.py verify [FILE]` checks the log. A new log file is
-created with mode 0600.
+created with mode 0600. `read` also re-validates every line, so a writer that recomputes the hash for a bad
+report breaks the chain instead of the generator.
 
 A new unit appears when it is first reported. Its wave is `--wave`, else one more than its deepest dependency.
 A dependency on an unknown unit is dropped with a generator warning.
@@ -124,8 +131,11 @@ A dependency on an unknown unit is dropped with a generator warning.
   list of content types. `/data/<name>` serves only the generated files by name, never another path in the data
   dir, so the ingest log is never served.
 - Responses carry `no-store`, `nosniff`, `X-Frame-Options: DENY`, `frame-ancestors 'none'` and no referrer.
-- Sockets time out after 20 s; at most 16 event streams are open at once (503 after that).
-- `/api/refresh` runs the generator at most every 25 s, one run at a time.
+- Sockets time out after 20 s; at most 64 connections and 16 event streams are open at once (more are closed
+  or get 503). HEAD on the event stream is 405.
+- `/api/refresh` runs the generator at most every 25 s, one run at a time; a growing ingest log triggers at
+  most one rebuild every 5 s.
+- Generated data files are mode 0600 in a 0700 folder; a symlink in the data folder is not followed.
 - No secret is read or served: the ledger key stays with the runtime.
 
 ## Routes

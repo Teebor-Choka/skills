@@ -108,7 +108,9 @@ def read(path=None):
         try:
             e = json.loads(b.decode("utf-8"))
             ok = isinstance(e, dict) and e.get("seq") == seq + 1 and e.get("prev") == prev and e.get("hash") == _hash(prev, e)
-        except (ValueError, UnicodeDecodeError):
+            # a writer that recomputes the hash must still have written a valid report
+            ok = ok and validate({k: v for k, v in e.items() if k in FIELDS})[0] is not None and isinstance(e.get("at"), (int, float))
+        except (ValueError, UnicodeDecodeError, RecursionError):
             e, ok = None, False
         if not ok:
             broken, ignored = "line %d does not continue the chain (edited, reordered or not JSON)" % i, 1
@@ -132,7 +134,7 @@ def append(rec, src, path=None, now=None):
     if err:
         raise ValueError(err)
     path = Path(path or log_path())
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
@@ -235,14 +237,26 @@ def project_units(base, ing, merged_prs, open_prs, warn=lambda m: None):
             u["dep"] = [d for d in u["dep"] if d in ids]
     wave = {}
 
-    def w_of(uid, seen=()):
-        u = by[uid]
-        if u.get("w"):
-            return u["w"]
-        if uid in wave:
-            return wave[uid]
-        wave[uid] = 1 + max([w_of(d, seen + (uid,)) for d in u["dep"] if d not in seen] or [0])
-        return wave[uid]
+    def w_of(root):
+        """Wave of a unit: its own, else one more than its deepest dependency. Iterative, so a long chain is fine;
+        a dependency still being resolved (a cycle) counts as wave 0."""
+        stack, active = [root], set()
+        while stack:
+            uid = stack[-1]
+            u = by[uid]
+            if u.get("w") or uid in wave:
+                wave.setdefault(uid, u.get("w"))
+                stack.pop()
+                continue
+            active.add(uid)
+            todo = [d for d in u["dep"] if d not in wave and d not in active]
+            if todo:
+                stack.extend(todo)
+                continue
+            wave[uid] = 1 + max([wave.get(d) or 0 for d in u["dep"]] or [0])
+            active.discard(uid)
+            stack.pop()
+        return wave[root]
     for u in units:
         u["w"] = w_of(u["id"])
     return units

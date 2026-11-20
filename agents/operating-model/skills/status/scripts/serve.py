@@ -42,6 +42,8 @@ TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
 DATA_FILES = {"data.js", "org.json", "workflows.json", "build.json", "decisions.json", "language.json", "live.json", "meta.json"}
 RATE = (30, 60.0)  # ingest: at most 30 reports per 60 s, from every client together
 MAX_STREAMS = 16  # open /api/events connections; more get 503
+MAX_CONNECTIONS = 64  # open connections in all; more are closed at once
+REBUILD_EVERY = 5.0  # seconds between rebuilds the ingest log triggers
 TIMEOUT = 20  # seconds a socket read or write may block (a slow or silent client)
 
 
@@ -83,10 +85,11 @@ class Hub:
 
     def __init__(self, cfg, refresh):
         self.cfg, self.refresh = cfg, refresh
-        self.live = live.Live({"state_dirs": cfg.state_dirs, "ledgers": cfg.ledgers, "org_root": str(cfg.org_root)})
+        self.live = live.Live({"state_dirs": cfg.state_dirs, "ledgers": cfg.ledgers, "org_root": str(cfg.org_root), "worktree_roots": cfg.worktree_roots})
         self.lock = threading.Lock()
         self.clients = []
         self.ingest_sig = self.sig()
+        self.last_build = 0.0
         with self.lock:
             self.live.poll()
         threading.Thread(target=self.loop, daemon=True).start()
@@ -111,8 +114,9 @@ class Hub:
         while True:
             time.sleep(0.5)
             sig = self.sig()
-            if sig == self.ingest_sig:
+            if sig == self.ingest_sig or time.monotonic() - self.last_build < REBUILD_EVERY:
                 continue
+            self.last_build = time.monotonic()
             res = self.refresh.run(force=True)
             if res == "busy":
                 continue  # a refresh is running; it may predate the new line, so try again
@@ -237,7 +241,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(429, "too many reports, at most %d per %d s\n" % RATE, extra={"Retry-After": "5"})
         try:
             rec = json.loads(body.decode("utf-8"))
-        except (ValueError, UnicodeDecodeError):
+        except (ValueError, UnicodeDecodeError, RecursionError):
             return self.send(400, "body is not JSON\n")
         try:
             line = ingest.append(rec, "http", self.app.cfg.ingest_log)
@@ -260,6 +264,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/live":
             return self.send(200, json.dumps(self.app.hub.snapshot(), default=str), "application/json")
         if path == "/api/events":
+            if self.command == "HEAD":
+                return self.send(405, "the event stream takes GET only\n", extra={"Allow": "GET"})
             return self.events()
         return self.file(path)
 
@@ -276,7 +282,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if len(parts) != 2 or parts[1] not in DATA_FILES:
                 return self.send(404, "not found\n")
             target = self.app.cfg.out_dir / parts[1]
-            if not target.is_file():
+            if target.is_symlink() or not target.is_file():
                 return self.send(404, "not found\n")
         else:
             target = (self.app.assets / "/".join(parts)).resolve()
@@ -317,6 +323,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(blocking=False):  # a flood of slow clients must not grow threads without bound
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
 
 
 def parse(argv=None):

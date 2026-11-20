@@ -17,6 +17,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -24,6 +25,17 @@ from pathlib import Path
 
 KEEP_EVENTS = 300
 GIT_EVERY = 2.0
+# git never runs a command the inspected repo configures, and never takes an optional lock in an agent's worktree
+GIT = ["git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "--no-optional-locks"]
+CLASSIFY_FILES = 2000  # a worktree with more tracked or present files is not classified
+CLASSIFY_BYTES = 1 << 20  # files above this size are compared as absent
+SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+
+
+def under(path, roots):
+    """True when the real path of `path` is inside one of `roots`."""
+    rp = os.path.realpath(path)
+    return any(rp == r or rp.startswith(r.rstrip("/") + "/") for r in (os.path.realpath(x) for x in roots))
 
 
 def org_metric(e):
@@ -37,6 +49,14 @@ def org_metric(e):
     return None
 
 
+def num(x):
+    """A number from a ledger field, 0.0 when it is not one."""
+    try:
+        return float(x or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def run_id_of(path):
     return "r" + hashlib.sha1(str(path).encode()).hexdigest()[:10]
 
@@ -48,9 +68,10 @@ def fmt_usd(x):
 class Run:
     """State of one ledger, built entry by entry."""
 
-    def __init__(self, path, org_root=None):
+    def __init__(self, path, org_root=None, worktree_roots=()):
         self.path = str(path)
         self.org_root = org_root
+        self.worktree_roots = list(worktree_roots)
         self.id = run_id_of(path)
         self.reset()
 
@@ -97,15 +118,24 @@ class Run:
             if not line.strip():
                 continue
             try:
-                entries.append(json.loads(line.decode("utf-8")))
-            except (ValueError, UnicodeDecodeError):
-                self.problems.append("line after entry %d is not JSON" % self.last_seq)
+                e = json.loads(line.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError, RecursionError):
+                e = None
+            if isinstance(e, dict):
+                entries.append(e)
+            else:
+                self.problems.append("line after entry %d is not a JSON object" % self.last_seq)
         if first and entries:
             # wall clock of entry t: the file's mtime belongs to the newest entry read
-            last_t = max((e.get("body") or {}).get("t", 0) or 0 for e in entries if isinstance(e.get("body"), dict)) if entries else 0
-            self.start_wall = st.st_mtime - float(last_t or 0)
+            ts = [num((e.get("body") or {}).get("t")) for e in entries if isinstance(e.get("body"), dict)]
+            self.start_wall = st.st_mtime - max(ts or [0.0])
         for e in entries:
-            ev = self.apply(e, now if not first else None)
+            try:
+                ev = self.apply(e, now if not first else None)
+            except (TypeError, ValueError, AttributeError, KeyError) as err:  # a hostile or broken entry is a problem, not a crash
+                self.problems.append("entry %s unreadable: %s" % (e.get("seq"), str(err)[:120]))
+                del self.problems[:-50]
+                continue
             if ev:
                 out.append(ev)
         self.last_wall = st.st_mtime if first else now
@@ -148,7 +178,9 @@ class Run:
             self.events.append({x: ev[x] for x in ("seq", "kind", "key", "t", "text") if x in ev})
             return ev
         if kind == "header":
-            self.run_id, self.workflow = b.get("run_id"), b.get("workflow")
+            rid, wf = b.get("run_id"), b.get("workflow")
+            self.run_id = rid if isinstance(rid, str) else None
+            self.workflow = wf if isinstance(wf, str) else None
             self.prefixes[""] = self.workflow
             unit = ((b.get("input") or {}).get("unit") or {}) if isinstance(b.get("input"), dict) else {}
             ev_in = (b.get("input") or {}).get("event") if isinstance(b.get("input"), dict) else None
@@ -286,11 +318,14 @@ class Run:
             return
         self._git_at = now
         wt = c["worktree"]
+        if not isinstance(wt, str) or not under(wt, self.worktree_roots):
+            c.update(files=None, note="not inspected: the worktree is outside every --worktree-root")
+            return
         if not os.path.isdir(wt):
             c.update(files=None, note="the worktree no longer exists")
             return
         try:
-            p = subprocess.run(["git", "-C", wt, "status", "--porcelain", "-uall"], capture_output=True, text=True, timeout=5)
+            p = subprocess.run(GIT + ["-C", wt, "status", "--porcelain", "-uall"], capture_output=True, text=True, timeout=5)
         except (OSError, subprocess.SubprocessError) as e:
             c.update(files=None, note="git status failed: %s" % e)
             return
@@ -309,7 +344,7 @@ class Run:
         """The runtime's per-call cost journal, sessions/<run_id>.calls.jsonl beside the ledger.
         The ledger carries cost only on step results; judge calls (reviewer, lead) are paid model calls
         that only this journal records. Returns {usd, calls, tasks, unknown} or None."""
-        if not self.run_id:
+        if not self.run_id or not SAFE_ID.match(self.run_id):
             return None
         f = Path(self.path).parent / "sessions" / ("%s.calls.jsonl" % self.run_id)
         try:
@@ -382,19 +417,30 @@ def classify(worktree, files, org_root):
     finally:
         sys.path.pop(0)
     try:
-        top = subprocess.run(["git", "-C", worktree, "rev-parse", "--show-prefix"], capture_output=True, text=True, timeout=5).stdout.strip()
-        tracked = subprocess.run(["git", "-C", worktree, "ls-files"], capture_output=True, text=True, timeout=5).stdout.split("\n")
+        top = subprocess.run(GIT + ["-C", worktree, "rev-parse", "--show-prefix"], capture_output=True, text=True, timeout=5).stdout.strip()
+        tracked = [t for t in subprocess.run(GIT + ["-C", worktree, "ls-files"], capture_output=True, text=True, timeout=5).stdout.split("\n") if t]
     except (OSError, subprocess.SubprocessError) as e:
         return {"note": "rung unknown: %s" % e}
-    base, new = {}, {}
-    for rel in [t for t in tracked if t]:
-        b = subprocess.run(["git", "-C", worktree, "show", "HEAD:./" + rel], capture_output=True, timeout=5)
-        base[rel] = b.stdout if b.returncode == 0 else None
+    present = []
     for p in Path(worktree).rglob("*"):
-        if p.is_file() and ".git" not in p.parts:
-            rel = str(p.relative_to(worktree))
-            new[rel] = p.read_bytes()
-            base.setdefault(rel, None)
+        if ".git" in p.parts or p.is_symlink() or not p.is_file():
+            continue
+        present.append(p)
+        if len(present) > CLASSIFY_FILES:
+            break
+    if len(tracked) > CLASSIFY_FILES or len(present) > CLASSIFY_FILES:
+        return {"note": "rung unknown: more than %d files" % CLASSIFY_FILES}
+    base, new = {}, {}
+    for rel in tracked:
+        try:
+            b = subprocess.run(GIT + ["-C", worktree, "show", "HEAD:./" + rel], capture_output=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            b = None
+        base[rel] = b.stdout if b is not None and b.returncode == 0 and len(b.stdout) <= CLASSIFY_BYTES else None
+    for p in present:
+        rel = str(p.relative_to(worktree))
+        new[rel] = p.read_bytes() if p.stat().st_size <= CLASSIFY_BYTES else None
+        base.setdefault(rel, None)
     for rel in base:
         new.setdefault(rel, None)
     entries, refused = cc.check_change(base, new, ["free", "ordinary"])
@@ -408,9 +454,10 @@ class Live:
     """Every source, polled together. `poll()` returns new events across runs."""
 
     def __init__(self, cfg):
-        """cfg: {"state_dirs": [...], "ledgers": [globs], "org_root": path or None}."""
+        """cfg: {"state_dirs": [...], "ledgers": [globs], "org_root": path or None, "worktree_roots": [...]}.
+        A ledger's worktree is inspected with git only under a worktree root: the ledger names the path."""
         self.cfg = {"state_dirs": list(cfg.get("state_dirs") or []), "ledgers": list(cfg.get("ledgers") or []),
-                    "org_root": cfg.get("org_root")}
+                    "org_root": cfg.get("org_root"), "worktree_roots": list(cfg.get("worktree_roots") or [])}
         self.runs = {}
         self.sources = []
 
@@ -422,7 +469,8 @@ class Live:
             try:
                 st = json.loads(Path(sf).read_text())
                 for pk, pv in (st.get("pairs") or {}).items():
-                    if isinstance(pv, dict) and pv.get("ledger"):
+                    name = pv.get("ledger") if isinstance(pv, dict) else None
+                    if isinstance(name, str) and name == os.path.basename(name) and not name.startswith("."):
                         lp = os.path.join(d, "ledgers", pv["ledger"])
                         event, _, wf = pk.partition("\n")
                         pairs[lp] = {"event": event, "workflow": wf, "state": pv.get("state"), "status": pv.get("status")}
@@ -440,7 +488,7 @@ class Live:
         self.sources = sources
         for p in dict.fromkeys(os.path.abspath(x) for x in found):
             if p not in self.runs:
-                self.runs[p] = Run(p, self.cfg["org_root"])
+                self.runs[p] = Run(p, self.cfg["org_root"], self.cfg["worktree_roots"])
             self.runs[p].pair = pairs.get(p)
 
     def metrics(self):
@@ -501,7 +549,7 @@ def main(argv):
             cfg = config.resolve(ap.parse_args(argv[1:]))
         except config.ConfigError as e:
             ap.error(str(e))
-        lv = Live({"state_dirs": cfg.state_dirs, "ledgers": cfg.ledgers, "org_root": str(cfg.org_root)})
+        lv = Live({"state_dirs": cfg.state_dirs, "ledgers": cfg.ledgers, "org_root": str(cfg.org_root), "worktree_roots": cfg.worktree_roots})
         lv.poll()
         print(json.dumps(lv.snapshot(), indent=1, default=str))
     elif argv[:1] == ["replay"] and len(argv) >= 3:

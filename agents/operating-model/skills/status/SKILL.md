@@ -36,6 +36,7 @@ Sources (all scripts take the same options; `--config FILE` holds them as JSON, 
 | `--data-dir DIR`               | `$XDG_STATE_HOME/org-status`, else `~/.local/state/org-status` | generated `data/` and `ingest/events.jsonl`                 |
 | `--ledger GLOB`                | none                                                           | run ledgers to follow (repeatable)                          |
 | `--state-dir DIR`              | none                                                           | an `org.py serve --state DIR` folder (repeatable)           |
+| `--worktree-root DIR`          | none                                                           | inspect a ledger's worktree with git only under this folder |
 | `--work-package DIR`           | none                                                           | optional: unit plans, run log, owner decisions, `site.json` |
 | `--repo OWNER/NAME`, `--no-gh` | the org root's GitHub origin                                   | pull requests from `gh pr list`                             |
 | `--layout FILE`                | `assets/org-layout.json`                                       | segments, components, workflow descriptions                 |
