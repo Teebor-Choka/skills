@@ -523,7 +523,7 @@ def test_non_rubric_call_does_not_return_a_verdict_event():
 def test_adapter_output_that_breaks_the_contract_is_refused():
     class Garbage(ar.ScriptedAdapter):
         def call(self, op, inp):
-            return {"prompt": 1}
+            return {"prompt": 1, "cost": {"usd": 0, "seconds": 0}}
 
     with pytest.raises(PortError) as e:
         ar.run_agent(Garbage(), ar.SessionStore(), role="worker", brief="b", task={"run": RUN, "task": "x"},
