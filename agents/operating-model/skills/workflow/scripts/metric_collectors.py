@@ -45,7 +45,12 @@ def _finite(v):
 
 
 def _err(e):
-    return {"error": f"{type(e).__name__}: {e}"}
+    # No object address (`at 0x...`) and a fixed cap, so an error row is the same bytes in every process.
+    text = re.sub(r" at 0x[0-9a-fA-F]+", "", f"{type(e).__name__}: {e}")
+    return {"error": text[:300]}
+
+
+_CAUGHT = (Exception, SystemExit)  # a collector that calls exit is an error row; a real kill still ends the run
 
 
 class Registry:
@@ -78,20 +83,22 @@ class Registry:
             if s not in parsed:
                 try:
                     parsed[s] = ("ok", self._by[s].parse(inputs[s]))
-                except Exception as e:  # noqa: BLE001  a bad source is an error row for each metric that reads it
-                    parsed[s] = ("error", _err(e))
+                except NoValue as e:
+                    parsed[s] = ("stop", {"reason": str(e)})
+                except _CAUGHT as e:  # a bad source is an error row for each metric that reads it
+                    parsed[s] = ("stop", _err(e))
             state, v = parsed[s]
-            if state == "error":
+            if state == "stop":
                 return dict(v)
             data[s] = v
         try:
             v = fn(data, key)
+            if not _finite(v):
+                return {"error": f"collector returned no finite number ({type(v).__name__})"}
         except NoValue as e:
             return {"reason": str(e)}
-        except Exception as e:  # noqa: BLE001  never abort the run over a metric
+        except _CAUGHT as e:  # never abort the run over a metric (OverflowError from a huge int included)
             return _err(e)
-        if not _finite(v):
-            return {"error": f"collector returned no finite number: {v!r}"[:300]}
         return {"value": v}
 
 
@@ -140,14 +147,21 @@ class LedgerView:
         return s[0]["t"] if s else 0.0
 
     def decided(self):
-        """(key, start t, accept t) of every gate execution that consumed a signed decision."""
+        """(key, start t, accept t) of every gate execution that consumed a signed decision.
+
+        An owner-judged rubric item also records a decision id under its task's key; its execution logs a `rubric`
+        item, so it is left out: it is a judged step, not a gate."""
         start, pending, out = {}, {}, []
         for k, b in self.entries:
-            if k == "log" and isinstance(b, dict) and b.get("kind") == "task-start":
+            if not isinstance(b, dict):
+                continue
+            if k == "log" and b.get("kind") == "task-start":
                 start[b.get("key")] = b["t"]
-            elif k == "decision-id" and isinstance(b, dict) and b.get("key") in start:
+            elif k == "decision-id" and b.get("key") in start:
                 pending[b["key"]] = start[b["key"]]
-            elif k == "log" and isinstance(b, dict) and b.get("kind") == "accept" and b.get("key") in pending:
+            elif k == "log" and b.get("kind") == "item" and b.get("item") == "rubric":
+                pending.pop(b.get("key"), None)
+            elif k == "log" and b.get("kind") == "accept" and b.get("key") in pending:
                 out.append((b["key"], pending.pop(b["key"]), b["t"]))
         return out
 
@@ -162,12 +176,8 @@ class LedgerView:
 
 
 def _rounds(view, key):
-    n = 0
-    for b in view.accepts(key):
-        n += 1
-        if b.get("status") == "pass":
-            break
-    return n
+    # Keys repeat across loop rounds, and an outer loop may rerun a node that passed: every executed round counts.
+    return sum(1 for b in view.accepts(key) if b.get("status") != "cancelled")
 
 
 def _first_pass_hours(view, key):
@@ -183,7 +193,9 @@ def _nodes_or_reason(view, metric):
 
 
 def escalations(d, key):
-    return sum(1 for b in d[RUN_LEDGER].logs("escalation") if key is None or b.get("key") == key)
+    # "Escalations taken in the run". The event carries the raise task's key and no raise task names the metric,
+    # so a node row also reports the run's count so far.
+    return len(d[RUN_LEDGER].logs("escalation"))
 
 
 def green_rounds(d, key):
@@ -200,13 +212,15 @@ def rounds_until_pass(metric):
     return fn
 
 
-def hours_to_pass(metric):
+def hours_to_pass(metric, target):
+    """Per node: run start to that node's first pass. The run: to the first pass of the node named `target`, the
+    event the formula names (the merge, the published note), never another node that carries the metric."""
     def fn(d, key):
         v = d[RUN_LEDGER]
-        keys = [key] if key is not None else _nodes_or_reason(v, metric)
+        keys = [key] if key is not None else [k for k in v.nodes(metric) if _last(k) == target]
         hours = [h for h in (_first_pass_hours(v, k) for k in keys) if h is not None]
         if not hours:
-            raise NoValue(f"no node carrying {metric} has passed")
+            raise NoValue(f"no passing {key or target} node carries {metric} in this run")
         return min(hours)
     return fn
 
@@ -260,11 +274,12 @@ def failed_items(kind):
 
 def gate_wait(d, key):
     v = d[RUN_LEDGER]
-    gates = {b.get("key") for b in v.logs("until")} | {b.get("key") for k, b in v.entries
-                                                         if k == "decision-id" and isinstance(b, dict)}
-    start, total = {}, 0.0
+    decided = v.decided()
+    total = sum(a - s for _, s, a in decided)
+    listens = {b.get("key") for b in v.logs("until")} - {k for k, _, _ in decided}
+    start = {}
     for b in v.logs():
-        if b.get("key") not in gates:
+        if b.get("key") not in listens:
             continue
         if b.get("kind") == "task-start":
             start[b["key"]] = b["t"]
@@ -280,8 +295,8 @@ class RunLedgerCollector:
         "green-rounds": green_rounds,
         "acceptance-rounds": rounds_until_pass("acceptance-rounds"),
         "claim-review-rounds": rounds_until_pass("claim-review-rounds"),
-        "lead-time": hours_to_pass("lead-time"),
-        "question-turnaround": hours_to_pass("question-turnaround"),
+        "lead-time": hours_to_pass("lead-time", "merge"),
+        "question-turnaround": hours_to_pass("question-turnaround", "publish"),
         "decision-latency": decision_latency,
         "run-duration": run_duration,
         "model-calls": model_calls,
