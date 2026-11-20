@@ -177,6 +177,9 @@
             }
           }
         },
+        "export": {
+          "as": "${ $context + . }"
+        },
         "metadata": {
           "org": {
             "by": "model",
@@ -204,7 +207,7 @@
             "units": {
               "for": {
                 "each": "unit",
-                "in": "${ .units }"
+                "in": "${ $context.units }"
               },
               "do": [
                 {
@@ -215,7 +218,7 @@
                         "name": "tdd-unit",
                         "version": "0.2.0",
                         "input": {
-                          "unit": "${ .unit }"
+                          "unit": "${ $unit }"
                         }
                       }
                     },
@@ -284,6 +287,11 @@
           "shell": {
             "command": "agent-run",
             "arguments": ["--isolated"]
+          }
+        },
+        "timeout": {
+          "after": {
+            "days": 7
           }
         },
         "metadata": {
