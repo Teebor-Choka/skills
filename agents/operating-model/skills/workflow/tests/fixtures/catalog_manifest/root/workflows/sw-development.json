@@ -1,0 +1,81 @@
+{
+  "document": {
+    "dsl": "1.1.0",
+    "namespace": "org",
+    "name": "sw-development",
+    "version": "0.1.0"
+  },
+  "schedule": {
+    "on": {
+      "one": {
+        "with": {
+          "type": "org.work-item-ready"
+        }
+      }
+    }
+  },
+  "do": [
+    {
+      "build": {
+        "do": [
+          {
+            "units": {
+              "for": {
+                "each": "unit",
+                "in": "${ .units }"
+              },
+              "do": [
+                {
+                  "tdd": {
+                    "run": {
+                      "workflow": {
+                        "namespace": "org",
+                        "name": "tdd-unit",
+                        "version": "0.1.0"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "improve": {
+        "run": {
+          "workflow": {
+            "namespace": "org",
+            "name": "improve",
+            "version": "latest"
+          }
+        }
+      }
+    },
+    {
+      "merge-gate": {
+        "listen": {
+          "to": {
+            "one": {
+              "with": {
+                "type": "org.owner-decided"
+              }
+            }
+          }
+        },
+        "timeout": {
+          "after": {
+            "hours": 24
+          }
+        },
+        "metadata": {
+          "org": {
+            "role": "owner",
+            "floor": true
+          }
+        }
+      }
+    }
+  ]
+}
