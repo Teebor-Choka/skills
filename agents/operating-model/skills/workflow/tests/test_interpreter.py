@@ -90,8 +90,11 @@ def kinds(res, kind):
     return [e for e in res.events if e["kind"] == kind]
 
 
+_EVENT_IDS = iter(range(1, 10**9))
+
+
 def event(type_, data=None, signature=OWNER, **kw):
-    e = {"type": type_, "data": dict(data or {}), "signature": signature}
+    e = {"id": f"ev-{next(_EVENT_IDS)}", "type": type_, "data": dict(data or {}), "signature": signature}
     e.update(kw)
     return e
 
@@ -650,8 +653,10 @@ def test_absent_sample_always_judges_and_sample_one_always_judges():
 
 def test_a_pending_item_does_not_make_the_task_fail_but_is_never_recorded_as_pass():
     res = go(_rubric_doc(0.2), run_id=_rid_with(False))
+    host = ScriptedHost()
+    res = go(_rubric_doc(0.2), host, run_id=_rid_with(False))
     assert [e["result"] for e in kinds(res, "item")] == ["pending"]
-    assert "pass" not in [e["result"] for e in kinds(res, "item")]
+    assert not any(c[0] == "judge" for c in host.calls)  # an undrawn item is never sent to a judge, so it cannot pass
     assert res.status == "success"
 
 
@@ -2145,6 +2150,9 @@ def test_r37_allowed_rungs_follow_the_role_rungs_default_and_owner(org):
     g = gate(acceptance=[chk("every-proposal-is-within-its-rung")])
     go(wf(("gate", g)), ProcessHost(str(org), events=[(1, decision("gate"))], verify=lambda e, s: True))
     assert out.read_text() == "free,ordinary,protected,frozen"
+    man["roles"]["improver"]["rungs"] = ["protected", "free", "frozen"]  # listed order is irrelevant; frozen is dropped
+    go(wfs, ProcessHost(str(org)), catalog=CAT, manifest=man)
+    assert out.read_text() == "free,protected"
 
 
 def test_r38_call_and_emit_entries_appear_in_steps_and_the_call_entry_holds_exit_zero_or_one():
@@ -2305,3 +2313,238 @@ def test_a_deadlock_records_cancelled_for_the_stuck_gate_before_the_run_ends():
     res = go(doc)
     assert res.statuses.get("g") == "cancelled"
     assert [e["kind"] for e in res.events][-2:] == ["accept", "run-end"]
+
+
+# ================================================================= review 2
+
+
+def test_n1_a_planted_json_py_in_the_org_root_cannot_shadow_the_stdlib_in_a_check(org):
+    (org / "json.py").write_text("raise SystemExit(7)\n")
+    _script(org / "bin" / "w", "echo 1\n")
+    (org / "checks" / "x.py").write_text("import json\njson.dumps(1)\n")
+    assert go(wf(("s", leaf("w", [chk("x")], by="code"))), ProcessHost(str(org))).status == "success"
+
+
+def test_n1_a_python_bin_script_runs_isolated(org):
+    _script(org / "bin" / "py", "x")
+    (org / "bin" / "py").write_text("#!/usr/bin/env python3\nimport sys\nprint(sys.flags.isolated)\n")
+    res = go(wf(("s", leaf("py"))), ProcessHost(str(org)))
+    assert res.output == 1, res.errors
+
+
+def test_n1_a_check_runs_as_main_with_its_file_argv_and_a_coding_cookie_and_dataclasses(org):
+    _script(org / "bin" / "w", "echo 1\n")
+    out = org.parent / "main.txt"
+    src = ("# -*- coding: latin-1 -*-\n"
+           "import sys\nfrom dataclasses import dataclass\n\n@dataclass\nclass P:\n    a: int = 1\n\n"
+           f"open({str(out)!r}, 'w').write(f'{{__name__}}|{{__file__}}|{{sys.argv[1:]}}|{{P().a}}|caf\\xe9')\n")
+    (org / "checks" / "x.py").write_bytes(src.encode("latin-1"))
+    assert go(wf(("s", leaf("w", [chk("x")], by="code"))), ProcessHost(str(org))).status == "success"
+    name, file, argv, a, word = out.read_text(encoding="utf-8").split("|")
+    assert name == "__main__" and file.endswith("checks/x.py") and argv == "['s']" and a == "1"
+
+
+def test_n2_rungs_is_a_required_parameter_of_every_host(org):
+    with pytest.raises(TypeError):
+        ScriptedHost().run_check("c", "k", {})
+    with pytest.raises(TypeError):
+        ProcessHost(str(org)).run_check("c", "k", {"run": RID})
+
+
+@pytest.mark.parametrize("listed", [[], ["frozen"], ["bogus"]])
+def test_n2_a_rungs_list_with_no_valid_rung_is_a_run_error_not_the_default(listed):
+    man = copy.deepcopy(MAN)
+    man["roles"]["improver"]["rungs"] = listed
+    res = go({"improve": improve_doc()}, ScriptedHost(), catalog=CAT, manifest=man)
+    assert res.status == "error"
+    assert res.errors[0] == "done: manifest.roles.improver.rungs: must list at least one of free, ordinary, protected"
+
+
+def test_n3_a_host_without_change_or_root_is_a_usage_error():
+    class Bare:
+        def scheduled_events(self):
+            return []
+    with pytest.raises(ValueError):
+        Interpreter({"t": wf(("a", leaf()))}, Bare())
+
+
+def test_s1_control_flow_exceptions_pass_through_hostcall_and_guard_unchanged():
+    class Boom(it.ControlFlow):
+        pass
+
+    def boom(*a):
+        raise Boom("ledger down")
+    with pytest.raises(Boom):
+        go(wf(("s", leaf())), ScriptedHost(steps={"s": boom}))
+    host = ScriptedHost(events=[(1, decision("gate"))], signed=lambda e, s: boom())
+    with pytest.raises(Boom):
+        go(wf(("gate", gate())), host)
+
+
+def test_s3_a_foreign_event_never_reaches_the_verifier():
+    calls = []
+    host = ScriptedHost(events=[(1, decision("another-task")), (2, decision("gate", run="f" * 32))],
+                        signed=lambda e, s: calls.append(e) or True)
+    go(wf(("gate", gate(after={"seconds": 5}))), host)
+    assert calls == []
+
+
+def test_s4_a_decision_event_without_an_id_is_ignored():
+    ev = decision("gate")
+    del ev["id"]
+    res = go(wf(("gate", gate(after={"seconds": 5}))), ScriptedHost(events=[(1, ev)]))
+    assert kinds(res, "ignored")[0]["reason"] == "event has no id" and res.errors[0] == "gate: timeout"
+
+
+def test_s4_a_redelivery_with_the_same_id_and_a_changed_transport_field_is_ignored():
+    g = gate(role="lead", by="human", acceptance=[{"human": "ok"}])
+    g["metadata"]["org"]["signer"] = "owner"
+    doc = _rework([{"approve": g}], n=2, cond='${ $accepted["rework/approve"] != true }')
+    first = decision("rework/approve", "reject")
+    again = dict(copy.deepcopy(first), source="https://other.example/redelivery")
+    res = go(doc, ScriptedHost(events=[(5, first), (6, again), (9, decision("rework/approve"))]))
+    assert [e["reason"] for e in kinds(res, "ignored")] == ["decision event already consumed"]
+
+
+def test_s5_events_consumed_by_a_gate_that_timed_out_are_released_for_the_retry():
+    join = _plain_gate("${ ($events | length) == 2 }", after={"seconds": 60})
+    doc = wf(("fan", {"do": [
+        {"a": _detached()}, {"b": _detached()},
+        {"g": {"try": [{"join": join}], "catch": {"retry": {"limit": {"attempt": {"count": 1}}}}}}]}))
+    host = ScriptedHost(steps={"fan/a": StepOutcome(), "fan/b": StepOutcome(duration=100)})
+    res = go(doc, host)
+    assert res.status == "success", res.errors
+    assert [e["t"] for e in res.events if e["kind"] == "task-end" and e["key"] == "fan/g/join"][-1] == 100
+
+
+def test_s7_step_output_is_capped_in_the_interpreter_for_every_host():
+    big = "x" * (it.OUTPUT_CAP + 50)
+    seen = []
+    doc = wf(("s", leaf("w", by="code")), ("c", leaf("w", [chk("probe")], by="model")))
+    host = ScriptedHost(steps={"s": StepOutcome(stdout=big)}, checks={"probe": lambda n, k, e: seen.append(e["steps"]["s"]) or True})
+    go(doc, host)
+    assert len(seen[0]["stdout"]) == it.OUTPUT_CAP and seen[0]["truncated"] is True
+
+
+def test_s7_a_for_over_a_thousand_checked_leaves_stays_fast():
+    doc = wf(("loop", {"for": {"each": "i", "in": "${ . }"}, "do": [{"u": leaf("w", [chk("c")], by="code")}]}))
+    t0 = time.monotonic()
+    res = go(doc, input=list(range(1000)))
+    assert res.status == "success" and time.monotonic() - t0 < 20
+
+
+def test_s8_a_fatal_error_in_detached_work_is_a_fatal_run_error_a_new_round_cannot_drop():
+    bad = {"run": {"shell": {"command": "agent-run", "arguments": []}, "await": False},
+           "metadata": {"org": {"by": "model", "role": "owner", "brief": "briefs/a.md"}}}
+    doc = _rework([{"bg": bad}, {"pause": {"wait": {"seconds": 5}}}], n=2)
+    res = go(doc)
+    assert res.status == "error"
+    assert "rework/bg: metadata.org.role: agent-run may not run as owner" in res.errors
+    assert len(starts(res, "rework/bg")) == 1  # the run stopped; round 2 never started
+
+
+def test_s9_inside_an_iteration_accepted_is_relative_to_the_body_and_the_full_key_still_works():
+    inner = {"rework": {"for": {"in": [1, 2]}, "while": '${ $accepted["rework/x"] != true }',
+                        "do": [{"x": leaf("w", [chk("c")], floor=True)}]}}
+    doc = wf(("outer", {"for": {"each": "i", "in": [0, 1]}, "do": [{"body": {"do": [inner]}}]}))
+    res = go(doc, ScriptedHost(checks={"c": [False, True, False, True]}))
+    assert res.status == "success", res.errors
+    assert len(starts(res, "outer/body#0/rework/x")) == 2 and len(starts(res, "outer/body#1/rework/x")) == 2
+    seen = []
+    probe = {"p": {"set": {"rel": '${ $accepted["x"] }', "full": '${ $accepted["outer/body#0/x"] }'}}}
+    doc = wf(("outer", {"for": {"each": "i", "in": [0]}, "do": [{"body": {"do": [{"x": leaf("w")}, probe]}}]}))
+    assert go(doc).output == {"rel": True, "full": True}
+
+
+def test_s10_p34_the_whole_step_of_an_owner_judged_task_may_run_seven_days():
+    doc = wf(("review", leaf("work", [{"rubric": "criteria/r.md", "judge": "owner"}], role="reviewer")))
+    ev = [(2 * 3600 + 10, decision("review", item=0, type_="org.owner-review"))]
+    res = go(doc, ScriptedHost(steps={"review": StepOutcome(duration=2 * 3600)}, events=ev))
+    assert res.status == "success", res.errors  # a two hour step passes the old one hour step limit
+
+
+def test_n_on_event_logging_survives_non_string_keys_and_cycles():
+    cyc = {}
+    cyc["self"] = cyc
+    ev = event("org.ping", {"k": {(1, 2): "tuple key", "c": cyc}}, signature=None)
+    res = go(wf(("join", _plain_gate(after={"seconds": 5}, type_="org.ping"))), ScriptedHost(events=[(1, ev)]))
+    assert res.errors[0] == "join: timeout"
+
+
+def test_n_outside_root_from_any_host_method_is_a_located_error_not_a_crash():
+    def outside(req):
+        raise it.OutsideRoot("bin/x")
+    res = go(wf(("s", leaf())), ScriptedHost(steps={"s": outside}))
+    assert res.status == "error" and res.errors[0].startswith("s: ") and "resolves outside the org root" in res.errors[0]
+
+
+def test_n_a_symlinked_checks_directory_gets_a_correct_error_message(org, tmp_path):
+    _script(org / "bin" / "w", "echo 1\n")
+    (org / "checks").rmdir()
+    (org / "real-checks").mkdir()
+    (org / "real-checks" / "x.py").write_text("")
+    (org / "checks").symlink_to(org / "real-checks")
+    res = go(wf(("s", leaf("w", [chk("x")], by="code"))), ProcessHost(str(org)))
+    assert res.errors == ["s: acceptance failed"]  # inside the root but not a file directly in checks/: a fail, not "outside"
+    (org / "checks").unlink()
+    outside_dir = tmp_path / "elsewhere"
+    outside_dir.mkdir()
+    (outside_dir / "x.py").write_text("")
+    (org / "checks").symlink_to(outside_dir)
+    res = go(wf(("s", leaf("w", [chk("x")], by="code"))), ProcessHost(str(org)))
+    assert res.errors[0] == "s: metadata.org.acceptance[0].check: 'checks/x.py' resolves outside the org root"
+
+
+def test_n_the_evidence_temp_file_is_refused_inside_the_org_root(org, monkeypatch):
+    _script(org / "bin" / "w", "echo 1\n")
+    (org / "checks" / "x.py").write_text("")
+    (org / "tmpdir").mkdir()
+    monkeypatch.setenv("TMPDIR", str(org / "tmpdir"))
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    res = go(wf(("s", leaf("w", [chk("x")], by="code"))), ProcessHost(str(org)))
+    assert res.status == "error" and "inside the org root" in res.errors[0]
+
+
+def test_n_floors_are_found_through_a_call_cycle_without_caching_a_false():
+    a = wf(("to-b", _call("b")), name="a")
+    b = wf(("to-a", _call("a")), ("to-c", _call("c")), name="b")
+    c = wf(("fl", leaf("fl", [chk()], floor=True)), name="c")
+    root = wf(("each", {"for": {"in": "${ . }"}, "do": [{"x": _call("a")}, {"y": _call("b")}]}), name="root")
+    res = go({"root": root, "a": a, "b": b, "c": c}, name="root", input=[])
+    assert "each/x: floor-not-run" in res.errors and "each/y: floor-not-run" in res.errors
+
+
+def test_n_in_any_mode_an_event_matching_two_filters_counts_once():
+    flts = [{"with": {"type": "org.ping"}}, {"with": {"type": "org.ping"}}]
+    doc = wf(("g", {"listen": {"to": {"any": flts, "until": "${ ($events | length) == 1 }"}}, "timeout": {"after": {"seconds": 30}},
+                    "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}))
+    res = go(doc, ScriptedHost(events=[(2, event("org.ping", {"run": RID}, signature=None))]))
+    assert res.status == "success" and kinds(res, "until")[-1]["events"] == 1
+
+
+def test_n_a_join_does_not_consume_work_of_a_sibling_for_at_the_same_index():
+    f1 = {"for": {"in": [0]}, "do": [{"bg": _detached()}]}
+    f2 = {"for": {"in": [0]}, "do": [{"join": _plain_gate("${ ($events | length) == 1 }", after={"seconds": 10})}]}
+    res = go(wf(("f1", f1), ("f2", f2)))
+    assert res.errors[0] == "f2/join#0: timeout"
+
+
+def test_p40_reasons_do_not_cross_a_call_boundary():
+    seen = []
+    child = wf(("design", _agent("design")), name="child")
+    g = gate(role="lead", by="human", acceptance=[{"human": "ok"}])
+    doc = _rework([{"approve": g}, {"direct": _agent("direct")}, {"c": _call("child")}], n=2, cond='${ $accepted["rework/approve"] != true }')
+    root = dict(doc, document=dict(doc["document"], name="root"))
+    ev = [(5, event("org.owner-decided", {"run": RID, "task": "rework/approve", "decision": "reject", "reason": "vague"})),
+          (9, decision("rework/approve"))]
+    host = ScriptedHost(events=ev, steps={"rework/direct": _capture(seen), "design": _capture(seen)})
+    go({"root": root, "child": child}, host, name="root")
+    by_key = [(r.key, b["reasons"]) for r, b in seen]
+    assert ("rework/direct", {"rework/approve": "vague"}) in by_key
+    assert ("rework/c>design", {}) in by_key
+
+
+def test_r37_the_input_file_directory_check_uses_a_root_that_really_contains_the_temp_dir():
+    host = ScriptedHost(root=os.path.dirname(os.path.realpath(tempfile.gettempdir())))
+    res = go(wf(("a", _agent())), host)
+    assert res.errors[0].startswith("a: input file directory ") and not any(c[0] == "step" for c in host.calls)
