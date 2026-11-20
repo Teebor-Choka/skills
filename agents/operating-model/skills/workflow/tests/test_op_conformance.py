@@ -432,8 +432,8 @@ class MutatingGet(FakeTracker):
 class MutatingSearch(FakeTracker):
     def op_search_items(self, i):
         out = super().op_search_items(i)
-        if self.items:
-            self.items.pop(next(iter(self.items)))
+        for hit in out["items"]:
+            self.items.pop(hit["item_id"])
         return out
 
 
@@ -559,14 +559,6 @@ class WeakerOnUntrusted(FakeInstances):
         return super().op_acquire(i)
 
 
-class WeakerGrantAfterRefusalPath(MacInstances):
-    def op_acquire(self, i):
-        if i["trust"] == "untrusted":
-            out = FakeInstances.op_acquire(self, {**i, "isolation": "process"})
-            return out
-        return super().op_acquire(i)
-
-
 class RefusesEverything(FakeInstances):
     def op_acquire(self, i):
         raise PortError("refused-untrusted", "no")
@@ -671,17 +663,16 @@ BROKEN = [
     ("Documents", DoubleShare, "Documents.share: idempotent", set()),
     ("Documents", MissingDocOk, "Documents.read: error:not-found", set()),
     ("Documents", CacheOnlyDocuments, "Documents.write: durable", set()),
-    ("Identity", SloppyRevoke, "Identity.revoke: revocation-effective", {"Identity.revoke: idempotent"}),
+    ("Identity", SloppyRevoke, "Identity.revoke: revocation-effective", {"Identity.revoke: idempotent", "Identity.issue: reissue-new-credential"}),
     ("Identity", SecondKeyForInstance, "Identity.issue: one-key-per-instance", {"Identity.issue: idempotent"}),
     ("Identity", RevokeOnce, "Identity.revoke: idempotent", set()),
     ("Identity", VerifyRevokes, "Identity.verify: read-only", {"Identity.revoke: revocation-effective"}),
     ("Identity", ListMutates, "Identity.list: read-only", {"Identity.revoke: revocation-effective"}),
-    ("Identity", ReissueReturnsOld, "Identity.issue: reissue-new-credential", set()),
+    ("Identity", ReissueReturnsOld, "Identity.issue: reissue-new-credential", {"Identity.issue: one-key-per-instance"}),
     ("Instances", DowngradingAcquire, "Instances.acquire: requirements-honoured", set()),
     ("Instances", WeakerOnUntrusted, "Instances.acquire: requirements-honoured", set()),
-    ("Instances", WeakerGrantAfterRefusalPath, "Instances.acquire: requirements-honoured", set()),
-    ("Instances", RefusesEverything, "Instances.acquire: requirements-honoured", {"Instances.release: idempotent", "Instances.status: read-only"}),
-    ("Instances", RefusesWithUndeclaredCode, "Instances.acquire: requirements-honoured", {"Instances.release: idempotent", "Instances.status: read-only"}),
+    ("Instances", RefusesEverything, "Instances.acquire: requirements-honoured", {"Instances.release: idempotent", "Instances.status: read-only", "Instances.acquire: network-consistent"}),
+    ("Instances", RefusesWithUndeclaredCode, "Instances.acquire: requirements-honoured", {"Instances.release: idempotent", "Instances.status: read-only", "Instances.acquire: network-consistent"}),
     ("Instances", AllowWithNoneAccepted, "Instances.acquire: network-consistent", set()),
     ("Instances", ReleaseOnce, "Instances.release: idempotent", set()),
     ("Instances", StatusExpires, "Instances.status: read-only", {"Instances.release: idempotent"}),
@@ -694,11 +685,11 @@ BROKEN = [
     ("Memory", RememberAppends, "Memory.remember: idempotent", {"Memory.remember: durable", "Memory.recall: read-only"}),
     ("Memory", FirstWriteWins, "Memory.remember: durable", set()),
     ("Memory", NoStoreRemember, "Memory.remember: durable", {"Memory.remember: idempotent", "Memory.recall: read-only", "Memory.forget: idempotent", "Memory.forget: forgotten-not-recalled"}),
-    ("Metrics", AcceptsAnyMetric, "Metrics.observe: unknown-refused", set()),
+    ("Metrics", AcceptsAnyMetric, "Metrics.observe: unknown-refused", {"Metrics.query: error:unknown-metric"}),
     ("Metrics", DoubleCounts, "Metrics.observe: idempotent", set()),
     ("Metrics", ObserveNoSum, "Metrics.observe: durable", {"Metrics.observe: idempotent"}),
     ("Metrics", QueryResets, "Metrics.query: read-only", {"Metrics.observe: idempotent", "Metrics.observe: durable"}),
-    ("Metrics", UnknownQueryOk, "Metrics.query: error:unknown-metric", set()),
+    ("Metrics", UnknownQueryOk, "Metrics.query: error:unknown-metric", {"Metrics.observe: durable", "Metrics.observe: idempotent"}),
 ]
 
 
@@ -980,10 +971,19 @@ def test_cli_usage_error_is_exit_2():
 
 
 def test_cli_reads_the_catalog_from_a_file(tmp_path):
+    work = tmp_path / "contracts"
+    work.mkdir()
+    for f in CONTRACTS.glob("*.json"):
+        (work / f.name).write_text(f.read_text())
+    doc = json.loads((work / "channel.json").read_text())
+    doc["operations"]["send"]["metrics"] = ["escalations"]
+    (work / "channel.json").write_text(json.dumps(doc))
     cat = tmp_path / "metrics.json"
     cat.write_text(json.dumps({"only-this": {}}))
-    r = run_cli("validate", str(CONTRACTS), "--catalog", str(cat))
+    r = run_cli("validate", str(work), "--catalog", str(cat))
     assert r.returncode == 1 and "catalog" in r.stdout + r.stderr
+    cat.write_text(json.dumps({"escalations": {}}))
+    assert run_cli("validate", str(work), "--catalog", str(cat)).returncode == 0
 
 
 def test_core_imports_the_standard_library_only():

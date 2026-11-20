@@ -73,6 +73,7 @@
     }
   },
   "notes": [
-    "metric must be a name in the merged metric catalog. observation_id is the idempotency key of observe."
+    "metric must be a name in the merged metric catalog. observation_id is the idempotency key of observe.",
+    "No first-catalog metric (execution plan, Appendix A) is something these operations emit, so every metrics list is empty, and metrics emission is not tested."
   ]
 }

@@ -44,7 +44,7 @@
       },
       "guarantees": ["idempotent", "durable"],
       "errors": ["invalid-input", "channel-unavailable"],
-      "metrics": ["escalations"]
+      "metrics": []
     },
     "subscribe": {
       "name": "subscribe",
@@ -138,6 +138,7 @@
   },
   "notes": [
     "Delivery is pull-based: subscribe returns the messages after a cursor, so any binding (terminal, GitHub comment, XMPP) can implement it.",
-    "message_id is the idempotency key of send. A repeated id returns the first seq with duplicate true."
+    "message_id is the idempotency key of send. A repeated id returns the first seq with duplicate true.",
+    "No first-catalog metric (execution plan, Appendix A) is something these operations emit, so every metrics list is empty, and metrics emission is not tested."
   ]
 }

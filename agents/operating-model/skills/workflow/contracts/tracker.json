@@ -88,7 +88,7 @@
       },
       "guarantees": ["idempotent"],
       "errors": ["invalid-input", "not-found", "tracker-unavailable"],
-      "metrics": ["spec-rework"]
+      "metrics": []
     },
     "get-item": {
       "name": "get-item",
@@ -185,7 +185,7 @@
       },
       "guarantees": ["read-only"],
       "errors": ["invalid-input", "tracker-unavailable"],
-      "metrics": ["defects-escaped"]
+      "metrics": []
     },
     "link-items": {
       "name": "link-items",
@@ -221,5 +221,8 @@
       "metrics": []
     }
   },
-  "notes": ["key is the idempotency key of create-item."]
+  "notes": [
+    "key is the idempotency key of create-item.",
+    "No first-catalog metric (execution plan, Appendix A) is something these operations emit, so every metrics list is empty, and metrics emission is not tested."
+  ]
 }

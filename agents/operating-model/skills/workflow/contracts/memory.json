@@ -99,6 +99,7 @@
     }
   },
   "notes": [
-    "Operation names are proposed in the overview. recall of a missing key returns found false, not an error."
+    "Operation names are proposed in the overview. recall of a missing key returns found false, not an error. forget returns forgotten false for a key that was not stored.",
+    "No first-catalog metric (execution plan, Appendix A) is something these operations emit, so every metrics list is empty, and metrics emission is not tested."
   ]
 }

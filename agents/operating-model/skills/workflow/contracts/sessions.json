@@ -17,7 +17,13 @@
               "properties": {
                 "type": {
                   "type": "string",
-                  "enum": ["user", "assistant", "thinking"]
+                  "enum": [
+                    "user",
+                    "assistant",
+                    "thinking",
+                    "tool_use",
+                    "tool_result"
+                  ]
                 },
                 "text": {
                   "type": "string"
@@ -77,6 +83,9 @@
   },
   "notes": [
     "Thinking blocks are dropped from the record and counted in dropped_thinking.",
-    "A harness whose format is not verified returns unsupported-format, never an empty record."
+    "A harness whose format is not verified returns unsupported-format, never an empty record.",
+    "The harness names codex and opencode are unverified: no conformance test exercises them.",
+    "Slice types are a simplification of the session record kinds: user, assistant, thinking, tool_use and tool_result.",
+    "No first-catalog metric (execution plan, Appendix A) is something these operations emit, so every metrics list is empty, and metrics emission is not tested."
   ]
 }

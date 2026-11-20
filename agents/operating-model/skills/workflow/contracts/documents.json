@@ -139,5 +139,8 @@
       "errors": ["invalid-input", "not-found"],
       "metrics": []
     }
-  }
+  },
+  "notes": [
+    "No first-catalog metric (execution plan, Appendix A) is something these operations emit, so every metrics list is empty, and metrics emission is not tested."
+  ]
 }

@@ -43,7 +43,11 @@
       "requirements": {
         "lifetime": "returns within the caller's step timeout"
       },
-      "guarantees": ["idempotent", "one-key-per-instance"],
+      "guarantees": [
+        "idempotent",
+        "one-key-per-instance",
+        "reissue-new-credential"
+      ],
       "errors": ["invalid-input", "already-issued", "backend-unavailable"],
       "metrics": []
     },
@@ -176,6 +180,9 @@
   "notes": [
     "The port is functional: issue, revoke, verify, list. Key material and the backing product stay behind it.",
     "First implementation: OpenSSH CA (certificates for issue, a revocation list for revoke and verify). Any other backend, such as OpenBao or a wrapper, binds to the same four operations.",
-    "One credential per instance_id. A second issue with different kind or subject is refused with already-issued."
+    "One active credential per instance_id. A second issue with different kind or subject is refused with already-issued.",
+    "issue has no validity window yet. A TTL is a later extension.",
+    "A re-issue after revoke returns a new credential id (the revoked one stays invalid).",
+    "No first-catalog metric (execution plan, Appendix A) is something these operations emit, so every metrics list is empty, and metrics emission is not tested."
   ]
 }
