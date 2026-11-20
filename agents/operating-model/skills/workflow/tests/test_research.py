@@ -28,9 +28,21 @@ import validate_manifest as vm  # noqa: E402
 import validate_org as vo  # noqa: E402
 
 # What the research workflow adds to the manifest. A real deploy needs an owner-signed manifest change.
-RESEARCH_ROLES = {"researcher": {"escalates-to": "lead", "summary": "frames questions, searches, drafts notes"}}
+RESEARCH_ROLES = {
+    "researcher": {"escalates-to": "lead", "summary": "frames questions, searches, drafts notes"},
+    "requester": {"escalates-to": "lead", "summary": "asked the question; accepts the note (signer, P18)"},
+}
 RESEARCH_FLOORS = ["cite-check", "claim-review"]
 CITE_CHECK = "every-claim-cites-a-source"
+# Spec 6.1 classes (P25). A fact check reads the producing code step's own result; a shape check reads output.
+RESEARCH_CHECKS = {
+    CITE_CHECK: "fact",  # on claim-cites steps: their own stdout lists each claim's citation
+    "sources-recorded": "fact",  # on prior-notes: notes-search's own stdout
+    "note-published": "fact",  # on publish: note-publish's own stdout
+    "every-claim-has-a-verdict": "shape",  # on the join: verdicts are agent output, read from outputs
+}
+SEARCH_STEPS = ["web-search", "literature-search", "lookup", "check-claim"]
+NETWORK = "research.source-allowlist"
 
 
 def _json(path):
@@ -43,6 +55,7 @@ def _manifest():
     m["roles"].update(copy.deepcopy(RESEARCH_ROLES))
     m["roles"]["lead"]["may-spawn"].append("researcher")
     m["workflows"]["research"] = {"path": "workflows/research.yaml", "floors": list(RESEARCH_FLOORS)}
+    m.setdefault("checks", {}).update(RESEARCH_CHECKS)
     return m
 
 
@@ -178,6 +191,10 @@ def test_validate_manifest_with_research_has_no_start_cycle_or_forgery(tmp_path)
         p = root / entry["collector"]
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("", encoding="utf-8")
+    # Spec 8.1: every name in manifest.checks has checks/<name>.py. Empty stubs: checks/ is outside the write-set.
+    (root / "checks").mkdir()
+    for name in m["checks"]:
+        (root / "checks" / f"{name}.py").write_text("", encoding="utf-8")
     assert vm.validate_manifest(m, cat, str(root)) == []
 
 
@@ -195,12 +212,37 @@ def test_uses_switch_and_fork_and_a_counted_listen_any(flow):
     assert "any" in join["listen"]["to"] and "until" in join["listen"]["to"]
 
 
-def test_join_is_skipped_when_there_are_no_claims(flow):
-    # With zero claims no event arrives, `until` is never evaluated, and the join would time out.
-    cond = find(flow, "claims-checked").get("if")
-    assert cond, "claims-checked has no if guard for an empty claim list"
-    assert expr.evaluate(expr.unwrap(cond), None, {"context": {"claims": []}}) is False
-    assert expr.evaluate(expr.unwrap(cond), None, {"context": {"claims": [{"id": "c1"}]}}) is True
+def test_join_counts_task_ended_events(flow):
+    # Spec 7.5 (P11 to P13): the join listens on org.task-ended and counts $events. A counted until is
+    # evaluated once before the first event, so zero claims complete at once and no if guard is needed.
+    join = find(flow, "claims-checked")
+    assert "if" not in join
+    assert [f["with"]["type"] for f in join["listen"]["to"]["any"]] == ["org.task-ended"]
+    until = expr.unwrap(join["listen"]["to"]["until"])
+
+    def done(events, claims):
+        return expr.evaluate(until, None, {"events": events, "context": {"claims": claims}})
+
+    assert done([], []) is True
+    assert done([{}], [{"id": "c1"}, {"id": "c2"}]) is False
+    assert done([{}, {}], [{"id": "c1"}, {"id": "c2"}]) is True
+
+
+def test_search_steps_name_their_network_policy(flow):
+    # Spec 5 (P19): the runtime passes metadata.org.network to the instance request.
+    for name in SEARCH_STEPS:
+        assert find(flow, name)["metadata"]["org"].get("network") == NETWORK, name
+
+
+def test_requester_accepts_the_note_with_its_own_signature(flow):
+    # Spec 7.5 (P18): a decision gate signed by the requester's key, not the owner's.
+    gate = find(flow, "requester-accepts")
+    o = gate["metadata"]["org"]
+    assert (o["by"], o["role"], o["signer"]) == ("human", "requester", "requester")
+    assert any("human" in i for i in o["acceptance"])
+    assert "one" in gate["listen"]["to"]
+    names = [n for _, n, _ in tasks(flow)]
+    assert names.index("review-loop") < names.index("requester-accepts") < names.index("publish")
 
 
 def test_claim_review_and_cite_check_are_floors(flow):
@@ -209,13 +251,16 @@ def test_claim_review_and_cite_check_are_floors(flow):
     assert find(flow, "cite-check")["metadata"]["org"]["acceptance"] == [{"check": CITE_CHECK}]
 
 
-def test_check_items_sit_only_on_code_tasks(flow):
-    # Spec 6.1: a check reads evidence built only from `by: code` step results, never agent output,
-    # so a check on a model task could not see what that task produced.
+def test_fact_checks_sit_only_on_code_tasks(flow):
+    # Spec 6.1 (P25): a fact check reads the producing code step's result; on a model task it would read claims.
+    classes = _manifest()["checks"]
     for path, _, t in tasks(flow):
         o = t.get("metadata", {}).get("org", {})
-        if any("check" in i for i in o.get("acceptance", [])):
-            assert o.get("by") == "code", f"{path}: check item on a by: {o.get('by')} task"
+        for item in o.get("acceptance", []):
+            if "check" in item:
+                assert item["check"] in classes, f"{path}: check {item['check']} not in manifest.checks"
+                if classes[item["check"]] == "fact":
+                    assert o.get("by") == "code", f"{path}: fact check on a by: {o.get('by')} task"
 
 
 def test_rework_loop_reads_both_floor_results(flow):

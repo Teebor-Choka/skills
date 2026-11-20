@@ -41,6 +41,14 @@
     "improve": {
       "path": "workflows/improve.yaml",
       "floors": []
+    },
+    "bug": {
+      "path": "workflows/bug.yaml",
+      "floors": ["reproduce-evidence", "review", "merge-gate"]
+    },
+    "improvement-scan": {
+      "path": "workflows/improvement-scan.yaml",
+      "floors": []
     }
   },
   "targets": {
@@ -74,6 +82,11 @@
     "write-sets-are-disjoint": "shape",
     "unit-verdict-is-pass": "shape",
     "report-has-every-required-section": "shape",
-    "every-proposal-is-within-its-rung": "shape"
+    "every-proposal-is-within-its-rung": "shape",
+    "feasibility-holds": "fact",
+    "deploy-verified": "fact",
+    "failing-test-committed": "fact",
+    "phase-acceptance-green": "fact",
+    "event-names-its-subject": "shape"
   }
 }
