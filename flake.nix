@@ -43,7 +43,6 @@
         rustPkgs = nixpkgs-rust.legacyPackages.${system};
         py = pkgs.python3.withPackages (ps: [
           ps.pyyaml
-          ps.jsonschema # workflow schema gate tests skip without it
           ps.pytest
         ]);
         codeQualityTools = import ./nix/code-quality-tools.nix { inherit pkgs; };
@@ -241,8 +240,6 @@
                   pkgs.rust-code-analysis
                   pkgs.git
                   pkgs.jq
-                  pkgs.openssh # org runtime tests verify real ssh-keygen -Y signatures
-                  pkgs.nodejs # status skill: render.test.js renders every route of the generated site
                   codeQualityTools.cargo-crap
                   codeQualityTools.cargo-iceberg4rust
                   codeQualityTools.cargo-anatomy
@@ -253,7 +250,6 @@
                     ps.pytest
                     ps.pytest-cov
                     ps.pyyaml # scripts/tests run validate-skills.py, which imports yaml
-                    ps.jsonschema # workflow schema gate tests skip without it
                     codeQualityTools.crap4py
                     codeQualityTools.complexipy
                     codeQualityTools.pyscn

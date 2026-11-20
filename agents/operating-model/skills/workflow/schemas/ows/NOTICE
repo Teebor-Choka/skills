@@ -1,9 +1,0 @@
-workflow.yaml.upstream is the Open Workflow Specification 1.1.0 JSON Schema, vendored byte for byte.
-The .upstream suffix keeps prettier (treefmt) from reformatting it, which would change the sha256.
-
-Source: https://github.com/serverlessworkflow/specification/blob/v1.1.0/schema/workflow.yaml
-Accessed: 2026-11-20
-sha256: a2d181c56b1328b1f94fdf7086d15980f640352405b0811389704242a321f1c9
-Copyright the Serverless Workflow Specification authors.
-Licensed under the Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0
-The full licence text is at https://github.com/serverlessworkflow/specification/blob/v1.1.0/LICENSE

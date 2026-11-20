@@ -20,7 +20,7 @@ script. Copy it, then replace the data block: the lines from `var ASOF = ` up to
 `var LABEL = `. The block holds `ASOF`, `LEAD`, `FOOT`, `U` and `TARGET`. Keep the formatter's
 layout (two-space indent, spaces around `=`).
 
-The template ships with a worked example (the 21-unit organization-model build). Replace all of it.
+The template ships with a worked example (a 21-unit job scheduler build). Replace all of it.
 
 ## Data block
 

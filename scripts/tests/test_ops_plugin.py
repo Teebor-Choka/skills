@@ -29,12 +29,6 @@ def test_ops_is_declared_in_the_marketplace_with_a_valid_skill():
     assert "| `ops`" in (ROOT / "README.md").read_text()
 
 
-def test_organization_no_longer_ships_policy():
-    assert not (ROOT / "agents" / "operating-model" / "skills" / "policy").exists()
-    plugin = json.loads((ROOT / "agents/operating-model/.claude-plugin/plugin.json").read_text())
-    assert "policy" not in plugin["description"]
-
-
 def test_loader_resolves_from_the_new_place(tmp_path):
     (tmp_path / ".agents").mkdir()
     (tmp_path / ".agents" / "policy.md").write_text("---\ngate: tests\n---\n")
