@@ -24,9 +24,12 @@ PROVISIONAL choices (the spec is silent; listed in the unit report):
   - each run gets its own ledger, `<ledger_dir>/<hash of event id and workflow>.ledger`; `make_runtime(ledger_path)`
     builds the `OrgRuntime`;
   - one `deliver` at a time per state file (an exclusive `flock` where the platform has one);
-  - the emits of a run that was cut off by a crash are not re-dispatched on restart.
+  - the emits of a run that was cut off by a crash are dispatched when `finish_pair` is given the resumed run's
+    result: the pair state records its chain `depth` when it starts, and the emits go out at depth + 1 under the
+    same bounds as a normal run (a pair from an older state file has no depth and counts as 0).
 """
 
+import contextlib
 import hashlib
 import json
 import os
@@ -116,6 +119,54 @@ class Dispatcher:
     def state(self):
         return self._read()
 
+    @contextlib.contextmanager
+    def _locked(self):
+        """One writer at a time per state file (an exclusive `flock` where the platform has one)."""
+        os.makedirs(os.path.dirname(os.path.abspath(self.state_path)), exist_ok=True)
+        lock = None
+        if fcntl is not None:
+            lock = open(self.state_path + ".lock", "a")
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if lock is not None:
+                lock.close()
+
+    def set_outside_check(self, enabled):
+        """Record whether `serve` enforces the frozen-outside list: `outside_check` is "enabled" or "disabled"."""
+        with self._locked():
+            st = self._read()
+            st["outside_check"] = "enabled" if enabled else "disabled"
+            self._write(st)
+
+    def finish_pair(self, key, res):
+        """Mark a pair done with the result of its run (a run the dispatcher did not see end, resumed after a crash),
+        keep the error text as `reason`, and dispatch the events the run emitted one hop deeper than the pair, under
+        the same bounds as a normal run. The emits go first and the pair is marked done after them, so a crash in
+        between repeats the dispatch and the pair check makes that harmless. Returns the dispatch records."""
+        with self._locked():
+            st = self._read()
+            pair = st["pairs"].setdefault(key, {})
+            depth, root = pair.get("depth", 0), pair.get("root") or key.partition("\n")[0]
+            table, _, fatal = self._routes()
+            records, queue = [], []
+            self._queue_emits(queue, res, depth, root)
+            self._drain(st, table, queue, fatal, records)
+            pair.update(state="done", run_id=res.run_id, status=res.status)
+            if res.status != "success" and res.errors:
+                pair["reason"] = "; ".join(res.errors)
+            self._write(st)
+        return records
+
+    def record_reason(self, key, reason):
+        """Keep `reason` on an existing pair; an unknown pair is ignored."""
+        with self._locked():
+            st = self._read()
+            if key in st["pairs"]:
+                st["pairs"][key]["reason"] = reason
+                self._write(st)
+
     # -- routing
 
     def _routes(self):
@@ -158,29 +209,22 @@ class Dispatcher:
 
     def deliver(self, event):
         """Dispatch a host-delivered event and, breadth first, every event the started runs emit. Returns records."""
-        os.makedirs(os.path.dirname(os.path.abspath(self.state_path)), exist_ok=True)
-        lock = None
-        if fcntl is not None:
-            lock = open(self.state_path + ".lock", "a")
-            fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
+        with self._locked():
             return self._deliver(event)
-        finally:
-            if lock is not None:
-                lock.close()
 
     def _deliver(self, event):
         st = self._read()
         table, notes, fatal = self._routes()
         records = []
-        queue = []
         root_id = event.get("id") if isinstance(event, dict) else None
-        queue.append((event, None, root_id))  # (event, depth override, root id)
+        self._drain(st, table, [(event, None, root_id)], fatal, records)  # (event, depth override, root id)
+        records.extend(notes)
+        return records
+
+    def _drain(self, st, table, queue, fatal, records):
         while queue:
             ev, depth, root = queue.pop(0)
             self._one(st, table, ev, depth, root, fatal, records, queue)
-        records.extend(notes)
-        return records
 
     def _refuse(self, st, records, ev, reason, workflow=None, depth=None):
         eid = ev.get("id") if isinstance(ev, dict) else None
@@ -235,7 +279,7 @@ class Dispatcher:
 
     def _start(self, st, ev, name, key, depth, root, records, queue):
         ledger = hashlib.sha256(key.encode()).hexdigest()[:32] + ".ledger"
-        st["pairs"][key] = {"state": "starting", "ledger": ledger, "root": root}
+        st["pairs"][key] = {"state": "starting", "ledger": ledger, "root": root, "depth": depth}
         st["starts"][root] = st["starts"].get(root, 0) + 1
         self._write(st)  # before the run: a crash must not start the pair a second time
         os.makedirs(self.ledger_dir, exist_ok=True)
@@ -250,6 +294,10 @@ class Dispatcher:
         records.append({"outcome": "started", "event": ev["id"], "workflow": name, "depth": depth,
                         "run_id": res.run_id, "status": res.status, "errors": list(res.errors),
                         "ledger": ledger, "reason": None})
+        self._queue_emits(queue, res, depth, root)
+
+    @staticmethod
+    def _queue_emits(queue, res, depth, root):
         for e in res.events:
             if e.get("kind") != "emit" or not isinstance(e.get("event"), dict):
                 continue

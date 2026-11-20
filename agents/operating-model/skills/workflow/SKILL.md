@@ -45,3 +45,26 @@ From Python: `validate_org(doc, catalog, manifest) -> list[str]`. An empty list 
 
 It does not check that briefs, rubrics, check scripts or collectors exist, and it does not validate the
 manifest or the catalog.
+
+## Run the organization
+
+`scripts/org.py` runs the organization on one machine (usage only; the rules are in `scripts/org.py` and the spec).
+
+```
+python3 scripts/org.py emit   --inbox INBOX --type org.scan-requested [--data '{"k": 1}'] [--id ID] [--source S]
+python3 scripts/org.py serve  --root ORG_ROOT --state STATE --inbox INBOX [--once] [--poll SECONDS]
+python3 scripts/org.py status --state STATE [--json]
+```
+
+- `emit` writes one event file into the inbox. It refuses the reserved types `org.owner-` and `org.task-`.
+- `serve` hands each event to the dispatcher and runs the workflows it starts. A signed decision file put in the
+  inbox later wakes a waiting gate. Bad files move to `.rejected`, handled ones to `.seen`.
+- `STATE` must hold `ledger.key` (mode 0600, 32 bytes or more), `keys/` (public keys, `<role> <key>` per line) and
+  `snapshots/`. The org root must hold `stack.yaml` or `stack.json`. `serve` refuses to start without them.
+- Exit codes of `serve`: 0 ok, 1 a run ended in error, 2 usage or a refusal. One `serve` per `STATE`.
+- `serve` compares the frozen files outside the org root with the signed snapshot. The repository is `--repo`, or the
+  git top level of the org root; with neither, `serve` refuses. `--no-outside-check` turns this off, warns, and is
+  recorded in the state.
+- After a crash `serve` resumes each run left "starting". A run whose ledger does not verify is reported and left.
+- A run the runtime refused is marked done: after fixing the root, `emit --id <new id>` starts it again.
+- `status` only reads. It lists each started pair with its run result (and the refusal reason) and the last ledger entry.
