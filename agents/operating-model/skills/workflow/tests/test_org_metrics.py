@@ -140,7 +140,7 @@ def test_a_kill_between_run_end_rows_records_each_metric_once_with_the_first_bou
     with pytest.raises(Killed):
         rt.run("t", run_id=RID)
     del rt
-    gc.collect()
+    gc.collect()  # the unwound generators run their finally blocks now; they must write nothing
     assert [e["body"]["metric"] for e in org_metrics(tmp_path)] == ["m1"]
     healthy = mc.Registry([Fake("run-ledger", {"m1": lines, "m4": lines})])
     runtime(tmp_path, root=root, registry=healthy).resume()
@@ -317,3 +317,115 @@ def test_the_default_node_collector_uses_the_registry(tmp_path):
     rows = {e["body"]["key"]: e["body"] for e in entries(tmp_path) if e["kind"] == "metric"}
     assert isinstance(rows["a"].get("value"), int) and rows["a"]["value"] > 0
     assert rows["b"] == {"key": "b", "metric": "m2", "reason": "no collector for tracker"}
+
+
+# ---------------------------------------------------------------- review 1: one writer, rollback, binding, replay
+
+
+def test_a_second_writer_on_the_same_ledger_is_refused_and_erases_nothing(tmp_path):
+    rt = runtime(tmp_path, root=root_with(tmp_path), registry=registry())
+    rt.run("t", run_id=RID)
+    path = tmp_path / "run.ledger"
+    w1, w2 = ort.RunLedger(path, KEY), ort.RunLedger(path, KEY)
+    w2.append("org.note", {"by": "w2"})
+    n = len(entries(tmp_path))
+    with pytest.raises(ort.LedgerError, match="grew under this writer"):
+        w1.append("org.note", {"by": "w1"})
+    es = entries(tmp_path)
+    assert len(es) == n and es[-1]["body"] == {"by": "w2"}
+
+
+def test_the_turn_seam_refuses_when_its_writer_is_behind_the_file(tmp_path):
+    rt = runtime(tmp_path, root=root_with(tmp_path), registry=registry())
+    rt.run("t", run_id=RID)
+    tb = rt.turn_boundary()
+    ort.RunLedger(tmp_path / "run.ledger", KEY).append("org.note", {})
+    n = len(entries(tmp_path))
+    with pytest.raises(ort.LedgerError):
+        tb.export("t1", RECORD)
+    assert len(entries(tmp_path)) == n
+
+
+def test_the_turn_seam_without_a_run_in_this_runtime_never_writes(tmp_path):
+    rt = runtime(tmp_path, root=root_with(tmp_path), registry=registry())
+    with pytest.raises(ort.TurnOrderError):
+        rt.turn_boundary().export("t1", RECORD)
+    assert not (tmp_path / "run.ledger").exists()
+    assert rt.turn_boundary().compaction_allowed("t1") is False
+
+
+def test_the_turn_seam_refuses_a_rolled_back_ledger(tmp_path):
+    rt = runtime(tmp_path, root=root_with(tmp_path), registry=registry())
+    rt.run("t", run_id=RID)
+    tb = rt.turn_boundary()
+    full_turn(tb)
+    path = tmp_path / "run.ledger"
+    raw = path.read_bytes().split(b"\n")
+    path.write_bytes(b"\n".join(raw[:-5]) + b"\n")  # cut back past the turn-complete
+    with pytest.raises(ort.LedgerError):
+        tb.export("t2", RECORD)
+    assert path.read_bytes().count(b"\n") == len(raw) - 5
+    assert tb.compaction_allowed("t1") is False
+
+
+def test_compaction_allowed_refuses_when_a_later_entry_was_cut(tmp_path):
+    rt = runtime(tmp_path, root=root_with(tmp_path), registry=registry())
+    rt.run("t", run_id=RID)
+    tb = rt.turn_boundary()
+    full_turn(tb)
+    tb.export("t2", RECORD)
+    path = tmp_path / "run.ledger"
+    raw = path.read_bytes().split(b"\n")
+    path.write_bytes(b"\n".join(raw[:-2]) + b"\n")  # drop t2's export; t1's turn-complete stays
+    assert tb.compaction_allowed("t1") is False
+
+
+def test_compaction_allowed_is_bound_to_this_run_and_its_record(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    root = root_with(tmp_path)
+    ra = runtime(a, root=root, registry=registry())
+    ra.run("t", run_id=RID)
+    full_turn(ra.turn_boundary())
+    tba = ra.turn_boundary()
+    assert tba.compaction_allowed("t1", RECORD) is True
+    assert tba.compaction_allowed("t1", RECORD + b"other") is False
+    rb = runtime(b, root=root, registry=registry())
+    rb.run("t", run_id="f" * 32)
+    for suffix in ("", ".head"):  # another run's ledger and head, signed with the same runtime key
+        (b / f"run.ledger{suffix}").write_bytes((a / f"run.ledger{suffix}").read_bytes())
+    assert rb.turn_boundary().compaction_allowed("t1") is False
+
+
+def test_a_collector_that_calls_exit_does_not_abort_the_run(tmp_path):
+    def bye(d, k):
+        raise SystemExit(0)
+
+    rt = runtime(tmp_path, root=root_with(tmp_path), registry=registry(m1=bye))
+    assert rt.run("t", run_id=RID).status == "success"
+    assert "SystemExit" in org_metrics(tmp_path)[0]["body"]["error"]
+
+
+def test_replay_recomputes_run_end_metrics_and_refuses_a_different_value(tmp_path):
+    root = root_with(tmp_path)
+    runtime(tmp_path, root=root, registry=registry()).run("t", run_id=RID)
+    assert runtime(tmp_path, root=root, registry=registry()).replay().status == "success"
+    with pytest.raises(ort.DivergenceError, match="m1"):
+        runtime(tmp_path, root=root, registry=registry(m1=lambda d, k: 5)).replay()
+
+
+def test_replay_with_the_default_registry_matches_what_the_run_recorded(tmp_path):
+    root = root_with(tmp_path)
+    runtime(tmp_path, root=root).run("t", run_id=RID)
+    assert runtime(tmp_path, root=root).replay().status == "success"
+
+
+def test_an_org_authored_metric_no_built_in_collector_computes_runs_its_own_script(tmp_path):
+    from test_org_runtime import COLLECTOR
+
+    root = make_root(tmp_path, catalog={"m1": CATALOG["m1"]}, collector=COLLECTOR)
+    rt = runtime(tmp_path, root=root, registry=mc.Registry([Fake("run-ledger", {})]), collector=None)
+    assert rt.run("t", run_id=RID).status == "success"
+    rows = [e["body"] for e in entries(tmp_path) if e["kind"] == "metric"]
+    assert rows and all(isinstance(r.get("value"), int) for r in rows), rows

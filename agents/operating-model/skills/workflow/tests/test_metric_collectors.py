@@ -1,7 +1,7 @@
 """Metric collectors: the registry seam keyed by the catalog's `reads` sources, and each built-in collector.
 
 Collectors are pure functions of ledger and session-record bytes. These tests build the bytes by hand; the
-runtime side (org.metric entries, the turn seam) is in test_org_runtime.py.
+runtime side (org.metric entries, the turn seam) is in test_org_metrics.py.
 """
 import ast
 import json
@@ -79,12 +79,13 @@ def compute(metric, *items, key=None, session=None, registry=None):
 # ---------------------------------------------------------------- catalog-derived collectors (run-ledger)
 
 
-def test_escalations_counts_every_escalation_in_the_run_and_per_node():
+def test_escalations_counts_every_escalation_in_the_run_also_on_a_node_row():
+    # The escalation event carries the raise task's key, and no raise task names the metric: a node row (on
+    # align, design, merge-gate...) reports the run's count so far, never a per-key zero.
     items = (log("run-start"), log("escalation", key="a", to="lead"), log("escalation", key="b", to="owner"),
              log("escalation", key="a", to="lead"), log("run-end", status="error"))
     assert compute("escalations", *items) == {"value": 3}
-    assert compute("escalations", *items, key="a") == {"value": 2}
-    assert compute("escalations", *items, key="zzz") == {"value": 0}
+    assert compute("escalations", *items, key="align") == {"value": 3}
 
 
 def test_green_rounds_counts_failed_green_evidence_per_unit_and_summed_over_the_run():
@@ -95,14 +96,16 @@ def test_green_rounds_counts_failed_green_evidence_per_unit_and_summed_over_the_
     assert compute("green-rounds", *items, key=g) == {"value": 2}
 
 
-def test_acceptance_rounds_counts_rounds_until_the_first_pass_of_the_node():
+def test_acceptance_rounds_counts_every_round_the_node_ran():
+    # Keys repeat across while-loop rounds, and an outer loop can rerun a node that passed: every executed round
+    # counts, a cancelled one does not.
     k = "spec-cycle/design-cycle/build-cycle/layer-run"
     items = (accept(k, "fail"), node_row(k, "acceptance-rounds"), accept(k, "fail"), node_row(k, "acceptance-rounds"),
-             accept(k, "pass"), node_row(k, "acceptance-rounds"), accept(k, "pass"),
+             accept(k, "pass"), node_row(k, "acceptance-rounds"), accept(k, "pass"), accept(k, "cancelled"),
              accept("acceptance-run", "pass"), node_row("acceptance-run", "acceptance-rounds"))
-    assert compute("acceptance-rounds", *items, key=k) == {"value": 3}
+    assert compute("acceptance-rounds", *items, key=k) == {"value": 4}
     assert compute("acceptance-rounds", *items, key="acceptance-run") == {"value": 1}
-    assert compute("acceptance-rounds", *items) == {"value": 3}  # the run: the most rounds any node took
+    assert compute("acceptance-rounds", *items) == {"value": 4}  # the run: the most rounds any node took
 
 
 def test_acceptance_rounds_of_a_node_that_never_passed_is_every_round_it_ran():
@@ -115,21 +118,28 @@ def test_a_rounds_metric_no_node_of_the_run_carries_has_a_reason_not_a_zero():
     assert set(out) == {"reason"} and "acceptance-rounds" in out["reason"]
 
 
-def test_claim_review_rounds_counts_rounds_until_the_review_passed():
+def test_claim_review_rounds_counts_rounds_until_the_review_and_the_citation_check_passed():
+    # The review passed in round 2 but the citation check failed, so the loop ran a third round.
     k = "review-loop/claim-review"
     items = (accept(k, "fail"), node_row(k, "claim-review-rounds"), accept(k, "pass"),
-             node_row(k, "claim-review-rounds"))
-    assert compute("claim-review-rounds", *items, key=k) == {"value": 2}
-    assert compute("claim-review-rounds", *items) == {"value": 2}
+             node_row(k, "claim-review-rounds"), accept(k, "pass"), node_row(k, "claim-review-rounds"))
+    assert compute("claim-review-rounds", *items, key=k) == {"value": 3}
+    assert compute("claim-review-rounds", *items) == {"value": 3}
 
 
-def test_lead_time_is_hours_from_run_start_to_the_first_pass_of_the_node():
+def test_lead_time_is_hours_from_run_start_to_the_merge():
     items = (log("run-start", 0.0), accept("merge", "fail", 3600.0), node_row("merge", "lead-time"),
              accept("merge", "pass", 7200.0), node_row("merge", "lead-time"),
              accept("deploy", "pass", 10800.0), node_row("deploy", "lead-time"))
     assert compute("lead-time", *items, key="merge") == {"value": 2.0}
     assert compute("lead-time", *items, key="deploy") == {"value": 3.0}
-    assert compute("lead-time", *items) == {"value": 2.0}  # the earliest node that passed: the merge
+    assert compute("lead-time", *items) == {"value": 2.0}
+
+
+def test_lead_time_of_a_run_whose_merge_was_skipped_is_a_reason_not_the_deploy_time():
+    items = (log("run-start", 0.0), log("task-skip", key="merge"), accept("deploy", "pass", 10800.0),
+             node_row("deploy", "lead-time"))
+    assert set(compute("lead-time", *items)) == {"reason"}
 
 
 def test_lead_time_with_no_passing_node_has_a_reason():
@@ -139,7 +149,9 @@ def test_lead_time_with_no_passing_node_has_a_reason():
 
 
 def test_question_turnaround_is_hours_to_the_published_note():
-    items = (log("run-start", 0.0), accept("publish", "pass", 1800.0), node_row("publish", "question-turnaround"))
+    items = (log("run-start", 0.0), accept("requester-accepts", "pass", 900.0),
+             node_row("requester-accepts", "question-turnaround"), accept("publish", "pass", 1800.0),
+             node_row("publish", "question-turnaround"))
     assert compute("question-turnaround", *items) == {"value": 0.5}
 
 
@@ -155,6 +167,20 @@ def test_decision_latency_is_hours_from_gate_start_to_the_signed_decision():
 def test_decision_latency_with_no_signed_decision_has_a_reason():
     out = compute("decision-latency", log("task-start", 0.0, key="g", path="g"), accept("g", "fail", 5.0))
     assert set(out) == {"reason"}
+
+
+OWNER_RUBRIC = (log("task-start", 0.0, key="review", path="review"), ("decision-id", {"id": "r", "key": "review"}),
+                log("item", 7200.0, key="review", index=0, item="rubric", result="pass"),
+                accept("review", "pass", 7200.0))
+
+
+def test_an_owner_judged_rubric_is_not_a_gate_decision():
+    gate = (log("task-start", 100.0, key="merge-gate", path="merge-gate"),
+            ("decision-id", {"id": "e1", "key": "merge-gate"}),
+            log("item", 1900.0, key="merge-gate", index=0, item="human", result="pass"),
+            accept("merge-gate", "pass", 1900.0))
+    assert compute("decision-latency", *OWNER_RUBRIC, *gate) == {"value": 0.5}
+    assert compute("gate-wait", *OWNER_RUBRIC, *gate) == {"value": 1800.0}
 
 
 # ---------------------------------------------------------------- runtime catalog (metrics.runtime.json)
@@ -315,6 +341,39 @@ def test_a_collector_may_say_why_it_has_no_value():
         "reason": "nothing merged yet"}
 
 
+def test_a_collector_that_exits_is_an_error_row():
+    def bye(data, key):
+        raise SystemExit(3)
+
+    reg = mc.Registry([Fake("run-ledger", {"m": bye})])
+    out = reg.compute("m", {**ENTRY, "reads": ["run-ledger"]}, {"run-ledger": b""})
+    assert set(out) == {"error"} and "SystemExit" in out["error"]
+
+
+def test_a_number_too_large_to_check_is_an_error_row():
+    reg = mc.Registry([Fake("run-ledger", {"m": lambda d, k: 10 ** 400})])
+    out = reg.compute("m", {**ENTRY, "reads": ["run-ledger"]}, {"run-ledger": b""})
+    assert set(out) == {"error"}
+
+
+def test_a_parser_may_say_why_a_source_has_no_value():
+    def nothing(data):
+        raise mc.NoValue("empty record")
+
+    reg = mc.Registry([Fake("run-ledger", {"m": lambda d, k: 1}, parse=nothing)])
+    assert reg.compute("m", {**ENTRY, "reads": ["run-ledger"]}, {"run-ledger": b""}) == {"reason": "empty record"}
+
+
+def test_an_error_row_is_short_and_has_no_object_address():
+    class Odd:
+        pass
+
+    reg = mc.Registry([Fake("run-ledger", {"m": lambda d, k: Odd(), "n": lambda d, k: 1 / 0 if k else "x" * 5000})])
+    for m in ("m", "n"):
+        out = reg.compute(m, {**ENTRY, "reads": ["run-ledger"]}, {"run-ledger": b""})
+        assert "0x" not in out["error"] and len(out["error"]) <= 300, out
+
+
 def test_two_collectors_for_one_source_are_refused():
     with pytest.raises(ValueError, match="run-ledger"):
         mc.Registry([Fake("run-ledger", {}), Fake("run-ledger", {})])
@@ -368,15 +427,37 @@ def test_collecting_twice_from_the_same_bytes_is_byte_identical():
     assert a == b
 
 
-def test_the_collector_module_uses_no_clock_network_environment_or_randomness():
-    tree = ast.parse((W / "scripts" / "metric_collectors.py").read_text())
+_DETERMINISM = """
+import json, sys
+sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])
+import metric_collectors as mc, test_metric_collectors as t
+out = mc.collect(t.SHIPPED, mc.default_registry(), {"run-ledger": t.ledger(*t.RICH), "session-record": t.SESSION})
+print(json.dumps(out, sort_keys=True, separators=(",", ":")))
+"""
+
+
+def test_collecting_in_two_processes_with_different_hash_seeds_is_byte_identical():
+    import os
+    import subprocess
+    outs = []
+    for seed in ("1", "4242"):
+        env = {**os.environ, "PYTHONHASHSEED": seed}
+        cp = subprocess.run([sys.executable, "-c", _DETERMINISM, str(W / "scripts"), str(HERE)], env=env,
+                            capture_output=True, text=True, check=True)
+        outs.append(cp.stdout)
+    assert outs[0] == outs[1] and outs[0].strip()
+
+
+def test_the_collector_modules_use_no_clock_network_environment_or_randomness():
     banned = {"time", "datetime", "socket", "random", "secrets", "subprocess", "urllib", "http", "uuid"}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            assert not {a.name.split(".")[0] for a in node.names} & banned
-        elif isinstance(node, ast.ImportFrom):
-            assert (node.module or "").split(".")[0] not in banned
-        elif isinstance(node, ast.Attribute):
-            assert node.attr not in ("environ", "getenv", "open"), node.attr
-        elif isinstance(node, ast.Name):
-            assert node.id != "open"
+    for name in ("metric_collectors.py", "session_export.py"):
+        tree = ast.parse((W / "scripts" / name).read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                assert not {a.name.split(".")[0] for a in node.names} & banned, name
+            elif isinstance(node, ast.ImportFrom):
+                assert (node.module or "").split(".")[0] not in banned, name
+            elif isinstance(node, ast.Attribute) and name == "metric_collectors.py":
+                assert node.attr not in ("environ", "getenv", "open", "urandom", "times", "getpid"), node.attr
+            elif isinstance(node, ast.Name) and name == "metric_collectors.py":
+                assert node.id != "open"
