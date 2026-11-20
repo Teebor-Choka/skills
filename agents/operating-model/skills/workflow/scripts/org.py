@@ -254,41 +254,6 @@ class _LiveRun:
         return self.runtime.resume(feed=self.feed)
 
 
-# ---------------------------------------------------------------- state patches (the dispatcher's own file)
-
-
-def _patch_state(state_file, patch):
-    """Apply `patch(state)` to the dispatcher state under the dispatcher's own lock; same shape, atomic replace."""
-    lock = open(state_file + ".lock", "a")
-    try:
-        if fcntl is not None:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            with open(state_file, encoding="utf-8") as f:
-                st = json.load(f)
-        except FileNotFoundError:
-            st = {"pairs": {}, "starts": {}, "refusals": []}
-        patch(st)
-        tmp = state_file + ".tmp"
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(st, f, sort_keys=True)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, state_file)
-    finally:
-        lock.close()
-
-
-def _finish_pair(state_file, key, res):
-    def patch(st):
-        pair = st["pairs"].setdefault(key, {})
-        pair.update(state="done", run_id=res.run_id, status=res.status)
-        if res.status != "success" and res.errors:
-            pair["reason"] = "; ".join(res.errors)
-    _patch_state(state_file, patch)
-
-
 def _frozen(args, root):
     """(FrozenOutside, disabled) from `--repo`, the git top level of the root, or `--no-outside-check`."""
     if args.no_outside_check:
@@ -313,7 +278,6 @@ def _frozen(args, root):
 def _resume_starting(disp, state, make_runtime):
     """Resume every pair left 'starting'. Returns the exit code contribution (0, 1 or 2)."""
     code = 0
-    state_file = os.path.join(state, STATE_FILE)
     for key, rec in sorted(disp.state()["pairs"].items()):
         if rec.get("state") != "starting":
             continue
@@ -331,7 +295,7 @@ def _resume_starting(disp, state, make_runtime):
             _say(f"org: not resumed {where}: the ledger does not verify: {e}", sys.stderr)
             code = max(code, 1)
             continue
-        _finish_pair(state_file, key, res)
+        disp.finish_pair(key, res)
         _say(f"resumed {workflow} event={event} run={res.run_id} status={res.status}"
              + (f": {'; '.join(res.errors)}" if res.status != "success" and res.errors else ""))
         if res.status == "refused":
@@ -398,8 +362,7 @@ def _serve_locked(args, host, verifier, clock, sleep, root, state, inbox):
 
     disp = dp.Dispatcher(root, os.path.join(state, STATE_FILE), os.path.join(state, "ledgers"), make_runtime)
     stop, old, shown, code = [], {}, [0, 0], 0
-    _patch_state(os.path.join(state, STATE_FILE), lambda st: st.update(
-        outside_check="disabled" if outside_off else "enabled"))
+    disp.set_outside_check(not outside_off)
 
     def report():
         for i, feed in enumerate((start, decisions)):
@@ -428,8 +391,7 @@ def _serve_locked(args, host, verifier, clock, sleep, root, state, inbox):
                 for rec in records:
                     _say(_describe(rec))
                     if rec["outcome"] == "started" and rec["status"] != "success" and rec.get("errors"):
-                        _patch_state(os.path.join(state, STATE_FILE), lambda st, r=rec: st["pairs"].get(
-                            f"{r['event']}\n{r['workflow']}", {}).update(reason="; ".join(r["errors"])))
+                        disp.record_reason(f"{rec['event']}\n{rec['workflow']}", "; ".join(rec["errors"]))
                     if rec["outcome"] == "refused":
                         refused = refused or rec.get("event") == event.get("id")
                         if str(rec.get("reason", "")).startswith("run could not start"):
