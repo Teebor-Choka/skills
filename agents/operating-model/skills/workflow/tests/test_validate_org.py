@@ -931,3 +931,35 @@ def test_join_is_a_plain_gate_so_it_needs_the_gate_keys():
     w89(d)
     find(d, "join").pop("timeout")
     assert "build/join: kind gate needs an inline timeout" in vo.validate_org(d, CAT, MAN)
+
+
+# CI py313: nesting depth must not depend on the interpreter's recursion limit
+def _json_file(tmp_path, text):
+    f = tmp_path / "n.json"
+    f.write_text(text)
+    return f
+
+
+@pytest.mark.parametrize("text", ["[" * 100000, '{"a":' * 100000, "[" * 600 + "]" * 600,
+                                  '{"a":' * 600 + "1" + "}" * 600], ids=["array-open", "object-open", "array-600", "object-600"])
+def test_json_nesting_over_512_is_refused_on_any_interpreter(tmp_path, text):
+    f = _json_file(tmp_path, text)
+    with pytest.raises(vo.LoadError) as e:
+        vo.load_file(str(f))
+    assert str(e.value) == f"{f}: nesting too deep to load"
+
+
+def test_json_nesting_of_100_still_loads(tmp_path):
+    f = _json_file(tmp_path, "[" * 100 + "]" * 100)
+    assert vo.load_file(str(f)) is not None
+
+
+def test_json_brackets_inside_strings_do_not_count(tmp_path):
+    f = _json_file(tmp_path, json.dumps({"a": "[" * 5000, "b": "\\" + '"' + "[" * 5000}))
+    assert vo.load_file(str(f))["a"] == "[" * 5000
+
+
+def test_json_nesting_of_exactly_512_loads_and_513_does_not(tmp_path):
+    assert vo.load_file(str(_json_file(tmp_path, "[" * 512 + "]" * 512))) is not None
+    with pytest.raises(vo.LoadError):
+        vo.load_file(str(_json_file(tmp_path, "[" * 513 + "]" * 513)))
