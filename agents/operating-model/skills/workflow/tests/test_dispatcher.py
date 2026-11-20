@@ -47,7 +47,7 @@ def write_root(tmp, docs, name="org"):
     root = tmp / name
     for d in ("workflows", "collectors", "checks", "briefs", "criteria", "bin"):
         (root / d).mkdir(parents=True, exist_ok=True)
-    man = {"owner": "teebor", "namespace": "org", "vetoes": ["v"],
+    man = {"owner": "teebor", "namespace": "org", "vetoes": ["v"], "checks": {"c": "shape"},
            "roles": {"worker": {"escalates-to": "owner"}, "improver": {"escalates-to": "owner"}},
            "workflows": {n: {"path": f"workflows/{n}.json", "floors": []} for n in docs}}
     (root / "manifest.json").write_text(json.dumps(man))
@@ -122,7 +122,7 @@ def test_work_item_ready_starts_sw_development_with_the_event_as_input(tmp_path)
     recs = d.deliver(event())
     assert started(recs) == ["sw-development"]
     rec = recs[0]
-    assert RUN_ID.fullmatch(rec["run_id"]) and rec["status"] == "success"
+    assert RUN_ID.fullmatch(rec["run_id"]) and rec["status"] == "success", rec["errors"]
     h = header(tmp_path, rec)
     assert h["workflow"] == "sw-development" and h["run_id"] == rec["run_id"]
     assert h["input"] == {"event": event()}
@@ -222,7 +222,7 @@ def test_an_emitted_event_cannot_reset_its_own_chain_counter(tmp_path):
     d, log = fake(tmp_path, root, emits)
     d.deliver({"id": "root", "type": "org.hop-0", "data": {}})
     assert len(log) == 9
-    assert [i["event"]["data"]["chain"] for _, i, _ in log] == list(range(9))
+    assert [i["event"]["data"].get("chain", 0) for _, i, _ in log] == list(range(9))
 
 
 @pytest.mark.parametrize("chain", [-1, "3", 1.5, True, None, [1]])
