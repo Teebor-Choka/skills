@@ -549,7 +549,7 @@ def test_rung_check_fails_closed_without_check_change(tmp_path):
 @pytest.mark.parametrize("name", sorted(GOOD))
 def test_every_pass_fixture_matches_the_documented_shape(name):
     readme = (ROOT / "checks" / "README.md").read_text()
-    row = re.search(rf"(?m)^\| `{re.escape(name)}` \|.*$", readme)
+    row = re.search(rf"(?m)^\| `{re.escape(name)}`\s*\|.*$", readme)
     assert row, f"{name} is not in the shape table of checks/README.md"
     documented = set(re.findall(r"`([a-z_]+)`", row.group(0).split("|")[-2]))
     assert documented == set(GOOD[name])
