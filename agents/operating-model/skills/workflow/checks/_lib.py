@@ -95,9 +95,12 @@ class Evidence:
         return unit if isinstance(unit, dict) else {}
 
     def write_set(self):
+        """The unit's write-set, or None when the unit declares none (bug.yaml's fix unit, P57)."""
         ws = self.unit().get("write_set")
+        if ws is None:
+            return None
         if not (isinstance(ws, list) and ws and all(is_str(w) for w in ws)):
-            die(2, "evidence input has no unit write_set (a non-empty list of paths)")
+            die(2, "evidence input: unit write_set must be a non-empty list of paths")
         return ws
 
     def new_symbols(self):

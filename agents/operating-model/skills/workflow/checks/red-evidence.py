@@ -11,6 +11,8 @@ def check(ev):
     problems = _lib.assertion_failures(out["runs"], missing_symbol_ok=ev.new_symbols())
     write_set = ev.write_set()
     changed = out["changed"]
+    if write_set is None:  # no write-set declared (bug.yaml): nothing to compare the changed paths with
+        return problems
     if not (isinstance(changed, list) and all(isinstance(p, str) for p in changed)):
         return problems + ["changed must be a list of paths"]
     # P57: red writes tests only; production files of the write_set must still equal the base

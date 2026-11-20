@@ -81,6 +81,7 @@ MAX_ITERATIONS = 10000  # for iterations in one run, nested multiplication inclu
 MAX_CALLS = 8  # 7.7
 MAX_LISTS = 16
 OUTPUT_CAP = 1_000_000
+DIFF_CAP = 200_000  # P54: a change diff shares agent-run's 1 MB input file with the outputs of the round
 WORKTREE_VAR, BASE_VAR = "TDD_WORKTREE", "TDD_BASE"  # P54: the stack bin-env names that locate a workflow's change
 TASK_ENDED = "org.task-ended"
 RESERVED_PREFIXES = ("org.owner-", "org.task-")
@@ -773,7 +774,7 @@ class ProcessHost:
         finally:
             os.unlink(epath)
 
-    def change(self, worktree=None, base=None, cap=OUTPUT_CAP):
+    def change(self, worktree=None, base=None, cap=DIFF_CAP):
         """The VCS head and working tree of the org root (P28); head is None outside a git tree.
 
         With `worktree` (P54: the stack's TDD_WORKTREE) the same for that tree, and with `base` also the resolved
