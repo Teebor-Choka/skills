@@ -91,20 +91,20 @@ runs. Acceptance tests are claimed by test id: the ids in the `acceptance-tests`
 
 ## Environment of the bin programs
 
-The runtime forwards these from the stack document (the process host does not forward its own environment).
+The stack document's `bin-env` (spec 8.6) lists these per workflow; the runtime forwards exactly those names and nothing else. `TDD_TEST_CMD` and `TDD_VERIFY_CMD` take a JSON list of strings or a plain command line.
 
-| Variable                    | Read by                        | Meaning                                                                     | Default                       |
-| --------------------------- | ------------------------------ | --------------------------------------------------------------------------- | ----------------------------- |
-| `TDD_WORKTREE`              | `tdd-evidence`, `merge-change` | The project working tree (a git repository)                                 | current directory             |
-| `TDD_BASE`                  | `tdd-evidence`                 | The commit the change started from; `bug red` needs it                      | `HEAD`                        |
-| `TDD_TEST_CMD`              | `tdd-evidence`                 | JSON argv of the test command; it prints pytest `-rA` summary lines         | pytest                        |
-| `TDD_TIMEOUT`               | `tdd-evidence`                 | Seconds for one test run or the verification command                        | 600                           |
-| `TDD_FAULTS`                | `tdd-evidence`                 | Faults file                                                                 | `<worktree>/.org/faults.json` |
-| `TDD_VERIFY_CMD`            | `tdd-evidence`                 | JSON argv of the deploy verification command; absent fails the verification | none                          |
-| `TDD_CHANGE_BRANCH`         | `merge-change`                 | The branch to fast-forward into the target branch                           | none (required)               |
-| `POLICY_VCS_DEFAULT_BRANCH` | `merge-change`                 | Resolves the policy name `vcs.default-branch` given to `--into`             | none (required)               |
+| Variable                    | Read by                        | Meaning                                                                                     | Default                       |
+| --------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------- | ----------------------------- |
+| `TDD_WORKTREE`              | `tdd-evidence`, `merge-change` | The project working tree (a git repository)                                                 | current directory             |
+| `TDD_BASE`                  | `tdd-evidence`                 | The commit the change started from; `bug red` needs it                                      | `HEAD`                        |
+| `TDD_TEST_CMD`              | `tdd-evidence`                 | JSON argv or command line of the test command; it prints pytest `-rA` summary lines         | pytest                        |
+| `TDD_TIMEOUT`               | `tdd-evidence`                 | Seconds for one test run or the verification command                                        | 600                           |
+| `TDD_FAULTS`                | `tdd-evidence`                 | Faults file                                                                                 | `<worktree>/.org/faults.json` |
+| `TDD_VERIFY_CMD`            | `tdd-evidence`                 | JSON argv or command line of the deploy verification command; absent fails the verification | none                          |
+| `TDD_CHANGE_BRANCH`         | `merge-change`                 | The branch to fast-forward into the target branch                                           | none (required)               |
+| `POLICY_VCS_DEFAULT_BRANCH` | `merge-change`                 | Resolves the policy name `vcs.default-branch` given to `--into`                             | none (required)               |
 
-The manifest's top-level keys are a closed set (spec 8.1), so this table is not a manifest key.
+The names are not a manifest key (spec 8.1 is a closed set); the stack carries them (spec 8.6).
 
 ## Defaults taken by the orchestrator
 

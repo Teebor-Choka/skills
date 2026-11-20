@@ -69,11 +69,16 @@ def event(type_, data=None, signature="owner"):
     return {"type": type_, "data": dict(data or {}), "signature": signature}
 
 
+_IDS = iter(range(10**6))
+
+
 def decide(task, decision="approve", item=None, run=RID):
     d = {"run": run, "task": task, "decision": decision}
     if item is not None:
         d["item"] = item
-    return event("org.owner-decided", d)
+    e = event("org.owner-decided", d)
+    e["id"] = f"decision-{next(_IDS)}"  # the interpreter consumes each decision id once
+    return e
 
 
 class Scn:
@@ -550,6 +555,14 @@ def test_deploy_verify_runs_the_configured_command_and_fails_closed(repo):
     cmd = json.dumps([sys.executable, "-c", "import sys; sys.exit(3)"])
     assert out(tdd(repo, "deploy", "verify", TDD_VERIFY_CMD=cmd))["verified"] is False
     assert out(tdd(repo, "deploy", "verify"))["verified"] is False
+
+
+def test_commands_may_be_a_plain_command_line_as_in_the_stack_bin_env(repo):
+    line = f"{sys.executable} -c 'import sys; sys.exit(0)'"
+    assert out(tdd(repo, "deploy", "verify", TDD_VERIFY_CMD=line))["verified"] is True
+    (repo / "test_new.py").write_text("def test_f():\n    assert False\n")
+    ev = out(tdd(repo, "unit", "red", TDD_TEST_CMD=f"{sys.executable} -m pytest -q -rA --tb=short -p no:cacheprovider"))
+    assert [r["outcome"] for r in ev["runs"]] == ["assertion"]
 
 
 def test_bug_red_needs_the_failing_test_committed(repo):
