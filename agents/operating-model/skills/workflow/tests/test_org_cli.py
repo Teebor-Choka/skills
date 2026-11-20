@@ -627,3 +627,70 @@ def test_a_decision_left_in_the_inbox_is_verified_once_until_it_changes(gated):
     assert code == 1 and (gated.inbox / "other.json").exists()  # nobody decided this run: it timed out
     assert seen[0] == seen[1]  # 50 polls in between, no new verification
     assert seen[1] < verifier.calls <= seen[1] + 2  # the changed file is verified again, not once per poll
+
+
+# ---------------------------------------------------------------- limit 2: a resumed run's emits are dispatched
+
+
+def resumable_root(tmp):
+    return write_root(tmp, {
+        "improvement-scan": doc("improvement-scan", "org.scan-requested", ("file", emit_task("org.work-item-ready")),
+                                ("merge-gate", gate_task())),
+        "sw-development": doc("sw-development", "org.work-item-ready", ("build", leaf())),
+    })
+
+
+def crash_after_emit(o, *extra):
+    o.emit("org.scan-requested", "--id", "s-1", *extra)
+    kill_at(o, 5)
+    with pytest.raises(Killed):
+        o.serve()
+    assert len(o.ledgers()) == 1  # the emit is journaled, nothing downstream started
+    o.clock = FakeClock()
+
+
+def restart_and_decide(o):
+    o.clock.on_sleep.append((20, lambda: o.decision(o.run_id())))
+    return o.serve()
+
+
+def pairs(o):
+    return json.loads((o.state / "dispatcher.json").read_text())["pairs"]
+
+
+def test_events_emitted_before_a_crash_start_the_downstream_workflow_once_after_the_resume(tmp_path):
+    o = Org(tmp_path, resumable_root(tmp_path))
+    crash_after_emit(o)
+    code, out, err = restart_and_decide(o)
+    assert code == 0, (out, err)
+    assert len(o.ledgers()) == 2 and "started sw-development" in out
+    by_workflow = {k.partition("\n")[2]: v for k, v in pairs(o).items()}
+    assert {v["state"] for v in by_workflow.values()} == {"done"}
+    down_key = next(k for k in pairs(o) if k.endswith("\nsw-development"))
+    assert down_key.partition("\n")[0].startswith(by_workflow["improvement-scan"]["run_id"] + ":")
+    assert by_workflow["sw-development"]["depth"] == 1
+    # a second restart changes nothing
+    assert o.serve()[0] == 0 and len(o.ledgers()) == 2
+
+
+def test_a_redelivered_emit_after_the_resume_does_not_dispatch_twice(tmp_path):
+    o = Org(tmp_path, resumable_root(tmp_path))
+    crash_after_emit(o)
+    assert restart_and_decide(o)[0] == 0
+    down_event = next(k for k in pairs(o) if k.endswith("\nsw-development")).partition("\n")[0]
+    o.emit("org.work-item-ready", "--id", down_event)
+    o.emit("org.scan-requested", "--id", "s-1")
+    code, out, err = o.serve()
+    assert code == 0 and len(o.ledgers()) == 2
+    assert not [ln for ln in out.splitlines() if ln.startswith("started")] and out.count("duplicate") == 2
+
+
+def test_the_chain_bound_holds_across_a_resume(tmp_path):
+    o = Org(tmp_path, resumable_root(tmp_path))
+    crash_after_emit(o, "--data", '{"chain": 8}')  # the run is at the deepest allowed depth
+    code, out, err = restart_and_decide(o)
+    assert code == 0, (out, err)
+    assert len(o.ledgers()) == 1 and "chain depth 9 exceeds 8" in out  # reported like a normal refusal
+    refusals = json.loads(o.status("--json")[1])["refusals"]
+    assert [r["reason"] for r in refusals] == ["chain depth 9 exceeds 8"]
+    assert [p["state"] for p in pairs(o).values()] == ["done"]

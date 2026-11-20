@@ -447,3 +447,56 @@ def test_record_reason_sets_it_on_one_pair_and_ignores_an_unknown_pair(tmp_path)
     d.record_reason("nope\nnothing", "ignored")
     st = d.state()
     assert st["pairs"][key]["reason"] == "why" and list(st["pairs"]) == [key]
+
+
+# ---------------------------------------------------------------- a run resumed after a crash dispatches its emits
+
+
+def emit_result(run_id, *types):
+    events = [{"seq": i + 1, "kind": "emit", "key": f"e{i}", "event": {"type": t, "data": {"run": run_id}}}
+              for i, t in enumerate(types)]
+    return it.RunResult(status="success", run_id=run_id, events=events)
+
+
+def leave_starting(d, key):
+    st = d.state()
+    st["pairs"][key].update(state="starting")
+    st["pairs"][key].pop("run_id", None)
+    d._write(st)
+
+
+def test_finish_pair_dispatches_the_emits_one_hop_deeper_than_the_pair(tmp_path):
+    d, log = fake(tmp_path, pipeline_root(tmp_path))
+    d.deliver(event("org.scan-requested", id="scan-1", chain=3))
+    (key,) = d.state()["pairs"]
+    assert d.state()["pairs"][key]["depth"] == 3
+    leave_starting(d, key)
+    del log[:]
+    recs = d.finish_pair(key, emit_result("run-9", "org.work-item-ready"))
+    assert started(recs) == ["sw-development"] and recs[0]["depth"] == 4
+    assert log[0][1]["event"]["data"]["chain"] == 4 and log[0][1]["event"]["id"] == "run-9:1"
+    st = d.state()
+    assert st["pairs"][key]["state"] == "done" and st["starts"]["scan-1"] == 2
+
+
+def test_finish_pair_twice_starts_the_downstream_workflow_once(tmp_path):
+    d, log = fake(tmp_path, pipeline_root(tmp_path))
+    d.deliver(event("org.scan-requested", id="scan-1"))
+    (key,) = d.state()["pairs"]
+    leave_starting(d, key)
+    res = emit_result("run-9", "org.work-item-ready")
+    assert started(d.finish_pair(key, res)) == ["sw-development"]
+    again = d.finish_pair(key, res)
+    assert started(again) == [] and [r["outcome"] for r in again] == ["duplicate"]
+    assert [n for n, _, _ in log].count("sw-development") == 1
+
+
+def test_finish_pair_past_the_bound_refuses_the_emit(tmp_path):
+    d, log = fake(tmp_path, pipeline_root(tmp_path), max_depth=2)
+    d.deliver(event("org.scan-requested", id="scan-1", chain=2))
+    (key,) = d.state()["pairs"]
+    leave_starting(d, key)
+    recs = d.finish_pair(key, emit_result("run-9", "org.work-item-ready"))
+    assert [(r["outcome"], r["reason"]) for r in recs] == [("refused", "chain depth 3 exceeds 2")]
+    assert [n for n, _, _ in log] == ["improvement-scan"]
+    assert d.state()["refusals"][-1]["reason"] == "chain depth 3 exceeds 2"
