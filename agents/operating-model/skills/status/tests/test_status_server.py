@@ -133,3 +133,22 @@ def test_rate_cap_answers_429(site):
     body = json.dumps({"unit": "U31", "state": "queued"}).encode()
     assert request(site, "POST", "/api/ingest", body=body, headers=JSON)[0] == 201
     assert request(site, "POST", "/api/ingest", body=body, headers=JSON)[0] == 429
+
+
+def test_deeply_nested_json_is_a_bad_request(site):
+    body = b"[" * 2000 + b"]" * 2000
+    st, _ = request(site, "POST", "/api/ingest", body=body, headers=JSON)
+    assert st == 400
+
+
+def test_head_on_the_event_stream_is_refused(site):
+    st, _ = request(site, "HEAD", "/api/events")
+    assert st == 405
+
+
+def test_a_symlink_in_the_data_folder_is_not_followed(site):
+    out = site.data_dir / "data"
+    (out / "live.json").unlink()
+    (out / "live.json").symlink_to(site.data_dir / "secret.txt")
+    st, _ = request(site, "GET", "/data/live.json")
+    assert st == 404
