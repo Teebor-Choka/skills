@@ -277,7 +277,6 @@ def test_join_verdicts_reads_p41_events():
     assert join_verdicts({"exit": 0, "stdout": json.dumps(bare)}) == {None: None}
 
 
-@pytest.mark.xfail(strict=True, reason="P41 (org.task-ended carries output) is not yet in the U13a interpreter")
 def test_join_check_sees_every_claim_verdict_in_the_join_output(flow):
     if it is None:
         pytest.skip("the U13a interpreter is not on this base")
