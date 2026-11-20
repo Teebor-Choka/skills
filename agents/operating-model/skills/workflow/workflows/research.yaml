@@ -1,2 +1,224 @@
-document: { dsl: 1.1.0, namespace: org, name: research, version: 0.0.0 }
-do: []
+document:
+  dsl: 1.1.0
+  namespace: org
+  name: research
+  version: 0.1.0
+  title: Research, question to cited note
+  summary: >-
+    One question in, one note out. Every claim in the note cites a primary source with URL and
+    access date, and an isolated reviewer has judged the claims against their sources.
+  metadata:
+    org:
+      policy: [research.source-allowlist, research.notes-sink, comms.channel]
+schedule:
+  on:
+    one:
+      with:
+        type: org.research-question
+input:
+  schema:
+    format: json
+    document:
+      type: object
+      required: [question]
+do:
+  - frame:
+      run:
+        shell: { command: agent-run, arguments: [] }
+      output:
+        schema:
+          format: json
+          document:
+            type: object
+            required: [route, questions]
+      export:
+        as: "${ $context + . }"
+      metadata:
+        org:
+          by: model
+          role: researcher
+          brief: briefs/research/frame.md
+          metrics: [escalations]
+          acceptance:
+            - rubric: criteria/research/frame.md
+              judge: lead
+  - route:
+      switch:
+        - lookup:
+            when: ${ $context.route == "lookup" }
+            then: lookup
+        - survey:
+            then: continue
+  - survey:
+      fork:
+        compete: false
+        branches:
+          - web-search:
+              run:
+                shell: { command: agent-run, arguments: [] }
+              metadata:
+                org:
+                  by: model
+                  role: researcher
+                  brief: briefs/research/web-search.md
+                  metrics: [sources-consulted]
+                  acceptance:
+                    - check: sources-recorded
+          - literature-search:
+              run:
+                shell: { command: agent-run, arguments: [] }
+              metadata:
+                org:
+                  by: model
+                  role: researcher
+                  brief: briefs/research/literature-search.md
+                  metrics: [sources-consulted]
+                  acceptance:
+                    - check: sources-recorded
+          - prior-notes:
+              run:
+                shell: { command: notes-search, arguments: [] }
+              metadata:
+                org:
+                  by: code
+                  role: ci
+                  metrics: [sources-consulted]
+                  acceptance:
+                    - check: sources-recorded
+      then: extract
+  - lookup:
+      run:
+        shell: { command: agent-run, arguments: [] }
+      metadata:
+        org:
+          by: model
+          role: researcher
+          brief: briefs/research/lookup.md
+          metrics: [sources-consulted]
+          acceptance:
+            - check: sources-recorded
+  - extract:
+      run:
+        shell: { command: agent-run, arguments: [] }
+      output:
+        schema:
+          format: json
+          document:
+            type: object
+            required: [claims]
+      export:
+        as: "${ $context + . }"
+      metadata:
+        org:
+          by: model
+          role: researcher
+          brief: briefs/research/extract.md
+          metrics: [uncited-claims]
+          acceptance:
+            - check: every-claim-cites-a-source
+  - verify:
+      for: { each: claim, in: "${ $context.claims }" }
+      do:
+        - check-claim:
+            input:
+              from: "${ $claim }"
+            run:
+              shell: { command: agent-run, arguments: [--isolated] }
+              await: false
+            metadata:
+              org:
+                by: model
+                role: reviewer
+                brief: briefs/research/check-claim.md
+                metrics: [claims-unverified]
+                acceptance:
+                  - rubric: criteria/research/check-claim.md
+                    judge: lead
+                    sample: 0.3
+  - claims-checked:
+      listen:
+        to:
+          any:
+            - with:
+                type: org.claim-checked
+          until: ${ ($context.checked | length) == ($context.claims | length) }
+      timeout:
+        after: { hours: 4 }
+      metadata:
+        org:
+          by: code
+          role: lead
+          metrics: [claims-unverified]
+          acceptance:
+            - check: every-claim-has-a-verdict
+  - review-loop:
+      for: { each: round, in: [1, 2, 3] }
+      while: ${ $accepted["review-loop/claim-review"] != true or $accepted["review-loop/cite-check"] != true }
+      do:
+        - draft:
+            run:
+              shell: { command: agent-run, arguments: [] }
+            metadata:
+              org:
+                by: model
+                role: researcher
+                brief: briefs/research/draft.md
+                metrics: [claim-review-rounds]
+                acceptance:
+                  - check: note-has-required-sections
+        - cite-check:
+            run:
+              shell: { command: claim-cites, arguments: [] }
+            metadata:
+              org:
+                by: code
+                role: ci
+                floor: true
+                metrics: [uncited-claims]
+                acceptance:
+                  - check: every-claim-cites-a-source
+        - claim-review:
+            run:
+              shell: { command: agent-run, arguments: [--isolated] }
+            metadata:
+              org:
+                by: model
+                role: reviewer
+                brief: briefs/research/claim-review.md
+                floor: true
+                metrics: [claim-review-rounds, claims-unverified]
+                acceptance:
+                  - rubric: criteria/research/claim-review.md
+                    judge: lead
+  - not-reviewed:
+      if: ${ $accepted["review-loop/claim-review"] != true or $accepted["review-loop/cite-check"] != true }
+      raise:
+        error:
+          type: https://org.example/errors/note-not-reviewed
+          status: 409
+          title: Note not accepted after three review rounds
+      metadata:
+        org: { to: lead }
+  - publish:
+      run:
+        shell: { command: note-publish, arguments: [research.notes-sink] }
+      metadata:
+        org:
+          by: code
+          role: ci
+          metrics: [question-turnaround]
+          acceptance:
+            - check: note-published
+  - report:
+      emit:
+        event:
+          with:
+            type: org.research-reported
+            source: research
+      metadata:
+        org:
+          by: code
+          role: ci
+          metrics: [question-turnaround]
+          acceptance:
+            - check: report-has-every-required-section
