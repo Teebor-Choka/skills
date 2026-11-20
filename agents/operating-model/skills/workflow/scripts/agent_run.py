@@ -52,7 +52,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from op_conformance import PARTS, PortError, _probes, _shape, check_schema  # noqa: E402
-from validate_catalog import load_document, relative_path_ok  # noqa: E402
+from validate_catalog import LoadError, _check_json_nesting, load_document, relative_path_ok  # noqa: E402
 
 CONTRACT_PATH = Path(__file__).resolve().parent.parent / "harness" / "harness.json"
 HARNESS_GUARANTEES = ("context-only", "cost-reported", "refuses-untrusted-on-macos", "task-input-in-prompt")
@@ -132,22 +132,39 @@ def validate_harness_contract(doc):
 # ------------------------------------------------------------------ prompt and adapters
 
 
+def _strip_run(value):
+    """Drop every `run` key, at any depth."""
+    if isinstance(value, dict):
+        return {k: _strip_run(v) for k, v in value.items() if k != "run"}
+    if isinstance(value, list):
+        return [_strip_run(v) for v in value]
+    return value
+
+
 def build_prompt(brief, context, task, task_input=None, reasons=None):
     """The exact text sent to the model: brief, context, task, task input, reasons. Nothing else.
 
     Everything but the brief is JSON, so no value an author wrote can open a section or name another role.
+    The model never learns the run id (P37): no `run` field is handed over, and the id text is replaced by
+    `[run]` wherever it still appears in free text.
     """
     parts = [brief.rstrip()]
     if context:
         parts.append("## Context (JSON)\n" + json.dumps(context, sort_keys=True))
-    parts.append("## Task\n" + json.dumps(task, sort_keys=True))
+    parts.append("## Task\n" + json.dumps(_strip_run(task), sort_keys=True))
     if task_input:
+        try:
+            task_input = json.dumps(_strip_run(json.loads(task_input)), sort_keys=True)
+        except ValueError:
+            pass
         parts.append("## Input\n" + task_input)
     if reasons:
         parts.append("## Reasons (JSON)\n" + json.dumps(reasons, sort_keys=True))
     if "item" in task:
         parts.append("## Verdict\nEnd your answer with one line: VERDICT: pass or VERDICT: fail.")
-    return "\n\n".join(parts)
+    text = "\n\n".join(parts)
+    run = task.get("run")
+    return text.replace(run, "[run]") if isinstance(run, str) and run else text
 
 
 def prompt_for(req):
@@ -746,7 +763,10 @@ def _read_input(path, bases, run, key):
     """Read the runtime-owned task input file. It must sit inside the session directory."""
     text = _read_file_under(path, bases, MAX_INPUT_BYTES, lambda m: PortError("input-refused", m))
     try:
+        _check_json_nesting("input file", text)  # a text cap: the same answer on every interpreter and stack
         doc = json.loads(text)
+    except LoadError as e:
+        raise PortError("input-refused", f"input file: {e.msg}") from None
     except (ValueError, RecursionError):
         raise PortError("input-refused", "input file cannot be read as JSON") from None
     if not isinstance(doc, dict) or set(doc) != {"run", "key", "input", "reasons"}:

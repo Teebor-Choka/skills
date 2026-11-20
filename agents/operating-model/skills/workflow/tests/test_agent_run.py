@@ -1325,12 +1325,22 @@ def test_cli_never_passes_the_session_dir_to_the_child(org, monkeypatch):
 
 # M1: timeout, process group, SIGTERM
 def fake_claude(tmp, body):
+    """A fake `claude` written in Python with an absolute interpreter: the nix sandbox has no env, sh or sleep."""
     d = tmp / "bin"
     d.mkdir(exist_ok=True)
     script = d / "claude"
-    script.write_text("#!/bin/sh\n" + body)
+    script.write_text(f"#!{sys.executable}\nimport os, subprocess, sys, time\n" + body)
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     return d
+
+
+def wait_for(path, seconds=60):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if path.exists() and path.read_text().strip():
+            return path.read_text().strip()
+        time.sleep(0.05)
+    raise AssertionError(f"{path} was not written within {seconds}s")
 
 
 def alive(pid):
@@ -1347,13 +1357,28 @@ def test_default_internal_timeout_is_below_the_step_limit():
 
 def test_default_runner_kills_the_whole_process_group_on_timeout(tmp_path):
     pidfile = tmp_path / "pids"
-    bindir = fake_claude(tmp_path, f"sleep 60 &\necho $! > {pidfile}\nwait\n")
-    t0 = time.time()
-    with pytest.raises(subprocess.TimeoutExpired):
-        ar._default_runner([str(bindir / "claude")], "", 1, {"PATH": "/bin:/usr/bin"}, str(tmp_path))
-    assert time.time() - t0 < 10
-    time.sleep(0.3)
-    assert not alive(int(pidfile.read_text()))
+    bindir = fake_claude(
+        tmp_path,
+        f"p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+        f"open({str(pidfile)!r}, 'w').write(str(p.pid))\ntime.sleep(120)\n")
+    result = {}
+
+    def run():
+        try:
+            ar._default_runner([str(bindir / "claude")], "", 3, {}, str(tmp_path))
+        except subprocess.TimeoutExpired:
+            result["timeout"] = True
+
+    t = threading.Thread(target=run)
+    t.start()
+    pid = int(wait_for(pidfile))
+    t.join(timeout=60)
+    assert result.get("timeout") is True, "the runner did not raise TimeoutExpired"
+    for _ in range(100):
+        if not alive(pid):
+            break
+        time.sleep(0.05)
+    assert not alive(pid), "the grandchild survived the timeout"
 
 
 def test_terminated_records_the_call_releases_the_instance_and_raises():
@@ -1372,21 +1397,20 @@ def test_terminated_records_the_call_releases_the_instance_and_raises():
 def test_sigterm_to_the_program_records_the_call_kills_the_child_and_exits_143(org):
     root, env, tmp = org
     pidfile = tmp / "childpid"
-    bindir = fake_claude(tmp, f"echo $$ > {pidfile}\nsleep 60\n")
+    bindir = fake_claude(tmp, f"open({str(pidfile)!r}, 'w').write(str(os.getpid()))\ntime.sleep(120)\n")
     real = {k: v for k, v in env.items() if k not in ("ORG_HARNESS", "ORG_TEST_HARNESS")}
-    real["PATH"] = f"{bindir}:/bin:/usr/bin"
+    real["PATH"] = str(bindir)
     p = subprocess.Popen([sys.executable, str(SKILL / "scripts" / "agent_run.py"), "--role", "worker", "--brief",
                           "briefs/build.md"], env={**os.environ, **real}, stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE, text=True)
-    for _ in range(100):
-        if pidfile.exists() and pidfile.read_text().strip():
-            break
-        time.sleep(0.1)
-    child = int(pidfile.read_text())
+    child = int(wait_for(pidfile))
     p.send_signal(signal.SIGTERM)
-    out, err = p.communicate(timeout=20)
+    out, err = p.communicate(timeout=60)
     assert p.returncode == 143 and "terminated" in err
-    time.sleep(0.3)
+    for _ in range(100):
+        if not alive(child):
+            break
+        time.sleep(0.05)
     assert not alive(child)
     [rec] = ar.SessionStore(Path(env["ORG_SESSION_DIR"])).calls(RUN)
     assert rec["error"] == "terminated"
@@ -1417,13 +1441,27 @@ def test_an_empty_parent_role_is_not_the_top_level_launch(org):
 
 
 # M4: boundaries
-def test_a_deeply_nested_input_file_is_input_refused_not_a_traceback(org):
+def _nested_input(org, depth):
     root, env, _ = org
     f = Path(env["ORG_SESSION_DIR"]) / "deep.json"
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text('{"run": "%s", "key": "build", "reasons": {}, "input": %s}' % (RUN, "[" * 100000 + "]" * 100000))
-    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--input", str(f)], env)
+    f.write_text('{"run": "%s", "key": "build", "reasons": {}, "input": %s}' % (RUN, "[" * depth + "]" * depth))
+    return cli(["--role", "worker", "--brief", "briefs/build.md", "--input", str(f)], env)
+
+
+def test_a_deeply_nested_input_file_is_input_refused_not_a_traceback(org):
+    # Depth from the interpreter's own limit, so the result does not depend on the stack of the host.
+    code, out, err = _nested_input(org, sys.getrecursionlimit() * 3 + 50)
     assert code == 1 and "input-refused" in err and "Traceback" not in err
+
+
+def test_the_nesting_cap_is_a_text_cap_independent_of_the_stack(org):
+    code, out, err = _nested_input(org, 513)
+    assert code == 1 and "input-refused" in err and "nesting" in err
+
+
+def test_a_moderately_nested_input_file_is_accepted(org):
+    assert _nested_input(org, 100)[0] == 0
 
 
 @pytest.mark.parametrize("item", ["٣", "²", "1 ", "-1", "३"])
@@ -1600,3 +1638,64 @@ def test_new_program_errors_are_declared():
     declared = contract()["program_errors"]
     for code in ("bad-harness", "bad-manifest", "terminated", "internal-error", "signer-error"):
         assert code in declared
+
+
+# ---------------------------------------------------------------- P37: the model child never learns the run id
+
+RUN2 = "5ec0ffee" * 4
+
+
+def _everything_the_child_gets(call):
+    return json.dumps([call["argv"], call["stdin"], call["env"], call["cwd"]])
+
+
+def test_the_run_id_never_reaches_the_child_stdin_argv_env_or_cwd():
+    runner = FakeRunner(result=f"I worked on run {RUN2}")
+    store = ar.SessionStore()
+    task = {"run": RUN2, "task": "design"}
+    ar.run_agent(claude(runner), store, role="worker", brief="Brief.", task=task, isolated=True, manifest=MANIFEST)
+    ar.run_agent(
+        ar.ClaudeCodeAdapter(runner=runner, platform="linux", environ={**FULL_ENV, "ORG_RUN": RUN2}), store,
+        role="reviewer", brief="Brief.", task={"run": RUN2, "task": "review"}, isolated=False, manifest=MANIFEST,
+        task_input={"run": RUN2, "keep": 1, "nested": [{"run": RUN2, "deep": {"run": RUN2, "ok": True}}],
+                    "text": f"see run {RUN2}"},
+        reasons={"gate": f"redo run {RUN2}"})
+    second = runner.calls[1]
+    assert RUN2 not in _everything_the_child_gets(second)
+    assert "ORG_RUN" not in second["env"] and '"run"' not in second["stdin"]
+    # what is not a run id survives
+    assert '"keep": 1' in second["stdin"] and '"ok": true' in second["stdin"] and "review" in second["stdin"]
+
+
+def test_the_first_call_of_a_run_also_hides_the_run_id():
+    runner = FakeRunner()
+    ar.run_agent(claude(runner), ar.SessionStore(), role="worker", brief="Brief.",
+                 task={"run": RUN2, "task": "design"}, isolated=True, manifest=MANIFEST)
+    assert RUN2 not in _everything_the_child_gets(runner.calls[0]) and "design" in runner.calls[0]["stdin"]
+
+
+def test_build_prompt_has_no_run_field_and_keeps_the_task_key():
+    prompt = ar.build_prompt("B.", [], {"run": RUN2, "task": "design", "item": 2}, json.dumps({"run": RUN2, "a": 1}),
+                             [{"gate": "g", "reason": RUN2}])
+    assert RUN2 not in prompt and '"task": "design"' in prompt and '"item": 2' in prompt and '"a": 1' in prompt
+
+
+def test_cli_hides_the_run_id_the_input_file_and_the_session_dir_from_the_child(org, monkeypatch):
+    root, env, _ = org
+    env = {k: v for k, v in env.items() if k not in ("ORG_HARNESS", "ORG_TEST_HARNESS")} | {
+        "ORG_RUN": RUN2, "PATH": "/bin"}
+    f = write_input(Path(env["ORG_SESSION_DIR"]) / "task-input.json", run=RUN2,
+                    input={"run": RUN2, "unit": "U-MARK"}, reasons={"spec-gate": f"retry {RUN2}"})
+    seen = []
+
+    def runner(argv, stdin, timeout, env_, cwd):
+        seen.append({"argv": argv, "stdin": stdin, "env": env_, "cwd": cwd})
+        return 0, json.dumps({"result": "r", "total_cost_usd": 0.1, "duration_ms": 5}), ""
+
+    monkeypatch.setattr(ar, "_default_runner", runner)
+    code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", "--input", f], env)
+    assert code == 0, err
+    blob = _everything_the_child_gets(seen[0])
+    for secret in (RUN2, f, env["ORG_SESSION_DIR"], "task-input.json"):
+        assert secret not in blob
+    assert "ORG_RUN" not in seen[0]["env"] and "U-MARK" in seen[0]["stdin"]
