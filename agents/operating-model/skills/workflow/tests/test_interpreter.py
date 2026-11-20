@@ -11,11 +11,17 @@ Spec tensions the tests settle (marked in the module under test):
 """
 import ast
 import copy
+import gc
 import hashlib
 import json
 import os
+import shutil
+import signal
 import stat
+import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -554,10 +560,12 @@ def test_a_different_scripted_output_gives_a_different_sequence():
 
 def test_same_sequence_with_parallel_work_and_events():
     def once():
-        doc = _fanout_doc(2)
-        host = ScriptedHost(steps={"fan/units/unit#0": StepOutcome(duration=5), "fan/units/unit#1": StepOutcome(duration=5)})
-        return go(doc, host)
-    assert once().events == once().events
+        host = ScriptedHost(steps={"fan/units/unit#0>work": StepOutcome(duration=5), "fan/units/unit#1>work": StepOutcome(duration=3)})
+        return _fanout_run(2, host)
+    a, b = once(), once()
+    assert a.status == "success", a.errors
+    assert starts(a, "fan/units/unit#0>work") and starts(a, "fan/units/unit#1>work")  # the subflow really ran
+    assert a.events == b.events
 
 
 # ================================================================= brief item 7
@@ -573,9 +581,12 @@ def test_imports_are_standard_library_or_the_two_sibling_modules():
         elif isinstance(node, ast.ImportFrom) and node.level == 0:
             names.add(node.module.split(".")[0])
     assert names <= allowed, names - allowed
-    src = (SCRIPTS / "interpreter.py").read_text(encoding="utf-8")
-    for banned in ("eval(", "exec(", "shell=True", "os.system"):
-        assert banned not in src
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            f = node.func
+            assert not (isinstance(f, ast.Name) and f.id in ("eval", "exec", "compile", "__import__")), f.id
+            assert not (isinstance(f, ast.Attribute) and f.attr in ("system", "popen")), f.attr
+            assert not any(k.arg == "shell" and getattr(k.value, "value", None) is True for k in node.keywords)
 
 
 def test_no_local_paths_in_the_module():
@@ -639,7 +650,9 @@ def test_absent_sample_always_judges_and_sample_one_always_judges():
 
 def test_a_pending_item_does_not_make_the_task_fail_but_is_never_recorded_as_pass():
     res = go(_rubric_doc(0.2), run_id=_rid_with(False))
-    assert kinds(res, "item")[0]["result"] == "pending"
+    assert [e["result"] for e in kinds(res, "item")] == ["pending"]
+    assert "pass" not in [e["result"] for e in kinds(res, "item")]
+    assert res.status == "success"
 
 
 def test_owner_rubric_verdict_approve_and_reject():  # R19 first half
@@ -754,10 +767,21 @@ def test_floor_in_a_loop_whose_while_does_not_read_it_raises_at_once():
     assert res.errors == ["rework/spec: acceptance failed"]
 
 
+def _task_with_check(doc, check_name):
+    """The task path of the first task whose acceptance has `check_name` (fixture-agnostic)."""
+    for item in doc["do"][0]["cycle"]["do"]:
+        (n, t), = item.items()
+        if any(i.get("check") == check_name for i in t["metadata"]["org"].get("acceptance", [])):
+            return n
+    raise KeyError(check_name)
+
+
 def test_non_floor_failure_continues_and_the_run_still_ends_in_error():  # R5 shape
+    doc = tdd_doc()
+    failing = _task_with_check(doc, "red-evidence")
     host = ScriptedHost(checks={"red-evidence": [True, True, False]}, judges={"cycle/unit-review": ["fail", "fail", "pass"]})
-    res = go({"tdd-unit": tdd_doc()}, host, catalog=CAT, manifest=MAN)
-    assert res.errors == ["cycle/red: acceptance failed"]
+    res = go({"tdd-unit": doc}, host, catalog=CAT, manifest=MAN)
+    assert res.errors == [f"cycle/{failing}: acceptance failed"]
     assert len(starts(res, "cycle/red")) == 3
     assert starts(res, "exhausted") == []
 
@@ -1184,7 +1208,9 @@ def test_evidence_holds_only_code_step_results_of_this_execution_never_model_out
     assert res.status == "success", res.errors
     (name, key, ev), = seen
     assert key == "checked"
-    assert ev == {"run": RID, "key": "checked", "steps": {"code-step": {"exit": 0, "stdout": "green"}}}
+    assert (ev["run"], ev["key"]) == (RID, "checked")
+    assert ev["steps"] == {"code-step": {"exit": 0, "stdout": "green"}}  # never the model step's claim
+    assert ev["outputs"]["model-step"]["stdout"] == "I wrote this, trust me"  # a claim, only in outputs
 
 
 def test_evidence_keeps_the_last_execution_per_key_and_is_per_workflow_execution():
@@ -1435,15 +1461,15 @@ def test_r28_agent_run_gets_input_file_role_brief_network_in_that_order():
     assert body == {"run": RID, "key": "design", "input": {"spec": "s"}, "reasons": {}}
 
 
-def test_r28_input_file_holds_the_input_after_input_from_and_is_read_only_outside_the_org_root():
+def test_r28_input_file_holds_the_input_after_input_from_and_is_read_only_outside_the_org_root(tmp_path):
     seen = []
     doc = wf(("design", dict(_agent(), input={"from": "${ .spec }"})))
-    host = ScriptedHost(steps={"design": _capture(seen)})
+    host = ScriptedHost(steps={"design": _capture(seen)}, root=str(tmp_path / "root"))
     go(doc, host, input={"spec": {"k": 1}})
     req, body = seen[0]
     assert body["input"] == {"k": 1}
     assert not os.access(req.input_file, os.W_OK) or os.geteuid() == 0
-    assert "root" not in req.input_file.split(os.sep)[-3:]
+    assert not os.path.realpath(req.input_file).startswith(os.path.realpath(str(tmp_path / "root")) + os.sep)
 
 
 def test_no_network_flag_when_the_step_declares_none():
@@ -1478,7 +1504,10 @@ def test_model_judge_input_file_holds_the_item_and_the_judged_output():
     doc = wf(("t1", leaf("work", [{"rubric": "criteria/x.md", "judge": "reviewer"}])))
     go(doc, ScriptedHost(steps={"t1": StepOutcome(output={"diff": 3})}, judges={"t1": judge}))
     req, body = seen[0]
-    assert body == {"run": RID, "key": "t1", "input": {"item": 0, "output": {"diff": 3}}, "reasons": {}}
+    assert body["input"]["item"] == 0
+    assert body["input"]["output"] == {"exit": 0, "stdout": '{"diff": 3}'}  # the judged task's entry (6.1, P29)
+    assert body["input"]["evidence"]["key"] == "t1" and body["input"]["evidence"]["output"] == body["input"]["output"]
+    assert body["reasons"] == {}
     assert req.argv == ["agent-run", "--role", "reviewer", "--brief", "criteria/x.md", "--input", req.input_file]
 
 
@@ -1508,10 +1537,10 @@ def test_r29_check_on_the_model_step_gets_no_entry_for_the_code_step_that_runs_a
 def test_a_rework_round_clears_the_evidence_of_earlier_rounds():
     seen = []
     doc = wf(("rework", {"for": {"in": [1, 2]}, "while": "${ true }",
-                         "do": [{"code": leaf("w", by="code")}, {"chk": leaf("w", [chk("probe")], by="model")}]}))
+                         "do": [{"chk": leaf("w", [chk("probe")], by="model")}, {"code": leaf("w", by="code")}]}))
     host = ScriptedHost(checks={"probe": lambda n, k, e: seen.append(sorted(e["steps"])) or True})
     go(doc, host)
-    assert seen == [["rework/code"], ["rework/code"]]  # round 2 holds only round 2's step, never two generations
+    assert seen == [[], []]  # round 1's `code` ended before round 2's check; the new round discarded it
 
 
 # ---- R30 handled, R31 cancelled
@@ -1575,9 +1604,11 @@ def test_r32_gate_with_a_signer_ignores_the_owner_and_accepts_the_signer():
 def test_a_signer_alone_makes_a_decision_gate():
     g = _signer_gate()
     g["metadata"]["org"]["acceptance"] = [chk()]
-    res = go(wf(("gate", g)), ScriptedHost(events=[(1, decision("gate", signature="pm", run="f" * 32))]))
-    assert kinds(res, "ignored")  # a decision gate tests data.run; a plain gate would also, so check the reason
-    assert kinds(res, "ignored")[0]["reason"] == "data.run is not this run"
+    g["metadata"]["org"]["role"] = "lead"
+    unsigned = decision("gate", signature=None)  # a plain gate would complete on this: right run, no signature needed
+    res = go(wf(("gate", g)), ScriptedHost(events=[(1, unsigned)]))
+    assert res.errors[0] == "gate: timeout"
+    assert kinds(res, "ignored")[0]["reason"] == "not signed by the pm"
 
 
 def test_default_verifier_of_the_process_host_refuses_every_decision(org):
@@ -1681,3 +1712,546 @@ def test_sw_development_w89_fan_out_with_the_join_runs_to_success_on_the_final_e
     join_end = [e["t"] for e in res.events if e["kind"] == "task-end" and e["key"] == "build/join"][0]
     assert join_end == 30  # the slower unit decides when the join completes
     assert len(_ended(res)) == 2
+
+
+# ================================================================= review 1 and spec update 6
+
+
+def _detached(command="work", acceptance=None, **extra):
+    return dict(leaf(command, acceptance, **extra), run={"shell": {"command": command, "arguments": []}, "await": False})
+
+
+def _call(name, **org):
+    meta = {"by": "code", "role": "lead", "acceptance": [chk()]}
+    meta.update(org)
+    return {"run": {"workflow": {"namespace": "org", "name": name, "version": "1"}}, "metadata": {"org": meta}}
+
+
+def _plain_gate(until=None, after=None, type_="org.task-ended"):
+    to = {"any": [{"with": {"type": type_}}]}
+    if until:
+        to["until"] = until
+    return {"listen": {"to": to}, "timeout": {"after": after or {"hours": 1}},
+            "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}
+
+
+def _evidence_of(res_host_checks, doc, **kw):
+    seen = []
+    host = ScriptedHost(checks={"probe": lambda n, k, e: seen.append((k, e)) or True}, **kw)
+    return go(doc, host), seen
+
+
+# ---- B1 to B6
+
+
+def test_b1_reject_records_fail_when_the_gate_has_no_human_item_and_a_rework_loop_reads_it():
+    g = gate(role="owner", by="human", acceptance=[chk()])
+    doc = _rework([{"approve": g}], n=2, cond='${ $accepted["rework/approve"] != true }')
+    ev = [(5, decision("rework/approve", "reject")), (9, decision("rework/approve"))]
+    res = go(doc, ScriptedHost(events=ev))
+    accepts = [(e["t"], e["status"]) for e in kinds(res, "accept") if e["key"] == "rework/approve"]
+    assert accepts == [(5, "fail"), (9, "pass")]
+
+
+def test_b2_a_rework_round_in_one_iteration_keeps_the_results_of_the_other_iterations():
+    inner = {"rework": {"for": {"in": [1, 2]}, "while": "${ true }", "do": [{"x": leaf("w", [chk("c")])}]}}
+    doc = wf(("outer", {"for": {"each": "i", "in": [0, 1]}, "do": [{"body": {"do": [inner]}}]}))
+    res = go(doc)
+    assert sorted(res.accepted) == ["outer/body#0/rework/x", "outer/body#1/rework/x"]
+    assert res.status == "success"
+
+
+def test_b2_index_attaches_to_the_body_task_so_descendants_keep_the_prefix():
+    doc = wf(("outer", {"for": {"each": "i", "in": [0, 1]}, "do": [{"body": {"do": [{"leafy": leaf()}]}}]}))
+    assert sorted(go(doc).accepted) == ["outer/body#0/leafy", "outer/body#1/leafy"]
+
+
+def test_b3_detached_work_in_a_subflow_is_cancelled_by_the_callers_new_round():
+    child = wf(("bg", _detached()), name="child")
+    root = wf(("rework", {"for": {"in": [1, 2]}, "while": "${ true }", "do": [{"c": _call("child")}]}), name="root")
+    host = ScriptedHost(steps={"bg": [StepOutcome(duration=100), StepOutcome(duration=1)]})
+    res = go({"root": root, "child": child}, host, name="root")
+    accepts = [(e["t"], e["status"]) for e in kinds(res, "accept") if e["key"] == "rework/c>bg"]
+    assert accepts == [(0.0, "cancelled"), (1.0, "pass")]  # nothing lands at t=100 over round 2
+    assert res.now == 1
+
+
+def test_b4_a_matcher_error_is_a_run_error_against_the_gate_not_a_traceback():
+    flt = {"with": {"type": "org.ping"}, "correlate": {"k": {"from": "${ .data.x.y }", "expect": "1"}}}
+    doc = wf(("join", {"listen": {"to": {"one": flt}}, "timeout": {"after": {"seconds": 30}},
+                       "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}))
+    res = go(doc, ScriptedHost(events=[(3, event("org.ping", {"x": 5}, signature=None))]))
+    assert res.status == "error" and res.errors[0].startswith("join: ")
+    assert res.statuses["join"] == "fail"
+
+
+def test_b4_an_error_in_a_matcher_reached_by_an_emit_is_charged_to_the_gate_not_the_emitter():
+    flt = {"with": {"type": "org.ping"}, "correlate": {"k": {"from": "${ .data.x.y }", "expect": "1"}}}
+    listener = {"listen": {"to": {"one": flt}}, "timeout": {"after": {"seconds": 30}},
+                "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}
+    sender = {"emit": {"event": {"with": {"type": "org.ping", "data": {"x": 5}}}},
+              "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}
+    doc = wf(("fan", {"fork": {"branches": [{"listener": listener}, {"sender": sender}]}}))
+    res = go(doc)
+    assert res.errors[0].startswith("fan/listener: ")
+    assert res.statuses["fan/sender"] == "pass"
+
+
+def test_b4_a_host_that_raises_is_a_located_run_error():
+    for host in (ScriptedHost(steps={"s": lambda req: 1 / 0}), ScriptedHost(checks={"c": lambda n, k, e: 1 / 0})):
+        res = go(wf(("s", leaf("w", [chk("c")]))), host)
+        assert res.status == "error" and res.errors[0].startswith("s: host: ZeroDivisionError")
+
+
+def test_b4_non_utf8_output_of_a_bin_program_is_decoded_with_replacement(org):
+    _script(org / "bin" / "bad", "printf '\\377\\376ok'\n")
+    res = go(wf(("s", leaf("bad"))), ProcessHost(str(org)))
+    assert res.status == "success", res.errors
+    assert res.output.endswith("ok") and "�" in res.output
+
+
+def test_b4_an_event_with_values_json_cannot_hold_does_not_crash_the_run():
+    doc = wf(("join", _plain_gate(after={"seconds": 5}, type_="org.ping")))
+    res = go(doc, ScriptedHost(events=[(1, event("org.ping", {"x": {1, 2}}, signature=None))]))
+    assert res.errors[0] == "join: timeout"
+
+
+def test_b4_killpg_on_an_already_gone_process_group_is_not_a_crash(org, monkeypatch):
+    _script(org / "bin" / "slow", "sleep 30\n")
+    real = os.killpg
+
+    def killpg(pid, sig):
+        real(pid, sig)
+        raise ProcessLookupError
+    monkeypatch.setattr(os, "killpg", killpg)
+    doc = wf(("s", dict(leaf("slow"), timeout={"after": {"seconds": 1}})))
+    assert go(doc, ProcessHost(str(org))).errors[0] == "s: timeout"
+
+
+def test_b4_shape_errors_without_validation_are_located_run_errors():
+    res = go(wf(("g", {"try": [{"bad": leaf("w")}], "catch": {"retry": {"delay": {"seconds": 1}}}})),
+             ScriptedHost(steps={"g/bad": StepOutcome(exit_code=1, error="x")}))
+    assert res.status == "error" and res.errors[0].startswith("g: ")
+    res = go(wf(("e", {"emit": {"event": {"with": "${ [1] }"}}, "metadata": {"org": {"by": "code", "role": "ci", "acceptance": [chk()]}}})))
+    assert res.status == "error" and res.errors[0].startswith("e: ")
+
+
+def test_b5_bin_command_runs_the_verified_file_not_a_path_swapped_after_the_check(org, tmp_path):
+    _script(org / "bin" / "w", "echo good\n")
+    _script(tmp_path / "evil", "echo evil\n")
+    host = ProcessHost(str(org))
+
+    def swap():
+        (org / "bin" / "w").unlink()
+        (org / "bin" / "w").symlink_to(tmp_path / "evil")
+    host.after_verify = swap
+    assert go(wf(("s", leaf("w", by="code"))), host).output == "good"
+
+
+def test_b5_check_script_runs_the_verified_file_not_a_path_swapped_after_the_check(org, tmp_path):
+    _script(org / "bin" / "w", "echo 1\n")
+    (org / "checks" / "x.py").write_text("import sys\nsys.exit(0)\n")
+    (tmp_path / "evil.py").write_text("import sys\nsys.exit(1)\n")
+    host = ProcessHost(str(org))
+
+    def swap():
+        (org / "checks" / "x.py").unlink()
+        (org / "checks" / "x.py").symlink_to(tmp_path / "evil.py")
+    host.after_verify = swap
+    assert go(wf(("s", leaf("w", [chk("x")], by="code"))), host).status == "success"
+
+
+def _two_batches():
+    def batch(label, n, until):
+        return [{f"units{label}": {"for": {"each": "i", "in": list(range(n))}, "do": [{f"u{label}": _detached()}]}},
+                {f"join{label}": _plain_gate(until)}]
+    items = batch("a", 3, "${ ($events | length) == 3 }") + batch("b", 2, "${ ($events | length) == 2 }")
+    return wf(("fan", {"do": items}))
+
+
+def test_b6_a_second_join_does_not_replay_events_an_earlier_join_consumed():
+    res = go(_two_batches())
+    assert res.status == "success", res.errors
+    last = [e for e in kinds(res, "until") if e["key"] == "fan/joinb"][-1]
+    assert sorted(last["tasks"]) == ["fan/unitsb/ub#0", "fan/unitsb/ub#1"]
+    assert last["events"] == 2
+
+
+def test_b6_three_units_that_end_at_once_are_each_counted_once():
+    res = _fanout_run(3)
+    last = kinds(res, "until")[-1]
+    assert last["events"] == 3 and len(set(last["tasks"])) == 3
+
+
+def test_r35_join_replays_both_events_of_units_that_ended_before_it_started_listening():
+    res = _fanout_run(2)
+    assert [(e["events"], e["result"]) for e in kinds(res, "until")] == [(0, False), (1, False), (2, True)]
+    assert [e["t"] for e in res.events if e["kind"] == "task-end" and e["key"] == "fan/join"] == [0.0]
+
+
+# ---- should-fix
+
+
+def test_s1_a_floor_that_a_try_handled_still_ends_the_run_in_error():
+    doc = wf(("g", {"try": [{"fl": leaf("fl", [chk("x")], floor=True)}], "catch": {}}))
+    res = go(doc, ScriptedHost(checks={"x": False}))
+    assert res.status == "error" and "g/fl: acceptance failed" in res.errors
+
+
+def test_s1_a_floor_in_a_losing_compete_branch_ends_the_run_in_error():
+    doc = wf(("race", {"fork": {"compete": True, "branches": [{"a": leaf("a")}, {"b": leaf("b", [chk()], floor=True)}]}}))
+    res = go(doc, ScriptedHost(steps={"race/a": StepOutcome(duration=1), "race/b": StepOutcome(duration=9)}))
+    assert res.status == "error" and "race/b: acceptance failed" in res.errors
+
+
+def test_s1_catalog_without_manifest_or_the_reverse_is_a_usage_error():
+    with pytest.raises(ValueError):
+        Interpreter({"t": wf(("a", leaf()))}, ScriptedHost(), catalog=CAT)
+    with pytest.raises(ValueError):
+        Interpreter({"t": wf(("a", leaf()))}, ScriptedHost(), manifest=MAN)
+
+
+def test_s2_a_failed_detached_unit_of_an_earlier_round_reports_nothing():
+    doc = _rework([{"bg": _detached()}, {"pause": {"wait": {"seconds": 5}}}], n=2)
+    host = ScriptedHost(steps={"rework/bg": [StepOutcome(exit_code=1, error="x", duration=1), StepOutcome()]})
+    res = go(doc, host)
+    assert res.status == "success", res.errors
+
+
+def test_s3_an_event_emitted_by_a_task_never_reaches_a_decision_gate():
+    g = gate(type_="org.sign-off", role="owner", by="human", acceptance=[{"human": "ok"}], after={"seconds": 30})
+    sender = {"emit": {"event": {"with": {"type": "org.sign-off", "signature": "owner",
+                                          "data": {"task": "fan/g", "decision": "approve"}}}},
+              "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}
+    doc = wf(("fan", {"fork": {"branches": [{"g": g}, {"sender": sender}]}}))
+    res = go(doc)
+    assert res.errors[0] == "fan/g: timeout"
+
+
+def test_s4_agent_run_on_a_code_task_is_refused_at_run_time():
+    doc = wf(("a", {"run": {"shell": {"command": "agent-run", "arguments": []}},
+                    "metadata": {"org": {"by": "code", "role": "pm", "brief": "briefs/a.md"}}}))
+    host = ScriptedHost()
+    res = go(doc, host)
+    assert res.errors[0] == "a: metadata.org.by: agent-run may not run as by code"
+    assert not any(c[0] == "step" for c in host.calls)
+
+
+def test_s5_a_decision_with_a_non_string_reason_is_ignored():
+    forged = event("org.owner-decided", {"run": RID, "task": "merge-gate", "decision": "reject", "reason": 5})
+    res = go(_gate_doc(), ScriptedHost(events=[(5, forged)]))
+    assert kinds(res, "ignored")[0]["reason"] == "data.reason must be a string"
+    assert res.errors[0] == "merge-gate: timeout"
+
+
+def test_s6_the_environment_cannot_override_runtime_variables(org):
+    _script(org / "bin" / "env", 'echo "$PATH|$ORG_RUN|$FOO"\n')
+    task = leaf("env")
+    task["run"]["shell"]["environment"] = {"FOO": "bar", "PATH": "/evil", "ORG_RUN": "x"}
+    res = go(wf(("s", task)), ProcessHost(str(org)))
+    assert res.output == f"{os.environ['PATH']}|{RID}|bar"
+
+
+@pytest.mark.parametrize("name", ["LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "lower", "A-B", "1X"])
+def test_s6_unsafe_environment_names_are_refused(org, name):
+    _script(org / "bin" / "env", "echo hi\n")
+    task = leaf("env")
+    task["run"]["shell"]["environment"] = {name: "x"}
+    res = go(wf(("s", task)), ProcessHost(str(org)))
+    assert res.errors[0] == f"s: run.shell.environment: '{name}' is not an allowed name"
+
+
+def test_s7_a_fifo_a_directory_or_a_nul_never_hangs_or_raises(org):
+    os.mkfifo(org / "briefs" / "f.md")
+
+    def hang(*a):
+        raise AssertionError("os.open blocked on a FIFO")
+    signal.signal(signal.SIGALRM, hang)
+    signal.alarm(5)
+    try:
+        host = ProcessHost(str(org))
+        assert host.confined("briefs/f.md") is False
+        assert host.confined("briefs") is False
+        assert host.confined("briefs/a\0.md") is False
+    finally:
+        signal.alarm(0)
+
+
+def test_s8_a_command_must_be_a_file_directly_under_bin(org):
+    _script(org / "bin" / "sub" / "x", "echo hi\n")
+    _script(org / "checks" / "x", "echo hi\n")
+    for cmd in ("sub/x", "../checks/x", "sub"):
+        res = go(wf(("s", leaf(cmd))), ProcessHost(str(org)))
+        assert res.errors[0] == f"s: run.shell.command: '{cmd}' is not agent-run or a file in bin/"
+
+
+def test_s8_a_check_name_must_be_kebab_case_and_name_a_file_directly_under_checks(org):
+    _script(org / "bin" / "w", "echo 1\n")
+    (org / "checks" / "sub").mkdir()
+    (org / "checks" / "sub" / "x.py").write_text("")
+    (org / "checks" / "evil.py").write_text("")
+    for name in ("sub/x", "sub/../evil", "../checks/evil", "Evil"):
+        res = go(wf(("s", leaf("w", [chk(name)], by="code"))), ProcessHost(str(org)))
+        assert res.errors == ["s: acceptance failed"], name
+
+
+def test_s9_detached_work_started_in_a_losing_compete_branch_is_cancelled_with_it():
+    b = {"do": [{"bg": _detached()}, {"slow": leaf("slow")}]}
+    doc = wf(("race", {"fork": {"compete": True, "branches": [{"a": leaf("a")}, {"b": b}]}}))
+    host = ScriptedHost(steps={"race/a": StepOutcome(duration=1), "race/b/bg": StepOutcome(duration=100),
+                               "race/b/slow": StepOutcome(duration=50)})
+    res = go(doc, host)
+    assert res.statuses["race/b/bg"] == "cancelled" and res.statuses["race/b/slow"] == "cancelled"
+    assert res.now == 1 and res.status == "success"
+
+
+def test_s10_a_temp_directory_inside_the_org_root_is_refused(org, monkeypatch):
+    (org / "tmpdir").mkdir()
+    monkeypatch.setenv("TMPDIR", str(org / "tmpdir"))
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    host = ScriptedHost(root=str(org))
+    res = go(wf(("a", _agent())), host)
+    assert res.errors[0].startswith("a: input file directory ") and res.errors[0].endswith("is inside the org root")
+    assert not any(c[0] == "step" for c in host.calls)
+
+
+def test_s11_step_output_is_capped_and_marked_truncated(org):
+    _script(org / "bin" / "big", "head -c 5000 /dev/zero | tr '\\0' a\n")
+    host = ProcessHost(str(org), output_cap=1000)
+    out = host.run_step(it.StepRequest(key="s", command="big", argv=["big"], run_id=RID, input=None))
+    assert len(out.stdout) == 1000 and out.truncated is True
+
+
+def test_s11_nested_for_multiplication_is_capped_per_run():
+    doc = wf(("outer", {"for": {"each": "i", "in": "${ . }"},
+                        "do": [{"inner": {"for": {"each": "j", "in": "${ $input }"}, "do": [{"x": {"set": {"k": 1}}}]}}]}))
+    inner_in = list(range(200))
+    doc["do"][0]["outer"]["do"][0]["inner"]["for"]["in"] = inner_in
+    res = go(doc, input=list(range(200)))
+    assert res.status == "error" and any("iteration cap" in e for e in res.errors)
+
+
+# ---- nits
+
+
+def test_the_sampling_draw_is_compared_as_integers():
+    assert it.drawn(2**64 - 1, 1) is True  # float division would give 1.0, and 1.0 < 1 is False
+    assert it.drawn(0, 0.2) is True
+    assert it.drawn(int(0.2 * 2**64) + 1, 0.2) is False
+
+
+def test_a_deadlock_closes_its_work_before_run_end_and_appends_nothing_after_it():
+    doc = wf(("g", {"listen": {"to": {"one": {"with": {"type": "org.never"}}}},
+                    "metadata": {"org": {"by": "code", "role": "lead", "acceptance": [chk()]}}}))
+    res = go(doc)
+    assert any("deadlock" in e for e in res.errors)
+    assert res.events[-1]["kind"] == "run-end"
+    n = len(res.events)
+    gc.collect()
+    assert len(res.events) == n and res.events[-1]["kind"] == "run-end"
+
+
+def test_an_owner_judged_rubric_without_a_task_timeout_waits_seven_days_not_one_hour():
+    doc = wf(("review", leaf("work", [{"rubric": "criteria/r.md", "judge": "owner"}], role="reviewer")))
+    ev = [(2 * 3600, decision("review", item=0, type_="org.owner-review"))]
+    assert go(doc, ScriptedHost(events=ev)).status == "success"
+    res = go(doc, ScriptedHost())
+    assert res.errors[0] == "review: timeout" and res.now == 7 * 86400
+
+
+def test_exit_inside_a_for_body_leaves_the_loop():
+    doc = wf(("loop", {"for": {"in": [1, 2, 3]}, "do": [{"a": dict(leaf("a"), then="exit")}, {"b": leaf("b")}]}))
+    res = go(doc)
+    assert len(starts(res, "loop/a#0")) == 1 and not starts(res, "loop/a#1") and not starts(res, "loop/b#0")
+
+
+def test_then_to_a_sibling_branch_inside_a_fork_is_a_located_run_error():
+    doc = wf(("par", {"fork": {"branches": [{"a": dict(leaf("a"), then="b")}, {"b": leaf("b")}]}}))
+    res = go(doc)
+    assert res.errors[0] == "par/a: then: 'b' is not a later task in the same list"
+
+
+def test_retry_limit_duration_bounds_the_whole_retry_sequence():
+    doc = wf(("g", {"try": [{"flaky": leaf("flaky")}],
+                    "catch": {"retry": {"limit": {"attempt": {"count": 10}, "duration": {"seconds": 12}}, "delay": {"seconds": 5}}}}))
+    res = go(doc, ScriptedHost(steps={"g/flaky": StepOutcome(exit_code=1, error="x")}))
+    assert len(starts(res, "g/flaky")) == 3  # attempts at 0, 5 and 10; a fourth at 15 would pass the 12 second limit
+
+
+def test_retry_attempt_duration_bounds_each_attempt():
+    doc = wf(("g", {"try": [{"slow": leaf("slow")}],
+                    "catch": {"retry": {"limit": {"attempt": {"count": 1, "duration": {"seconds": 3}}}}}}))
+    res = go(doc, ScriptedHost(steps={"g/slow": StepOutcome(duration=10)}))
+    assert [e["t"] for e in kinds(res, "accept") if e["key"] == "g/slow"] == [3.0, 6.0]
+
+
+def test_a_failure_of_an_earlier_attempt_is_handled_when_a_retry_later_succeeds():
+    skip_after_fail = dict(leaf("a"), **{"if": '${ $accepted["g/a"] != false }'})
+    doc = wf(("g", {"try": [{"a": skip_after_fail}, {"b": leaf("b")}],
+                    "catch": {"retry": {"limit": {"attempt": {"count": 2}}}}}))
+    host = ScriptedHost(steps={"g/a": StepOutcome(exit_code=1, error="x")})
+    res = go(doc, host)
+    assert res.statuses["g/a"] == "handled" and res.status == "success", res.errors
+
+
+def test_the_check_timeout_is_a_parameter_and_a_timed_out_check_is_a_fail(org):
+    _script(org / "bin" / "w", "echo 1\n")
+    (org / "checks" / "slow.py").write_text("import time\ntime.sleep(30)\n")
+    t0 = time.monotonic()
+    res = go(wf(("s", leaf("w", [chk("slow")], by="code"))), ProcessHost(str(org), check_timeout=1))
+    assert res.errors == ["s: acceptance failed"] and time.monotonic() - t0 < 10
+
+
+@pytest.mark.parametrize("bad", ["short", "has space!!", "x" * 65, "../etc/passwd1"])
+def test_a_caller_supplied_run_id_must_match_the_id_pattern(bad):
+    with pytest.raises(ValueError):
+        Interpreter({"t": wf(("a", leaf()))}, ScriptedHost()).run("t", run_id=bad)
+
+
+def test_agent_run_without_a_role_is_a_run_error_not_a_type_error():
+    doc = wf(("a", {"run": {"shell": {"command": "agent-run", "arguments": []}},
+                    "metadata": {"org": {"by": "model", "brief": "briefs/a.md"}}}))
+    assert go(doc).errors[0] == "a: metadata.org.role: required for agent-run"
+
+
+# ---- spec update 6: the evidence file
+
+
+def test_r36_shape_check_on_a_model_step_sees_the_agents_output_only_as_output_and_outputs():
+    doc = wf(("spec", leaf("w", [chk("probe")], by="model")))
+    res, seen = _evidence_of(None, doc, steps={"spec": StepOutcome(stdout='{"id": 1}')})
+    (key, ev), = seen
+    assert ev["output"] == {"exit": 0, "stdout": '{"id": 1}'}
+    assert "spec" not in ev["steps"]
+
+
+def test_r37_allowed_rungs_follow_the_role_rungs_default_and_owner(org):
+    (org / "bin" / "noop").write_text("#!/bin/sh\necho 1\n")
+    (org / "bin" / "noop").chmod(0o755)
+    out = org.parent / "rungs.txt"
+    (org / "checks" / "every-proposal-is-within-its-rung.py").write_text(
+        f"import os\nopen({str(out)!r}, 'w').write(os.environ['ORG_ALLOWED_RUNGS'])\n")
+    wfs = {"improve": improve_doc()}
+    go(wfs, ProcessHost(str(org)), catalog=CAT, manifest=MAN)
+    assert out.read_text() == "free,ordinary"
+    man = copy.deepcopy(MAN)
+    man["roles"]["improver"]["rungs"] = ["free"]
+    go(wfs, ProcessHost(str(org)), catalog=CAT, manifest=man)
+    assert out.read_text() == "free"
+    g = gate(acceptance=[chk("every-proposal-is-within-its-rung")])
+    go(wf(("gate", g)), ProcessHost(str(org), events=[(1, decision("gate"))], verify=lambda e, s: True))
+    assert out.read_text() == "free,ordinary,protected,frozen"
+
+
+def test_r38_call_and_emit_entries_appear_in_steps_and_the_call_entry_holds_exit_zero_or_one():
+    child_ok = wf(("w", leaf("w")), name="ok")
+    child_bad = wf(("w", leaf("w", [chk("bad")])), name="bad")
+    emit = {"emit": {"event": {"with": {"type": "org.report", "data": {"n": 1}}}},
+            "metadata": {"org": {"by": "code", "role": "ci", "acceptance": [chk()]}}}
+    root = wf(("report", emit), ("good", _call("ok")), ("broken", _call("bad")), ("merge", leaf("w", [chk("probe")], by="model")), name="root")
+    seen = []
+    host = ScriptedHost(checks={"bad": False, "probe": lambda n, k, e: seen.append(e) or True})
+    go({"root": root, "ok": child_ok, "bad": child_bad}, host, name="root")
+    steps = seen[0]["steps"]
+    assert steps["report"]["exit"] == 0 and json.loads(steps["report"]["stdout"]) == {"n": 1, "run": RID}
+    assert steps["good"] == {"exit": 0, "stdout": ""}
+    assert steps["broken"] == {"exit": 1, "stdout": ""}
+
+
+def test_r39_change_carries_the_vcs_head_and_the_working_tree():
+    doc = wf(("improve", leaf("w", [chk("probe")], role="improver")))
+    res, seen = _evidence_of(None, doc, change={"head": "abc123", "worktree": "/work/tree"})
+    assert seen[0][1]["change"] == {"head": "abc123", "worktree": "/work/tree"}
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_process_host_change_reads_the_git_head_and_worktree(org):
+    run = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a], cwd=org, check=True, capture_output=True)  # noqa: E731
+    run("init", "-q")
+    (org / "f").write_text("x")
+    run("add", "f")
+    run("commit", "-q", "-m", "m")
+    ch = ProcessHost(str(org)).change()
+    assert len(ch["head"]) == 40 and os.path.realpath(ch["worktree"]) == os.path.realpath(str(org))
+
+
+def test_r40_judge_input_holds_item_output_and_the_current_rounds_evidence():
+    seen = []
+
+    def judge(req):
+        seen.append(json.loads(Path(req.input_file).read_text()))
+        return {"invocation": req.invocation, "type": "org.rubric-verdict",
+                "data": {"run": req.run_id, "task": req.key, "item": req.item, "verdict": "pass"}}
+    doc = wf(("pre", leaf("w", by="code")),
+             ("spec", leaf("w", [chk("c"), {"rubric": "criteria/s.md", "judge": "reviewer"}], by="model")))
+    host = ScriptedHost(steps={"pre": StepOutcome(stdout="g"), "spec": StepOutcome(stdout="claim")}, judges={"spec": judge})
+    go(doc, host)
+    body = seen[0]["input"]
+    assert body["item"] == 1 and body["output"] == {"exit": 0, "stdout": "claim"}
+    assert body["evidence"]["steps"]["pre"] == {"exit": 0, "stdout": "g"}
+    assert body["evidence"]["output"] == body["output"]
+
+
+def test_r41_decisions_come_from_the_verified_event_never_from_a_step():
+    doc = wf(("merge-gate", gate(floor=True)), ("merge", leaf("w", [chk("probe")], by="model")))
+    host = ScriptedHost(events=[(5, decision("merge-gate"))], change={"head": "h1", "worktree": "/w"},
+                        checks={"probe": lambda n, k, e: seen.append(e) or True})
+    seen = []
+    go(doc, host)
+    assert seen[0]["decisions"]["merge-gate"] == {"decision": "approve", "signer_role": "owner", "signature_verified": True,
+                                                  "run": RID, "task": "merge-gate", "head": "h1"}
+
+
+def test_r41_a_rejected_decision_is_recorded_too_inside_a_rework_loop():
+    g = gate(role="lead", by="human", acceptance=[{"human": "ok"}])
+    g["metadata"]["org"]["signer"] = "owner"
+    seen = []
+    doc = _rework([{"approve": g}, {"look": leaf("w", [chk("probe")], by="model")}], n=2, cond='${ $accepted["rework/approve"] != true }')
+    host = ScriptedHost(events=[(5, decision("rework/approve", "reject")), (9, decision("rework/approve"))],
+                        checks={"probe": lambda n, k, e: seen.append(e["decisions"]["rework/approve"]["decision"]) or True})
+    go(doc, host)
+    assert seen == ["reject", "approve"]
+
+
+def test_r42_outputs_carry_an_earlier_models_claim_but_steps_do_not():
+    doc = wf(("acceptance-tests", leaf("w", by="model")), ("acceptance-red", leaf("w", [chk("probe")], by="code")))
+    res, seen = _evidence_of(None, doc, steps={"acceptance-tests": StepOutcome(stdout='{"tests": ["t1", "t2"]}')})
+    ev = seen[0][1]
+    assert json.loads(ev["outputs"]["acceptance-tests"]["stdout"]) == {"tests": ["t1", "t2"]}
+    assert "acceptance-tests" not in ev["steps"]
+
+
+# ---- update 7 items (P31 to P40) and fixture-agnostic rule checks
+
+
+def test_p33_a_decision_event_is_consumed_once_per_run():
+    g = gate(role="lead", by="human", acceptance=[{"human": "ok"}])
+    g["metadata"]["org"]["signer"] = "owner"
+    doc = _rework([{"approve": g}], n=2, cond='${ $accepted["rework/approve"] != true }')
+    first = decision("rework/approve", "reject")
+    again = copy.deepcopy(first)  # a replay of the same signed event in round 2
+    ev = [(5, first), (6, again), (9, decision("rework/approve"))]
+    res = go(doc, ScriptedHost(events=ev))
+    assert [e["reason"] for e in kinds(res, "ignored")] == ["decision event already consumed"]
+    assert [(e["t"], e["status"]) for e in kinds(res, "accept") if e["key"] == "rework/approve"] == [(5, "fail"), (9, "pass")]
+
+
+def test_p35_a_call_is_a_floor_call_when_a_workflow_it_calls_has_floors():
+    leafchild = wf(("fl", leaf("fl", [chk()], floor=True)), name="c")
+    middle = wf(("down", _call("c")), name="b")
+    root = wf(("each", {"for": {"in": "${ . }"}, "do": [{"c": _call("b")}]}), name="root")
+    res = go({"root": root, "b": middle, "c": leafchild}, name="root", input=[])
+    assert "each/c: floor-not-run" in res.errors
+
+
+def test_p36_a_rework_loop_may_name_a_callee_floor_by_its_full_key():
+    child = wf(("fl", leaf("fl", [chk("sc")], floor=True)), name="child")
+    root = wf(("rework", {"for": {"in": [1, 2]}, "while": '${ $accepted["c>fl"] != true }', "do": [{"c": _call("child")}]}), name="root")
+    res = go({"root": root, "child": child}, ScriptedHost(checks={"sc": [False, True]}), name="root")
+    assert res.status == "success", res.errors
+    assert len(starts(res, "rework/c>fl")) == 2
+
+
+def test_the_fixture_tdd_unit_runs_to_success_whatever_its_check_layout():
+    res = go({"tdd-unit": tdd_doc()}, ScriptedHost(), catalog=CAT, manifest=MAN)
+    assert res.status == "success", res.errors
