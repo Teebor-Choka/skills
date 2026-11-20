@@ -1,4 +1,77 @@
-#!/bin/sh
-# merge-change: not implemented. U14 builds it; until then the step fails loudly.
-echo "merge-change: not implemented (U14)" >&2
-exit 3
+#!/usr/bin/env python3
+"""merge-change --into <branch|policy>: fast-forward the change branch into <branch>, then run the suite.
+
+The runtime starts this only after the merge gate approved (the `merge` task has `if` on the gate). It
+prints one JSON object, `{"head", "ci": {"state", "head"}, "merged"}` (state `success`), for the fact check
+`checks-green-and-gate-approved`. When the suite is red the merge is undone and the exit status is 1.
+
+  --into   a branch name, or a policy name such as vcs.default-branch, resolved from the environment
+           variable POLICY_<NAME> with dots and dashes as underscores, upper case
+Environment: TDD_WORKTREE (a clean clone with <branch> checked out), TDD_CHANGE_BRANCH, TDD_TEST_CMD and
+TDD_TIMEOUT as for tdd-evidence. Exit 2 means a refusal before anything changed. Standard library only.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+
+def die(msg, code=2):
+    sys.stderr.write("merge-change: " + msg + "\n")
+    sys.exit(code)
+
+
+def git(path, *args, check=True):
+    r = subprocess.run(["git", "-C", path, *args], capture_output=True, text=True)
+    if check and r.returncode != 0:
+        die(f"git {' '.join(args)}: {r.stderr.strip()}")
+    return r
+
+
+def resolve(into):
+    if "." not in into:
+        return into
+    var = "POLICY_" + re.sub(r"[.-]", "_", into).upper()
+    value = os.environ.get(var)
+    if not value:
+        die(f"policy {into} is not resolved: set {var}")
+    return value
+
+
+def main(argv):
+    if len(argv) != 2 or argv[0] != "--into":
+        die("usage: merge-change --into <branch|policy>")
+    branch = resolve(argv[1])
+    change = os.environ.get("TDD_CHANGE_BRANCH")
+    if not change:
+        die("TDD_CHANGE_BRANCH is not set")
+    path = os.path.abspath(os.environ.get("TDD_WORKTREE") or os.getcwd())
+    if git(path, "rev-parse", "--show-toplevel", check=False).returncode != 0:
+        die(f"{path} is not a git working tree")
+    current = git(path, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if current != branch:
+        die(f"branch {branch} is not checked out (found {current})")
+    if git(path, "status", "--porcelain").stdout.strip():
+        die("the working tree is not clean")
+    before = git(path, "rev-parse", "HEAD").stdout.strip()
+    if git(path, "merge", "--ff-only", change, check=False).returncode != 0:
+        die(f"{change} cannot be fast-forwarded into {branch}", 1)
+    head = git(path, "rev-parse", "HEAD").stdout.strip()
+    here = os.path.dirname(os.path.abspath(__file__))
+    r = subprocess.run([sys.executable, os.path.join(here, "tdd-evidence"), "unit", "green"], capture_output=True, text=True,
+                       env=dict(os.environ, TDD_WORKTREE=path, TDD_BASE=before))
+    try:
+        suite = json.loads(r.stdout)["suite"]
+        green = r.returncode == 0 and suite["failed"] == 0 and suite["passed"] > 0
+    except (ValueError, KeyError, TypeError):
+        green = False
+    if not green:
+        git(path, "reset", "--hard", before)
+        sys.stderr.write("merge-change: the suite is red after the merge; merge undone\n")
+        sys.exit(1)
+    sys.stdout.write(json.dumps({"head": head, "ci": {"state": "success", "head": head}, "merged": True}) + "\n")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
