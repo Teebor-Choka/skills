@@ -1887,3 +1887,125 @@ def test_a_repeated_or_malformed_tools_or_workdir_flag_is_a_bad_argument(org, ex
     root, env, _ = org
     code, out, err = cli(["--role", "worker", "--brief", "briefs/build.md", *extra], env)
     assert code == 2 and "bad-arguments" in err
+
+
+# ---------------------------------------------------------------- workdir containment (security)
+
+
+def _refused(org, monkeypatch, workdir, env_extra=None):
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", str(workdir)], env_extra)
+    assert code == 1 and out == "" and seen == [], err
+    return err.strip()
+
+
+def test_workdir_equal_to_the_org_root_is_refused(org, monkeypatch):
+    root, _, _ = org
+    assert _refused(org, monkeypatch, root) == f"agent-run: --workdir: '{root}' contains the org root"
+
+
+def test_workdir_that_is_a_parent_of_the_org_root_is_refused(org, monkeypatch):
+    root, _, _ = org
+    assert _refused(org, monkeypatch, root.parent) == f"agent-run: --workdir: '{root.parent}' contains the org root"
+
+
+def test_workdir_that_is_a_symlink_to_the_org_root_is_refused(org, monkeypatch):
+    root, _, tmp = org
+    (tmp / "rootlink").symlink_to(root)
+    assert "contains the org root" in _refused(org, monkeypatch, tmp / "rootlink")
+
+
+def test_workdir_that_is_a_symlink_to_a_parent_of_the_root_is_refused(org, monkeypatch):
+    root, _, tmp = org
+    (tmp / "uplink").symlink_to(root.parent)
+    assert "contains the org root" in _refused(org, monkeypatch, tmp / "uplink")
+
+
+def test_workdir_equal_to_the_session_dir_is_refused(org, monkeypatch):
+    root, env, _ = org
+    session = Path(env["ORG_SESSION_DIR"])
+    session.mkdir(parents=True)
+    assert _refused(org, monkeypatch, session) == f"agent-run: --workdir: '{session}' overlaps the session directory"
+
+
+def test_workdir_inside_the_session_dir_is_refused(org, monkeypatch):
+    root, env, _ = org
+    inside = Path(env["ORG_SESSION_DIR"]) / "sub"
+    inside.mkdir(parents=True)
+    assert "overlaps the session directory" in _refused(org, monkeypatch, inside)
+
+
+def test_workdir_that_is_a_parent_of_the_session_dir_is_refused(org, monkeypatch):
+    root, env, tmp = org
+    session = tmp / "s" / "sessions"
+    session.mkdir(parents=True)
+    msg = _refused(org, monkeypatch, tmp / "s", {"ORG_SESSION_DIR": str(session)})
+    assert msg == f"agent-run: --workdir: '{tmp / 's'}' overlaps the session directory"
+
+
+def test_workdir_that_is_a_symlink_to_the_session_dir_is_refused(org, monkeypatch):
+    root, env, tmp = org
+    session = Path(env["ORG_SESSION_DIR"])
+    session.mkdir(parents=True)
+    (tmp / "sesslink").symlink_to(session)
+    assert "overlaps the session directory" in _refused(org, monkeypatch, tmp / "sesslink")
+
+
+def test_a_sibling_of_the_org_root_and_the_session_dir_is_still_accepted(org, monkeypatch):
+    root, env, tmp = org
+    (tmp / "sessions-extra").mkdir()
+    code, out, err, seen = run_with_runner(org, monkeypatch, ["--workdir", str(tmp / "sessions-extra")])
+    assert code == 0, err
+
+
+def test_run_agent_refuses_a_workdir_that_contains_the_org_root(tmp_path):
+    root, work = tmp_path / "org", tmp_path
+    root.mkdir()
+    runner = FakeRunner()
+    with pytest.raises(PortError) as e:
+        ar.run_agent(claude(runner), ar.SessionStore(tmp_path / "x" / "s"), role="worker", brief="b", task=TASK,
+                     isolated=True, manifest=MANIFEST, workdir=str(work), org_root=str(root))
+    assert e.value.code == "workdir-refused" and "contains the org root" in str(e.value) and runner.calls == []
+
+
+def test_run_agent_refuses_a_workdir_that_overlaps_the_session_dir(tmp_path):
+    root, session = tmp_path / "org", tmp_path / "s" / "sessions"
+    root.mkdir()
+    session.mkdir(parents=True)
+    runner = FakeRunner()
+    with pytest.raises(PortError) as e:
+        ar.run_agent(claude(runner), ar.SessionStore(session), role="worker", brief="b", task=TASK, isolated=True,
+                     manifest=MANIFEST, workdir=str(session), org_root=str(root))
+    assert e.value.code == "workdir-refused" and "overlaps the session directory" in str(e.value)
+    assert runner.calls == []
+
+
+def test_run_agent_refuses_a_workdir_in_a_frozen_part_or_a_missing_one(tmp_path):
+    root = tmp_path / "org"
+    (root / "checks").mkdir(parents=True)
+    for path, text in ((root / "checks", "inside the frozen part 'checks/'"), (tmp_path / "gone", "is not a directory")):
+        with pytest.raises(PortError) as e:
+            ar.run_agent(claude(), ar.SessionStore(), role="worker", brief="b", task=TASK, isolated=True,
+                         manifest=MANIFEST, workdir=str(path), org_root=str(root))
+        assert e.value.code == "workdir-refused" and text in str(e.value)
+
+
+def test_run_agent_needs_the_org_root_to_accept_a_workdir(tmp_path):
+    with pytest.raises(PortError) as e:
+        ar.run_agent(claude(), ar.SessionStore(), role="worker", brief="b", task=TASK, isolated=True,
+                     manifest=MANIFEST, workdir=str(tmp_path))
+    assert e.value.code == "invalid-input" and "org_root" in str(e.value)
+
+
+def test_run_agent_accepts_a_safe_workdir(tmp_path):
+    root, work = tmp_path / "org", tmp_path / "work"
+    root.mkdir()
+    work.mkdir()
+    runner = FakeRunner()
+    ar.run_agent(claude(runner), ar.SessionStore(tmp_path / "s"), role="worker", brief="b", task=TASK,
+                 isolated=True, manifest=MANIFEST, workdir=str(work), org_root=str(root))
+    assert runner.calls[0]["cwd"] == str(work)
+
+
+def test_the_code_explains_why_manifest_and_catalog_files_need_no_rule():
+    text = Path(ar.__file__).read_text()
+    assert "cannot contain a directory" in text
