@@ -2895,3 +2895,9 @@ def test_p54_process_host_change_caps_the_diff(tmp_path, org):
     (repo / "big.txt").write_text("x" * 50 + "\n")
     c = ProcessHost(str(org)).change(str(repo), "main", cap=20)
     assert len(c.get("diff") or "") == 20 and c.get("truncated") is True
+
+
+def test_p54_the_default_diff_cap_leaves_room_in_a_judge_input_file():
+    import agent_run
+    cap = ProcessHost.change.__defaults__[-1]  # the default `cap` of the change query
+    assert cap * 4 <= agent_run.MAX_INPUT_BYTES  # diff, outputs and the judged output share one file

@@ -953,14 +953,29 @@ def test_p59_new_symbols_must_be_a_list_of_names(name):
 
 
 @pytest.mark.parametrize("drop", ["unit", "write_set"])
-def test_p57_red_fact_without_a_write_set_is_missing_evidence(drop):
-    spec = copy.deepcopy(SPECS["red-evidence"])
+def test_p57_a_unit_without_a_write_set_skips_the_production_file_fact(drop):
+    # bug.yaml calls tdd-unit with `{unit: {id: bug-fix}}`: no write-set is known, so only the runs are judged
+    spec = mut(SPECS["red-evidence"], ["out", "changed"], ["calc.py", "test_add.py"])
     if drop == "unit":
         spec["input"] = {}
     else:
         del spec["input"]["unit"]["write_set"]
     cp = run_spec("red-evidence", spec)
+    assert cp.returncode == 0, cp.stderr
+
+
+def test_p57_a_malformed_write_set_is_bad_evidence():
+    cp = run_spec("red-evidence", mut(SPECS["red-evidence"], ["input", "unit", "write_set"], "calc.py"))
     assert cp.returncode == 2 and "write_set" in cp.stderr
+
+
+@needs_yaml
+def test_p55_every_caller_of_tdd_unit_passes_a_unit_the_input_schema_accepts():
+    schema = workflow("tdd-unit")["input"]["schema"]["document"]["properties"]["unit"]
+    for name in ("sw-development", "bug"):
+        text = (ROOT / "workflows" / f"{name}.yaml").read_text()
+        if "unit: { id: bug-fix }" in text:
+            assert "write_set" not in schema.get("required", []), name
 
 
 def test_p57_a_changed_file_outside_the_write_set_is_not_the_red_checks_business():
