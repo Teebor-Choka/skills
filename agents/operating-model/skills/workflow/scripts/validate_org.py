@@ -444,11 +444,12 @@ def _step_errors(task, p, o, errs):
         if skip:
             skip = False
             continue
-        flag = next((f for f in ("--role", "--brief", "--network", "--input")
+        flag = next((f for f in ("--role", "--brief", "--network", "--input", "--tools", "--workdir")
                      if a == f or (isinstance(a, str) and a.startswith(f + "="))), None)
         if flag:
             skip = a == flag
-            source = "the task input" if flag == "--input" else "metadata.org"
+            source = {"--input": "the task input", "--tools": "the stack document",
+                      "--workdir": "the stack document"}.get(flag, "metadata.org")
             errs.append(f"{p}: run.shell.arguments: {flag} is set by the runtime from {source}; remove it")
         elif a == "--isolated":
             if seen_isolated:
