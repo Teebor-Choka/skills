@@ -827,7 +827,7 @@ def test_step_request_carries_role_and_brief_from_metadata_and_appends_them_to_a
     seen = []
     host = ScriptedHost(steps={"a": lambda req: seen.append(req) or StepOutcome()})
     go(doc, host)
-    assert seen[0].argv[:-1] == ["agent-run", "--isolated", "--role", "pm", "--brief", "briefs/a.md", "--input"]
+    assert seen[0].argv[:7] == ["agent-run", "--isolated", "--role", "pm", "--brief", "briefs/a.md", "--input"]
 
 
 def test_agent_run_as_owner_is_refused_at_run_time_even_without_static_validation():
@@ -1386,8 +1386,8 @@ def test_r26_each_unit_end_emits_task_ended_and_until_sees_events_one_then_two()
     res = _fanout_run(2, host)
     ev = _ended(res)
     assert [e["data"] for e in ev] == [
-        {"run": RID, "task": "fan/units/unit#0", "accepted": True},
-        {"run": RID, "task": "fan/units/unit#1", "accepted": True}]
+        {"run": RID, "task": "fan/units/unit#0", "accepted": True, "output": {"exit": 0, "stdout": ""}},
+        {"run": RID, "task": "fan/units/unit#1", "accepted": True, "output": {"exit": 0, "stdout": ""}}]
     untils = [(e["events"], e["result"]) for e in kinds(res, "until")]
     assert untils == [(0, False), (1, False), (2, True)]
     assert "org.unit-done" not in [e["type"] for e in kinds(res, "event")]
@@ -2550,3 +2550,250 @@ def test_r37_the_input_file_directory_check_uses_a_root_that_really_contains_the
         res = go(wf(("a", _agent())), host)
         assert res.errors[0].startswith("a: input file directory "), (root, res.errors)
         assert not any(c[0] == "step" for c in host.calls)
+
+
+# ================================================================= P41: org.task-ended carries the ended work's output entry
+
+
+def test_p41_task_ended_data_carries_the_recorded_output_entry_of_the_unit():
+    host = ScriptedHost(steps={"bg": StepOutcome(stdout="verdict-a"), "bg2": StepOutcome(exit_code=3, stdout="partial", error="x")})
+    doc = wf(("bg", _detached()), ("bg2", _detached()))
+    res = go(doc, host)
+    data = {e["data"]["task"]: e["data"] for e in _ended(res)}
+    assert data["bg"]["output"] == {"exit": 0, "stdout": "verdict-a"}
+    assert data["bg2"]["output"] == {"exit": 3, "stdout": "partial"}  # a failed unit reports what it printed
+    assert data["bg"]["accepted"] is True and data["bg2"]["accepted"] is False
+
+
+def test_p41_the_output_of_a_unit_that_failed_before_producing_one_is_exit_one_and_empty():
+    bad = {"run": {"shell": {"command": "agent-run", "arguments": []}, "await": False},
+           "metadata": {"org": {"by": "model", "role": "pm", "brief": "briefs/a.md"}}}
+    res = go(wf(("a", bad)), ScriptedHost(outside={"briefs/a.md"}))
+    assert res.status == "error"  # a fatal error ends the run and emits no event
+    assert _ended(res) == []
+
+
+def test_p41_an_until_can_read_the_output_of_the_events_it_consumed():
+    doc = wf(("fan", {"do": [
+        {"a": _detached()}, {"b": _detached()},
+        {"join": _plain_gate('${ ($events | length) == 2 and $events[0].data.output.stdout == "one" }')}]}))
+    res = go(doc, ScriptedHost(steps={"fan/a": StepOutcome(stdout="one"), "fan/b": StepOutcome(stdout="two")}))
+    assert res.status == "success", res.errors
+    assert kinds(res, "until")[-1]["result"] is True
+
+
+def test_p41_the_output_in_a_task_ended_event_is_capped_like_step_output():
+    big = "x" * (it.OUTPUT_CAP + 50)
+    res = go(wf(("a", _detached())), ScriptedHost(steps={"a": StepOutcome(stdout=big)}))
+    out = _ended(res)[0]["data"]["output"]
+    assert len(out["stdout"]) == it.OUTPUT_CAP and out["truncated"] is True
+
+
+def test_p41_a_cancelled_unit_emits_no_event_and_so_no_output():
+    doc = _rework([{"bg": _detached()}], n=2)
+    res = go(doc, ScriptedHost(steps={"rework/bg": [StepOutcome(duration=100, stdout="stale"), StepOutcome(duration=1, stdout="fresh")]}))
+    assert [e["data"]["output"]["stdout"] for e in _ended(res)] == ["fresh"]
+
+
+def test_p41_a_join_check_can_read_every_claims_verdict_from_the_join_output():
+    """The research join check shape: `every-claim-has-a-verdict` reads the join's consumed events."""
+    seen = []
+
+    def every_claim_has_a_verdict(name, key, evidence):
+        events = json.loads(evidence["output"]["stdout"])
+        verdicts = {e["data"]["task"]: json.loads(e["data"]["output"]["stdout"]).get("verdict") for e in events}
+        seen.append(verdicts)
+        return len(verdicts) == 2 and all(v in ("supported", "refuted") for v in verdicts.values())
+    join = _plain_gate("${ ($events | length) == 2 }")
+    join["metadata"]["org"]["acceptance"] = [chk("every-claim-has-a-verdict")]
+    doc = wf(("research", {"do": [{"claim-a": _detached()}, {"claim-b": _detached()}, {"join": join}]}))
+    host = ScriptedHost(steps={"research/claim-a": StepOutcome(stdout='{"verdict": "supported"}'),
+                               "research/claim-b": StepOutcome(stdout='{"verdict": "refuted"}')},
+                        checks={"every-claim-has-a-verdict": every_claim_has_a_verdict})
+    res = go(doc, host)
+    assert res.status == "success", res.errors
+    assert seen == [{"research/claim-a": "supported", "research/claim-b": "refuted"}]
+
+
+# ================================================================= spec updates 9 and 10: stack tools, workdir and bin-env (P47, P49 to P51)
+
+
+def _flags(argv):
+    """The runtime flags of an agent-run argv as a dict (flag to value)."""
+    return {a: argv[i + 1] for i, a in enumerate(argv) if a.startswith("--") and i + 1 < len(argv)}
+
+
+def _stack(tools=("Read", "Edit", "Bash"), workdir="TDD_WORKTREE", wf_name="t", role="pm", env=None):
+    return {"bin-env": {wf_name: {"TDD_WORKTREE": "/w", "TDD_BASE": "main", **(env or {})}},
+            "roles": {wf_name: {role: {"tools": list(tools), "workdir": workdir}}}}
+
+
+def _agent_run(**kw):
+    seen = []
+    host = ScriptedHost(steps={"a": lambda req: seen.append(req) or StepOutcome()})
+    return host, seen
+
+
+def _run_agent(stack, arguments=(), name="t"):
+    seen = []
+    doc = wf(("a", _agent(arguments=arguments)), name=name)
+    host = ScriptedHost(steps={"a": lambda req: seen.append(req) or StepOutcome()})
+    res = Interpreter({name: doc}, host, stack=stack).run(name, run_id=RID)
+    return res, seen
+
+
+def test_r58_agent_run_argv_carries_the_stack_tools_and_workdir():
+    res, seen = _run_agent(_stack())
+    flags = _flags(seen[0].argv)
+    assert flags["--tools"] == "Read,Edit,Bash" and flags["--workdir"] == "/w"
+    assert seen[0].argv.index("--input") < seen[0].argv.index("--tools") < seen[0].argv.index("--workdir")
+    assert seen[0].tools == ["Read", "Edit", "Bash"] and seen[0].workdir == "/w"
+
+
+def test_r59_an_isolated_call_gets_only_the_read_tools_and_the_same_workdir():
+    res, seen = _run_agent(_stack(tools=("Read", "Grep", "Glob", "Bash")), arguments=["--isolated"])
+    flags = _flags(seen[0].argv)
+    assert flags["--tools"] == "Read,Grep,Glob" and flags["--workdir"] == "/w"
+    res, seen = _run_agent(_stack(tools=("Bash", "Edit", "Write")), arguments=["--isolated"])
+    assert _flags(seen[0].argv)["--tools"] == ""  # no read tool listed: none passed
+
+
+def test_no_stack_entry_means_no_tools_or_workdir_flag_so_an_older_agent_run_keeps_working():
+    for stack in (None, _stack(role="someone-else")):
+        res, seen = _run_agent(stack)
+        assert "--tools" not in seen[0].argv and "--workdir" not in seen[0].argv and seen[0].tools == []
+
+
+def test_a_subflow_uses_its_own_workflows_roles_and_bin_env():
+    child = wf(("a", _agent("a")), name="child")
+    root = wf(("c", _call("child")), ("b", _agent("b")), name="root")
+    stack = {"bin-env": {"root": {"W": "/root-w"}, "child": {"W": "/child-w"}},
+             "roles": {"root": {"pm": {"tools": ["Read"], "workdir": "W"}}, "child": {"pm": {"tools": ["Bash"], "workdir": "W"}}}}
+    seen = {}
+    host = ScriptedHost(steps={"c>a": lambda req: seen.setdefault("child", req) and StepOutcome(),
+                               "b": lambda req: seen.setdefault("root", req) and StepOutcome()})
+    Interpreter({"root": root, "child": child}, host, stack=stack).run("root", run_id=RID)
+    assert _flags(seen["child"].argv)["--tools"] == "Bash" and _flags(seen["child"].argv)["--workdir"] == "/child-w"
+    assert _flags(seen["root"].argv)["--tools"] == "Read" and _flags(seen["root"].argv)["--workdir"] == "/root-w"
+
+
+def test_a_workdir_naming_a_variable_missing_from_bin_env_is_a_located_error():
+    res, seen = _run_agent(_stack(workdir="NOT_THERE"))
+    assert res.errors[0] == "a: stack: roles.t.pm.workdir: 'NOT_THERE' is not a bin-env variable of t"
+    assert seen == []
+
+
+def test_the_stack_must_be_a_map():
+    with pytest.raises(ValueError):
+        Interpreter({"t": wf(("a", leaf()))}, ScriptedHost(), stack="bad")
+
+
+@pytest.mark.parametrize("args,flag", [(["--tools", "Bash"], "--tools"), (["--workdir=/tmp"], "--workdir"),
+                                       (["--tools=Bash"], "--tools"), (["--workdir", "/tmp"], "--workdir")])
+def test_r63_a_step_carrying_tools_or_workdir_is_refused_before_any_task_runs(args, flag):
+    doc = wf(("first", leaf("first")), ("align", _agent(arguments=args)))
+    host = ScriptedHost()
+    res = go(doc, host)
+    assert res.status == "refused" and host.calls == [] and kinds(res, "task-start") == []
+    assert res.errors[0] == f"run refused: t: align: run.shell.arguments: {flag} is set by the runtime from the stack document; remove it"
+
+
+def test_a_bin_program_gets_exactly_the_stack_bin_env_names_and_the_runtime_variables(org, monkeypatch):
+    monkeypatch.setenv("HOME", "/home/someone")
+    monkeypatch.setenv("TDD_TIMEOUT", "99")
+    _script(org / "bin" / "tdd-evidence", 'echo "BASE=$TDD_BASE CMD=$TDD_TEST_CMD HOME=${HOME-unset} TO=${TDD_TIMEOUT-unset} RUN=$ORG_RUN"\n')
+    stack = {"bin-env": {"t": {"TDD_BASE": "main", "TDD_TEST_CMD": "pytest -q"}}}
+    doc = wf(("s", leaf("tdd-evidence")))
+    res = Interpreter({"t": doc}, ProcessHost(str(org)), stack=stack).run("t", run_id=RID)
+    assert res.output == f"BASE=main CMD=pytest -q HOME=unset TO=unset RUN={RID}"
+
+
+def test_bin_env_names_that_could_hijack_the_program_are_refused(org):
+    _script(org / "bin" / "w", "echo hi\n")
+    for name in ("PATH", "ORG_RUN", "LD_PRELOAD", "DYLD_X", "lower"):
+        stack = {"bin-env": {"t": {name: "x"}}}
+        res = Interpreter({"t": wf(("s", leaf("w")))}, ProcessHost(str(org)), stack=stack).run("t", run_id=RID)
+        assert res.errors[0] == f"s: stack: bin-env.t.{name}: name is not allowed", name
+
+
+def test_bin_env_is_not_passed_to_agent_run(org):
+    stub = org.parent / "agent-run"
+    _script(stub, 'echo "TDD=${TDD_BASE-unset}"\n')
+    (org / "briefs" / "a.md").write_text("b")
+    stack = {"bin-env": {"t": {"TDD_BASE": "main"}}}
+    doc = wf(("a", _agent()))
+    res = Interpreter({"t": doc}, ProcessHost(str(org), agent_run=str(stub)), stack=stack).run("t", run_id=RID)
+    assert res.output == "TDD=unset"
+
+
+# ================================================================= spec update 11: skipped tasks and R64 (12.6 changes 13 and 14)
+
+
+def _guarded_cycle():
+    """tdd-unit's cycle with the update 11 guards, built inline so the test does not depend on a fixture."""
+    def step(by, acc=None, **extra):
+        return leaf("w", acc, by=by, role="worker" if by == "model" else "ci", **extra)
+    body = [
+        {"red": step("model")},
+        {"red-evidence": step("code", [chk("red-evidence")])},
+        {"green": step("model", **{"if": '${ $accepted["cycle/red-evidence"] == true }'})},
+        {"green-evidence": step("code", [chk("green-evidence")])},
+        {"refactor": step("model", **{"if": '${ $accepted["cycle/green-evidence"] == true }'})},
+        {"refactor-evidence": step("code", [chk("refactor-evidence")])},
+        {"unit-review": step("model", [{"rubric": "criteria/unit-review.md", "judge": "lead"}])},
+    ]
+    return wf(("cycle", {"for": {"each": "attempt", "in": [1, 2, 3]}, "while": '${ $accepted["cycle/unit-review"] != true }', "do": body}),
+              ("exhausted", {"if": '${ $accepted["cycle/unit-review"] != true }',
+                             "raise": {"error": {"type": "https://x/unit-not-accepted", "status": 409, "title": "not accepted"}},
+                             "metadata": {"org": {"to": "lead"}}}))
+
+
+def test_r64_a_failed_red_skips_green_and_refactor_but_the_evidence_steps_and_the_review_run():
+    # with green skipped, the real green-evidence fact fails too (it finds no change); that is what guards refactor
+    host = ScriptedHost(checks={"red-evidence": [False, True], "green-evidence": [False, True], "refactor-evidence": [False, True]},
+                        judges={"cycle/unit-review": ["fail", "pass"]})
+    res = go(_guarded_cycle(), host)
+    assert res.status == "success", res.errors  # round 2 passed everything; round 1's results were discarded
+    first_round = []
+    for e in kinds(res, "task-start"):
+        if e["key"] == "cycle":
+            continue
+        first_round.append(e["key"])
+        if e["key"] == "cycle/unit-review":
+            break
+    assert first_round == ["cycle/red", "cycle/red-evidence", "cycle/green-evidence", "cycle/refactor-evidence", "cycle/unit-review"]
+    assert len(starts(res, "cycle/green")) == 1 and len(starts(res, "cycle/refactor")) == 1  # only round 2 ran them
+    assert len(starts(res, "cycle/unit-review")) == 2
+
+
+def test_r64_the_loop_while_reads_unit_review_and_a_pass_ends_the_run_with_the_red_evidence_failure():
+    host = ScriptedHost(checks={"red-evidence": False, "green-evidence": False, "refactor-evidence": True})
+    res = go(_guarded_cycle(), host)  # unit-review passes (the default)
+    assert "cycle/red-evidence: acceptance failed" in res.errors and "cycle/green-evidence: acceptance failed" in res.errors
+    assert starts(res, "cycle/green") == [] and starts(res, "cycle/refactor") == []
+    assert len(starts(res, "cycle/red")) == 1  # unit-review passed in round 1, so no round 2
+    assert {"cycle/green-evidence", "cycle/refactor-evidence", "cycle/unit-review"} <= set(res.accepted)
+
+
+def test_a_skipped_task_has_no_key_no_record_no_accepted_entry_and_cannot_fail_the_run():
+    res = go(_guarded_cycle(), ScriptedHost(checks={"red-evidence": False, "green-evidence": False}))
+    for key in ("cycle/green", "cycle/refactor"):
+        assert key not in res.accepted and key not in res.records and key not in res.statuses
+        assert not any(e["kind"] == "accept" and e["key"] == key for e in res.events)
+    assert [e["key"] for e in kinds(res, "task-skip")] == ["cycle/green", "cycle/refactor", "exhausted"]
+    assert not any("cycle/green:" in e or "cycle/refactor:" in e for e in res.errors)
+
+
+def test_a_skipped_detached_unit_starts_no_work_and_emits_no_task_ended():
+    unit = dict(_detached(), **{"if": "${ false }"})
+    host = ScriptedHost()
+    res = go(wf(("bg", unit)), host)
+    assert res.status == "success" and _ended(res) == [] and not any(c[0] == "step" for c in host.calls)
+
+
+def test_a_skipped_task_does_not_count_for_a_join_that_waits_on_task_ended():
+    doc = wf(("fan", {"do": [
+        {"a": _detached()}, {"b": dict(_detached(), **{"if": "${ false }"})},
+        {"join": _plain_gate("${ ($events | length) == 1 }", after={"seconds": 30})}]}))
+    res = go(doc)
+    assert res.status == "success", res.errors
