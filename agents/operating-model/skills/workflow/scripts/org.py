@@ -173,6 +173,18 @@ class _Inbox(ort.InboxFeed):
                 self._run = None
         return self._run
 
+    def _digest(self, path):
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0))
+        except OSError:
+            return None
+        try:
+            return hashlib.sha256(os.read(fd, self.max_bytes + 1)).digest()
+        except OSError:
+            return None
+        finally:
+            os.close(fd)
+
     def _signed(self, event):
         return any(self.ring.verify(event, role) for role in self.ring.list())
 
@@ -201,8 +213,10 @@ class _Inbox(ort.InboxFeed):
                 st = os.lstat(path)
             except OSError:
                 continue
-            stamp = (st.st_mtime_ns, st.st_size)
-            if self._skip.get(path) == stamp:  # left here before and unchanged: no new read, no new verification
+            # Hashed before the load, so a rewrite in between is seen next poll. mtime and size alone miss a
+            # same-size rewrite inside one mtime tick; the bytes are capped by `max_bytes`.
+            stamp = (st.st_mtime_ns, st.st_size, self._digest(path))
+            if self._skip.get(path) == stamp:  # left here before and unchanged: no new parse, no new verification
                 continue
             try:
                 event = self._load(path)
