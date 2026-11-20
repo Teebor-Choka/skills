@@ -225,6 +225,23 @@ def test_runtime_errors_are_expr_errors(source, data, message):
     assert message in str(err.value)
 
 
+@pytest.mark.parametrize(
+    "source,message",
+    [
+        (".a | not and .b", "pipe '|'"),
+        (".a | not == true", "pipe '|'"),
+        ("and .a", "unexpected 'and'"),
+        (".a == or", "unexpected 'or'"),
+    ],
+)
+def test_misplaced_accepted_operator_is_not_reported_as_refused(source, message):
+    # jq reads `X | not and Y` as `X | (not and Y)`: a pipe into something other than `not`.
+    with pytest.raises(ExprError) as err:
+        parse(source)
+    assert message in str(err.value)
+    assert "keyword 'and'" not in str(err.value) and "keyword 'or'" not in str(err.value)
+
+
 @pytest.mark.parametrize("source", ["", "   ", ".a ==", "(.a", "[1,", ".a ]", '"open', "1 2", ".a ."])
 def test_malformed_source_is_an_expr_error(source):
     with pytest.raises(ExprError):
