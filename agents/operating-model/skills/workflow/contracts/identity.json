@@ -1,0 +1,181 @@
+{
+  "port": "Identity",
+  "operations": {
+    "issue": {
+      "name": "issue",
+      "input": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["agent", "person"]
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "required": ["instance_id", "kind", "subject"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "credential_id": {
+            "type": "string"
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["agent", "person"]
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "required": ["credential_id", "instance_id", "kind", "subject"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["idempotent", "one-key-per-instance"],
+      "errors": ["invalid-input", "already-issued", "backend-unavailable"],
+      "metrics": []
+    },
+    "revoke": {
+      "name": "revoke",
+      "input": {
+        "type": "object",
+        "properties": {
+          "credential_id": {
+            "type": "string"
+          }
+        },
+        "required": ["credential_id"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "credential_id": {
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": ["credential_id", "revoked"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["idempotent", "revocation-effective"],
+      "errors": ["invalid-input", "not-found", "backend-unavailable"],
+      "metrics": []
+    },
+    "verify": {
+      "name": "verify",
+      "input": {
+        "type": "object",
+        "properties": {
+          "credential_id": {
+            "type": "string"
+          }
+        },
+        "required": ["credential_id"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "credential_id": {
+            "type": "string"
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": ["credential_id", "valid", "reason"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["read-only"],
+      "errors": ["invalid-input", "backend-unavailable"],
+      "metrics": []
+    },
+    "list": {
+      "name": "list",
+      "input": {
+        "type": "object",
+        "properties": {
+          "include_revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "credentials": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "credential_id": {
+                  "type": "string"
+                },
+                "instance_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["agent", "person"]
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "revoked": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "credential_id",
+                "instance_id",
+                "kind",
+                "subject",
+                "revoked"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["credentials"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "lifetime": "returns within the caller's step timeout"
+      },
+      "guarantees": ["read-only"],
+      "errors": ["invalid-input", "backend-unavailable"],
+      "metrics": []
+    }
+  },
+  "notes": [
+    "The port is functional: issue, revoke, verify, list. Key material and the backing product stay behind it.",
+    "First implementation: OpenSSH CA (certificates for issue, a revocation list for revoke and verify). Any other backend, such as OpenBao or a wrapper, binds to the same four operations.",
+    "One credential per instance_id. A second issue with different kind or subject is refused with already-issued."
+  ]
+}
