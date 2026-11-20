@@ -2,9 +2,9 @@ document:
   dsl: 1.1.0
   namespace: org
   name: sw-development
-  version: 0.2.0
+  version: 0.3.0
   title: Software development, outer cycle (ATDD)
-  summary: One work item from an idea to a merged, reported change. The inner cycle is tdd-unit.
+  summary: One work item from an idea to a merged, deployed, reported change. Feasibility, layer and system acceptance send work back to the layer that caused the failure. The inner cycle is tdd-unit.
   metadata:
     org:
       policy:
@@ -33,84 +33,173 @@ do:
           acceptance:
             - rubric: criteria/sw/brief.md
               judge: lead
-  - spec:
+  - spec-cycle:
+      for: { each: spec-round, in: [1, 2, 3] }
+      while: ${ $accepted["spec-cycle/spec"] != true or $accepted["spec-cycle/design-cycle/feasibility"] == false or ($accepted["spec-cycle/design-cycle/system-run"] == false and $context.system_fault == "spec") }
+      do:
+        - spec:
+            run:
+              shell: { command: agent-run, arguments: [] }
+            output:
+              schema:
+                format: json
+                resource: { endpoint: schemas/org/item.json }
+            metadata:
+              org:
+                by: model
+                role: lead
+                brief: briefs/sw/spec.md
+                floor: true
+                metrics: [spec-rework]
+                acceptance:
+                  - check: spec-check
+                  - rubric: criteria/sw/spec.md
+                    judge: reviewer
+        - acceptance-tests:
+            run:
+              shell: { command: agent-run, arguments: [] }
+            metadata:
+              org:
+                by: model
+                role: tester
+                brief: briefs/sw/acceptance-tests.md
+                metrics: [acceptance-coverage]
+                acceptance:
+                  - check: spec-coverage
+                  - rubric: criteria/sw/acceptance-tests.md
+                    judge: reviewer
+        - acceptance-red:
+            run:
+              shell: { command: tdd-evidence, arguments: [acceptance, red] }
+            metadata:
+              org:
+                by: code
+                role: ci
+                metrics: [red-for-wrong-reason]
+                acceptance:
+                  - check: every-acceptance-test-fails-on-an-assertion
+        - design-cycle:
+            for: { each: design-round, in: [1, 2, 3] }
+            while: ${ $accepted["spec-cycle/design-cycle/feasibility"] == null or ($accepted["spec-cycle/design-cycle/feasibility"] == true and (($accepted["spec-cycle/design-cycle/build-cycle/layer-run"] == false and $context.layer_fault == "design") or ($accepted["spec-cycle/design-cycle/system-run"] == false and $context.system_fault == "design"))) }
+            do:
+              - design:
+                  run:
+                    shell: { command: agent-run, arguments: [] }
+                  metadata:
+                    org:
+                      by: model
+                      role: architect
+                      brief: briefs/sw/design.md
+                      metrics: [escalations]
+                      acceptance:
+                        - rubric: criteria/sw/design.md
+                          judge: reviewer
+              - feasibility:
+                  run:
+                    shell:
+                      { command: tdd-evidence, arguments: [feasibility, check] }
+                  metadata:
+                    org:
+                      by: code
+                      role: ci
+                      metrics: [spec-rework]
+                      acceptance:
+                        - check: feasibility-holds
+              - cut:
+                  if: ${ $accepted["spec-cycle/design-cycle/feasibility"] == true }
+                  run:
+                    shell: { command: agent-run, arguments: [] }
+                  output:
+                    schema:
+                      format: json
+                      resource: { endpoint: schemas/org/units.json }
+                  export:
+                    as: "${ $context + . }"
+                  metadata:
+                    org:
+                      by: model
+                      role: lead
+                      brief: briefs/sw/cut.md
+                      metrics: [write-set-collisions]
+                      acceptance:
+                        - check: write-sets-are-disjoint
+              - build-cycle:
+                  if: ${ $accepted["spec-cycle/design-cycle/feasibility"] == true }
+                  for: { each: build-round, in: [1, 2, 3] }
+                  while: ${ $accepted["spec-cycle/design-cycle/build-cycle/layer-run"] == null or ($accepted["spec-cycle/design-cycle/build-cycle/layer-run"] == false and $context.layer_fault == "unit") }
+                  do:
+                    - units:
+                        for: { each: unit, in: "${ $context.units }" }
+                        do:
+                          - tdd:
+                              run:
+                                workflow:
+                                  namespace: org
+                                  name: tdd-unit
+                                  version: 0.2.0
+                                  input: { unit: "${ $unit }" }
+                              metadata:
+                                org:
+                                  by: code
+                                  role: lead
+                                  metrics: [escalations]
+                                  acceptance:
+                                    - check: unit-verdict-is-pass
+                    - layer-run:
+                        run:
+                          shell:
+                            { command: tdd-evidence, arguments: [layer, run] }
+                        export:
+                          as: "${ $context + . }"
+                        metadata:
+                          org:
+                            by: code
+                            role: ci
+                            metrics: [acceptance-rounds]
+                            acceptance:
+                              - check: phase-acceptance-green
+              - system-run:
+                  if: ${ $accepted["spec-cycle/design-cycle/build-cycle/layer-run"] == true }
+                  run:
+                    shell: { command: tdd-evidence, arguments: [system, run] }
+                  export:
+                    as: "${ $context + . }"
+                  metadata:
+                    org:
+                      by: code
+                      role: ci
+                      metrics: [acceptance-rounds]
+                      acceptance:
+                        - check: phase-acceptance-green
+  - acceptance-run:
+      if: ${ $accepted["spec-cycle/design-cycle/system-run"] == true }
       run:
-        shell: { command: agent-run, arguments: [] }
-      output:
-        schema:
-          format: json
-          resource: { endpoint: schemas/org/item.json }
-      metadata:
-        org:
-          by: model
-          role: lead
-          brief: briefs/sw/spec.md
-          floor: true
-          metrics: [spec-rework]
-          acceptance:
-            - check: spec-check
-            - rubric: criteria/sw/spec.md
-              judge: reviewer
-  - acceptance-tests:
-      run:
-        shell: { command: agent-run, arguments: [] }
-      metadata:
-        org:
-          by: model
-          role: tester
-          brief: briefs/sw/acceptance-tests.md
-          metrics: [acceptance-coverage]
-          acceptance:
-            - check: spec-coverage
-            - rubric: criteria/sw/acceptance-tests.md
-              judge: reviewer
-  - acceptance-red:
-      run:
-        shell: { command: tdd-evidence, arguments: [acceptance, red] }
+        shell: { command: tdd-evidence, arguments: [acceptance, green] }
       metadata:
         org:
           by: code
           role: ci
-          metrics: [red-for-wrong-reason]
+          metrics: [acceptance-rounds]
           acceptance:
-            - check: every-acceptance-test-fails-on-an-assertion
-  - design:
-      run:
-        shell: { command: agent-run, arguments: [] }
+            - check: acceptance-suite-green
+  - not-accepted:
+      if: ${ $accepted["spec-cycle/spec"] != true or $accepted["spec-cycle/design-cycle/system-run"] != true or $accepted["acceptance-run"] != true }
+      raise:
+        error:
+          type: https://org.example/errors/acceptance-not-met
+          status: 409
+          title: System acceptance still red after the round bounds
       metadata:
-        org:
-          by: model
-          role: architect
-          brief: briefs/sw/design.md
-          metrics: [escalations]
-          acceptance:
-            - rubric: criteria/sw/design.md
-              judge: reviewer
-  - cut:
-      run:
-        shell: { command: agent-run, arguments: [] }
-      output:
-        schema:
-          format: json
-          resource: { endpoint: schemas/org/units.json }
-      export:
-        as: "${ $context + . }"
-      metadata:
-        org:
-          by: model
-          role: lead
-          brief: briefs/sw/cut.md
-          metrics: [write-set-collisions]
-          acceptance:
-            - check: write-sets-are-disjoint
-  - build:
+        org: { to: lead }
+  - review-cycle:
       for: { each: round, in: [1, 2] }
-      while: ${ $accepted["build/acceptance-run"] != true }
+      while: ${ $accepted["review-cycle/review"] != true }
       do:
-        - units:
+        - rework-units:
+            if: ${ $round > 1 }
             for: { each: unit, in: "${ $context.units }" }
             do:
-              - tdd:
+              - rework-tdd:
                   run:
                     workflow:
                       namespace: org
@@ -124,40 +213,41 @@ do:
                       metrics: [escalations]
                       acceptance:
                         - check: unit-verdict-is-pass
-        - acceptance-run:
+        - rework-layer-run:
+            if: ${ $round > 1 }
             run:
-              shell: { command: tdd-evidence, arguments: [acceptance, green] }
+              shell: { command: tdd-evidence, arguments: [layer, run] }
             metadata:
               org:
                 by: code
                 role: ci
                 metrics: [acceptance-rounds]
                 acceptance:
-                  - check: acceptance-suite-green
-  - not-accepted:
-      if: ${ $accepted["build/acceptance-run"] != true }
+                  - check: phase-acceptance-green
+        - review:
+            run:
+              shell: { command: agent-run, arguments: [--isolated] }
+            timeout:
+              after: { days: 7 }
+            metadata:
+              org:
+                by: model
+                role: reviewer
+                brief: briefs/sw/review.md
+                floor: true
+                metrics: [defects-found-in-review, defects-escaped]
+                acceptance:
+                  - rubric: criteria/sw/review.md
+                    judge: owner
+  - not-approved:
+      if: ${ $accepted["review-cycle/review"] != true }
       raise:
         error:
-          type: https://org.example/errors/acceptance-not-met
+          type: https://org.example/errors/review-not-approved
           status: 409
-          title: Acceptance suite still red after the round bound
+          title: Review not approved after the round bound
       metadata:
-        org: { to: lead }
-  - review:
-      run:
-        shell: { command: agent-run, arguments: [--isolated] }
-      timeout:
-        after: { days: 7 }
-      metadata:
-        org:
-          by: model
-          role: reviewer
-          brief: briefs/sw/review.md
-          floor: true
-          metrics: [defects-found-in-review, defects-escaped]
-          acceptance:
-            - rubric: criteria/sw/review.md
-              judge: owner
+        org: { to: owner }
   - merge-gate:
       listen:
         to:
@@ -186,12 +276,62 @@ do:
           metrics: [lead-time]
           acceptance:
             - check: checks-green-and-gate-approved
+  - deploy:
+      run:
+        shell: { command: agent-run, arguments: [] }
+      metadata:
+        org:
+          by: model
+          role: ci
+          brief: briefs/sw/deploy.md
+          metrics: [lead-time]
+          acceptance:
+            - rubric: criteria/sw/deploy.md
+              judge: lead
+  - verify:
+      run:
+        shell: { command: tdd-evidence, arguments: [deploy, verify] }
+      metadata:
+        org:
+          by: code
+          role: ci
+          metrics: [defects-escaped]
+          acceptance:
+            - check: deploy-verified
+  - bug-report:
+      if: ${ $accepted["verify"] != true }
+      emit:
+        event:
+          with:
+            type: org.bug-reported
+            source: sw-development
+            data: { subject: deploy verification failed }
+      metadata:
+        org:
+          by: code
+          role: ci
+          metrics: [escalations]
+          acceptance:
+            - check: event-names-its-subject
+  - write-report:
+      run:
+        shell: { command: agent-run, arguments: [] }
+      metadata:
+        org:
+          by: model
+          role: pm
+          brief: briefs/sw/report.md
+          metrics: [report-complete]
+          acceptance:
+            - rubric: criteria/sw/report.md
+              judge: lead
   - report:
       emit:
         event:
           with:
             type: org.run-reported
             source: sw-development
+            data: "${ . }"
       metadata:
         org:
           by: code
@@ -213,3 +353,17 @@ do:
           metrics: [proposals-accepted]
           acceptance:
             - check: every-proposal-is-within-its-rung
+  - reflect:
+      emit:
+        event:
+          with:
+            type: org.lessons-recorded
+            source: sw-development
+            data: { subject: lessons and metrics of the run }
+      metadata:
+        org:
+          by: code
+          role: ci
+          metrics: [escalations]
+          acceptance:
+            - check: event-names-its-subject

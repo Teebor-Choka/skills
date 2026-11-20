@@ -40,6 +40,19 @@ def _json(e, label):
     return data
 
 
+def _find(table, rel, what):
+    """Entry for a relative key. A task inside a loop has a path (`spec-cycle/spec`); a check names the task
+    by its own name (`spec`), so fall back to the one key that ends in it. Two matches are an error."""
+    if rel in table:
+        return table[rel]
+    hits = [k for k in table if k.rsplit("/", 1)[-1] == rel]
+    if len(hits) > 1:
+        die(2, f"evidence has several {what} entries for '{rel}': {', '.join(sorted(hits))}")
+    if not hits:
+        die(2, f"evidence has no {what} entry for '{rel}'")
+    return table[hits[0]]
+
+
 class Evidence:
     def __init__(self, raw):
         self.raw = raw
@@ -59,23 +72,17 @@ class Evidence:
 
     def claim(self, rel):
         """The output of an earlier task: a claim to validate, never trusted."""
-        outputs = self._part("outputs")
-        if rel not in outputs:
-            die(2, f"evidence has no outputs entry for '{rel}'")
-        return _json(outputs[rel], f"outputs['{rel}']")
+        return _json(_find(self._part("outputs"), rel, "outputs"), f"outputs['{rel}']")
 
     def fact(self, rel):
         """The result of an earlier by: code step."""
-        steps = self._part("steps")
-        if rel not in steps:
-            die(2, f"evidence has no steps entry for '{rel}'")
-        return _json(steps[rel], f"steps['{rel}']")
+        return _json(_find(self._part("steps"), rel, "steps"), f"steps['{rel}']")
 
     def decision(self, rel):
-        decisions = self._part("decisions")
-        if not isinstance(decisions.get(rel), dict):
-            die(2, f"evidence has no decision for '{rel}'")
-        return decisions[rel]
+        found = _find(self._part("decisions"), rel, "decisions")
+        if not isinstance(found, dict):
+            die(2, f"decision '{rel}' must be a map")
+        return found
 
     def change(self):
         c = self._part("change")
