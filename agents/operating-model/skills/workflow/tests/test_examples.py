@@ -346,8 +346,9 @@ BAD = {
             e, ["proposals"], [{**proposal("criteria/sw/spec.md"), "rung": "free"}])),
     ],
 }
-needs_change = pytest.mark.skipif(not (SCRIPTS / "check_change.py").is_file(),
-                                  reason="scripts/check_change.py (U15) is not on this base")
+CHANGE_OK = (SCRIPTS / "check_change.py").is_file() and HAS_YAML
+CHANGE_WHY = "needs scripts/check_change.py (U15) and PyYAML"
+needs_change = pytest.mark.skipif(not CHANGE_OK, reason=CHANGE_WHY)
 RUNG = "every-proposal-is-within-its-rung"
 
 
@@ -399,8 +400,8 @@ def needs(name):
 
 @pytest.mark.parametrize("name", sorted(GOOD))
 def test_check_passes_on_good_evidence(name):
-    if name == RUNG and not (SCRIPTS / "check_change.py").is_file():
-        pytest.skip("scripts/check_change.py (U15) is not on this base")
+    if name == RUNG and not CHANGE_OK:
+        pytest.skip(CHANGE_WHY)
     cp = run_check(name, GOOD[name])
     assert cp.returncode == 0, cp.stderr
 
@@ -410,8 +411,8 @@ CASE_IDS = [(n, i) for n in sorted(BAD) for i in range(len(BAD[n]))]
 
 @pytest.mark.parametrize("name,i", CASE_IDS, ids=[f"{n}:{BAD[n][i][0]}" for n, i in CASE_IDS])
 def test_check_fails_on_each_bad_case_and_says_why(name, i):
-    if name == RUNG and not (SCRIPTS / "check_change.py").is_file():
-        pytest.skip("scripts/check_change.py (U15) is not on this base")
+    if name == RUNG and not CHANGE_OK:
+        pytest.skip(CHANGE_WHY)
     label, fn = BAD[name][i]
     cp = run_check(name, {k: v for k, v in fn(copy.deepcopy(GOOD[name])).items()})
     assert cp.returncode == 1, f"{label}: {cp.stdout}{cp.stderr}"
@@ -436,8 +437,8 @@ def test_every_field_is_required_typed_and_non_empty(name):
 
 
 def test_rung_check_needs_every_field():
-    if not (SCRIPTS / "check_change.py").is_file():
-        pytest.skip("scripts/check_change.py (U15) is not on this base")
+    if not CHANGE_OK:
+        pytest.skip(CHANGE_WHY)
     for ev in ({}, {"proposals": "x"}, {"proposals": [{"id": "p1"}]}):
         assert run_check(RUNG, ev).returncode == 1
 
@@ -529,9 +530,13 @@ def test_rung_check_takes_allowed_rungs_from_the_runtime_only():
     floor = {"proposals": [proposal("criteria/sw/spec.md")]}
     assert run_check(RUNG, floor, env={"ORG_ALLOWED_RUNGS": "free,ordinary"}).returncode == 1
     assert run_check(RUNG, floor, env={"ORG_ALLOWED_RUNGS": "free,ordinary,frozen"}).returncode == 0
-    # brief content is ordinary (O1), so the free rung alone refuses it
-    assert run_check(RUNG, ev, env={"ORG_ALLOWED_RUNGS": "free"}).returncode == 1
-    assert run_check(RUNG, ev, env={"ORG_ALLOWED_RUNGS": "free,ordinary"}).returncode == 0
+    # a loop bound outside a floor is ordinary (O1, K17), so the free rung alone refuses it
+    bound = proposal("workflows/sw-development.yaml")
+    bound["new"]["workflows/sw-development.yaml"] = bound["base"]["workflows/sw-development.yaml"].replace(
+        "in: [1, 2]", "in: [1, 2, 3]")
+    assert bound["new"] != bound["base"]
+    assert run_check(RUNG, {"proposals": [bound]}, env={"ORG_ALLOWED_RUNGS": "free"}).returncode == 1
+    assert run_check(RUNG, {"proposals": [bound]}, env={"ORG_ALLOWED_RUNGS": "free,ordinary"}).returncode == 0
 
 
 def test_rung_check_fails_closed_without_check_change(tmp_path):
@@ -554,7 +559,7 @@ def test_readme_states_the_contract():
     text = (ROOT / "checks" / "README.md").read_text()
     for needle in ("ORG_EVIDENCE", "ORG_KEY", "ORG_RUN", "ORG_ALLOWED_RUNGS", "frozen", "never from agent output",
                    "trust boundary", "Summary", "Not verified", "defaults taken by the orchestrator"):
-        assert needle in text, needle
+        assert needle.lower() in text.lower(), needle
 
 
 @needs_yaml
@@ -704,7 +709,7 @@ def test_every_rubric_rule_names_its_evidence_and_a_missing_input_fails():
 
 def test_acceptance_tests_rubric_splits_rule_four_and_scopes_edge_cases():
     text = rubric_text("acceptance-tests")
-    assert "where meaningful" in text
+    assert "where meaningful" in text.lower()
     assert len(re.findall(r"(?m)^\d+\. ", text)) >= 5
 
 
@@ -727,8 +732,8 @@ def test_cut_brief_says_units_are_built_one_after_another():
 def test_improve_brief_follows_the_rung_table_and_never_asks_for_a_rung():
     text = (ROOT / "briefs" / "sw" / "improve.md").read_text()
     assert "state the rung" not in text.lower() and "rung each" not in text.lower()
-    for needle in ("ordinary", "frozen", "protected", "never a floor"):
-        assert needle in text, needle
+    for needle in ("ordinary", "frozen", "protected", "floor task", "do not state a rung"):
+        assert needle in text.lower(), needle
 
 
 @needs_yaml

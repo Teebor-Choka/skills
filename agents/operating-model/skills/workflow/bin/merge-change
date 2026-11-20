@@ -1,0 +1,4 @@
+#!/bin/sh
+# merge-change: not implemented. U14 builds it; until then the step fails loudly.
+echo "merge-change: not implemented (U14)" >&2
+exit 3

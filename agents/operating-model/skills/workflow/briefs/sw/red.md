@@ -14,3 +14,7 @@ Write the test for the next slice of the unit. Run it. It must fail on an assert
 ## Output
 
 Stop once the test fails for the right reason.
+
+## Write-set
+
+You may write only test files inside the unit's write-set. Touch nothing else.

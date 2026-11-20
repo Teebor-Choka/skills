@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check suite-still-green-and-no-test-edited. See _lib.py for the calling convention."""
+"""Check suite-still-green-and-no-test-edited. See README.md in this directory for the evidence it reads."""
 import os
 import sys
 
@@ -10,4 +10,4 @@ check = _lib.green_problems
 
 
 if __name__ == "__main__":
-    _lib.run(check)
+    _lib.run(check, self_step=False, parse=True)

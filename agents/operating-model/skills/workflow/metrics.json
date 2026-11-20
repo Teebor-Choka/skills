@@ -3,7 +3,7 @@
     "scope": "process",
     "unit": "count per run",
     "better": "lower",
-    "formula": "Escalation connections taken in the run: a raise to the lead or to the owner.",
+    "formula": "Escalations taken in the run: each raise task that ran, to the lead or to the owner. A raise that did not run is not counted.",
     "collector": "collectors/escalations.py",
     "reads": ["run-ledger"]
   },
@@ -27,7 +27,7 @@
     "scope": "node",
     "unit": "count per unit",
     "better": "lower",
-    "formula": "Red runs in which the new test failed on a compile error, an import error or a timeout instead of an assertion.",
+    "formula": "Red runs in which the new test did not fail on an assertion: it ended with a compile error, an import error or a timeout, or it passed.",
     "collector": "collectors/red_for_wrong_reason.py",
     "reads": ["test-runner-output"]
   },
@@ -35,23 +35,23 @@
     "scope": "stage",
     "unit": "count per item",
     "better": "lower",
-    "formula": "Build rounds until the acceptance suite is green.",
+    "formula": "Build rounds until the acceptance suite is green. When the suite is never green within the round bound, the value is the bound and the run raises acceptance-not-met.",
     "collector": "collectors/acceptance_rounds.py",
     "reads": ["run-ledger"]
   },
   "defects-found-in-review": {
     "scope": "node",
-    "unit": "count per unit",
+    "unit": "count per change",
     "better": "context",
-    "formula": "Review findings that the verdict upheld.",
+    "formula": "Findings of the whole-change review that the owner's verdict upheld. A finding is upheld when the verdict is reject for it or the owner confirms it; one per distinct file, line and criterion.",
     "collector": "collectors/defects_found_in_review.py",
     "reads": ["verdict-records"]
   },
   "defects-escaped": {
     "scope": "process",
-    "unit": "count per 30 days",
+    "unit": "count per change within 30 days",
     "better": "lower",
-    "formula": "Defects filed against a merged change within 30 days of the merge.",
+    "formula": "Defects filed against a merged change within 30 days of its merge, counted per change.",
     "collector": "collectors/defects_escaped.py",
     "reads": ["tracker"]
   },
@@ -75,7 +75,7 @@
     "scope": "stage",
     "unit": "count per run",
     "better": "lower",
-    "formula": "Pairs of units in the cut whose write-sets share at least one file.",
+    "formula": "Pairs of units in the cut whose write-sets overlap: they share a file, or one lists a directory that contains a path of the other. Counted from the paths in the cut.",
     "collector": "collectors/write_set_collisions.py",
     "reads": ["item.json", "run-ledger"]
   },
@@ -83,7 +83,7 @@
     "scope": "node",
     "unit": "count per item",
     "better": "lower",
-    "formula": "Review rounds until the verdict approves the change.",
+    "formula": "Number of review rounds on the change until the review verdict is approve. The review floor runs once per run, so a value above 1 counts earlier runs of the same item.",
     "collector": "collectors/review_rounds.py",
     "reads": ["verdict-records"]
   },
@@ -91,7 +91,7 @@
     "scope": "node",
     "unit": "ratio, 0 to 1",
     "better": "higher",
-    "formula": "Required sections present in the final report, divided by all required sections.",
+    "formula": "Required sections with a non-empty body in the final report, divided by all six: Summary, Acceptance, Tests, Defects, Metrics, Not verified.",
     "collector": "collectors/report_complete.py",
     "reads": ["report.md"]
   },
@@ -99,7 +99,7 @@
     "scope": "process",
     "unit": "ratio, 0 to 1",
     "better": "higher",
-    "formula": "Improver proposals that the owner accepted, divided by all proposals made.",
+    "formula": "Improver proposals that were applied, divided by all proposals made. A proposal on the free rung counts as accepted when it was applied; an ordinary one when the reviewer approved it; a protected one when the owner signed it. With zero proposals made the value is not recorded.",
     "collector": "collectors/proposals_accepted.py",
     "reads": ["proposal-records"]
   },
@@ -123,7 +123,7 @@
     "scope": "node",
     "unit": "count per unit",
     "better": "lower",
-    "formula": "Green rounds until the suite passes with no test file touched.",
+    "formula": "Green attempts of one unit until the suite passes with no test file edited. Each failed green-evidence in a cycle round counts one.",
     "collector": "collectors/green_rounds.py",
     "reads": ["run-ledger"]
   }

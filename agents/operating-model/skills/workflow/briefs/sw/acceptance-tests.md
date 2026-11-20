@@ -14,3 +14,7 @@ Write one or more tests for every criterion in the approved item. Derive them fr
 ## Output
 
 Write test files only. Do not write production code. Every test must fail on an assertion before the build starts.
+
+## Write-set
+
+You may write only the acceptance test files. The cut later forbids every unit from writing them.

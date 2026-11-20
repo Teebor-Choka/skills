@@ -14,3 +14,5 @@ Turn the aligned brief into a specification that matches schemas/org/item.json.
 ## Output
 
 Output one JSON object that validates against schemas/org/item.json. The spec-check script runs on it.
+
+The `ai_gap` field is required: name one specific behaviour that a build could get wrong while passing every test you expect.

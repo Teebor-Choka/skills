@@ -14,3 +14,7 @@ Cut the design into units that agents can build in parallel. Output the cut as J
 ## Output
 
 The write-sets-are-disjoint script runs on the output. A shared file means you must merge the units or add a dependency.
+
+## Order
+
+Units are built one after another in the order of `depends_on`, not in parallel. A unit may rely on an earlier unit's files only through `depends_on`. Do not give a unit the acceptance test files, `checks/`, `criteria/`, `bin/`, `collectors/`, `manifest.json` or `metrics.json` in its write-set.
