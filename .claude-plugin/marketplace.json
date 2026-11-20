@@ -173,7 +173,6 @@
     }
   ],
   "renames": {
-    "hopr-debug": null,
-    "organization": null
+    "hopr-debug": null
   }
 }
