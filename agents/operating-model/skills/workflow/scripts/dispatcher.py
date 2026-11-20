@@ -27,6 +27,7 @@ PROVISIONAL choices (the spec is silent; listed in the unit report):
   - the emits of a run that was cut off by a crash are not re-dispatched on restart.
 """
 
+import contextlib
 import hashlib
 import json
 import os
@@ -116,14 +117,46 @@ class Dispatcher:
     def state(self):
         return self._read()
 
+    @contextlib.contextmanager
+    def _locked(self):
+        """One writer at a time per state file (an exclusive `flock` where the platform has one)."""
+        os.makedirs(os.path.dirname(os.path.abspath(self.state_path)), exist_ok=True)
+        lock = None
+        if fcntl is not None:
+            lock = open(self.state_path + ".lock", "a")
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if lock is not None:
+                lock.close()
+
     def set_outside_check(self, enabled):
-        raise NotImplementedError
+        """Record whether `serve` enforces the frozen-outside list: `outside_check` is "enabled" or "disabled"."""
+        with self._locked():
+            st = self._read()
+            st["outside_check"] = "enabled" if enabled else "disabled"
+            self._write(st)
 
     def finish_pair(self, key, res):
-        raise NotImplementedError
+        """Mark a pair done with the result of its run (a run the dispatcher did not see end, resumed after a crash).
+        Keeps the error text as `reason`. Returns the records of any follow-up dispatch."""
+        with self._locked():
+            st = self._read()
+            pair = st["pairs"].setdefault(key, {})
+            pair.update(state="done", run_id=res.run_id, status=res.status)
+            if res.status != "success" and res.errors:
+                pair["reason"] = "; ".join(res.errors)
+            self._write(st)
+        return []
 
     def record_reason(self, key, reason):
-        raise NotImplementedError
+        """Keep `reason` on an existing pair; an unknown pair is ignored."""
+        with self._locked():
+            st = self._read()
+            if key in st["pairs"]:
+                st["pairs"][key]["reason"] = reason
+                self._write(st)
 
     # -- routing
 
@@ -167,16 +200,8 @@ class Dispatcher:
 
     def deliver(self, event):
         """Dispatch a host-delivered event and, breadth first, every event the started runs emit. Returns records."""
-        os.makedirs(os.path.dirname(os.path.abspath(self.state_path)), exist_ok=True)
-        lock = None
-        if fcntl is not None:
-            lock = open(self.state_path + ".lock", "a")
-            fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
+        with self._locked():
             return self._deliver(event)
-        finally:
-            if lock is not None:
-                lock.close()
 
     def _deliver(self, event):
         st = self._read()
