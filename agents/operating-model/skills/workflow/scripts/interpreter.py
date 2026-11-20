@@ -36,7 +36,6 @@ Decisions the spec leaves open (PROVISIONAL, listed in the unit report):
   D14 a check script runs from the verified bytes (`python -I -c`, script on stdin, run as
      `__main__`), not from its path; the org root is never on `sys.path` ahead of the stdlib.
   D15 a caller's `$accepted` also holds callee keys as `<call key>><callee key>`.
-  D16 (P41) `org.task-ended` data also carries `output`, the unit's recorded entry `{exit, stdout}`.
 
 The runtime input file (7.8) lives in a private 0700 temp directory outside the org root
 with mode 0444. Permissions do not protect it from a child running as the same user:
@@ -1295,10 +1294,7 @@ class _Run:
                 return
             self.detached_errors.append((e, tuple((loop, loop.round) for loop in t.sc.loops + t.sc.outer)))
         rec = self.records.get(t.full)
-        # P41: the recorded output entry of the ended work, capped like step output; a unit that ended before
-        # it produced one reports exit 1 and no output
-        output = t.entry if t.entry is not None else {"exit": 1, "stdout": ""}
-        ev = {"type": TASK_ENDED, "data": {"run": self.rid, "task": t.full, "accepted": bool(rec and rec.ok), "output": output}}
+        ev = {"type": TASK_ENDED, "data": {"run": self.rid, "task": t.full, "accepted": bool(rec and rec.ok)}}
         self.scopes[id(ev)] = (ev, scope)
         self.internal[id(ev)] = ev
         self.ended.append(ev)
