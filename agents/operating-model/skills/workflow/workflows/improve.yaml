@@ -1,0 +1,25 @@
+document:
+  dsl: 1.1.0
+  namespace: org
+  name: improve
+  version: 0.1.0
+  title: Improvement proposals for one finished run
+  summary: Read a run's ledger and metrics, then propose changes the proposer may apply without an owner signature.
+input:
+  schema:
+    format: json
+    document:
+      type: object
+      required: [run]
+do:
+  - propose:
+      run:
+        shell: { command: agent-run, arguments: [] }
+      metadata:
+        org:
+          by: model
+          role: improver
+          brief: briefs/sw/improve.md
+          metrics: [proposals-accepted]
+          acceptance:
+            - check: every-proposal-is-within-its-rung
