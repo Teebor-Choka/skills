@@ -1,0 +1,269 @@
+{
+  "port": "Harness",
+  "notes": [
+    "A harness adapter runs one model call for a role and returns its result and cost. The program agent-run wraps an adapter: it builds the input, refuses a call with no cost metric, records every call, and returns the outcome below.",
+    "The input carries the role, the brief text, the tools, the isolation flag and the context. The adapter sends the brief and the context to the model and nothing else. isolated true means the context list is empty.",
+    "The adapter refuses untrusted work on macOS with refused-untrusted. A request to the instance tool carries isolation, network, trust and lifetime only.",
+    "The adapter never signs. agent-run builds the event, hashes the evidence and attaches a signature only when a signer is injected.",
+    "task_input is the JSON text of the task's transformed input and reasons lists the gate rejection reasons of the round just ended. Both are optional. The adapter puts them in the model input, after the task.",
+    "agent-run reads task_input and reasons from the runtime-owned file given by --input (a path inside the session directory or the org root). For a judge the input holds the item index and the judged task's output.",
+    "The network policy never reaches the adapter or the model. agent-run resolves the --network policy name and REQUESTS it from the instance tool, whose request carries isolation, network, trust and lifetime only. The policy is enforced only by a real instance tool, and none exists yet: the call record says enforced false. agent-run compares the grant with the request and refuses (network-refused) when they differ."
+  ],
+  "operations": {
+    "run": {
+      "name": "run",
+      "input": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string"
+          },
+          "brief": {
+            "type": "string"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isolated": {
+            "type": "boolean"
+          },
+          "trust": {
+            "type": "string",
+            "enum": ["trusted", "untrusted"]
+          },
+          "context": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": ["role", "text"],
+              "additionalProperties": false
+            }
+          },
+          "task": {
+            "type": "object",
+            "properties": {
+              "run": {
+                "type": "string"
+              },
+              "task": {
+                "type": "string"
+              },
+              "item": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": ["run", "task"],
+            "additionalProperties": false
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "task_input": {
+            "type": "string"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "gate": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["gate", "reason"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "role",
+          "brief",
+          "tools",
+          "isolated",
+          "trust",
+          "context",
+          "task"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["pass", "fail"]
+          },
+          "cost": {
+            "type": "object",
+            "properties": {
+              "usd": {
+                "type": "number",
+                "minimum": 0
+              },
+              "seconds": {
+                "type": "number",
+                "minimum": 0
+              },
+              "input_tokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "output_tokens": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": ["usd", "seconds"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["prompt", "result", "cost"],
+        "additionalProperties": false
+      },
+      "requirements": {
+        "isolation": "isolated true: the input of the call is the brief, the task, the task input and the reasons; it never contains the author's result or any other run history",
+        "trust": "untrusted work is refused on macOS",
+        "lifetime": "returns within timeout_seconds or fails with timeout"
+      },
+      "guarantees": [
+        "context-only",
+        "cost-reported",
+        "refuses-untrusted-on-macos",
+        "task-input-in-prompt"
+      ],
+      "errors": [
+        "invalid-input",
+        "refused-untrusted",
+        "harness-unavailable",
+        "timeout",
+        "harness-error"
+      ],
+      "metrics": []
+    }
+  },
+  "outcome": {
+    "type": "object",
+    "properties": {
+      "event": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["org.agent-result", "org.rubric-verdict"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "run": {
+                "type": "string"
+              },
+              "task": {
+                "type": "string"
+              },
+              "item": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "role": {
+                "type": "string"
+              },
+              "verdict": {
+                "type": "string",
+                "enum": ["pass", "fail"]
+              },
+              "result": {
+                "type": "string"
+              }
+            },
+            "required": ["run", "task", "role"],
+            "additionalProperties": false
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": ["type", "data"],
+        "additionalProperties": false
+      },
+      "evidence": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            }
+          },
+          "required": ["name", "sha256"],
+          "additionalProperties": false
+        }
+      },
+      "cost": {
+        "type": "object",
+        "properties": {
+          "usd": {
+            "type": "number",
+            "minimum": 0
+          },
+          "seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "input_tokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "output_tokens": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": ["usd", "seconds"],
+        "additionalProperties": false
+      }
+    },
+    "required": ["event", "evidence", "cost"],
+    "additionalProperties": false
+  },
+  "program_errors": [
+    "role-refused",
+    "brief-refused",
+    "spawn-refused",
+    "no-metric",
+    "invalid-verdict",
+    "bad-arguments",
+    "no-record-dir",
+    "input-refused",
+    "network-refused",
+    "bad-harness",
+    "bad-manifest",
+    "terminated",
+    "internal-error",
+    "signer-error"
+  ]
+}

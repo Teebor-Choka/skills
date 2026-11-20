@@ -1,4 +1,287 @@
-#!/bin/sh
-# tdd-evidence: not implemented. U14 builds it; until then the step fails loudly.
-echo "tdd-evidence: not implemented (U14)" >&2
-exit 3
+#!/usr/bin/env python3
+"""tdd-evidence <scope> <phase>: run the tests and print the facts a check reads, as one JSON object.
+
+A fact check sits on the code step that runs this program (spec 6.1, P25). The program prints facts and
+exits 0; the check judges them. A non-zero exit means the program itself could not run (2: usage or setup).
+
+  unit red | green | refactor   new tests fail on an assertion; the suite is green; no test was edited
+  acceptance red | green        the same for the acceptance suite; green carries the size recorded at red
+  layer run | system run        run the tests the faults file declares for that phase, and name the layer to
+                                go back to from the declaration (`layer_fault`, `system_fault`)
+  feasibility check             read the design's feasibility claim from stdin
+  deploy verify                 run the verification command
+  bug red                       the reproducing test is committed and fails on an assertion
+
+Settings come from the environment (the runtime or the stack sets them):
+  TDD_WORKTREE    the project working tree (default: the current directory)
+  TDD_BASE        commit the change started from (default HEAD)
+  TDD_TEST_CMD    JSON argv or a command line for the tests; it prints pytest `-rA` summary lines (default: pytest)
+  TDD_TIMEOUT     seconds per test run (default 600)
+  TDD_FAULTS      faults file (default <worktree>/.org/faults.json):
+                  {"layer": {<test id or file>: "unit"|"design"}, "system": {<id>: "design"|"spec"}}
+  TDD_VERIFY_CMD  JSON argv or a command line for the deploy verification
+Standard library only.
+"""
+import json
+import os
+import re
+import shlex
+import signal
+import subprocess
+import sys
+
+USAGE = "usage: tdd-evidence unit red|green|refactor | acceptance red|green | layer run | system run | " \
+        "feasibility check | deploy verify | bug red"
+PHASES = {"unit": {"red", "green", "refactor"}, "acceptance": {"red", "green"}, "layer": {"run"}, "system": {"run"},
+          "feasibility": {"check"}, "deploy": {"verify"}, "bug": {"red"}}
+DEFAULT_CMD = [sys.executable, "-m", "pytest", "-q", "-rA", "--tb=short", "-p", "no:cacheprovider"]
+TEST_FILE = re.compile(r"(^|/)(test_[^/]*|[^/]*_test)\.py$")
+LINE = re.compile(r"^(PASSED|FAILED|ERROR) (\S+)(?: - (.*))?$")
+DIMENSIONS = ("interfaces", "modularity", "testability")
+
+
+def die(msg, code=2):
+    sys.stderr.write(msg + "\n")
+    sys.exit(code)
+
+
+def emit(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.exit(0)
+
+
+def argv_of(raw):
+    """A command from the environment: a JSON list of strings, or a plain command line (stack bin-env, spec 8.6)."""
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        value = None
+    if isinstance(value, list):
+        return value
+    try:
+        return shlex.split(raw)
+    except ValueError:
+        return None
+
+
+class Tree:
+    def __init__(self):
+        self.path = os.path.abspath(os.environ.get("TDD_WORKTREE") or os.getcwd())
+        r = self.git("rev-parse", "--show-toplevel", check=False)
+        if r.returncode != 0:
+            die(f"{self.path} is not a git working tree")
+        self.base = os.environ.get("TDD_BASE") or "HEAD"
+        try:
+            self.timeout = float(os.environ.get("TDD_TIMEOUT") or 600)
+        except ValueError:
+            die("TDD_TIMEOUT must be a number of seconds")
+        raw = os.environ.get("TDD_TEST_CMD")
+        self.cmd = argv_of(raw) if raw else DEFAULT_CMD
+        if not (isinstance(self.cmd, list) and self.cmd and all(isinstance(a, str) for a in self.cmd)):
+            die("TDD_TEST_CMD must be a JSON list of strings or a command line")
+
+    def git(self, *args, check=True):
+        r = subprocess.run(["git", "-C", self.path, *args], capture_output=True, text=True)
+        if check and r.returncode != 0:
+            die(f"git {' '.join(args)}: {r.stderr.strip()}")
+        return r
+
+    def lines(self, *args):
+        return [x for x in self.git(*args).stdout.splitlines() if x]
+
+    def head(self):
+        return self.git("rev-parse", "HEAD").stdout.strip()
+
+    def state_file(self, name):
+        gd = self.git("rev-parse", "--absolute-git-dir").stdout.strip()
+        return os.path.join(gd, "tdd-evidence", name)
+
+    def new_test_files(self):
+        """Test files added or changed since the base, committed or not."""
+        files = set(self.lines("diff", "--name-only", "--diff-filter=AMR", self.base))
+        files |= set(self.lines("ls-files", "--others", "--exclude-standard"))
+        return sorted(f for f in files if TEST_FILE.search(f))
+
+    def edited_tests(self):
+        return sorted(f for f in self.lines("diff", "--name-only", "--diff-filter=MD", self.base) if TEST_FILE.search(f))
+
+    def run_tests(self, targets=()):
+        """Run the test command; return (results, timed_out). results: [(id, outcome, reason)]."""
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+        proc = subprocess.Popen(self.cmd + list(targets), cwd=self.path, env=env, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        try:
+            out, _ = proc.communicate(timeout=self.timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+            return [], True
+        return parse(out), False
+
+
+def parse(output):
+    """Summary lines of pytest `-rA`. Collection errors are classified from the whole output."""
+    final = []
+    for raw in output.splitlines():
+        m = LINE.match(raw.strip())
+        if not m:
+            continue
+        state, ident, reason = m.group(1), m.group(2), m.group(3) or ""
+        if state == "PASSED":
+            outcome = "pass"
+        elif state == "FAILED":
+            outcome = "assertion" if reason.startswith(("assert", "AssertionError")) else "error"
+        elif re.search(r"SyntaxError|IndentationError|TabError", output):
+            outcome = "compile-error"
+        elif re.search(r"ImportError|ModuleNotFoundError", output):
+            outcome = "import-error"
+        else:
+            outcome = "error"
+        final.append((ident, outcome, reason))
+    return final
+
+
+def runs_of(tree, files):
+    runs = []
+    for f in files:
+        results, timed_out = tree.run_tests([f])
+        if timed_out:
+            runs.append({"test": f, "outcome": "timeout"})
+        elif not results:
+            runs.append({"test": f, "outcome": "error"})  # collected nothing: not a test that failed
+        runs += [{"test": i, "outcome": o} for i, o, _ in results]
+    return runs
+
+
+def counts(results):
+    return {"passed": sum(1 for _, o, _ in results if o == "pass"),
+            "failed": sum(1 for _, o, _ in results if o != "pass")}
+
+
+def suite(tree):
+    results, timed_out = tree.run_tests()
+    if timed_out:
+        return {"passed": 0, "failed": 1}
+    return counts(results)
+
+
+def faults_for(tree, phase):
+    path = os.environ.get("TDD_FAULTS") or os.path.join(tree.path, ".org", "faults.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            decl = json.load(f)[phase]
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    return decl if isinstance(decl, dict) else {}
+
+
+def declared(decl, ident, allowed, default):
+    """Fault declared for a test id: the longest key that is the id, its file, or extends it."""
+    best, value = -1, None
+    for key, v in decl.items():
+        if ident == key or ident.startswith(key + "::") or key.startswith(ident + "::"):
+            if len(key) > best:
+                best, value = len(key), v
+    return value if value in allowed else default
+
+
+def phase_run(tree, phase):
+    decl = faults_for(tree, phase)
+    order = ("unit", "design") if phase == "layer" else ("design", "spec")  # narrowest to widest
+    name = "layer_fault" if phase == "layer" else "system_fault"
+    base = {"tests_edited": tree.edited_tests()}
+    if not decl:
+        return dict(base, suite={"passed": 0, "failed": 0}, expected_count=0, reason=f"no '{phase}' tests declared", **{name: order[1]})
+    results, timed_out = tree.run_tests(sorted(decl))
+    failing = [i for i, o, _ in results if o != "pass"]
+    found = {declared(decl, i, order, order[1]) for i in failing}
+    if timed_out or not results:
+        found = {order[1]}  # nothing ran, or it hung: the declaration cannot be met
+    fault = next((level for level in reversed(order) if level in found), "none")  # the widest declared wins
+    s = {"passed": 0, "failed": 1} if timed_out else counts(results)
+    return dict(base, suite=s, expected_count=s["passed"] + s["failed"], **{name: fault})
+
+
+def feasibility():
+    try:
+        claim = json.loads(sys.stdin.read()).get("feasibility")
+    except (ValueError, AttributeError):
+        claim = None
+    if not isinstance(claim, dict):
+        return {"feasible": False, "failed": ["design-output"], "reasons": ["the design output holds no feasibility claim"]}
+    failed = [d for d in DIMENSIONS if claim.get(d) is not True]
+    reasons = claim.get("reasons")
+    if not (isinstance(reasons, list) and reasons and all(isinstance(r, str) and r.strip() for r in reasons)):
+        failed.append("reasons")
+        reasons = []
+    return {"feasible": not failed, "failed": failed, "reasons": reasons}
+
+
+def deploy_verify(tree):
+    raw = os.environ.get("TDD_VERIFY_CMD")
+    if not raw:
+        return {"verified": False, "exit": None, "reason": "no verification command configured (TDD_VERIFY_CMD)"}
+    cmd = argv_of(raw)
+    if not (isinstance(cmd, list) and cmd and all(isinstance(a, str) for a in cmd)):
+        return {"verified": False, "exit": None, "reason": "TDD_VERIFY_CMD must be a JSON list of strings or a command line"}
+    try:
+        r = subprocess.run(cmd, cwd=tree.path, capture_output=True, text=True, timeout=tree.timeout, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return {"verified": False, "exit": None, "reason": "verification timed out"}
+    except OSError as e:
+        return {"verified": False, "exit": None, "reason": f"cannot start the verification command: {e.strerror}"}
+    return {"verified": r.returncode == 0, "exit": r.returncode}
+
+
+def record_count(tree):
+    """The suite size at red, for `acceptance green` to compare against."""
+    s = suite(tree)
+    path = tree.state_file("acceptance.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"count": s["passed"] + s["failed"]}, f)
+
+
+def bug_red(tree):
+    if not os.environ.get("TDD_BASE"):
+        die("bug red needs TDD_BASE, the commit the bug was reported against")
+    committed = sorted(f for f in tree.lines("diff", "--name-only", "--diff-filter=AM", tree.base, "HEAD") if TEST_FILE.search(f))
+    dirty = set(tree.lines("diff", "--name-only", "HEAD")) | set(tree.lines("ls-files", "--others", "--exclude-standard"))
+    uncommitted = sorted(f for f in dirty if TEST_FILE.search(f))
+    record_count(tree)
+    return {"runs": runs_of(tree, committed), "committed": bool(committed) and not uncommitted, "files": committed,
+            "uncommitted": uncommitted, "base": tree.base, "head": tree.head()}
+
+
+def main(argv):
+    if len(argv) != 2 or argv[0] not in PHASES or argv[1] not in PHASES[argv[0]]:
+        die(USAGE)
+    scope, phase = argv
+    if scope == "feasibility":
+        emit(feasibility())
+    tree = Tree()
+    if scope == "deploy":
+        emit(deploy_verify(tree))
+    if scope == "bug":
+        emit(bug_red(tree))
+    if scope in ("layer", "system"):
+        emit(phase_run(tree, scope))
+    if phase == "red":
+        runs = runs_of(tree, tree.new_test_files())
+        if scope == "acceptance":
+            record_count(tree)
+        emit({"runs": runs, "expected_tests": [r["test"] for r in runs]})
+    out = {"suite": suite(tree), "tests_edited": tree.edited_tests()}
+    if scope == "acceptance":
+        out["layer_fault"] = "none" if out["suite"]["failed"] == 0 else "unit"  # a red acceptance run: back to the unit test
+        try:
+            with open(tree.state_file("acceptance.json"), encoding="utf-8") as f:
+                count = json.load(f)["count"]
+            out["expected_count"] = count if type(count) is int else None
+        except (OSError, ValueError, KeyError):
+            out["expected_count"] = None
+    emit(out)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

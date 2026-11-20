@@ -26,7 +26,7 @@ import validate_catalog as vc  # noqa: E402
 import validate_manifest as vm  # noqa: E402
 import validate_org as vo  # noqa: E402
 
-WORKFLOWS = ["sw-development", "tdd-unit", "improve"]
+WORKFLOWS = ["sw-development", "tdd-unit", "improve", "bug", "improvement-scan"]
 APPENDIX_A = [
     "escalations", "spec-rework", "acceptance-coverage", "red-for-wrong-reason", "acceptance-rounds",
     "defects-found-in-review", "defects-escaped", "lead-time", "decision-latency", "write-set-collisions",
@@ -138,7 +138,7 @@ def test_manifest_floors_match_the_floor_nodes():
     manifest = load("manifest.json")
     for name in WORKFLOWS:
         floors = [p for p, b in all_leaves(name) if b.get("metadata", {}).get("org", {}).get("floor") is True]
-        assert sorted(manifest["workflows"][name]["floors"]) == sorted(floors)
+        assert sorted(manifest["workflows"][name]["floors"]) == sorted(p.rsplit("/", 1)[-1] for p in floors)
     assert sorted(manifest["workflows"]["sw-development"]["floors"]) == ["merge-gate", "review", "spec"]
 
 
@@ -148,7 +148,7 @@ def test_manifest_floors_match_the_floor_nodes():
 @needs_yaml
 def test_references_resolve_to_files():
     r = refs()
-    assert len(r["brief"]) == 11 and len(r["rubric"]) == 9 and len(r["schema"]) == 2
+    assert len(r["brief"]) == 15 and len(r["rubric"]) == 13 and len(r["schema"]) == 2
     missing = [p for p in sorted(r["brief"] | r["rubric"] | r["schema"]) if not (ROOT / p).is_file()]
     missing += [f"checks/{c}.py" for c in sorted(r["check"]) if not (ROOT / "checks" / f"{c}.py").is_file()]
     assert missing == []
@@ -213,12 +213,22 @@ SPECS = {
     "checks-green-and-gate-approved": dict(task="merge", out={"ci": {"state": "success", "head": HEAD}},
                                            decisions={"merge-gate": DECISION}),
     "report-has-every-required-section": dict(task="report", out={"report": REPORT_OK}),
+    "feasibility-holds": dict(task="spec-cycle/design-cycle/feasibility",
+                              out={"feasible": True, "failed": [], "reasons": ["every interface has an owner"]}),
+    "deploy-verified": dict(task="verify", out={"verified": True, "exit": 0}),
+    "failing-test-committed": dict(task="reproduce-evidence", out={
+        "runs": [{"test": "test_bug.py::test_bug", "outcome": "assertion"}], "committed": True,
+        "files": ["test_bug.py"], "uncommitted": [], "base": "b1", "head": "h1"}),
+    "phase-acceptance-green": dict(task="spec-cycle/design-cycle/system-run", out={
+        "suite": {"passed": 3, "failed": 0}, "tests_edited": [], "system_fault": "none", "expected_count": 3}),
+    "event-names-its-subject": dict(task="reflect", out={"run": RUN, "subject": "lessons and metrics of the run"}),
 }
 RUNG = "every-proposal-is-within-its-rung"
 ALL_CHECKS = sorted([*SPECS, RUNG])
 FACT = {"every-acceptance-test-fails-on-an-assertion", "red-evidence",
         "new-test-fails-on-an-assertion-not-a-compile-error", "green-evidence", "suite-green-and-no-test-edited",
-        "suite-still-green-and-no-test-edited", "acceptance-suite-green", "checks-green-and-gate-approved"}
+        "suite-still-green-and-no-test-edited", "acceptance-suite-green", "checks-green-and-gate-approved",
+        "feasibility-holds", "deploy-verified", "failing-test-committed", "phase-acceptance-green"}
 
 
 def entry(data):
@@ -347,6 +357,35 @@ BAD = {
         ("signer not owner", lambda s: mut(s, ["decisions", "merge-gate", "signer_role"], "lead")),
         ("gate for another head", lambda s: mut(s, ["decisions", "merge-gate", "head"], "def456")),
     ],
+    "feasibility-holds": [
+        ("not feasible", lambda s: mut(mut(s, ["out", "feasible"], False), ["out", "failed"], ["modularity"])),
+        ("feasible but a dimension failed", lambda s: mut(s, ["out", "failed"], ["testability"])),
+        ("no reasons", lambda s: mut(s, ["out", "reasons"], [])),
+    ],
+    "deploy-verified": [
+        ("verification failed", lambda s: mut(mut(s, ["out", "verified"], False), ["out", "exit"], 3)),
+        ("did not run", lambda s: mut(s, ["out", "exit"], None)),
+        ("verified with a failing exit", lambda s: mut(s, ["out", "exit"], 1)),
+    ],
+    "failing-test-committed": [
+        ("not committed", lambda s: mut(mut(s, ["out", "committed"], False), ["out", "uncommitted"], ["test_bug.py"])),
+        ("committed but dirty", lambda s: mut(s, ["out", "uncommitted"], ["test_bug.py"])),
+        ("the test passes", lambda s: mut(s, ["out", "runs", 0, "outcome"], "pass")),
+        ("the test errors", lambda s: mut(s, ["out", "runs", 0, "outcome"], "import-error")),
+        ("nothing committed since the base", lambda s: mut(s, ["out", "head"], "b1")),
+    ],
+    "phase-acceptance-green": [
+        ("a declared test failed", lambda s: mut(mut(s, ["out", "system_fault"], "design"), ["out", "suite", "failed"], 1)),
+        ("a fault with a green suite", lambda s: mut(s, ["out", "system_fault"], "spec")),
+        ("both faults", lambda s: mut(s, ["out", "layer_fault"], "none")),
+        ("suite shrank", lambda s: mut(s, ["out", "suite", "passed"], 2)),
+        ("a test edited", lambda s: mut(s, ["out", "tests_edited"], ["tests/test_a.py"])),
+        ("empty suite", lambda s: mut(mut(s, ["out", "suite", "passed"], 0), ["out", "expected_count"], 0)),
+    ],
+    "event-names-its-subject": [
+        ("no subject", lambda s: mut(s, ["out", "subject"], " ")),
+        ("no run", lambda s: mut(s, ["out", "run"], "")),
+    ],
     "report-has-every-required-section": [
         ("missing section", raw_out(REPORT_OK.replace("## Metrics\ntext\n", ""))),
         ("empty section", raw_out(REPORT_OK.replace("## Metrics\ntext", "## Metrics\n"))),
@@ -398,7 +437,7 @@ def test_check_fails_on_each_bad_case_and_says_why(name, i):
     assert cp.stderr.strip()
 
 
-EMPTY_OK = {"tests_edited"}
+EMPTY_OK = {"tests_edited", "failed", "uncommitted"}
 
 
 @pytest.mark.parametrize("name", [n for n in sorted(SPECS) if "out" in SPECS[n]])
@@ -540,7 +579,7 @@ def make_repo(tmp_path, edit=None, noop=False):
 
 BRIEF = ("briefs/sw/red.md", lambda t: t + "\nOne more rule.\n")
 FLOOR_CRITERIA = ("criteria/sw/spec.md", lambda t: t + "\nOne more rule.\n")
-LOOP_BOUND = ("workflows/sw-development.yaml", lambda t: t.replace("in: [1, 2]", "in: [1, 2, 3]"))
+LOOP_BOUND = ("workflows/sw-development.yaml", lambda t: t.replace("{ each: build-round, in: [1, 2, 3] }", "{ each: build-round, in: [1, 2, 3, 4] }"))
 
 
 @needs_change
@@ -672,7 +711,7 @@ def test_tdd_unit_moves_fact_checks_onto_code_steps_and_samples_the_model_steps(
 
 
 @needs_yaml
-def test_non_agent_commands_are_files_in_bin_and_exit_three():
+def test_non_agent_commands_are_executable_files_in_bin():
     cmds = set()
     for name in WORKFLOWS:
         for _, body in all_leaves(name):
@@ -683,8 +722,7 @@ def test_non_agent_commands_are_files_in_bin_and_exit_three():
     for c in cmds:
         f = ROOT / "bin" / c
         assert f.is_file() and os.access(f, os.X_OK), c
-        cp = subprocess.run([str(f)], capture_output=True, text=True)
-        assert cp.returncode == 3 and "not implemented (U14)" in cp.stderr
+        assert "not implemented" not in f.read_text()  # U14 built both; test_cycle.py runs them
 
 
 @pytest.mark.parametrize("metric", APPENDIX_A)
@@ -728,7 +766,7 @@ def test_acceptance_tests_brief_scopes_edge_cases():
 
 def test_briefs_are_not_empty():
     briefs = sorted((ROOT / "briefs" / "sw").glob("*.md"))
-    assert len(briefs) == 11
+    assert len(briefs) == 15
     assert all(len(b.read_text().split()) > 40 for b in briefs)
 
 

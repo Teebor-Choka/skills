@@ -34,22 +34,27 @@ claims, and `steps` holds code steps that ended before the checked task started.
 
 ## What each check reads
 
-| Check                                                | Class | Task                      | Reads                                                                                                                                                                                                 |
-| ---------------------------------------------------- | ----- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spec-check`                                         | shape | `spec`                    | `output.title`, `output.criteria`, `output.valid_inputs`, `output.expected_outputs`, `output.failure_definition`, `output.performance`, `output.dependencies`, `output.out_of_scope`, `output.ai_gap` |
-| `spec-coverage`                                      | shape | `acceptance-tests`        | `output.tests`, `outputs.spec`                                                                                                                                                                        |
-| `every-acceptance-test-fails-on-an-assertion`        | fact  | `acceptance-red`          | `output.runs`, `outputs.acceptance-tests` (the claimed test ids, compared by id with the real runs)                                                                                                   |
-| `red-evidence`                                       | fact  | `cycle/red-evidence`      | `output.runs`                                                                                                                                                                                         |
-| `new-test-fails-on-an-assertion-not-a-compile-error` | fact  | `cycle/red-evidence`      | `output.runs`                                                                                                                                                                                         |
-| `green-evidence`                                     | fact  | `cycle/green-evidence`    | `output.suite`, `output.tests_edited`                                                                                                                                                                 |
-| `suite-green-and-no-test-edited`                     | fact  | `cycle/green-evidence`    | `output.suite`, `output.tests_edited`                                                                                                                                                                 |
-| `suite-still-green-and-no-test-edited`               | fact  | `cycle/refactor-evidence` | `output.suite`, `output.tests_edited`                                                                                                                                                                 |
-| `write-sets-are-disjoint`                            | shape | `cut`                     | `output.units`, `outputs.spec`, `outputs.acceptance-tests`                                                                                                                                            |
-| `unit-verdict-is-pass`                               | shape | `build/units/tdd`         | `output.exit` (a call entry is exit 0 when the subflow ended in success)                                                                                                                              |
-| `acceptance-suite-green`                             | fact  | `build/acceptance-run`    | `output.suite`, `output.tests_edited`, `steps.acceptance-red` (the suite may not shrink below the tests that ran red)                                                                                 |
-| `checks-green-and-gate-approved`                     | fact  | `merge`                   | `output.ci`, `decisions.merge-gate`, `change.head`                                                                                                                                                    |
-| `report-has-every-required-section`                  | shape | `report`                  | `output.report`                                                                                                                                                                                       |
-| `every-proposal-is-within-its-rung`                  | shape | `improve`                 | `change.head`, `change.worktree`, `ORG_ALLOWED_RUNGS`                                                                                                                                                 |
+| Check                                                | Class | Task                                                       | Reads                                                                                                                                                                                                 |
+| ---------------------------------------------------- | ----- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spec-check`                                         | shape | `spec`                                                     | `output.title`, `output.criteria`, `output.valid_inputs`, `output.expected_outputs`, `output.failure_definition`, `output.performance`, `output.dependencies`, `output.out_of_scope`, `output.ai_gap` |
+| `spec-coverage`                                      | shape | `acceptance-tests`                                         | `output.tests`, `outputs.spec`                                                                                                                                                                        |
+| `every-acceptance-test-fails-on-an-assertion`        | fact  | `acceptance-red`                                           | `output.runs`, `outputs.acceptance-tests` (the claimed test ids, compared by id with the real runs)                                                                                                   |
+| `red-evidence`                                       | fact  | `cycle/red-evidence`                                       | `output.runs`                                                                                                                                                                                         |
+| `new-test-fails-on-an-assertion-not-a-compile-error` | fact  | `cycle/red-evidence`                                       | `output.runs`                                                                                                                                                                                         |
+| `green-evidence`                                     | fact  | `cycle/green-evidence`                                     | `output.suite`, `output.tests_edited`                                                                                                                                                                 |
+| `suite-green-and-no-test-edited`                     | fact  | `cycle/green-evidence`                                     | `output.suite`, `output.tests_edited`                                                                                                                                                                 |
+| `suite-still-green-and-no-test-edited`               | fact  | `cycle/refactor-evidence`                                  | `output.suite`, `output.tests_edited`                                                                                                                                                                 |
+| `write-sets-are-disjoint`                            | shape | `cut`                                                      | `output.units`, `outputs.spec`, `outputs.acceptance-tests`                                                                                                                                            |
+| `unit-verdict-is-pass`                               | shape | `build/units/tdd`                                          | `output.exit` (a call entry is exit 0 when the subflow ended in success)                                                                                                                              |
+| `acceptance-suite-green`                             | fact  | `build/acceptance-run`                                     | `output.suite`, `output.tests_edited`, `steps.acceptance-red` (the suite may not shrink below the tests that ran red)                                                                                 |
+| `checks-green-and-gate-approved`                     | fact  | `merge`                                                    | `output.ci`, `decisions.merge-gate`, `change.head`                                                                                                                                                    |
+| `report-has-every-required-section`                  | shape | `report`                                                   | `output.report`                                                                                                                                                                                       |
+| `every-proposal-is-within-its-rung`                  | shape | `improve`                                                  | `change.head`, `change.worktree`, `ORG_ALLOWED_RUNGS`                                                                                                                                                 |
+| `feasibility-holds`                                  | fact  | `spec-cycle/design-cycle/feasibility`                      | `output.feasible`, `output.failed`, `output.reasons`                                                                                                                                                  |
+| `deploy-verified`                                    | fact  | `verify`                                                   | `output.verified`, `output.exit`                                                                                                                                                                      |
+| `failing-test-committed`                             | fact  | `reproduce-evidence`                                       | `output.runs`, `output.committed`, `output.files`, `output.uncommitted`, `output.base`, `output.head`                                                                                                 |
+| `phase-acceptance-green`                             | fact  | `spec-cycle/design-cycle/system-run` (also on `layer-run`) | `output.suite`, `output.tests_edited`, `output.layer_fault` or `output.system_fault` (must be `none`), `output.expected_count`                                                                        |
+| `event-names-its-subject`                            | shape | `reflect`, `bug-report`                                    | `output.run`, `output.subject` (the emitted event's data)                                                                                                                                             |
 
 Field shapes:
 
@@ -71,10 +76,37 @@ Field shapes:
 
 No check or rubric reads the result of fanned-out work. The build runs units in a sequential `for`, and `unit-verdict-is-pass` reads only the call entry of its own unit. A future check on a join must read the join `output` (events carry the ended work's `output`, P41).
 
-## Code steps
+## Task keys inside loops
 
-`bin/tdd-evidence` and `bin/merge-change` are stubs that exit 3 until U14 implements them. The `by: code` steps that
-produce the facts are already in `tdd-unit` and `sw-development`.
+The checks name a task by its own name (`spec`, `acceptance-tests`, `acceptance-red`, `merge-gate`). In
+`sw-development` several sit inside rework loops, so their relative key is a path such as `spec-cycle/spec`.
+`_lib.py` finds an entry by its exact key, else by the one key that ends in the name. Two matches exit 2.
+
+## Code steps (U14)
+
+`bin/tdd-evidence` prints the facts the fact checks read. Its header lists the phases. `bin/merge-change`
+prints `head`, `ci` (`{state, head}`) and `merged`. Red outcomes are `assertion`, `compile-error`,
+`import-error`, `timeout`, `pass`, and `error` (any other exception, such as a `NameError` in the test body).
+`layer_fault` is `none`, `unit` or `design`; `system_fault` is `none`, `design` or `spec`. Both come from the
+faults file the architect writes, never from agent output: the keys of the file are also the tests that step
+runs. Acceptance tests are claimed by test id: the ids in the `acceptance-tests` output are pytest node ids.
+
+## Environment of the bin programs
+
+The stack document's `bin-env` (spec 8.6) lists these per workflow; the runtime forwards exactly those names and nothing else. `TDD_TEST_CMD` and `TDD_VERIFY_CMD` take a JSON list of strings or a plain command line.
+
+| Variable                    | Read by                        | Meaning                                                                                     | Default                       |
+| --------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------- | ----------------------------- |
+| `TDD_WORKTREE`              | `tdd-evidence`, `merge-change` | The project working tree (a git repository)                                                 | current directory             |
+| `TDD_BASE`                  | `tdd-evidence`                 | The commit the change started from; `bug red` needs it                                      | `HEAD`                        |
+| `TDD_TEST_CMD`              | `tdd-evidence`                 | JSON argv or command line of the test command; it prints pytest `-rA` summary lines         | pytest                        |
+| `TDD_TIMEOUT`               | `tdd-evidence`                 | Seconds for one test run or the verification command                                        | 600                           |
+| `TDD_FAULTS`                | `tdd-evidence`                 | Faults file                                                                                 | `<worktree>/.org/faults.json` |
+| `TDD_VERIFY_CMD`            | `tdd-evidence`                 | JSON argv or command line of the deploy verification command; absent fails the verification | none                          |
+| `TDD_CHANGE_BRANCH`         | `merge-change`                 | The branch to fast-forward into the target branch                                           | none (required)               |
+| `POLICY_VCS_DEFAULT_BRANCH` | `merge-change`                 | Resolves the policy name `vcs.default-branch` given to `--into`                             | none (required)               |
+
+The names are not a manifest key (spec 8.1 is a closed set); the stack carries them (spec 8.6).
 
 ## Defaults taken by the orchestrator
 
