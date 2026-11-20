@@ -665,12 +665,17 @@ def check_cases(cases):
 
 @contextlib.contextmanager
 def alarm(seconds):
-    """Old behaviour kept for the red run: sets the alarm and never cancels it."""
+    """Fail the guarded block if it runs longer than `seconds`. Always cancels the alarm and restores the
+    previous handler, so nothing fires later in an unrelated test of the same pytest process."""
     def handler(*_):
         raise AssertionError(f"did not finish in {seconds}s")
-    signal.signal(signal.SIGALRM, handler)
+    old = signal.signal(signal.SIGALRM, handler)
     signal.alarm(seconds)
-    yield
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
 
 
 def rename_task(d, old, new):
