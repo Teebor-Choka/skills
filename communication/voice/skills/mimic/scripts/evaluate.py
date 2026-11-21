@@ -195,6 +195,8 @@ def report_md(rep):
         "dimensions: " + ", ".join(f"{d} {v:.2f}" for d, v in rep["dims"].items()),
         "failed dimensions: " + (", ".join(rep["failed_dims"]) or "none"),
         f"unparseable judge replies: identify {rep['unparseable']['identify']}, score {rep['unparseable']['score']}",
+        f"short exact matches (signal only, not judged): {rep['short_exact_match']['matches']} of "
+        f"{rep['short_exact_match']['n']}",
         "",
         "| group | n | id rate | rubric |",
         "| ----- | - | ------- | ------ |",

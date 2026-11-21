@@ -47,6 +47,9 @@ except the `claude` runner.
     context, channel is `email`. With `--author`, only messages whose `From` contains it.
   - Any other extension exits 2.
 - `--channel` and `--audience` set the default for records that have none (default `default`).
+- `--exclude-pattern REGEX` (repeatable) drops matching messages, for example other speakers'
+  lines in a transcript. A bad regex exits 2. Filtering happens only here: to filter a corpus,
+  re-ingest and re-split. Editing split files in place is not supported (leak risk).
 
 ## Expected outputs
 
@@ -61,7 +64,7 @@ whitespace and trailing spaces per line are trimmed), `channel`, `audience`, `ts
 - Exact duplicates (same text after whitespace collapse) collapse into one record with `count`
   incremented. Frequency is a habit signal and is kept.
 - `band` is `short` for 25 words or fewer (a chat reply, a one-liner, an emoji), else `long`.
-- Prints one summary line: kept, dropped empty, duplicates, short, long.
+- Prints one summary line: kept, dropped empty, excluded, duplicates, short, long.
 
 ### split.py
 
@@ -154,6 +157,9 @@ Defaults: `--max-id-rate 0.65`, `--min-rubric 3.5`, `--min-n 20`, `--dim-floor 3
   upper bound) the judge reliably picks the generated message as the person's: it can tell them
   apart, and the profile exaggerates habits. That is FAIL with a caricature warning.
 - Failed dimensions (mean below `--dim-floor`) drive the next revision.
+- The report also gives the short exact-match rate: short items whose generated text equals the
+  original after normalization. It is a signal (an acknowledgement can match honestly), never
+  part of the verdict.
 
 ## Revision loop and the sealed test
 

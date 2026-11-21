@@ -316,6 +316,11 @@ def summarize(items, thresholds=None):
     worst = sorted(scored, key=lambda it: (_item_mean(it), it["identified"] is False, it["id"]))
     s["worst"] = [it["id"] for it in worst[:5]]
     s["failed_dims"] = [d for d in DIMS if s["dims"][d] < t["dim_floor"]]
+    # A separate signal, not a pass criterion: a short message regenerated word for word.
+    shorts = [it for it in scored if it.get("band") == "short" and it.get("generated") is not None]
+    hits = sum(1 for it in shorts if norm(it["generated"]) == norm(it.get("original", "")))
+    s["short_exact_match"] = {"n": len(shorts), "matches": hits,
+                              "rate": round(hits / len(shorts), 4) if shorts else 0.0}
 
     biased = s["pos_a_rate"] is not None and n >= t["min_n"] and not (
         1 - t["pos_bias"] <= s["pos_a_rate"] <= t["pos_bias"])

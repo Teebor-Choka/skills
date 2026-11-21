@@ -30,7 +30,8 @@ Scripts live in `scripts/`. Run each with `--persona <name>`.
 1. **Ingest.** `ingest.py --persona P [--author A] [--channel C] [--audience A] FILES...` reads
    txt, md, jsonl (`text`, `channel`, `audience`, `ts`, `reply_to`), json, eml and mbox. Text
    stays as written; repeats collapse with a count. Ask for channel and audience when the
-   files carry none: the profile depends on them.
+   files carry none: the profile depends on them. Drop lines that are not the person's (other
+   speakers, bots) with `--exclude-pattern REGEX`; never edit the split files afterwards.
 2. **Split.** `split.py --persona P` makes train and test (80/20, at least 20 test items), or
    train, dev and test (70/10/20) from 100 distinct messages. Near duplicates of a held-out
    message never reach train. Once `profile.md` exists, re-splitting needs `--force`.

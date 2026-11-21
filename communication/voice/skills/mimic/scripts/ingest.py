@@ -148,16 +148,25 @@ def main():
     p.add_argument("--author", help="keep only records or mails by this author")
     p.add_argument("--channel", default="default", help="channel for records that name none")
     p.add_argument("--audience", default="default", help="audience for records that name none")
+    p.add_argument("--exclude-pattern", action="append", default=[], metavar="REGEX",
+                   help="drop messages matching this regex (repeatable), e.g. other speakers' lines")
     p.add_argument("files", nargs="+", type=Path)
     a = p.parse_args()
+    try:
+        excludes = [re.compile(x) for x in a.exclude_pattern]
+    except re.error as e:
+        raise m.Fail(f"bad --exclude-pattern: {e}") from e
     d = m.state_dir(a)
     m.guard(d, a.allow_git_worktree)
     raw = [(f, r) for f in a.files for r in load(f, a.author)]
-    kept, index, empty, dups = [], {}, 0, 0
+    kept, index, empty, dups, excluded = [], {}, 0, 0, 0
     for f, r in raw:
         text = clean(r["text"])
         if not text:
             empty += 1
+            continue
+        if any(x.search(text) for x in excludes):
+            excluded += 1
             continue
         key = " ".join(text.split())
         if key in index:
@@ -173,7 +182,8 @@ def main():
     m.make_dir(d)
     m.write_jsonl(d / "corpus.jsonl", kept)
     short = sum(1 for r in kept if r["band"] == "short")
-    print(f"kept {len(kept)}, empty {empty}, duplicates {dups}, short {short}, long {len(kept) - short}"
+    print(f"kept {len(kept)}, empty {empty}, excluded {excluded}, duplicates {dups}, short {short}, "
+          f"long {len(kept) - short}"
           f" -> {d / 'corpus.jsonl'}")
 
 
