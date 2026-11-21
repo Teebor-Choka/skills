@@ -227,7 +227,8 @@ def test_cli_yaml_workflow(tmp_path):
 ], ids=["none", "unknown-command", "tasks-no-file", "floors-no-file", "validate-no-catalog",
         "validate-no-manifest", "unknown-flag"])
 def test_cli_usage_errors_exit_2(args):
-    assert run(*args).returncode == 2
+    p = run(*args)
+    assert p.returncode == 2 and "usage: ows.py" in p.stderr
 
 
 @pytest.mark.parametrize("command", ["tasks", "floors"])
