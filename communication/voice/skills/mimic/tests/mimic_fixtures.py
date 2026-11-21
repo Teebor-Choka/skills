@@ -28,6 +28,14 @@ CHAT_TAILS = [
     "is fine now", "looks good to me", "can wait till monday", "needs one more pass", "is on me",
     "shipped", "blocked on legal", "done, merging", "is weird, looking", "slipped a day",
 ]
+VOCAB = (
+    "apple bridge candle dolphin engine falcon garden harbor island jacket kettle ladder meadow "
+    "napkin orchard pepper quarry rocket saddle tunnel umbrella violin walnut yogurt zipper anchor "
+    "blanket cactus desert ember fossil glacier hammock igloo jungle kayak lantern magnet nectar "
+    "oyster parrot quilt raven salmon thistle urchin velvet willow xylophone yarrow zebra acorn "
+    "barley cobalt dune easel fern goblet hazel ivory juniper kiln lagoon mortar nutmeg olive pebble "
+    "quartz ribbon spruce tulip upland vapor wicker yeast zinc amber basil copper drizzle"
+).split()
 ACKS = ["yep", "ok", "sgtm", "on it", "nope", "hm", "thx", "kk", "lol yes", "fair"]
 EMAIL_LINES = [
     "I went through {t} this morning and the numbers hold up, with one gap in the March column.",
@@ -48,8 +56,8 @@ def synth_records(n=60, seed=0):
         lap = i // len(TOPICS)  # second pass over the topics must not repeat a message
         if i % 3 == 2:
             body = EMAIL_LINES[(i + lap) % len(EMAIL_LINES)].format(t=topic)
-            follow = EMAIL_LINES[(i + 3 + 2 * lap) % len(EMAIL_LINES)].format(
-                t=TOPICS[(i * 7 + 3 + 11 * lap) % len(TOPICS)])
+            # Random detail words keep templated emails from being near duplicates of each other.
+            follow = " ".join(rng.sample(VOCAB, 18)).capitalize() + "."
             text = f"Hi team,\n\n{body} {follow}\n\nCheers,\nP"
             out.append({"text": text, "channel": "email", "audience": "team", "ts": f"2026-01-{i % 28 + 1:02d}"})
         else:
