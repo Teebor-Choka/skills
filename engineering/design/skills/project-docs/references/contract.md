@@ -292,7 +292,7 @@ Component pages also take part in the whole-project checks: `project-divergence`
 frontmatter, view and size checks there, and the [Views](#views) no-script rule does not apply to it.
 
 `scripts/render_docs.py [project]` writes `docs/generated/architecture.md` and
-`docs/generated/index.html`, byte-identical for identical input. It needs Python 3.9+; below that it
+`docs/generated/index.html`, byte-identical for identical input. It needs Python 3.13 or newer; below that it
 exits 2 naming the interpreter version. Rendering reads no manifest, so it needs no `tomllib`.
 
 - **Order.** Project layer first: `overview.md`, `spec.md`, `process.md`, then other `docs/**/*.md`

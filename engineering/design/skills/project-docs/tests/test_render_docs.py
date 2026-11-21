@@ -585,9 +585,9 @@ def test_render_alone_needs_no_toml_parser(tmp_path, monkeypatch):
 
 def test_old_python_exits_2_naming_the_interpreter(tmp_path, capsys):
     repo = bare_project(tmp_path)
-    assert render_docs.main([str(repo)], version=(3, 8, 10)) == 2
+    assert render_docs.main([str(repo)], version=(3, 12, 9)) == 2
     err = capsys.readouterr().err
-    assert "3.8.10" in err and "3.9" in err
+    assert "3.12.9" in err and "3.13" in err
     assert not (repo / "docs/generated").exists()
 
 

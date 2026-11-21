@@ -37,7 +37,7 @@ import components
 from validate_docs import FENCE_RE, split_frontmatter
 
 TOOL = "render_docs.py"
-MIN_PYTHON = (3, 9)
+MIN_PYTHON = (3, 13)
 MERMAID_VERSION = "11.4.1"
 MERMAID_SRI = "sha384-rbtjAdnIQE/aQJGEgXrVUlMibdfTSa4PQju4HDhN3sR2PmaKFzhEafuePsl9H/9I"
 MERMAID_URL = f"https://cdn.jsdelivr.net/npm/mermaid@{MERMAID_VERSION}/dist/mermaid.min.js"

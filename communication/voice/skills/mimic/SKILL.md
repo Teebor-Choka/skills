@@ -2,7 +2,7 @@
 name: mimic
 description: Learn how one person communicates from samples of their messages and write a voice profile that lets a model write as them, chat replies and one-liners included, then prove it on held-out messages with a blind judge. Use for "write like me", "mimic this person", "learn my voice from these samples", "build a voice profile", or drafting a short message or chat reply in a persona's voice. Not for generic de-slop or removing AI tells (writing:unslop), nor for editing your own draft while keeping your voice (prose-craft voice matching).
 license: MIT
-compatibility: Python 3.11+ stdlib. The live judge needs the claude CLI or any command that reads a prompt on stdin.
+compatibility: Python 3.13 or newer, standard library only. The live judge needs the claude CLI or any command that reads a prompt on stdin.
 ---
 
 # mimic

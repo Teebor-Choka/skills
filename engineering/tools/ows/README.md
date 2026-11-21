@@ -8,7 +8,7 @@ and floors).
 | -------- | ----------------------------------------------------------------------- |
 | `reader` | `ows.py validate \| tasks \| floors`, plus the importable `ows` library |
 
-Standard library Python 3.10+. PyYAML is optional and only needed to read `.yaml` files.
+Standard library Python, 3.13 or newer. PyYAML is optional and only needed to read `.yaml` files.
 The format rules are in [skills/reader/references/format.md](skills/reader/references/format.md).
 
 Tests: `python3 -m pytest skills/reader/tests`.

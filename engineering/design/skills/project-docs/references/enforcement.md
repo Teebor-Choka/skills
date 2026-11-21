@@ -93,7 +93,7 @@ touch docs conflict on the generated files: rebase and re-render, never hand-mer
 
 In a plain CI job, run `python3 scripts/validate_docs.py --all .` (or per repo) as a step, then
 `python3 scripts/render_docs.py . --check --base <PR base SHA>` for each repo that has `docs/`. It needs
-only Python 3 (3.11 or later when a component manifest is TOML). For a monorepo-of-repos, `--all` gives one pass over everything and a nonzero exit if
+only Python 3.13 or newer. For a monorepo-of-repos, `--all` gives one pass over everything and a nonzero exit if
 any repo drifts.
 
 ## What it cannot do

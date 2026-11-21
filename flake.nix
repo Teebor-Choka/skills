@@ -33,7 +33,9 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        py = pkgs.python3.withPackages (ps: [
+        # The baseline the skills promise; pinned so a nixpkgs bump cannot move it.
+        python = pkgs.python313;
+        py = python.withPackages (ps: [
           ps.pyyaml
           ps.pytest
         ]);
@@ -113,7 +115,7 @@
                   pkgs.bats
                   pkgs.jq
                   pkgs.git
-                  pkgs.python3
+                  python
                   pkgs.coreutils
                   pkgs.gnugrep
                   pkgs.gnused
@@ -144,7 +146,7 @@
               {
                 nativeBuildInputs = [
                   pkgs.nodejs
-                  pkgs.python3
+                  python
                 ];
               }
               ''
@@ -230,7 +232,7 @@
             pkgs.runCommand "marketplace-json"
               {
                 nativeBuildInputs = [
-                  pkgs.python3
+                  python
                   pkgs.jq
                 ];
               }
@@ -301,7 +303,7 @@
                   pkgs.git
                   pkgs.jq
                   pkgs.prettier # project-docs AT-18 skips without it
-                  (pkgs.python3.withPackages (ps: [
+                  (python.withPackages (ps: [
                     ps.pytest
                     ps.pytest-cov
                     ps.pyyaml # scripts/tests run validate-skills.py, which imports yaml

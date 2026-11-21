@@ -268,7 +268,7 @@ that the problem doesn't actually have.
 ## Running across agents
 
 One portable `SKILL.md` and its `references/` and `scripts/` run unchanged on Claude Code, Codex, and
-OpenCode. The scripts need only Python 3.9+ (standard library, no third-party packages). Install the
+OpenCode. The scripts need only Python 3.13 or newer (standard library, no third-party packages). Install the
 skill directory at `~/.claude/skills/architect/` (Claude Code), `~/.agents/skills/architect/`
 (Codex), or `~/.config/opencode/skills/architect/` (OpenCode, which also reads `.claude/skills` and
 `.agents/skills`, so one directory serves all three).

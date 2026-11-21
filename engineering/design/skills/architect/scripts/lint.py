@@ -9,8 +9,8 @@ Usage:
     lint.py <work-package-dir> [--tier note|small|full] [--strict]
 
 Exit code 0 if no errors (warnings allowed), else 1. `--strict` also fails on warnings.
-Standard library only (re, os, glob, graphlib, argparse), so it runs anywhere Python 3.9+
-does. No YAML dependency: every check is heading- or regex-based.
+Standard library only (re, os, glob, graphlib, argparse), so it runs on any Python 3.13
+or newer. No YAML dependency: every check is heading- or regex-based.
 
 `--tier note` checks only the single `<slug>-plan.md` (E1/E2/E3): there is no package to keep
 internally consistent, so the cross-document rules (E4-E8) do not apply.
