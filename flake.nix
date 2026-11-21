@@ -3,12 +3,6 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    # Rust toolchain for the `tests` check, pinned at the last rev with rustc 1.98.1.
-    # rustc 1.99 (nixpkgs 02c087f+) is built with LLVM 21 but its profiler runtime
-    # expects LLVM 23's raw profile format, so every coverage-instrumented binary
-    # SIGSEGVs at exit. Drop once NixOS/nixpkgs#578990 lands and cargo-llvm-cov is
-    # updated, and use `nixpkgs` for these again.
-    nixpkgs-rust.url = "github:NixOS/nixpkgs/55bfb4d7437bd4e09ab7cba58a43bd68eb310044";
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -30,7 +24,6 @@
     {
       self,
       nixpkgs,
-      nixpkgs-rust,
       treefmt-nix,
       flake-utils,
       git-hooks,
@@ -40,28 +33,13 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        rustPkgs = nixpkgs-rust.legacyPackages.${system};
         py = pkgs.python3.withPackages (ps: [
           ps.pyyaml
           ps.pytest
         ]);
-        codeQualityTools = import ./nix/code-quality-tools.nix { inherit pkgs; };
-        # swe-workflows as a closure artifact, so it can be installed without a mounted source
-        # checkout (a microVM has none). Dev-only tests dropped; shebangs patched so gate.sh and the
-        # hooks run from a stable store path where /usr/bin/env may be absent. Codex's config.toml
-        # hook and the OpenCode/oh-my-pi overlays resolve to this absolute path. The document skill's
-        # docs tooling (design's project-docs) ships beside it as skills/project-docs, where
-        # resolve.py looks first; without SKILL.md, so no host lists it as a skill of this plugin.
-        sweWorkflowsPlugin = pkgs.runCommand "swe-workflows-plugin" { } ''
-          cp -r ${self}/engineering/swe/swe-workflows $out
-          chmod -R u+w $out
-          rm -rf $out/tests
-          cp -r ${self}/engineering/design/skills/project-docs $out/skills/project-docs
-          chmod -R u+w $out/skills/project-docs
-          rm -rf $out/skills/project-docs/tests $out/skills/project-docs/SKILL.md
-          patchShebangs $out
-        '';
-        codeQualitySupportedSystem = builtins.elem system [
+        # The pytest suites run on the systems they ran on while the code-quality suite (tools with no
+        # aarch64-linux build) shared this check.
+        testsSupportedSystem = builtins.elem system [
           "aarch64-darwin"
           "x86_64-linux"
         ];
@@ -124,91 +102,8 @@
       {
         formatter = treefmtEval.config.build.wrapper;
 
-        # The code-quality skill's non-nixpkgs tools, pinned in
-        # ./nix/code-quality-tools.nix, exposed so each can be built and run
-        # on its own (`nix build .#cargo-anatomy`) -- not just as a hidden
-        # dependency of the code-quality-tests check. Gated to the same two
-        # systems that check runs on (some tools ship no aarch64-linux build).
-        packages = pkgs.lib.optionalAttrs codeQualitySupportedSystem codeQualityTools // {
-          swe-workflows-plugin = sweWorkflowsPlugin;
-        };
-
         checks = {
           formatting = treefmtEval.config.build.check self;
-
-          # swe-workflows' gate, loader and context-hook tests. The plugin is copied out alone: its
-          # stubs and hooks carry `#!/usr/bin/env sh`, which the Linux sandbox cannot resolve, so the
-          # copy is patchShebangs'd; the bats files resolve ../hooks and ../skills as siblings of tests/.
-          swe-gate =
-            pkgs.runCommand "swe-gate-tests"
-              {
-                nativeBuildInputs = [
-                  pkgs.bats
-                  pkgs.python3
-                  pkgs.git
-                  pkgs.gnugrep
-                  pkgs.coreutils
-                ];
-              }
-              ''
-                export HOME=$TMPDIR
-                cp -r ${self}/engineering/swe/swe-workflows plugin
-                chmod -R u+w plugin
-                patchShebangs plugin
-                bats plugin/tests
-                touch $out
-              '';
-
-          # The built closure: it ships the docs tooling as skills/project-docs (no SKILL.md, so the
-          # plugin's skill set equals the source's), and the document skill's resolve.py finds it there
-          # with no marketplace checkout and an empty HOME, scaffolds pages from it, and its validator
-          # accepts them but for the placeholder API row.
-          swe-workflows-closure =
-            pkgs.runCommand "swe-workflows-closure-tests"
-              {
-                nativeBuildInputs = [
-                  pkgs.python3
-                  pkgs.coreutils
-                  pkgs.diffutils
-                ];
-              }
-              ''
-                export HOME=$TMPDIR/home
-                p=${sweWorkflowsPlugin}
-                test -f $p/skills/project-docs/scripts/components.py
-                test -f $p/skills/project-docs/assets/component.skeleton.md
-                test ! -e $p/skills/project-docs/SKILL.md
-                diff <(cd ${self}/engineering/swe/swe-workflows/skills && ls -d */SKILL.md) \
-                  <(cd $p/skills && ls -d */SKILL.md)
-                cp -r ${self}/engineering/design/skills/project-docs/tests/fixtures/conformant repo
-                chmod -R u+w repo
-                mkdir -p repo/crates/a/src
-                printf '[workspace]\nmembers = ["crates/*"]\n' > repo/Cargo.toml
-                printf '[package]\nname = "a"\nversion = "0.1.0"\n' > repo/crates/a/Cargo.toml
-                touch repo/crates/a/src/lib.rs
-                python3 $p/skills/document/scripts/resolve.py repo > out.json
-                python3 -c 'import json; assert [c["name"] for c in json.load(open("out.json"))["components"]] == ["a"]'
-                python3 $p/skills/document/scripts/resolve.py repo --scaffold > /dev/null
-                test -f repo/docs/components/a.md
-                python3 $p/skills/project-docs/scripts/validate_docs.py repo --json > findings.json || true
-                python3 -c 'import json; r = sorted(f["rule"] for f in json.load(open("findings.json"))); assert r == ["component-api-unknown"], r'
-                touch $out
-              '';
-
-          # Each harness overlay turns gate.sh's exit code into its own veto.
-          swe-overlays =
-            pkgs.runCommand "swe-overlay-tests"
-              {
-                nativeBuildInputs = [
-                  pkgs.nodejs
-                  pkgs.coreutils
-                ];
-              }
-              ''
-                export HOME=$TMPDIR
-                node ${self}/engineering/swe/swe-workflows/tests/overlays.mjs
-                touch $out
-              '';
 
           # The git workflow scripts (babysit, pr-landed, pr-state) against stub forge CLIs.
           git-workflow =
@@ -395,66 +290,26 @@
                 touch $out
               '';
         }
-        // pkgs.lib.optionalAttrs codeQualitySupportedSystem {
+        // pkgs.lib.optionalAttrs testsSupportedSystem {
           # Single target for every pytest suite in the repo: it discovers each
-          # `tests/` directory and runs them in one invocation. Gated to the
-          # same systems as the code-quality tools, because that suite runs
-          # against real tool binaries provisioned here (from nixpkgs directly
-          # -- cargo-llvm-cov, rust-code-analysis, llvm -- or pinned in
-          # ./nix/code-quality-tools.nix for what nixpkgs doesn't package), and
-          # some of those tools ship no aarch64-linux build. The lighter suites
-          # (project-docs, model:reflect) need only python/pytest/git,
-          # already in this env, so they ride along. CARGO_NET_OFFLINE guards
-          # against this actually needing network during the build -- the
-          # fixtures declare zero dependencies so it shouldn't, verified
-          # directly, but this makes a regression fail loudly instead of
-          # silently passing on a machine whose own Nix builds aren't
-          # sandboxed (this flake's own dev machine, notably).
+          # `tests/` directory and runs them in one invocation. The suites need only
+          # python/pytest/git (plus jq and prettier for a few cases).
           tests =
             pkgs.runCommand "tests"
               {
                 nativeBuildInputs = [
-                  rustPkgs.cargo
-                  rustPkgs.rustc
-                  # `cargo build` alone never needs a C linker (a library
-                  # target's final output is an internal .rlib), but `cargo
-                  # test`/`cargo llvm-cov` link a real executable and do --
-                  # without this, that step fails with "linker `cc` not
-                  # found" (and, before that, a red herring about `xcrun`
-                  # failing to locate the SDK, which is actually just cc's
-                  # own absence surfacing first). Found by isolating this
-                  # exact case in a minimal reproduction.
-                  pkgs.stdenv.cc
-                  rustPkgs.cargo-llvm-cov
-                  pkgs.cargo-public-api
-                  pkgs.cargo-modules
-                  rustPkgs.llvm
-                  pkgs.rust-code-analysis
                   pkgs.git
                   pkgs.jq
                   pkgs.prettier # project-docs AT-18 skips without it
-                  codeQualityTools.cargo-crap
-                  codeQualityTools.cargo-iceberg4rust
-                  codeQualityTools.cargo-anatomy
-                  codeQualityTools.cargo-mutants
-                  codeQualityTools.cargo-machete
-                  codeQualityTools.jscpd
                   (pkgs.python3.withPackages (ps: [
                     ps.pytest
                     ps.pytest-cov
                     ps.pyyaml # scripts/tests run validate-skills.py, which imports yaml
-                    codeQualityTools.crap4py
-                    codeQualityTools.complexipy
-                    codeQualityTools.pyscn
                   ]))
                 ];
-                CARGO_NET_OFFLINE = "true";
               }
               ''
                 export HOME="$TMPDIR"
-                export CARGO_HOME="$TMPDIR/cargo-home"
-                export LLVM_COV="${rustPkgs.llvm}/bin/llvm-cov"
-                export LLVM_PROFDATA="${rustPkgs.llvm}/bin/llvm-profdata"
 
                 # Some suites' assets/*.sh use `#!/usr/bin/env bash` shebangs,
                 # fine on a normal system but unresolvable as-is on Linux's Nix
@@ -463,9 +318,7 @@
                 # the Linux sandbox is a full container with nothing from the
                 # host filesystem, so `/usr/bin/env` itself doesn't exist there.
                 # `${self}` is also read-only, so the whole tree is copied and
-                # shebang-patched on a writable copy. Found by the code-quality
-                # suite failing only on CI's x86_64-linux runner, not the
-                # aarch64-darwin this was developed and verified on.
+                # shebang-patched on a writable copy.
                 cp -r ${self} "$TMPDIR/repo"
                 chmod -R u+w "$TMPDIR/repo"
                 patchShebangs "$TMPDIR/repo"

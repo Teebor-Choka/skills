@@ -9,7 +9,7 @@ import pytest
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 SCRIPT = os.path.join(ROOT, "scripts", "render-hooks.sh")
-PLUGIN = os.path.join(ROOT, "engineering", "swe", "swe-workflows")
+PLUGIN = os.path.join(ROOT, "engineering", "tools", "git")
 
 
 def run(*args):
