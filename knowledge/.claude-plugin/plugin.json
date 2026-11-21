@@ -1,0 +1,5 @@
+{
+  "name": "knowledge",
+  "version": "1.0.0",
+  "description": "Personal knowledge: llm-wiki (create, maintain and query a linked Markdown wiki designed for LLM navigation) and media-digest (fetch the transcript of any yt-dlp media or the text of a web article, save it locally, and write a loss-checked summary with a short version and follow-up points)."
+}

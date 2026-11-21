@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills \u2014 practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "4.2.0"
+    "version": "5.0.0"
   },
   "plugins": [
     {
@@ -64,12 +64,12 @@
       }
     },
     {
-      "name": "find-ai-moat",
-      "description": "Interview one question at a time to find where your work complements AI versus where a model already does it, then give three concrete 30-day moves to widen the gap in your favor.",
-      "source": "./education/find-ai-moat",
+      "name": "education",
+      "description": "Learning and self-assessment: find-ai-moat (interview one question at a time to find where your work complements AI versus where a model already does it, then give three concrete 30-day moves to widen the gap in your favor).",
+      "source": "./education",
       "strict": true,
       "metadata": {
-        "version": "0.1.1"
+        "version": "1.0.0"
       }
     },
     {
@@ -159,39 +159,21 @@
       }
     },
     {
-      "name": "llm-wiki",
-      "description": "Create, maintain, and query a personal knowledge wiki designed for LLM navigation.",
-      "source": "./knowledge/llm-wiki",
+      "name": "knowledge",
+      "description": "Personal knowledge: llm-wiki (create, maintain and query a linked Markdown wiki designed for LLM navigation) and media-digest (fetch the transcript of any yt-dlp media or the text of a web article, save it locally, and write a loss-checked summary with a short version and follow-up points).",
+      "source": "./knowledge",
       "strict": true,
       "metadata": {
-        "version": "1.1.1"
+        "version": "1.0.0"
       }
     },
     {
-      "name": "media-digest",
-      "description": "Fetch the transcript of any yt-dlp media or the text of a web article, save it locally, and write a loss-checked summary with a short version and follow-up points.",
-      "source": "./knowledge/media-digest",
+      "name": "research",
+      "description": "Research and test ideas: forge-idea (forge a rough idea into a viable one through cooperative, research-driven iteration) and grounded-research (answer a question under a fixed evidence contract: primary sources first, every claim cited with URL and date, fact kept apart from hearsay).",
+      "source": "./research",
       "strict": true,
       "metadata": {
-        "version": "0.2.1"
-      }
-    },
-    {
-      "name": "forge-idea",
-      "description": "Forge rough ideas into viable ones through cooperative, research-driven iteration.",
-      "source": "./research/forge-idea",
-      "strict": true,
-      "metadata": {
-        "version": "1.1.1"
-      }
-    },
-    {
-      "name": "grounded-research",
-      "description": "Research a question under a fixed evidence contract: primary sources first, every claim cited with URL and date, fact kept apart from hearsay.",
-      "source": "./research/grounded-research",
-      "strict": true,
-      "metadata": {
-        "version": "1.0.1"
+        "version": "1.0.0"
       }
     }
   ],

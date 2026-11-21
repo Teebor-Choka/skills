@@ -8,7 +8,8 @@ is a self-contained `SKILL.md` directory that runs unchanged on Claude Code, Cod
 
 `<domain>/[<group>/]<plugin>/skills/<skill>/SKILL.md`, with `<plugin root>/.claude-plugin/plugin.json`.
 A plugin root has no wrapper directory (`ai/model`, `ai/harness`); a group directory holds several
-plugins (`engineering/swe`, `engineering/tools`, `engineering/infra`).
+plugins (`engineering/swe`, `engineering/tools`, `engineering/infra`). A domain with one plugin is
+that plugin's root (`research`, `knowledge`, `education`).
 `.claude-plugin/marketplace.json` lists every plugin (`source: ./<plugin root>`) and is the
 source of truth. The host sees `plugin:skill`. Domains: `ai`, `communication`, `education`,
 `engineering`, `knowledge`, `research`.
