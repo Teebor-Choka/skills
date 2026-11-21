@@ -168,7 +168,7 @@ select:Monitor`; its schema is deferred). Add `persistent: true` only when the s
 The watcher's exit or event line is the only wait signal. A dead watcher shows as a missing
 heartbeat line: re-arm it. Do not read the checks by hand to see whether it is stuck.
 
-For a silent wait, `babysit --quiet` prints only the final event (and `pr-landed`'s result). Other skills that drive a PR (swe-workflows `implement`, builders under `harness:assign` or
+For a silent wait, `babysit --quiet` prints only the final event (and `pr-landed`'s result). Other skills that drive a PR (an implement skill, builders under `harness:assign` or
 `harness:pull`) use this procedure rather than their own loop.
 
 ## Gotchas

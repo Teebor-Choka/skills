@@ -12,7 +12,7 @@ well-formed, never that they are _current_. Presence is mechanical; currency is 
 belongs in a code-review pass, not the validator. Deferred until the authoring and enforcement
 halves are in real use and the staleness actually bites.
 
-Update: staleness review is now an angle in the swe-workflows plugin's `by-angle` skill, where judgment
+Update: staleness review is now an angle of the team's review skill, where judgment
 belongs. The validator still checks presence and never currency.
 
 ## Cross-project docs dashboard

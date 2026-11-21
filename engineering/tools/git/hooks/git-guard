@@ -646,7 +646,7 @@ def _workflow_segment(words):
 def workflow_loaded(data, state_dir=None):
     """True once the git-workflow skill was invoked by this agent (Skill tool call or slash command).
 
-    The scan is skill_loaded.py, shared with skill-gate: it reads the agent's own transcript (a subagent must
+    The scan is skill_loaded.py, beside this hook: it reads the agent's own transcript (a subagent must
     load the skill itself, a parent load does not cover it) and caches the hit as a marker file. Fails open
     (True) when the transcript is unknown or unreadable: a guard bug must not wedge the session.
     """

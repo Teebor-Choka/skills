@@ -1,6 +1,0 @@
-[
-  {
-    "pattern": "(^|/)\\.agents/(policy|charter)\\.md$",
-    "skill": "swe-workflows:implement"
-  }
-]
