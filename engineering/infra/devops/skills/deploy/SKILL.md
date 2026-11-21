@@ -7,7 +7,7 @@ description: >
   pipeline has a deploy stage, when asked to "deploy this revision", "roll this out", "verify the
   deploy", or when a design from architect names what to verify and observe and someone must run
   it. Not for cutting the release (the release stage), not for designing what to verify (architect),
-  not for authoring CI workflows (github-actions).
+  not for authoring CI workflows (ci).
 license: MIT
 metadata:
   version: "1.0.1"

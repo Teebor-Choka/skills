@@ -34,7 +34,7 @@ Hold these before any stage runs.
 | 1   | Secrets            | gitleaks, trufflehog                | credentials in tree and git history               | on                                    |
 | 2   | Dependencies       | osv-scanner                         | known-vulnerable lockfile entries                 | on                                    |
 | 3   | SAST               | semgrep                             | code patterns: injection, crypto, authz           | on                                    |
-| 4   | CI                 | `github-actions` skill              | workflow injection, unpinned actions, token scope | only if the diff touches `.github/`   |
+| 4   | CI                 | `ci` skill                          | workflow injection, unpinned actions, token scope | only if the diff touches `.github/`   |
 | 5   | Agent supply chain | SkillSpector                        | malicious or unsafe skills and MCP configs        | on if `SKILL.md` or MCP config exists |
 | 6   | Handoff            | AI security review, then deep audit | logic, authz, and business-logic flaws tools miss | on                                    |
 | 7   | LLM endpoint       | garak                               | jailbreak, injection, leakage in a served model   | ask first                             |
@@ -51,7 +51,7 @@ Commands, flags, and caveats per tool are in [references/tools.md](references/to
    Read `summary.tsv` first: a tool with status `error` or `missing` is a coverage gap to
    report, not a clean result.
 3. Stage 4: when the diff touches `.github/`, hand the touched `.github/` paths to the
-   `github-actions` skill and use its zizmor result (findings, or "unvalidated"). Never run
+   `ci` skill and use its zizmor result (findings, or "unvalidated"). Never run
    the scanner here. When the diff does not touch `.github/`, stage 4 does not run.
    Run stage 5 on any skill or MCP config in scope, and stages 7 and 8 only when the gates
    allow.
@@ -60,7 +60,7 @@ Commands, flags, and caveats per tool are in [references/tools.md](references/to
    [references/triage.md](references/triage.md): reject false positives, then prove or
    drop each candidate.
 6. Write the findings list in the format from `references/triage.md`. State coverage:
-   which stages ran, which did not, and why. For stage 4, say whether `github-actions`
+   which stages ran, which did not, and why. For stage 4, say whether `ci`
    handled it (and whether its zizmor result was "unvalidated"), the diff had no
    `.github/` change, or the scope was not a diff (stage 4 not run).
 

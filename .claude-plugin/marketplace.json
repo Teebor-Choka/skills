@@ -83,20 +83,11 @@
     },
     {
       "name": "devops",
-      "description": "Operate and secure what ships: security (gitleaks, trufflehog, osv-scanner, semgrep, SkillSpector, garak, nuclei, strix plus an AI triage pass) and deploy (deploy a released or integrated revision and verify it from real logs or state; a failed verification leaves the stage open with the evidence).",
+      "description": "Operate and secure what ships: ci (harden GitHub Actions workflows and configure Renovate: template-injection prevention, SHA-pinned actions, scoped permissions, zizmor, dependency-bot rules), security (gitleaks, trufflehog, osv-scanner, semgrep, SkillSpector, garak, nuclei, strix plus an AI triage pass) and deploy (deploy a released or integrated revision and verify it from real logs or state; a failed verification leaves the stage open with the evidence).",
       "source": "./engineering/infra/devops",
       "strict": true,
       "metadata": {
-        "version": "1.0.0"
-      }
-    },
-    {
-      "name": "github-actions",
-      "description": "Harden GitHub Actions workflows and configure Renovate \u2014 template-injection prevention, SHA-pinned actions, scoped permissions, zizmor, and dependency-bot rules.",
-      "source": "./engineering/infra/github-actions",
-      "strict": true,
-      "metadata": {
-        "version": "1.0.3"
+        "version": "1.1.0"
       }
     },
     {

@@ -1,13 +1,3 @@
----
-name: github-actions
-description: >
-  Harden GitHub Actions and Renovate. Load before editing any .github/workflows/*.yml, a
-  reusable workflow, renovate.json or dependabot config: SHA pins, no template injection,
-  least permissions, zizmor. Not for other CI systems.
-license: MIT
-compatibility: any
----
-
 # GitHub Actions
 
 Security and configuration standards for GitHub Actions workflows and Renovate. Apply these
@@ -30,7 +20,7 @@ whenever a repo has `.github/workflows/`, or you touch a workflow file or Renova
   `Test / Unit`), so inner jobs should use short names that do not repeat the group.
 - **Lint before committing, as hooks, not as a habit.** Wire shellcheck, actionlint, and zizmor
   as pre-commit hooks scoped to `.github/workflows/**` and shell scripts; the snippet is in
-  [references/lint-hooks.md](references/lint-hooks.md).
+  [lint-hooks.md](lint-hooks.md).
 - **zizmor is mandatory on every workflow edit**, hooks or not. Run it on the edited paths
   before committing, and again when the `security` skill hands stage 4 over:
   1. `zizmor --format plain <paths>` if `zizmor` is on `PATH`.

@@ -61,7 +61,7 @@ network but upload no source with metrics off. Add language packs (`p/python`, `
 ## 4. GitHub Actions
 
 Runs only when the scope is a diff that touches `.github/`. Do not run zizmor from this
-skill: hand the touched `.github/` paths to the `github-actions` skill, which owns the zizmor step (PATH, then
+skill: hand the touched `.github/` paths to the `ci` skill, which owns the zizmor step (PATH, then
 `nix run nixpkgs#zizmor --`, else "unvalidated"). Use its result as the stage 4 finding set.
 
 ## 5. Agent supply chain
