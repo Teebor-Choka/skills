@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import random
+from concurrent.futures import ThreadPoolExecutor
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -218,6 +219,7 @@ def main():
     p.add_argument("--generator-model", default=m.ROLE_TIERS["generate"], help="tier or model")
     p.add_argument("--judge-model", default=m.ROLE_TIERS["judge"], help="tier or model")
     p.add_argument("--exemplars", type=int, default=4, help="TRAIN exemplars shown to the judge")
+    p.add_argument("--jobs", type=int, default=1, help="items run in parallel (results keep slice order)")
     p.add_argument("--rerun-test", metavar="REASON", help="run the sealed test slice again, recording why")
     p.add_argument("--max-id-rate", type=float, default=m.THRESHOLDS["max_id_rate"])
     p.add_argument("--min-rubric", type=float, default=m.THRESHOLDS["min_rubric"])
@@ -267,7 +269,9 @@ def main():
         m.write_json(sealed, {"runs": runs})
 
     runner = m.make_runner(a.runner, a.stub_script)
-    items = [run_item(runner, models, it, profile, train, a.seed, rnd, a.exemplars) for it in items_in]
+    with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
+        items = list(pool.map(lambda it: run_item(runner, models, it, profile, train, a.seed, rnd, a.exemplars),
+                              items_in))
     th = {"max_id_rate": a.max_id_rate, "min_rubric": a.min_rubric, "min_n": a.min_n, "dim_floor": a.dim_floor}
     rep = m.summarize(items, th)
     rep["warnings"] = warnings + rep["warnings"]

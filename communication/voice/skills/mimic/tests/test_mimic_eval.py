@@ -224,6 +224,16 @@ class EndToEnd(unittest.TestCase):
             self.assertTrue(set(it["exemplars"]) <= train_ids)
         self.assertEqual({it["original_pos"] for it in items}, {"A", "B"})
 
+    def test_parallel_jobs_give_the_same_items(self):
+        self.assertEqual(self.run_eval("--slice", "test").returncode, 0)
+        one = (self.state / "rounds" / "test-1" / "items.jsonl").read_text()
+        r = self.run_eval("--slice", "test", "--rerun-test", "jobs check", "--jobs", "6")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        keys = ("id", "point", "generated", "exemplars", "scores")
+        rows1 = [{k: x.get(k) for k in keys} for x in (json.loads(ln) for ln in one.splitlines())]
+        rows2 = [{k: x.get(k) for k in keys} for x in read_jsonl(self.state / "rounds" / "test-2" / "items.jsonl")]
+        self.assertEqual(rows1, rows2)  # same order and content; positions differ by round on purpose
+
     def test_invalid_profile_blocks_the_run(self):
         p = self.state / "profile.md"
         p.write_text(p.read_text().replace("## Never", "## Nope"))
