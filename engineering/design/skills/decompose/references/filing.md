@@ -1,8 +1,8 @@
 # Filing the work to the tracker
 
 The cut is checked by the graph engine; the last act of `decompose` is to **file the work** to where
-the policy says it lives, then hand off. Dispatch, execution and integration belong to `orchestrate`
-and `implement`, not to this skill.
+the policy says it lives, then hand off. Dispatch, execution and integration belong to `harness:assign`,
+`harness:pull` and `implement`, not to this skill.
 
 ## Destination (policy-driven)
 
@@ -41,5 +41,5 @@ neither a dependency edge nor the same `Coordination channel:` line in both bloc
 ## Terminal
 
 Filing ends the decomposition. Dispatching the filed items to implementers and integrating their
-changes is the executor's job (`orchestrate:assign`, `orchestrate:pull`, `implement`), including the
+changes is the executor's job (`harness:assign`, `harness:pull`, `implement`), including the
 mandatory serial integration pass the executor must not skip.

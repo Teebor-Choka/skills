@@ -1,5 +1,0 @@
-{
-  "name": "code-graph",
-  "version": "1.0.3",
-  "description": "Keep the codebase-memory-mcp code graph fresh and in use: index the repo at session start and after edits, rewrite worktree indexing to the main checkout, and nudge agents and subagents to query the graph before grep or find sweeps."
-}

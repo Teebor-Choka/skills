@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""PreToolUse hook (tool: SendMessage): keep instructions on the board, not in messages.
+
+A long free-text message between sessions carries state the board does not hold. Deny a text body over
+LIMIT characters unless it references an item (`#N`) or a URL. Structured (non-string) messages and
+malformed input pass. Tests: hooks/tests/test_harness_guards.py.
+"""
+import json
+import re
+import sys
+
+LIMIT = 400
+REF = re.compile(r"#\d+|https?://")
+REASON = "Put the instruction on the board item and send only `see #N` (or the URL). Long messages carry state the board does not hold."
+
+
+def main():
+    try:
+        payload = json.load(sys.stdin)
+        if not isinstance(payload, dict) or payload.get("tool_name") != "SendMessage":
+            return
+        message = (payload.get("tool_input") or {}).get("message")
+    except Exception:
+        return
+    if not isinstance(message, str) or len(message) <= LIMIT or REF.search(message):
+        return
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                             "permissionDecisionReason": REASON}}))
+
+
+if __name__ == "__main__":
+    main()

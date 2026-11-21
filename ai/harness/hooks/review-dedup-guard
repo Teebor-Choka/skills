@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""PreToolUse hook (tool: Agent): stop duplicate reviewers for one PR in a session.
+
+Several reviewers of one PR waste tokens and give conflicting findings. A spawn counts when its description
+or prompt asks for a review or audit as the task (not "address", "fix" or "respond to" review comments) and
+names a PR: `/pull/N`, `PR N`, or a `#N` that follows the review word closely (not "rules in #N", "see #N",
+"issue #N"). Only a top-level spawn counts (a payload with an `agent_id` comes from a subagent and passes).
+Per PR: the first and second spawn pass, the third asks, the fourth and later are denied. A spawn that names
+a fan-out role (`verify`/`verifier`, `finder`) counts at most once per PR per role, so one review fanned out
+to several finder and verifier agents is one review, not six. A prompt naming several PRs is judged by its
+most-reviewed PR (at most 20 numbers are read). The count is per session; a duplicate started by another
+session is not seen, that needs the shared review lease (see the harness pull skill).
+State: $TMPDIR (else /tmp)/agent-review-dedup.<session>.log, one line `PR<TAB>role` per counted spawn,
+appended with O_APPEND (one write per line, so interleaved writers lose nothing; a torn last line is ignored).
+Matching uses bounded regexes (no nested quantifiers). Fails open on malformed input and unreadable files.
+Tests: hooks/tests/test_review_dedup_guard.py.
+Schema: https://code.claude.com/docs/en/hooks.md
+"""
+import hashlib
+import json
+import os
+import re
+import sys
+
+MAX_REFS = 20
+MAX_TEXT = 200_000
+ASK_AT, DENY_AT = 3, 4
+_PR_REF = re.compile(r"/pull/(\d{1,7})|\bpr[\s#-]{0,3}(\d{1,7})")
+_HASH_REF = re.compile(r"#(\d{1,7})")
+# a `#N` right after one of these names a rules/issue/work item, not the PR under review
+_NOT_A_PR = {"see", "rules", "rule", "item", "items", "issue", "issues", "per", "ref", "refs", "spec"}
+_WINDOW = 40
+_REVIEW = re.compile(r"\b(review|audit)")
+# "address review comments", "fix the review feedback": acting on a review, not reviewing
+_ACTING = re.compile(r"\b(address|fix|respond|resolve|reply|apply|handle|incorporate|implement|act)\w*\b[^.\n]{0,25}$")
+_REVIEW_OBJECT = re.compile(r"^\w*\s+(comments?|feedback|threads?|findings?|suggestions?|requests?|notes?)\b")
+_ROLES = (("verify", re.compile(r"\bverif(?:y|ier|iers|ication)\b")), ("finder", re.compile(r"\bfinders?\b")))
+
+
+def pr_refs(text):
+    """PR numbers: `pull/N`, `pr N`, or a `#N` within a short window after a review/audit word, unless the
+    two words before it mark it as a rules or issue reference ("rules in #1", "see #1", "issue #1")."""
+    low = text.lower()[:MAX_TEXT]
+    refs = set()
+    for m in _PR_REF.finditer(low):
+        refs.add(next(g for g in m.groups() if g))
+        if len(refs) >= MAX_REFS:
+            return refs
+    for m in _HASH_REF.finditer(low):
+        head = low[max(0, m.start() - _WINDOW):m.start()]
+        if not _REVIEW.search(head):
+            continue
+        if any(w.strip(".,:;()[]") in _NOT_A_PR for w in head.split()[-2:]):
+            continue
+        refs.add(m.group(1))
+        if len(refs) >= MAX_REFS:
+            break
+    return refs
+
+
+def is_review(text):
+    """True when some review/audit word asks for a review as the task."""
+    low = text.lower()[:MAX_TEXT]
+    for m in _REVIEW.finditer(low):
+        if _ACTING.search(low[max(0, m.start() - 40):m.start()]):
+            continue
+        if _REVIEW_OBJECT.match(low[m.end():m.end() + 30]):
+            continue
+        return True
+    return False
+
+
+def roles(text):
+    low = text.lower()[:MAX_TEXT]
+    return [name for name, rx in _ROLES if rx.search(low)]
+
+
+def clean_session(session):
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(session or "")).lstrip(".")[:64]
+
+
+def session_slug(payload):
+    """Sanitised session id. Without one, a per-user, per-cwd name, so sessions never share a file."""
+    sid = clean_session(payload.get("session_id"))
+    if sid:
+        return sid
+    cwd = str(payload.get("cwd") or os.getcwd())
+    return "nosession-%d-%s" % (os.getuid(), hashlib.sha1(cwd.encode()).hexdigest()[:8])
+
+
+def read_events(path):
+    """[(pr, role)] from complete lines. Never follows a symlink; a torn or garbled line is skipped."""
+    try:
+        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW)) as f:
+            text = f.read()
+    except OSError:
+        return []
+    events = []
+    for line in text.split("\n")[:-1] if not text.endswith("\n") else text.splitlines():
+        pr, sep, role = line.partition("\t")
+        if sep and pr.isdigit() and re.fullmatch(r"[a-z]*", role):
+            events.append((pr, role))
+    return events
+
+
+def append_event(path, pr, role):
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            os.write(fd, f"{pr}\t{role}\n".encode())
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
+def counter_path(session, tmpdir):
+    sid = clean_session(session) or "nosession"
+    return os.path.join(tmpdir or "/tmp", f"agent-review-dedup.{sid}.log")
+
+
+def decide(tool_input, session, tmpdir, nested=False):
+    """("", "") to allow, ("ask"|"deny", reason) otherwise. Counts every top-level review spawn that names a PR."""
+    if nested:
+        return "", ""
+    parts = [tool_input.get(k) for k in ("description", "prompt")]
+    text = "\n".join(p for p in parts if isinstance(p, str))
+    if not is_review(text):
+        return "", ""
+    refs = pr_refs(text)
+    if not refs:
+        return "", ""
+    path = counter_path(session, tmpdir)
+    events = read_events(path)
+    seen = set(events)
+    found_roles = roles(text)
+    counts = {}
+    for pr, _ in events:
+        counts[pr] = counts.get(pr, 0) + 1
+    for pr in refs:
+        if found_roles:
+            fresh = [r for r in found_roles if (pr, r) not in seen]
+            if not fresh:
+                continue  # a fan-out role already counted for this PR
+            role = fresh[0]
+        else:
+            role = ""
+        append_event(path, pr, role)
+        counts[pr] = counts.get(pr, 0) + 1
+    pr = max(refs, key=lambda r: counts.get(r, 0))
+    n = counts.get(pr, 0)
+    if n >= DENY_AT:
+        return "deny", (f"PR #{pr} has already had {n - 1} reviewer spawns in this session. Use their results, "
+                        "or message the running reviewer with SendMessage, instead of starting another.")
+    if n == ASK_AT:
+        return "ask", (f"PR #{pr} was already sent to a reviewer {n - 1} times in this session. Approve only if "
+                       "this is a deliberate extra angle; otherwise wait for those results or pick another PR.")
+    return "", ""
+
+
+def main():
+    try:
+        payload = json.load(sys.stdin)
+        if not isinstance(payload, dict) or payload.get("tool_name") != "Agent":
+            return
+        tool_input = payload.get("tool_input")
+        if not isinstance(tool_input, dict):
+            return
+        decision, reason = decide(tool_input, session_slug(payload), os.environ.get("TMPDIR"),
+                                  nested=bool(payload.get("agent_id")))
+    except Exception:
+        return
+    if decision:
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse", "permissionDecision": decision, "permissionDecisionReason": reason}}))
+
+
+if __name__ == "__main__":
+    main()

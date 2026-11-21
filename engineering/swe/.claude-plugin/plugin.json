@@ -1,5 +1,0 @@
-{
-  "name": "swe",
-  "version": "2.5.1",
-  "description": "Engineering practice skills: rust and typescript (house guidelines on every change), performance (profile, optimize, benchmark), component-docs (write and update component pages) and tracker (live dependency map of a build's progress)."
-}

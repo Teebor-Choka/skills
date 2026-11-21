@@ -1,5 +1,0 @@
-{
-  "name": "deploy",
-  "version": "1.0.1",
-  "description": "Deploy stage of a delivery pipeline: deploy a released or integrated revision and verify it from real logs or state. A failed verification leaves the stage open with the evidence."
-}

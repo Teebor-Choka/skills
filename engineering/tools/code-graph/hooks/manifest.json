@@ -1,0 +1,44 @@
+{
+  "hooks": [
+    {
+      "id": "code-graph-index",
+      "event": "session.start",
+      "matcher": "startup|resume",
+      "script": "hooks/code-graph-index",
+      "enforce": "warn"
+    },
+    {
+      "id": "code-graph-reindex",
+      "event": "stop",
+      "script": "hooks/code-graph-reindex",
+      "enforce": "warn"
+    },
+    {
+      "id": "code-graph-bash-reminder",
+      "event": "tool.before",
+      "tools": ["shell"],
+      "script": "hooks/code-graph-bash-reminder",
+      "enforce": "warn"
+    },
+    {
+      "id": "code-graph-find-reminder",
+      "event": "tool.before",
+      "matcher": "Grep|Glob",
+      "script": "hooks/code-graph-find-reminder",
+      "enforce": "warn"
+    },
+    {
+      "id": "code-graph-index-rewrite",
+      "event": "tool.before",
+      "matcher": "mcp__codebase-memory-mcp__index_repository",
+      "script": "hooks/code-graph-index-rewrite",
+      "enforce": "warn"
+    },
+    {
+      "id": "code-graph-subagent-reminder",
+      "event": "subagent.start",
+      "script": "hooks/code-graph-subagent-reminder",
+      "enforce": "warn"
+    }
+  ]
+}

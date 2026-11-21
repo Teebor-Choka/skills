@@ -1,0 +1,60 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/schedule-wakeup-guard\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "ScheduleWakeup|CronCreate"
+      },
+      {
+        "hooks": [
+          {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/send-message-guard\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "SendMessage"
+      },
+      {
+        "hooks": [
+          {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/review-dedup-guard\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "Agent"
+      },
+      {
+        "hooks": [
+          {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/secret-read-guard\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|Read"
+      },
+      {
+        "hooks": [
+          {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/secret-read-guard\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "Grep"
+      },
+      {
+        "hooks": [
+          {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/read-size-nudge\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "Read"
+      }
+    ]
+  }
+}

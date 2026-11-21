@@ -1,0 +1,5 @@
+{
+  "name": "harness",
+  "version": "3.0.0",
+  "description": "Agent harness: harness:pull (alias swarm, peer-to-peer) and harness:assign (alias direct, thin dispatcher) over a shared work board with claim/lease/reap mechanics, charter, escalation ladder and role cards; tracker (live dependency map of a build's progress); policy (layered .agents/policy settings and their loader); guard hooks for polling wakes, unlinked messages, repeated review spawns, secret reads and large whole-file reads."
+}

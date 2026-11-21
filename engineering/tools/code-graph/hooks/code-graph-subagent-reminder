@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# SubagentStart hook: subagents do NOT inherit the parent's CLAUDE.md or output style, so the
+# "query the knowledge graph instead of exploring by hand" directive that code-graph-index injects for the main
+# session never reaches them. Re-inject it here at spawn. Register it for all subagents (no matcher).
+#
+# Fires only inside a git work tree with codebase-memory-mcp on PATH (same guard as code-graph-index), else it
+# prints nothing. Keep the directive text in sync with code-graph-index. Reads the payload `cwd`
+# (CLAUDE_PROJECT_DIR only when it is absent).
+set -euo pipefail
+
+payload=$(cat 2>/dev/null || true)
+dir=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null || true)
+dir="${dir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+
+command -v codebase-memory-mcp >/dev/null 2>&1 || exit 0
+project=$("$(dirname "$0")/repo-root" "$dir" 2>/dev/null | sed -n 2p) || exit 0
+[ -n "$project" ] || exit 0
+
+mcp="This repository is indexed into codebase-memory-mcp's knowledge graph as project \`$project\`; pass exactly that name as \`project\`. To find or understand ANY code — locating a symbol, definition, caller, call path, data flow, architecture, or change impact — call the codebase-memory-mcp tools FIRST (search_graph to locate, then trace_path, get_code_snippet, search_code, get_architecture, query_graph), never an opening grep/read sweep. Use grep and file reads only to open a file the graph pointed to, or when the graph provably cannot answer (non-code text, an unindexed path). The index may still be completing in the background at the very start of a fresh session."
+
+jq -nc --arg ctx "$mcp" \
+  '{hookSpecificOutput:{hookEventName:"SubagentStart",additionalContext:$ctx}}'

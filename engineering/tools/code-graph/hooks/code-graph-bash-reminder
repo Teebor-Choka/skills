@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""PreToolUse hook (tool: Bash): a non-blocking, once-per-session nudge to reach
+for the codebase-memory-mcp graph before a grep/find sweep run through Bash. NEVER blocks — it
+only injects additionalContext, so a legitimate command always proceeds. Same guard as code-graph-index
+and code-graph-find-reminder (git work tree + codebase-memory-mcp on PATH); outside that it is a silent
+no-op.
+
+code-graph-find-reminder already covers the Grep/Glob tools; this is the gap it leaves open — a sweep
+run via Bash (`grep -r`, `rg`, `find -name`, …) got no nudge at all. The command is tokenized
+with shlex (standalone, no shared imports) and split on
+unquoted control operators, so each pipeline/compound segment is checked independently; any
+segment matching a sweep pattern fires the nudge. Deliberately narrow: a single-file `grep`/`cat`
+with no recursion flag is NOT a sweep and never fires, to keep false positives low. Fires at most
+once per session (separate marker from code-graph-find-reminder's, since these catch different mistakes).
+Tests: hooks/tests/test_mcp_bash_reminder.py.
+Schema: https://docs.claude.com/en/docs/claude-code/hooks
+"""
+import hashlib
+import json
+import os
+import re
+import shlex
+import sys
+
+_SEPARATOR_CHARS = set(";&|()\n")
+_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+_WRAPPERS = {"env", "command", "exec", "time", "nohup", "xargs"}
+_SHELLS = {"bash", "sh", "zsh"}
+_GREP_FAMILY = {"grep", "egrep", "fgrep"}
+_RECURSIVE_GREP_FLAGS = {"-r", "-R", "--recursive"}
+
+
+def split_segments(command):
+    """Tokenize and split on unquoted control operators. Raises ValueError on unbalanced quotes."""
+    lex = shlex.shlex(command, posix=True, punctuation_chars="".join(_SEPARATOR_CHARS))
+    lex.whitespace = " \t\r"
+    lex.whitespace_split = True
+    segments, cur = [], []
+    for tok in lex:
+        if tok and set(tok) <= _SEPARATOR_CHARS:
+            if cur:
+                segments.append(cur)
+            cur = []
+        else:
+            cur.append(tok)
+    if cur:
+        segments.append(cur)
+    return segments
+
+
+def _unwrap(words):
+    while words:
+        if _ASSIGNMENT.match(words[0]):
+            words = words[1:]
+        elif words[0] in _WRAPPERS:
+            words = words[1:]
+            while words and words[0].startswith("-"):
+                words = words[1:]
+        else:
+            break
+    return words
+
+
+def _cluster_has_recursion(arg):
+    """`-rn`, `-nr`, `-Rn`, `-rI`: r or R inside a short-flag cluster. A flag that takes a value (-e, -f, -m,
+    -A, -B, -C, -d) ends the scan, since the rest of the token is its glued value (`-erfoo`)."""
+    if not arg.startswith("-") or arg.startswith("--") or len(arg) < 2:
+        return False
+    for ch in arg[1:]:
+        if ch in "rR":
+            return True
+        if ch in "efmABCd" or ch.isdigit():
+            return False
+    return False
+
+
+def _is_sweep(words):
+    """Does this segment look like a grep/find/rg/ag sweep over source files?"""
+    words = _unwrap(words)
+    if not words:
+        return False
+    cmd = os.path.basename(words[0])
+    rest = words[1:]
+    if cmd in _SHELLS:
+        for i, w in enumerate(rest, 1):
+            if re.fullmatch(r"-[a-z]*c[a-z]*", w) and i < len(rest):
+                try:
+                    return any(_is_sweep(seg) for seg in split_segments(rest[i]))
+                except ValueError:
+                    return False
+        return False
+    if cmd in _GREP_FAMILY:
+        return any(a in _RECURSIVE_GREP_FLAGS or a.startswith("--include") or a.startswith("--exclude")
+                   or _cluster_has_recursion(a) for a in rest)
+    if cmd in ("rg", "ag"):
+        return True
+    if cmd == "find":
+        return any(a in ("-name", "-iname") for a in rest)
+    return False
+
+
+def is_sweep(command):
+    try:
+        segments = split_segments(command)
+    except ValueError:
+        return False
+    return any(_is_sweep(seg) for seg in segments)
+
+
+def clean_session(session):
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(session or "")).lstrip(".")[:64]
+
+
+def session_slug(payload):
+    """Sanitised session id. Without one, a per-user, per-cwd name, so sessions never share a file."""
+    sid = clean_session(payload.get("session_id"))
+    if sid:
+        return sid
+    cwd = str(payload.get("cwd") or os.getcwd())
+    return "nosession-%d-%s" % (os.getuid(), hashlib.sha1(cwd.encode()).hexdigest()[:8])
+
+
+def mark_once(path):
+    """Create the marker exclusively. False when it already exists (or is a planted symlink): never written through."""
+    try:
+        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600))
+    except FileExistsError:
+        return False
+    except OSError:
+        pass
+    return True
+
+
+def main():
+    try:
+        payload = json.load(sys.stdin)
+        if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
+            return
+        command = (payload.get("tool_input") or {}).get("command")
+    except Exception:
+        return
+    if not isinstance(command, str) or not is_sweep(command):
+        return
+
+    session = session_slug(payload)
+    directory = payload.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+
+    if not _on_path("codebase-memory-mcp"):
+        return
+    if not _in_git_worktree(directory):
+        return
+
+    marker = os.path.join(os.environ.get("TMPDIR") or "/tmp", f"agent-mcp-bash-reminder.{session}")
+    if not mark_once(marker):
+        return
+
+    reminder = (
+        "That Bash command looks like a grep/find sweep over source files. This repo is indexed "
+        "into codebase-memory-mcp. Prefer search_graph (then trace_path / get_code_snippet / "
+        "search_code / get_architecture) over a Bash grep/find sweep for locating a symbol, "
+        "definition, caller, call path, or data flow. grep/find is right for non-code text, a "
+        "single known file, or a path the index has not built yet."
+    )
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reminder}}))
+
+
+def _on_path(binary):
+    return any(
+        os.access(os.path.join(d, binary), os.X_OK)
+        for d in os.environ.get("PATH", "").split(os.pathsep) if d
+    )
+
+
+def _in_git_worktree(directory):
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-C", directory, "rev-parse", "--show-toplevel"],
+                           capture_output=True, text=True, timeout=5)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+if __name__ == "__main__":
+    main()

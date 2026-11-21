@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Stop hook. Reads the payload `cwd` (CLAUDE_PROJECT_DIR only when it is absent).
+# At the end of each response turn, refresh the current repo's codebase-memory graph if its working
+# tree changed, so the graph doesn't go stale mid-session. No-op outside a git work tree, when
+# codebase-memory-mcp is absent, when the tree is clean (nothing to update), or when a refresh for
+# this repo is already running. Runs in the background and never blocks the turn (exits 0, silent).
+#
+# The main checkout is the unit (same project as code-graph-index, via repo-root). Edits in a linked
+# worktree don't touch the main checkout's files, so they leave it clean and skip the refresh. codebase-memory re-hashes
+# incrementally, so a refresh of a barely-changed repo is cheap. Only catches edits on disk —
+# changes made and then committed before the turn ends leave a clean tree and are skipped (the
+# next session-start index picks them up).
+set -euo pipefail
+
+payload=$(cat 2>/dev/null || true)
+dir=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null || true)
+dir="${dir:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+
+command -v codebase-memory-mcp >/dev/null 2>&1 || exit 0
+repo=$("$(dirname "$0")/repo-root" "$dir" 2>/dev/null | head -n1) || exit 0
+[ -n "$repo" ] || exit 0
+[ -n "$(git -C "$repo" status --porcelain 2>/dev/null)" ] || exit 0
+
+"$(dirname "$0")/index-bg" "$repo"
+exit 0

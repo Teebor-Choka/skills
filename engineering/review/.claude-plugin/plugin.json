@@ -1,5 +1,0 @@
-{
-  "name": "review",
-  "version": "2.2.3",
-  "description": "Read-only review: by-angle (red-first block loop plus four review angles), code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass), and security (gitleaks, trufflehog, osv-scanner, semgrep, SkillSpector, garak, nuclei, strix plus an AI triage pass)."
-}

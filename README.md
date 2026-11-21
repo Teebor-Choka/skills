@@ -4,36 +4,37 @@ Portable [Agent Skills](https://code.claude.com/docs/en/skills) for Claude Code,
 
 ## Skills
 
-Layout: `<domain>/<plugin>/skills/<skill>`. The host shows `plugin:skill`.
+Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`. The host shows `plugin:skill`.
 
-| Plugin              | Skill               | What it does                                                     |
-| ------------------- | ------------------- | ---------------------------------------------------------------- |
-| `design`            | `architect`         | Turn a fuzzy systems requirement into an executable work package |
-|                     | `ramble`            | Grill a rough idea into a gap-closed brief for the architect     |
-|                     | `decompose`         | Cut a goal into parallel units and file them                     |
-|                     | `graph-engine`      | Compute parallel waves, critical path, write-set collisions      |
-|                     | `project-docs`      | Standard `docs/` (overview, spec, ADRs) with a validator         |
-| `review`            | `by-angle`          | Red-first block loop plus four read-only review angles           |
-|                     | `code-quality`      | Risk audit from complexity, coverage, duplication metrics        |
-|                     | `security`          | Run secret, dependency, SAST, CI scanners; AI triage             |
-| `swe`               | `rust`              | Rust house guidelines on every change                            |
-|                     | `typescript`        | TypeScript and JavaScript house guidelines on every change       |
-|                     | `component-docs`    | Write and update one docs page per component                     |
-|                     | `tracker`           | Live dependency map of a multi-unit build's progress             |
-| `orchestrate`       | `assign`, `pull`    | Multi-agent runs over a shared board; ships guard hooks          |
-| `ops`               | `policy`            | The `.agents/policy` format and loader                           |
-| `models`            | `extension-author`  | Author and port skills and plugins across agents                 |
-|                     | `reflect`           | Mine sessions for agent struggles and propose fixes              |
-| `writing`           | `unslop`            | Remove AI tells from prose                                       |
-|                     | `prose-craft`       | Compose and tighten prose                                        |
-| `forge-idea`        | `forge-idea`        | Stress-test an idea with parallel agents                         |
-| `grounded-research` | `grounded-research` | Research under a fixed evidence contract                         |
-| `llm-wiki`          | `llm-wiki`          | Build and query a linked Markdown wiki                           |
-| `media-digest`      | `media-digest`      | Digest yt-dlp media and web articles into loss-checked notes     |
-| `find-ai-moat`      | `find-ai-moat`      | Find where your work complements AI                              |
-| `github-actions`    | `github-actions`    | Harden workflows, configure Renovate                             |
-| `dep-pr-triage`     | `dep-pr-triage`     | Fix red Dependabot and Renovate PRs; never merges                |
-| `nix`               | `nix`               | Nix + direnv dev workflow traps                                  |
+| Plugin              | Skill               | What it does                                                            |
+| ------------------- | ------------------- | ----------------------------------------------------------------------- |
+| `design`            | `architect`         | Turn a fuzzy systems requirement into an executable work package        |
+|                     | `ramble`            | Grill a rough idea into a gap-closed brief for the architect            |
+|                     | `decompose`         | Cut a goal into parallel units and file them                            |
+|                     | `graph-engine`      | Compute parallel waves, critical path, write-set collisions             |
+|                     | `project-docs`      | Standard `docs/` (overview, spec, ADRs) with a validator                |
+| `review`            | `by-angle`          | Red-first block loop plus four read-only review angles                  |
+|                     | `code-quality`      | Risk audit from complexity, coverage, duplication metrics               |
+| `swe`               | `rust`              | Rust house guidelines on every change                                   |
+|                     | `typescript`        | TypeScript and JavaScript house guidelines on every change              |
+|                     | `component-docs`    | Write and update one docs page per component                            |
+| `devops`            | `security`          | Run secret, dependency, SAST, CI scanners; AI triage                    |
+|                     | `deploy`            | Deploy a revision and verify it from real logs or state                 |
+| `harness`           | `assign`, `pull`    | Multi-agent runs over a shared board                                    |
+|                     | `tracker`           | Live dependency map of a multi-unit build's progress                    |
+|                     | `policy`            | The `.agents/policy` format and loader                                  |
+|                     | (hooks)             | Guard hooks for every session, see [its README](./ai/harness/README.md) |
+| `models`            | `extension-author`  | Author and port skills and plugins across agents                        |
+|                     | `reflect`           | Mine sessions for agent struggles and propose fixes                     |
+| `writing`           | `unslop`            | Remove AI tells from prose                                              |
+|                     | `prose-craft`       | Compose and tighten prose                                               |
+| `forge-idea`        | `forge-idea`        | Stress-test an idea with parallel agents                                |
+| `grounded-research` | `grounded-research` | Research under a fixed evidence contract                                |
+| `llm-wiki`          | `llm-wiki`          | Build and query a linked Markdown wiki                                  |
+| `media-digest`      | `media-digest`      | Digest yt-dlp media and web articles into loss-checked notes            |
+| `find-ai-moat`      | `find-ai-moat`      | Find where your work complements AI                                     |
+| `github-actions`    | `github-actions`    | Harden workflows, configure Renovate                                    |
+| `nix`               | `nix`               | Nix + direnv dev workflow traps                                         |
 
 ## Install
 
@@ -59,7 +60,7 @@ Grounding the current state can optionally run through a code graph, single- or 
 
 ### unslop
 
-The [`unslop`](./writing/writing/skills/unslop/SKILL.md) skill was not written from scratch. It was built by pooling the strongest open "unslop" (de-AI-writing) agent skills on GitHub, deduplicating their rules and word lists, and folding in the research they cite, then restructuring the result around a structure-first pass (surface word-swaps alone barely move AI detection). Full attribution with links is in [model/tools/unslop/references/sources.md](./writing/writing/skills/unslop/references/sources.md).
+The [`unslop`](./communication/writing/skills/unslop/SKILL.md) skill was not written from scratch. It was built by pooling the strongest open "unslop" (de-AI-writing) agent skills on GitHub, deduplicating their rules and word lists, and folding in the research they cite, then restructuring the result around a structure-first pass (surface word-swaps alone barely move AI detection). Full attribution with links is in [model/tools/unslop/references/sources.md](./communication/writing/skills/unslop/references/sources.md).
 
 With thanks to the authors of the MIT-licensed skills we pooled from: [theclaymethod/unslop](https://github.com/theclaymethod/unslop), [mshumer/unslop](https://github.com/mshumer/unslop), [MohamedAbdallah-14/unslop](https://github.com/MohamedAbdallah-14/unslop), [asavvin-pixel/unslop](https://github.com/asavvin-pixel/unslop), [woerndl/unsloppify](https://github.com/woerndl/unsloppify), [mnapoli/skills](https://github.com/mnapoli/skills), and the `cursor/plugins` `pstack` base (surfaced via [ui-skills.com](https://www.ui-skills.com/skills/cursor/unslop)).
 

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Print the codebase-memory index unit for a path: line 1 is the repo root, line 2 its project name.
+# A linked worktree resolves to its main checkout, so every worktree of a repo shares one index
+# instead of adding a project per worktree that outlives the pruned worktree. A submodule or a
+# bare-repo worktree (common dir not named .git) keeps its own toplevel. Exits 1 outside git.
+# The name mirrors codebase-memory-mcp's rule: the path without its leading "/", "/" -> "-".
+# Shared by code-graph-index, code-graph-reindex, code-graph-subagent-reminder, code-graph-index-rewrite.
+set -euo pipefail
+
+dir="${1:-$PWD}"
+top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || exit 1
+common=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir)
+if [ "$(basename "$common")" = .git ]; then
+  root=$(dirname "$common")
+else
+  root=$top
+fi
+printf '%s\n%s\n' "$root" "$(printf '%s' "${root#/}" | tr '/' '-')"
