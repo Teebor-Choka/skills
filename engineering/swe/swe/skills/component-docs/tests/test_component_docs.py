@@ -12,7 +12,7 @@ import pytest
 
 SKILL = Path(__file__).resolve().parents[1]
 RESOLVE = SKILL / "scripts" / "resolve.py"
-PROJECT_DOCS = SKILL.parents[2] / "design" / "skills" / "project-docs"
+PROJECT_DOCS = SKILL.parents[3] / "design" / "skills" / "project-docs"
 CONFORMANT = PROJECT_DOCS / "tests" / "fixtures" / "conformant"
 
 

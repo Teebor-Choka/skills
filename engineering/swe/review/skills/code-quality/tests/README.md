@@ -2,7 +2,7 @@
 
 Runs as part of `nix flake check` (the `code-quality-tests` check, aarch64-darwin and
 x86_64-linux only) — every required tool is provisioned hermetically, either from
-nixpkgs directly or pinned in `../../../../nix/code-quality-tools.nix` for tools
+nixpkgs directly or pinned in `../../../../../../nix/code-quality-tools.nix` for tools
 nixpkgs doesn't package. No setup needed: `nix flake check`, or build just this one
 with `nix build .#checks.<system>.code-quality-tests`.
 

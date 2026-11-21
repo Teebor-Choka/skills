@@ -37,7 +37,7 @@ criteria, and what that means for the other parts and their interactions.
 - **Hands to `decompose`:** the spec blocks and the graph. `decompose` cuts them into
   non-overlapping units and files each as a board item. That item is the per-unit brief.
 - **Never does:** write per-unit briefs, or build, run or deploy anything. Running, deploying and
-  observing the system is the `deploy` skill's job (`engineering/ci/deploy`).
+  observing the system is the `deploy` skill's job (`engineering/infra/devops`).
 
 ## When this fits
 
@@ -202,7 +202,7 @@ runs steps 0–4 and 7, skipping the graph.
    names the hinge decision and lists open items with concrete close conditions, `lint.py` reports
    zero errors, and the package is handed to `decompose` (or `implement` for a single unit).
 8. **Point to the deploy stage.** Architect defines the criteria, the technology, and what to verify
-   and observe (`references/execution.md`). Running, deploying and observing is the `deploy` skill's job (`engineering/ci/deploy`).
+   and observe (`references/execution.md`). Running, deploying and observing is the `deploy` skill's job (`engineering/infra/devops`).
    → _verify:_ the spec names each criterion and signal, and no script, harness or dashboard exists
    in the package.
 

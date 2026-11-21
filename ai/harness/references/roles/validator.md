@@ -12,7 +12,7 @@ Load the skills the charter lists for this role. If it lists none, choose skills
 
 1. Pull one reported item in your pull set. Claim it. Do not take an item from your own area.
 2. Check three things:
-   - The failure scenario is real: reproduce it or trace it with evidence. A finding without proof under the [evidence rule](../../../../engineering/review/skills/by-angle/references/findings-schema.md#evidence-rule) is `unverified`: do not accept it.
+   - The failure scenario is real: reproduce it or trace it with evidence. A finding without proof under the [evidence rule](../../../../engineering/swe/review/skills/by-angle/references/findings-schema.md#evidence-rule) is `unverified`: do not accept it.
    - It is not an accepted tradeoff (tradeoffs file) and not a duplicate.
    - Its acceptance test can fail on the current revision.
 3. Record the verdict with evidence and the revision: `accept`, `reject: <reason>`, or

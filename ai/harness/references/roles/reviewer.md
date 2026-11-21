@@ -15,7 +15,7 @@ Load the skills the charter lists for this role. If it lists none, choose skills
    lease works the same). One area per reviewer. If no pass item exists, file one.
 2. Review. Report each defect as a new item with:
    - a concrete failure scenario (input or state, then the wrong result),
-   - evidence (the proof the [evidence rule](../../../../engineering/review/skills/by-angle/references/findings-schema.md#evidence-rule) requires),
+   - evidence (the proof the [evidence rule](../../../../engineering/swe/review/skills/by-angle/references/findings-schema.md#evidence-rule) requires),
    - the acceptance test that would catch it.
      A finding without a failure scenario is not a finding. Zero findings is a valid result.
 3. When your area has no open findings, file the next pass item for it if the charter calls for

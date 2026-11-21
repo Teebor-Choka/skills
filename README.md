@@ -4,7 +4,7 @@ Portable [Agent Skills](https://code.claude.com/docs/en/skills) for Claude Code,
 
 ## Skills
 
-Layout: `<domain>/<plugin>/skills/<skill>`. The host shows `plugin:skill`.
+Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`. The host shows `plugin:skill`.
 
 | Plugin              | Skill               | What it does                                                            |
 | ------------------- | ------------------- | ----------------------------------------------------------------------- |
@@ -60,7 +60,7 @@ Grounding the current state can optionally run through a code graph, single- or 
 
 ### unslop
 
-The [`unslop`](./writing/writing/skills/unslop/SKILL.md) skill was not written from scratch. It was built by pooling the strongest open "unslop" (de-AI-writing) agent skills on GitHub, deduplicating their rules and word lists, and folding in the research they cite, then restructuring the result around a structure-first pass (surface word-swaps alone barely move AI detection). Full attribution with links is in [model/tools/unslop/references/sources.md](./writing/writing/skills/unslop/references/sources.md).
+The [`unslop`](./communication/writing/skills/unslop/SKILL.md) skill was not written from scratch. It was built by pooling the strongest open "unslop" (de-AI-writing) agent skills on GitHub, deduplicating their rules and word lists, and folding in the research they cite, then restructuring the result around a structure-first pass (surface word-swaps alone barely move AI detection). Full attribution with links is in [model/tools/unslop/references/sources.md](./communication/writing/skills/unslop/references/sources.md).
 
 With thanks to the authors of the MIT-licensed skills we pooled from: [theclaymethod/unslop](https://github.com/theclaymethod/unslop), [mshumer/unslop](https://github.com/mshumer/unslop), [MohamedAbdallah-14/unslop](https://github.com/MohamedAbdallah-14/unslop), [asavvin-pixel/unslop](https://github.com/asavvin-pixel/unslop), [woerndl/unsloppify](https://github.com/woerndl/unsloppify), [mnapoli/skills](https://github.com/mnapoli/skills), and the `cursor/plugins` `pstack` base (surfaced via [ui-skills.com](https://www.ui-skills.com/skills/cursor/unslop)).
 

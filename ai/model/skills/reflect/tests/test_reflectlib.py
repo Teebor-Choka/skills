@@ -94,7 +94,7 @@ def test_scrub_redacts_secrets(text, secret):
 
 def test_scrub_keeps_a_long_worktree_path():
     path = ("/Users/me/repo/.claude/worktrees/feature-0123456789abcdef0123456789abcdef"
-            "/models/models/skills/reflect/SKILL.md")
+            "/ai/model/skills/reflect/SKILL.md")
     assert lib.scrub(f"edited {path} twice") == f"edited {path} twice"
 
 

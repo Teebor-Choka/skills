@@ -10,9 +10,9 @@ verify pass.
 For general cross-agent mechanics (subagent definitions, orchestration, headless/CI
 invocation), see the models:extension-author references — this file does not duplicate them:
 
-- `models/models/skills/extension-author/references/workflows.md` — subagents, parallel fan-out,
+- `ai/model/skills/extension-author/references/workflows.md` — subagents, parallel fan-out,
   orchestration per agent.
-- `models/models/skills/extension-author/references/platforms/{claude-code,codex,opencode}.md` — exact
+- `ai/model/skills/extension-author/references/platforms/{claude-code,codex,opencode}.md` — exact
   file formats and flags.
 
 Two things are shared across every agent and read at runtime, so there is exactly one copy of

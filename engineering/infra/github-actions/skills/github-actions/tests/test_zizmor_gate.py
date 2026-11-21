@@ -3,8 +3,8 @@ import re
 from pathlib import Path
 
 ENG = Path(__file__).resolve().parents[5]
-GHA = (ENG / "ci/github-actions/skills/github-actions/SKILL.md").read_text()
-SEC_DIR = ENG / "review/skills/security"
+GHA = (ENG / "infra/github-actions/skills/github-actions/SKILL.md").read_text()
+SEC_DIR = ENG / "infra/devops/skills/security"
 SEC = (SEC_DIR / "SKILL.md").read_text()
 TOOLS = (SEC_DIR / "references/tools.md").read_text()
 

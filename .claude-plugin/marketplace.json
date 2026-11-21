@@ -69,7 +69,7 @@
       "source": "./engineering/infra/github-actions",
       "strict": true,
       "metadata": {
-        "version": "1.0.2"
+        "version": "1.0.3"
       }
     },
     {
