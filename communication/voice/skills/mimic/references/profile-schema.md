@@ -6,7 +6,7 @@
 ```markdown
 # Voice profile: <persona>
 
-split: <corpus hash from split/manifest.json>
+split: <split_id from split/manifest.json>
 round: <0 for the first build, then the dev round it answers>
 
 ## Measured stats

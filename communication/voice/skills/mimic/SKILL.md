@@ -57,8 +57,9 @@ test.
 Per item: an extractor writes the point of the original without its words; the generator writes
 the message from the profile and the point; a blind judge call sees TRAIN exemplars and both
 messages in seeded random order and names the original; a second call scores the generated one on
-the [rubric](references/rubric.md). Defaults: PASS when the identification rate is at most 0.65 and
-the mean rubric at least 3.5, on at least 20 items. 0.5 means the judge cannot tell. A judge that
+the [rubric](references/rubric.md). Defaults: PASS when the identification rate is within 0.35 to 0.65
+and the mean rubric at least 3.5, on at least 20 items. 0.5 means the judge cannot tell; below 0.35
+the generated messages overdo the habits (caricature). A judge that
 always picks one position, or too many excluded items, makes the round INVALID.
 
 Runners: `--runner claude` (isolated `claude -p`: no tools, no user settings, no session saved),

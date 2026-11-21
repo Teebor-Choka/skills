@@ -9,6 +9,7 @@ import os
 import random
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import unicodedata
@@ -73,7 +74,8 @@ def guard(target, allow=False):
     """Refuse (exit 3) a target git would track. Allowed: outside any work tree, or git-ignored."""
     if allow:
         return
-    target = Path(os.path.abspath(target))
+    # realpath: a symlink into a repo must not hide the repo's .git
+    target = Path(os.path.realpath(os.path.abspath(target)))
     existing = target
     while not existing.exists():
         existing = existing.parent
@@ -107,6 +109,7 @@ def make_dir(d):
     for m in reversed(missing):
         m.mkdir(mode=0o700)
         os.chmod(m, 0o700)
+    os.chmod(d, 0o700)  # tighten a state dir that already existed
     return Path(d)
 
 
@@ -161,8 +164,13 @@ def canonical(text):
     return " ".join(t.split())
 
 
+def norm(text):
+    """canonical(), or the NFKC text itself when nothing alphanumeric is left (emoji, '...')."""
+    return canonical(text) or " ".join(unicodedata.normalize("NFKC", text).split())
+
+
 def grams(text):
-    c = f" {canonical(text)} "
+    c = f" {norm(text)} "
     return {c[i:i + 4] for i in range(max(1, len(c) - 3))}
 
 
@@ -171,7 +179,7 @@ def jaccard(a, b):
 
 
 def similarity(a, b):
-    if canonical(a) == canonical(b):
+    if norm(a) == norm(b):
         return 1.0
     return jaccard(grams(a), grams(b))
 
@@ -192,7 +200,7 @@ def near_dup_clusters(texts, threshold=NEAR_DUP):
         if ri != rj:
             parent[max(ri, rj)] = min(ri, rj)
 
-    canon = [canonical(t) for t in texts]
+    canon = [norm(t) for t in texts]
     gs = [grams(t) for t in texts]
     first = {}
     for i, c in enumerate(canon):
@@ -220,7 +228,8 @@ def point_leaks(point, original):
     p = f" {canonical(point)} "
     toks = canonical(original).split()
     if not toks:
-        return False
+        raw = norm(original)
+        return bool(raw) and raw in " ".join(unicodedata.normalize("NFKC", point).split())
     if len(toks) < 4:
         return f" {' '.join(toks)} " in p
     return any(f" {s} " in p for s in _spans(toks, 4))
@@ -319,12 +328,13 @@ def summarize(items, thresholds=None):
     elif n < t["min_n"]:
         verdict = "INCONCLUSIVE"
         s["warnings"].append(f"only {n} scored items, {t['min_n']} needed for a verdict")
-    elif s["id_rate"] <= t["max_id_rate"] and s["mean_rubric"] >= t["min_rubric"]:
+    elif t["caricature"] <= s["id_rate"] <= t["max_id_rate"] and s["mean_rubric"] >= t["min_rubric"]:
         verdict = "PASS"
     else:
         verdict = "FAIL"
     if n >= t["min_n"] and s["id_rate"] < t["caricature"]:
-        s["warnings"].append("caricature: the judge prefers the generated messages; the profile may overdo habits")
+        s["warnings"].append("caricature: the judge reliably picks the generated message as the person's; "
+                             "the profile overdoes habits (FAIL: the band is two-sided)")
     s["verdict"] = verdict
     return s
 
@@ -380,6 +390,11 @@ class CommandRunner:
             return claude_argv(model, system)
         return shlex.split(self.spec[len("cmd:"):])
 
+    def check(self):
+        exe = self.argv("m", "s")[0] if self.argv("m", "s") else ""
+        if not exe or not shutil.which(exe):
+            raise Fail(f"runner command not found: {exe!r}")
+
     def complete(self, role, model, system, prompt, meta):
         env = dict(os.environ, MIMIC_ROLE=role, MIMIC_MODEL=model, MIMIC_SYSTEM=system)
         last = ""
@@ -409,6 +424,11 @@ class StubRunner:
         iid = meta.get("item_id", "")
         if role == "extract":
             mode = self.s.get("extract", {}).get(iid)
+            if mode in ("quote_context", "quote_intent"):
+                key = mode.split("_")[1]
+                out = {"point": f"a message, item {iid}", "context": "", "intent": "inform"}
+                out[key] = meta["original"]
+                return json.dumps(out)
             if mode == "quote" or (mode == "quote_once" and meta.get("attempt") == 1):
                 return json.dumps({"point": meta["original"], "context": "", "intent": "inform"})
             return json.dumps({"point": f"a {meta.get('band')} {meta.get('channel')} message, item {iid}",
@@ -442,11 +462,17 @@ class StubRunner:
 
 
 def make_runner(spec, stub_script=None):
+    """Build and preflight a runner, so a typo fails before the test slice is sealed."""
     if spec == "stub":
-        script = json.loads(Path(stub_script).read_text(encoding="utf-8")) if stub_script else {}
+        try:
+            script = json.loads(Path(stub_script).read_text(encoding="utf-8")) if stub_script else {}
+        except (OSError, ValueError) as e:
+            raise Fail(f"bad --stub-script: {e}") from e
         return StubRunner(script)
     if spec == "claude" or spec.startswith("cmd:"):
-        return CommandRunner(spec)
+        r = CommandRunner(spec)
+        r.check()
+        return r
     raise Fail(f"unknown runner {spec!r}: use claude, stub or cmd:'<command>'")
 
 
@@ -495,6 +521,12 @@ def load_split(d):
             read_jsonl(sd / "train.jsonl"), read_jsonl(sd / "dev.jsonl"), read_jsonl(sd / "test.jsonl"))
 
 
+def split_id(dev, test):
+    """Identity of a split: which messages are held out."""
+    ids = {"dev": sorted(r["id"] for r in dev), "test": sorted(r["id"] for r in test)}
+    return hashlib.sha256(json.dumps(ids, sort_keys=True).encode()).hexdigest()[:16]
+
+
 def validate_profile(d, text):
     """Errors for a profile against the schema and the split in state dir d (empty list = valid)."""
     manifest, train, dev, test = load_split(d)
@@ -502,8 +534,9 @@ def validate_profile(d, text):
     if len(text.encode("utf-8")) > PROFILE_MAX_BYTES:
         errs.append(f"profile is {len(text.encode('utf-8'))} bytes, over 16 KB")
     mh = re.search(r"^split: (\S+)\s*$", text, re.M)
-    if not mh or mh.group(1) != manifest["corpus_hash"]:
-        errs.append(f"split line missing or not {manifest['corpus_hash']}: profile was built for another split")
+    sid = split_id(dev, test)
+    if not mh or mh.group(1) != sid:
+        errs.append(f"split line missing or not {sid}: profile was built for another split")
     sec = sections(text)
     for s in SECTIONS:
         if s not in sec:

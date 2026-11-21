@@ -80,7 +80,7 @@ def stats(train):
     for t in texts:
         toks = m.canonical(t).split()
         phrases.update({" ".join(toks[i:i + k]) for k in (2, 3) for i in range(len(toks) - k + 1)})
-    rep = [(p, c) for p, c in phrases.most_common(40) if c >= 3][:10]
+    rep = sorted(((p, c) for p, c in phrases.items() if c >= 3), key=lambda pc: (-pc[1], pc[0]))[:10]
     lines.append("- repeated phrases (3+ messages): " + (", ".join(f"{p} ({c})" for p, c in rep) or "none"))
     return "\n".join(lines)
 
@@ -93,8 +93,8 @@ def examples(train):
     return "\n".join(out)
 
 
-def skeleton(d, persona, manifest, train):
-    parts = [f"# Voice profile: {persona}", "", f"split: {manifest['corpus_hash']}", "round: 0", "",
+def skeleton(d, persona, train, dev, test):
+    parts = [f"# Voice profile: {persona}", "", f"split: {m.split_id(dev, test)}", "round: 0", "",
              "## Measured stats", "", stats(train), ""]
     for s in m.SECTIONS[1:-1]:
         parts += [f"## {s}", "", f"<!-- {GUIDE[s]} -->", "TODO", ""]
@@ -114,11 +114,11 @@ def main():
     d = m.state_dir(a)
     if a.command == "skeleton":
         m.guard(d, a.allow_git_worktree)
-        manifest, train, _, _ = m.load_split(d)
+        manifest, train, dev, test = m.load_split(d)
         out = d / "profile.md"
         if out.exists() and not a.force:
             raise m.Fail(f"{out} exists; pass --force to overwrite it")
-        m.write_text(out, skeleton(d, a.persona or d.name, manifest, train))
+        m.write_text(out, skeleton(d, a.persona or d.name, train, dev, test))
         print(f"wrote {out}: fill every TODO from TRAIN only, then run profile.py validate")
         return 0
     prof = a.profile or d / "profile.md"

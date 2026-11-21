@@ -61,6 +61,23 @@ def take(clusters, total, rng):
     return picked, [c for c in clusters if id(c) not in chosen]
 
 
+def redact_contexts(train, held, threshold):
+    """Blank a train record's context when it quotes or nearly repeats a held-out message (a
+    reply_to chain). The profile author reads train, so held-out text must not ride along."""
+    # substring rule only from 3 tokens up: a held-out "ok" must not blank every context
+    keys = [(f" {m.norm(h['text'])} " if len(m.norm(h['text']).split()) >= 3 else None, m.grams(h['text']))
+            for h in held]
+    n = 0
+    for t in train:
+        if not t.get("context"):
+            continue
+        c, cg = f" {m.norm(t['context'])} ", m.grams(t["context"])
+        if any((k and k in c) or m.jaccard(cg, g) >= threshold for k, g in keys):
+            t["context"] = ""
+            n += 1
+    return n
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     m.add_state_args(p)
@@ -76,6 +93,9 @@ def main():
     m.guard(d, a.allow_git_worktree)
     corpus_path = m.require(d / "corpus.jsonl", "ingest.py")
     sd = d / "split"
+    if (d / "profile.md").exists() and not a.force:
+        raise m.Fail("profile.md exists and was written from the current TRAIN; a new split would move "
+                     "messages you already read into the test. Pass --force to start over.")
     if (sd / "test.sealed").exists() and not a.force:
         raise m.Fail("the test slice was already used; re-splitting now leaks it into training. Pass --force to start over.")
     corpus = m.read_jsonl(corpus_path)
@@ -88,7 +108,7 @@ def main():
         groups.setdefault(root, []).append(r)
     clusters = [groups[k] for k in sorted(groups)]
     n = len(clusters)
-    n_test = max(round(n * a.test_frac), min(a.min_test, int(n * 0.4)))
+    n_test = max(round(n * a.test_frac), min(a.min_test, int(n * 0.4)), 1 if n >= 2 else 0)
     n_dev = round(n * a.dev_frac) if n >= a.dev_min else 0
 
     rng = random.Random(a.seed)
@@ -99,6 +119,7 @@ def main():
     dev = [c[0] for c in dev_c]
     test = [c[0] for c in test_c]
     dropped = sum(len(c) - 1 for c in test_c + dev_c)
+    redacted = redact_contexts(train, dev + test, a.near_dup)
 
     max_sim = 0.0
     train_keys = [(t, m.canonical(t["text"]), m.grams(t["text"])) for t in train]
@@ -124,6 +145,7 @@ def main():
             strata.setdefault(key, {"train": 0, "dev": 0, "test": 0})[name] += 1
     manifest = {
         "corpus_hash": hashlib.sha256(corpus_path.read_bytes()).hexdigest()[:16],
+        "split_id": m.split_id(dev, test), "redacted_contexts": redacted,
         "seed": a.seed, "clusters": n, "messages": len(corpus),
         "counts": {"train": len(train), "dev": len(dev), "test": len(test)},
         "dropped_near_duplicates": dropped, "max_cross_similarity": round(max_sim, 4),

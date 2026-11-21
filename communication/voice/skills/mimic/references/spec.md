@@ -30,8 +30,9 @@ except the `claude` runner.
 - Guard, before anything is written: when the target sits inside a git work tree (a `.git` dir
   or file in an ancestor), `git check-ignore -q <target>` must succeed, so git would never track
   it. `~/.config/agents` is such a tree, and its allowlist `.gitignore` ignores `/state/`. An
-  unignored target, or a `.git` that git cannot resolve, exits 3. `--allow-git-worktree`
-  overrides.
+  unignored target, or a `.git` that git cannot resolve, exits 3. The target is resolved through
+  symlinks first, so a link into a repo is caught. An existing state dir is tightened to 0700.
+  `--allow-git-worktree` overrides.
 - Sample files, by extension:
   - `.txt`, `.md`: messages separated by a line that is exactly `---`; with no such line, by blank
     lines. A leading YAML front matter block in `.md` is skipped.
@@ -67,23 +68,27 @@ whitespace and trailing spaces per line are trimmed), `channel`, `audience`, `ts
 `split/train.jsonl`, `split/dev.jsonl`, `split/test.jsonl`, `split/manifest.json`.
 
 - Near-duplicate clusters first: two messages are near duplicates when their canonical forms
-  (NFKC, lowercase, punctuation and symbols removed, whitespace collapsed) are equal or their
-  character 4-gram Jaccard is at least `--near-dup` (default 0.7). Clusters are unions of such pairs.
+  (NFKC, lowercase, punctuation and symbols removed, whitespace collapsed; for an emoji- or
+  punctuation-only message, its NFKC text) are equal or their character 4-gram Jaccard is at
+  least `--near-dup` (default 0.7). Clusters are unions of such pairs.
 - The unit of assignment is the cluster. A cluster sent to test or dev contributes only its first
   member (corpus order); its other members are dropped, never put in train. This is the leak guard.
 - Sizes, with N clusters: test `T = max(round(N * test_frac), min(min_test, floor(N * 0.4)))`
   (defaults 0.2 and 20). A dev slice of `round(N * dev_frac)` (default 0.1) exists only when
-  `N >= 100`. So 50 messages already reach the 20 test items a verdict needs, and below 50 the
-  verdict is INCONCLUSIVE by construction (see Thresholds).
+  `N >= 100` (70/10/20). So 50 messages already reach the 20 test items a verdict needs, and below
+  50 the verdict is INCONCLUSIVE by construction (see Thresholds). From 2 clusters, T is at least 1.
 - Stratified by `(band, channel, audience)`: each stratum gets its share of T by largest
   remainder. If a band with at least 2 clusters ends up with no test item, one slot moves to it
   from the largest stratum. Short messages are always represented when the corpus has them.
 - Seeded (`--seed`, default 1337): clusters are sorted by id, then shuffled with
   `random.Random(seed)`. Same corpus and seed give byte-identical files.
 - After the split, every held-out item is checked against every train item; any pair at or above
-  the threshold aborts with exit 2. The manifest records the counts, strata, seed, the highest
-  cross similarity and the corpus hash.
-- Re-splitting after a test run (the slice is sealed) exits 2 unless `--force`.
+  the threshold aborts with exit 2. A train record whose `context` (a `reply_to` chain) nearly
+  repeats a held-out message, or contains one of 3+ tokens, gets its context blanked, because the
+  profile author reads train. The manifest records the counts, strata, seed, the highest cross
+  similarity, the redacted contexts, the corpus hash and the split id (a hash of the held-out ids).
+- Re-splitting exits 2 unless `--force` when the test slice is sealed or a `profile.md` exists:
+  its author has read the current train, which a new split would move into the test.
 
 ### profile.py
 
@@ -94,7 +99,8 @@ whitespace and trailing spaces per line are trimmed), `channel`, `audience`, `ts
   in each section the agent must write. It refuses to overwrite an existing profile without
   `--force`.
 - `validate` exits 0 when the profile is complete and clean, 1 with one line per error:
-  missing or empty section, a leftover `TODO`, fewer than 3 worked examples, no short worked
+  a `split:` line that is not the current split id, missing or empty section, a leftover `TODO`,
+  fewer than 3 worked examples, no short worked
   example while train has short messages, a worked example whose id is not in TRAIN or whose
   text differs from it, a channel with 3 or more train messages not named in the channel matrix,
   a profile over 16 KB, or a held-out leak: a 6-token span of any dev or test message (or the
@@ -105,8 +111,9 @@ whitespace and trailing spaces per line are trimmed), `channel`, `audience`, `ts
 For each item of the chosen slice (`--slice dev` or `--slice test`):
 
 1. **Extract** (execution tier): the point, the context and the intent of the original, as JSON,
-   without its wording. A point that shares a run of 4 or more canonical tokens with the
-   original, or contains the whole of an original shorter than 4 tokens, is a leak: retry once
+   without its wording. Point, context and intent together are checked: sharing a run of 4 or
+   more canonical tokens with the original, or containing the whole of an original shorter than
+   4 tokens (an emoji-only original by its characters), is a leak: retry once
    with a stricter instruction, then exclude the item (`point_leak`).
 2. **Generate** (reasoning tier): the message, from the profile, the channel, the audience, the
    context and the point only. A generated text of an 8+ token original that is near-identical to
@@ -125,8 +132,9 @@ identification, and as 0 on every dimension.
 Outputs in `rounds/<slice>-<k>/`: `items.jsonl` (everything, with text), `report.json`,
 `report.md` (printed to stdout). A dev round also writes `feedback.json`, which holds aggregates
 only: dimension means, failed dimensions, breakdowns, and judge reasons with quoted spans removed
-and dropped entirely when they share a 4-token span with any held-out message. A test round
-writes no feedback.
+and dropped entirely when they share a 4-token span with any held-out message (or the whole of a
+2 or 3 token one). A shorter fragment, or a one-word message, can still appear in a reason; that
+is accepted, since a single word carries no message. A test round writes no feedback.
 
 ## Thresholds and verdict
 
@@ -140,10 +148,11 @@ Defaults: `--max-id-rate 0.65`, `--min-rubric 3.5`, `--min-n 20`, `--dim-floor 3
 - Order of the verdict: INVALID when more than 20% of items were excluded (leaks, copies,
   generator errors) or, with at least `min_n` scored items, the judge picked position A in more
   than 80% or fewer than 20% of answers (a degenerate judge scores 50% under random order);
-  INCONCLUSIVE when fewer than `min_n` items were scored; PASS when the rate is at or below the
-  maximum and the mean rubric at or above the minimum; FAIL otherwise.
-- A rate below 0.35 with enough items adds a caricature warning: the generated messages look more
-  like the person than the person does, which means the profile exaggerates habits.
+  INCONCLUSIVE when fewer than `min_n` items were scored; PASS when the rate is within
+  0.35 to 0.65 and the mean rubric at or above the minimum; FAIL otherwise.
+- The band is two-sided. Below 0.35 (7 of 20 or fewer, P = 0.058 by chance, the mirror of the
+  upper bound) the judge reliably picks the generated message as the person's: it can tell them
+  apart, and the profile exaggerates habits. That is FAIL with a caricature warning.
 - Failed dimensions (mean below `--dim-floor`) drive the next revision.
 
 ## Revision loop and the sealed test
@@ -151,8 +160,10 @@ Defaults: `--max-id-rate 0.65`, `--min-rubric 3.5`, `--min-n 20`, `--dim-floor 3
 - Revision reads TRAIN and `feedback.json` only. It never reads `items.jsonl`, the report or any
   held-out text.
 - Dev rounds are numbered 1 to 3; a 4th exits 2.
-- The test slice runs once. The first test run writes `split/test.sealed` with the profile hash;
-  a second exits 2 unless `--rerun-test REASON`, and that report shows the run count and reason.
+- The test slice runs once. The first test run writes `split/test.sealed` with the profile hash,
+  after the runner is built and preflighted (a typo or a missing CLI does not burn the seal);
+  a second exits 2 unless `--rerun-test REASON`, and that report shows the run count (seal
+  entries) and reason.
 - Without a dev slice (under 100 clusters) there is no revision loop: build the profile once,
   then run the test. Tiny corpora (under 50) still run, but the verdict is INCONCLUSIVE.
 
@@ -253,7 +264,7 @@ Offline, with the stub runner, in `tests/test_mimic_*.py`:
 - [ ] AT-8 report math: identification rate, means, per-band and per-channel breakdowns, worst
       items and unparseable verdicts counted against the mimic, on scripted verdicts.
 - [ ] AT-9 verdict: PASS, FAIL, INCONCLUSIVE and INVALID at and around each threshold; the
-      caricature warning.
+      caricature FAIL below the lower bound.
 - [ ] AT-10 isolation: no held-out message text reaches `feedback.json`, even when a judge reason
       quotes it; a test round writes no feedback; a 4th dev round and a second test run exit 2.
 - [ ] AT-11 leak checks: a point quoting the original is retried then excluded; a copied

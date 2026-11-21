@@ -11,6 +11,7 @@ a second run needs --rerun-test REASON. See ../references/spec.md.
 import argparse
 import hashlib
 import json
+import math
 import random
 from concurrent.futures import ThreadPoolExecutor
 import sys
@@ -102,7 +103,8 @@ def parse_scores(text):
         v = obj.get(d)
         s = v.get("score") if isinstance(v, dict) else v
         try:
-            scores[d] = max(0.0, min(5.0, float(s)))
+            f = float(s)
+            scores[d] = max(0.0, min(5.0, f)) if math.isfinite(f) else 0.0
         except (TypeError, ValueError):
             scores[d] = 0.0
         if isinstance(v, dict) and isinstance(v.get("reason"), str):
@@ -125,7 +127,8 @@ def run_item(runner, models, it, profile, train, seed, rnd, k_ex):
         except m.RunnerError:
             continue
         ext = m.parse_json(out)
-        if ext and isinstance(ext.get("point"), str) and not m.point_leaks(ext["point"], it["text"]):
+        said = " ".join(str(ext.get(k, "")) for k in ("point", "context", "intent")) if ext else ""
+        if ext and isinstance(ext.get("point"), str) and not m.point_leaks(said, it["text"]):
             break
         rec["excluded"] = "point_leak" if ext and isinstance(ext.get("point"), str) else "error"
         ext = None
@@ -262,13 +265,14 @@ def main():
     if env_models["judge"][1] != "reasoning":
         warnings.append(f"judge model {models['judge']} is not the reasoning tier: the verdict is weaker")
 
+    runner = m.make_runner(a.runner, a.stub_script)  # before the seal: a broken runner must not burn it
     prof_hash = hashlib.sha256(profile.encode("utf-8")).hexdigest()[:16]
+    runs = []
     if a.slice == "test":
         runs = seal.get("runs", []) + [{"round": rnd, "profile": prof_hash, "reason": a.rerun_test,
                                          "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}]
         m.write_json(sealed, {"runs": runs})
 
-    runner = m.make_runner(a.runner, a.stub_script)
     with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
         items = list(pool.map(lambda it: run_item(runner, models, it, profile, train, a.seed, rnd, a.exemplars),
                               items_in))
@@ -278,7 +282,7 @@ def main():
     rep.update(persona=a.persona or d.name, slice=a.slice, round=rnd, seed=a.seed, runner=a.runner,
                models=models, profile_hash=prof_hash, corpus_hash=manifest["corpus_hash"])
     if a.slice == "test":
-        rep.update(test_runs=rnd, rerun_reason=a.rerun_test)
+        rep.update(test_runs=len(runs), rerun_reason=a.rerun_test)
     out = rounds / f"{a.slice}-{rnd}"
     m.write_jsonl(out / "items.jsonl", items)
     m.write_json(out / "report.json", rep)
