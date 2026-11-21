@@ -189,7 +189,7 @@ def report_md(rep):
         f"verdict: {rep['verdict']}",
         f"items: {rep['n_scored']} scored of {rep['n_total']} (excluded: "
         + (", ".join(f"{k} {v}" for k, v in rep["excluded"].items()) or "none") + ")",
-        f"identification rate: {rep['id_rate']:.2f} (0.50 = indistinguishable; pass <= {t['max_id_rate']})",
+        f"identification rate: {rep['id_rate']:.2f} (0.50 = indistinguishable; pass {t['caricature']} to {t['max_id_rate']})",
         f"judge picked A: {rep['pos_a_rate'] if rep['pos_a_rate'] is not None else 'n/a'}",
         f"mean rubric: {rep['mean_rubric']:.2f} (pass >= {t['min_rubric']}, min n {t['min_n']})",
         "dimensions: " + ", ".join(f"{d} {v:.2f}" for d, v in rep["dims"].items()),
