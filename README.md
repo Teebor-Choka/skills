@@ -46,6 +46,7 @@ Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`. The host shows `plugin:ski
 | `github-actions`    | `github-actions`    | Harden workflows, configure Renovate                                    |
 | `nix`               | `nix`               | Nix + direnv dev workflow traps                                         |
 | `git`               | `workflow`          | Git and PR workflow; git-guard hooks and the pr-watcher agent           |
+| `security`          | `yubikey`           | Hardware-backed keys: offline OpenPGP root, FIDO2 SSH, signing          |
 
 ## Install
 

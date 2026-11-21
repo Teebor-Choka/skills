@@ -1,0 +1,2 @@
+# Every script sources ./lib.sh by a computed path, which shellcheck cannot follow.
+disable=SC1091
