@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills \u2014 practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "6.1.0"
+    "version": "6.2.0"
   },
   "plugins": [
     {
@@ -132,6 +132,15 @@
       "strict": true,
       "metadata": {
         "version": "1.2.4"
+      }
+    },
+    {
+      "name": "ows",
+      "description": "Read and validate OWS workflow files (Serverless Workflow DSL 1.1.0 with metadata.org governance): list tasks, kinds and floors, and check a workflow against its metric catalog and manifest. Standard-library Python library and CLI.",
+      "source": "./engineering/tools/ows",
+      "strict": true,
+      "metadata": {
+        "version": "1.0.0"
       }
     },
     {
