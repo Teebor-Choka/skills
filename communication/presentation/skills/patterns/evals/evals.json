@@ -1,0 +1,43 @@
+{
+  "skill_name": "presentation:patterns",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Review my talk plan and tell me what I'm doing wrong: 40 slides, each is a bulleted list I'll read out loud, footnotes in 9pt font, our company logo and the conference name on every single slide, and I'll finish with a live coding demo to fill the last 15 minutes.",
+      "expected_output": "Names the specific antipatterns present (Bullet-Riddled Corpse, Ant Fonts, Floodmarks, Dead/Live Demo risk) and gives the catalog's remedies, ideally citing the relevant reference file.",
+      "files": [],
+      "expectations": [
+        "Identifies the bulleted-read-aloud slides as the Bullet-Riddled Corpse antipattern",
+        "Identifies the 9pt footnotes as the Ant Fonts antipattern",
+        "Identifies the logo/conference-name on every slide as the Floodmarks antipattern",
+        "Flags the fill-time live demo as the Dead Demo antipattern and/or the Live Demo risk tradeoff",
+        "Names the antipatterns using the catalog's pattern names (not just generic advice)"
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "Help me plan a 45-minute conference talk introducing our new open-source caching library to backend engineers.",
+      "expected_output": "A phased plan grounded in the patterns: establish purpose and audience, structure before building slides, a narrative shape, a demo approach, and rehearsal.",
+      "files": [],
+      "expectations": [
+        "Establishes purpose via the Big Why and researches the audience via Know Your Audience",
+        "Recommends structuring content before opening a slide tool (Fourthought: ideate/capture/organize/design)",
+        "Recommends a narrative shape such as Narrative Arc, Triad, or a Talklet series",
+        "Handles the demo deliberately (Lipsync or a Live Demo risk tradeoff rather than a naive live demo)",
+        "Recommends rehearsal (Carnegie Hall) and/or Brain Breaks appropriate to a 45-minute slot"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I get nervous during the Q&A part of my talks, I say 'um' a lot, and there's always one person who tries to derail me with hostile questions. Give me concrete techniques.",
+      "expected_output": "Delivery-phase techniques: repeat questions, embrace pauses over fillers, seed the first question / plant allies, and a heckler-handling method.",
+      "files": [],
+      "expectations": [
+        "Recommends the Echo Chamber technique (repeat each question before answering)",
+        "Addresses filler words via Hiccup Words / Breathing Room (embrace purposeful pauses)",
+        "Gives a concrete Hecklers-handling technique",
+        "Suggests Seeding the First Question and/or a Posse to ease the Q&A"
+      ]
+    }
+  ]
+}

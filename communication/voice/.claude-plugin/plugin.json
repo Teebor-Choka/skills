@@ -1,0 +1,5 @@
+{
+  "name": "voice",
+  "version": "0.1.0",
+  "description": "The always-on plain-voice output style and the command that sets its depth and length for a session."
+}

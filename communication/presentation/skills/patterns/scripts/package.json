@@ -1,0 +1,19 @@
+{
+  "name": "presentation-review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Lint/score a slide deck against the 88 presentation patterns (review engine).",
+  "bin": {
+    "deck-review": "./review.mjs"
+  },
+  "scripts": {
+    "test": "node --test test.mjs"
+  },
+  "dependencies": {
+    "js-yaml": "^4.3.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

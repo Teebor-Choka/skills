@@ -1,0 +1,13 @@
+{
+  "site": {
+    "labsBaseUrl": "https://example.com/blog",
+    "assetsBaseUrl": "https://example.com",
+    "assetsPath": "/blog-assets",
+    "author": "Your Name"
+  },
+  "astro": {
+    "labsDir": "../your-site/src/data/blog"
+  },
+  "devto": { "maxTags": 4 },
+  "medium": { "maxTags": 5 }
+}
