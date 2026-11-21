@@ -1,7 +1,7 @@
-"""Has this agent loaded a skill? The one transcript scan shared by skill-gate and git-guard.
+"""Has this agent loaded a skill? The transcript scan git-guard uses.
 
-Plugins install independently, so each plugin that needs this ships a byte-identical copy next to its
-hook (a test in `git` pins the copies together). Import it with the hook's own directory on sys.path.
+Plugins install independently, so each plugin that needs this ships its own copy next to its hook.
+Import it with the hook's own directory on sys.path.
 
 skill_loaded(payload, skill, aliases, state_dir) -> True | False | None
   True   the agent's own transcript shows the skill loaded; cached as a marker file per session, agent, skill

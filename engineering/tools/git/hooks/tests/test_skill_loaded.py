@@ -1,5 +1,5 @@
-"""Tests for hooks/skill_loaded.py, the one transcript scan that skill-gate and git-guard share.
-Run: python3 -m pytest engineering/swe/swe-workflows/hooks/tests"""
+"""Tests for hooks/skill_loaded.py, the transcript scan git-guard uses to see whether a skill was loaded.
+Run: python3 -m pytest engineering/tools/git/hooks/tests"""
 import json
 import os
 import sys
