@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills — practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "7.1.0"
+    "version": "8.0.0"
   },
   "plugins": [
     {
@@ -24,7 +24,7 @@
       "source": "./ai/model",
       "strict": true,
       "metadata": {
-        "version": "3.0.0"
+        "version": "4.0.0"
       }
     },
     {
@@ -42,7 +42,7 @@
       "source": "./communication/voice",
       "strict": true,
       "metadata": {
-        "version": "0.2.0"
+        "version": "1.0.0"
       }
     },
     {
@@ -78,7 +78,7 @@
       "source": "./engineering/design",
       "strict": true,
       "metadata": {
-        "version": "5.1.5"
+        "version": "6.0.0"
       }
     },
     {
@@ -123,7 +123,7 @@
       "source": "./engineering/tools/ows",
       "strict": true,
       "metadata": {
-        "version": "1.0.0"
+        "version": "2.0.0"
       }
     },
     {
