@@ -124,6 +124,12 @@ Keys: `owner`, `namespace`, `roles`, `workflows`, `vetoes`, `checks` (all requir
   `protected`; `frozen` cannot be granted). `owner` is reserved and never declared. Every chain reaches `owner`.
 - `workflows.<kebab-name>`: `path` (under `workflows/`, ending `.yaml`, `.yml` or `.json`, a file under
   the root) and `floors` (a list of task names, possibly empty). The file's `document.name` equals the key.
+  An optional `policy` map holds the policy keys a runtime renders, read-only and locked, for the workflow's
+  model steps (the vocabulary of `.agents/policy.md` frontmatter). It holds only what the policy loader reads
+  back unchanged: kebab-case keys; values that are strings, booleans, lists of strings or maps (at most 4 maps
+  deep, 64 keys or items each); strings of at most 1000 characters with no `"`, control character or line
+  separator, and never `true` or `false` (use a boolean); no `,` in a list item. No numbers (write `"10"`).
+  `locked` and `files` are reserved at its top level.
   The start graph (calls, and emits of a type another workflow's `schedule.on` starts on) has no cycle.
   An emit of a type that a decision gate in another workflow listens on is refused.
 - `checks.<kebab-name>`: `fact` or `shape`, with a file `checks/<name>.py`. Every `checks/*.py` that does

@@ -1,5 +1,5 @@
 {
   "name": "ows",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Read and validate OWS workflow files (Serverless Workflow DSL 1.1.0 with metadata.org governance): list tasks, kinds and floors, and check a workflow against its metric catalog and manifest. Standard-library Python library and CLI."
 }
