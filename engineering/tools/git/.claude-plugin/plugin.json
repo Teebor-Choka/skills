@@ -1,5 +1,5 @@
 {
   "name": "git",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "Git and GitHub pull-request workflow in an opinionated house style: worktrees, conventional/atomic commits, branch naming, draft-PR conventions, the review-thread reply/resolve procedure, multi-repo stacks, and the force-push gotchas. Ships the git-guard, worktree-path-guard and pr-poll-reminder hooks and the pr-watcher agent."
 }
