@@ -10,6 +10,7 @@ Exit codes: 0 valid, 1 invalid or a load error, 2 usage error.
 import argparse
 import math
 import os
+import re
 import sys
 
 # One module object either way, so LoadError and UsageError are the same classes for every caller.
@@ -26,11 +27,19 @@ TOP_KEYS = ("owner", "namespace", "roles", "workflows", "targets", "vetoes", "ch
 ROLE_KEYS = ("escalates-to", "may-spawn", "summary", "rungs")
 RUNGS = ("free", "ordinary", "protected")
 CHECK_CLASSES = ("fact", "shape")
-WORKFLOW_KEYS = ("path", "floors")
+WORKFLOW_KEYS = ("path", "floors", "policy")
 TARGET_KEYS = ("at-most", "at-least", "per")
 PER = ("item", "run", "unit")
 WORKFLOW_SUFFIXES = (".yaml", ".yml", ".json")
 MAX_LISTS = 16
+# A workflow policy is rendered into a policy file the harness policy loader reads back: only values that loader
+# returns unchanged are allowed. `locked` is written by the renderer; `files` (per-file globs) is not supported.
+POLICY_RESERVED = ("locked", "files")
+POLICY_DEPTH = 4
+POLICY_MAX_ITEMS = 64
+POLICY_MAX_CHARS = 1000
+POLICY_VALUE = "must be a string, a boolean, a list of strings or a map"
+_ODD_CHARS = re.compile("[\x00-\x1f\x7f\x85  ]")
 
 
 def _map(value):
@@ -154,6 +163,60 @@ def _entry_errors(workflows, root):
                 errs.append(f"{loc}.floors: must be a list of task names")
             elif len(set(floors)) != len(floors):
                 errs.append(f"{loc}.floors: duplicate task name")
+        if "policy" in entry:
+            if isinstance(entry["policy"], dict):
+                errs += _policy_errors(entry["policy"], f"{loc}.policy", 1)
+            else:
+                errs.append(f"{loc}.policy: must be a map")
+    return errs
+
+
+def _string_error(value, comma=False):
+    if len(value) > POLICY_MAX_CHARS:
+        return f"must be at most {POLICY_MAX_CHARS} characters"
+    if '"' in value:
+        return "must not contain '\"'"
+    if _ODD_CHARS.search(value):
+        return "must not contain a control character or a line separator"
+    if value.lower() in ("true", "false"):
+        return "must not be the string 'true' or 'false'; use a boolean"
+    if comma and "," in value:
+        return "must not contain ',' in a list item"
+    return None
+
+
+def _policy_errors(policy, loc, depth):
+    """Errors of one policy map at `depth` (the top-level map is 1)."""
+    errs = []
+    if len(policy) > POLICY_MAX_ITEMS:
+        errs.append(f"{loc}: more than {POLICY_MAX_ITEMS} keys")
+    for key, value in policy.items():
+        if not (isinstance(key, str) and KEBAB.fullmatch(key)):
+            errs.append(f"{loc}: key '{key}' must be kebab-case")
+            continue
+        at = f"{loc}.{key}"
+        if depth == 1 and key in POLICY_RESERVED:
+            errs.append(f"{at}: is reserved")
+        elif isinstance(value, bool):
+            pass
+        elif isinstance(value, str):
+            bad = _string_error(value)
+            if bad:
+                errs.append(f"{at}: {bad}")
+        elif isinstance(value, list):
+            if not all(isinstance(v, str) for v in value):
+                errs.append(f"{at}: {POLICY_VALUE}")
+            elif len(value) > POLICY_MAX_ITEMS:
+                errs.append(f"{at}: more than {POLICY_MAX_ITEMS} items")
+            else:
+                errs += [f"{at}[{i}]: {bad}" for i, v in enumerate(value) if (bad := _string_error(v, comma=True))]
+        elif isinstance(value, dict):
+            if depth >= POLICY_DEPTH:
+                errs.append(f"{at}: nests deeper than {POLICY_DEPTH} maps")
+            else:
+                errs += _policy_errors(value, at, depth + 1)
+        else:
+            errs.append(f"{at}: {POLICY_VALUE}")
     return errs
 
 
