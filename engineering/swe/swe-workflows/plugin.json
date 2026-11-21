@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "swe-workflows",
+  "version": "1.4.0",
+  "description": "The engineered per-task software workflow: the implement skill plus a policy-gate hook that enforces the repo's .agents/policy at the commit/ready/integrate boundaries (blocks in mode:team, warns in mode:single). Needs the `harness` plugin (`harness:policy`, https://github.com/Teebor-Choka/skills ai/harness) for the policy loader.",
+  "extensions": {
+    "com.openai": {
+      "hooks": {
+        "PreToolUse": [
+          {
+            "matcher": "shell",
+            "command": "./hooks/gate.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    }
+  }
+}

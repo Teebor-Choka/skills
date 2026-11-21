@@ -24,5 +24,5 @@ Rules:
 6. **One hand-back per agent, at most 1.5K characters.** The full report goes on the board item.
    A follow-up is a new agent.
 
-Specialisations kept in their own skills: review:by-angle's `findings-schema.md` (adds angle,
+Specialisations kept in their own skills: swe-workflows:by-angle's `findings-schema.md` (adds angle,
 severity, file, line), and forge-idea's verdict schema.
