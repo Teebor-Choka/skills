@@ -620,6 +620,100 @@ def test_workflow_entry_unknown_key_and_non_map(root):
     assert has(errs, "manifest: workflows.retro: must be a map")
 
 
+# ---------------------------------------------------------------- manifest: workflow policy
+
+
+def with_policy(value, name="retro"):
+    return lambda m: m["workflows"][name].__setitem__("policy", value)
+
+
+@pytest.mark.parametrize("policy", [
+    {},
+    {"mode": "team", "gate": "tests", "interaction": "batch"},
+    {"practices": {"scope": "ATDD", "task": "TDD"}, "work": {"tracker": "github"}},
+    {"vcs": {"remote": "origin", "default-branch": "main"}, "strict": True, "relaxed": False},
+    {"toolchain": ["code-index", "pytest"], "none": []},
+    {"report": {"sink": "an issue; search first # then comment: once"}, "empty": ""},
+    {"a": {"b": {"c": {"d": "four maps deep"}}}},
+    {"k%d" % i: "v" for i in range(64)},
+    {"long": "x" * 1000, "items": ["i"] * 64, "odd": "it's [not] a list"},
+])
+def test_policy_accepts_what_the_policy_loader_reads_back(root, policy):
+    assert check_manifest(root, with_policy(policy)) == []
+
+
+@pytest.mark.parametrize("value", [["mode"], "team", 1, None, True])
+def test_policy_must_be_a_map(root, value):
+    errs = check_manifest(root, with_policy(value))
+    assert has(errs, "manifest: workflows.retro.policy: must be a map"), shown(errs, "must be a map")
+
+
+@pytest.mark.parametrize("policy,prefix", [
+    ({"Mode": "team"}, "manifest: workflows.retro.policy: key 'Mode' must be kebab-case"),
+    ({"_provenance": "x"}, "manifest: workflows.retro.policy: key '_provenance' must be kebab-case"),
+    ({"work": {"Tracker": "x"}}, "manifest: workflows.retro.policy.work: key 'Tracker' must be kebab-case"),
+    ({"a b": "x"}, "manifest: workflows.retro.policy: key 'a b' must be kebab-case"),
+    ({"*.md": {"gate": "rubric"}}, "manifest: workflows.retro.policy: key '*.md' must be kebab-case"),
+])
+def test_policy_keys_are_kebab_case_at_every_depth(root, policy, prefix):
+    errs = check_manifest(root, with_policy(policy))
+    assert has(errs, prefix), shown(errs, prefix)
+
+
+@pytest.mark.parametrize("key", ["locked", "files"])
+def test_policy_reserves_locked_and_files(root, key):
+    errs = check_manifest(root, with_policy({key: ["mode"]}))
+    assert has(errs, f"manifest: workflows.retro.policy.{key}: is reserved"), errs
+    # only at the top level: a section may hold a key of that name
+    assert check_manifest(root, with_policy({"implement": {key: "x"}})) == []
+
+
+@pytest.mark.parametrize("value", [3, 2.5, None, {"x": 1}, [1], ["a", True], [["a"]], [{"a": "b"}]])
+def test_policy_values_are_strings_booleans_lists_of_strings_or_maps(root, value):
+    errs = check_manifest(root, with_policy({"gate": value}))
+    prefix = "manifest: workflows.retro.policy.gate"
+    assert has(errs, prefix) and any("must be a string, a boolean, a list of strings or a map" in e for e in errs), errs
+
+
+def test_policy_maps_nest_at_most_four_deep(root):
+    errs = check_manifest(root, with_policy({"a": {"b": {"c": {"d": {"e": "x"}}}}}))
+    assert has(errs, "manifest: workflows.retro.policy.a.b.c.d: nests deeper than 4 maps"), errs
+
+
+def test_policy_size_is_capped(root):
+    errs = check_manifest(root, with_policy({"k%d" % i: "v" for i in range(65)}))
+    assert has(errs, "manifest: workflows.retro.policy: more than 64 keys"), errs
+    errs = check_manifest(root, with_policy({"items": ["i"] * 65}))
+    assert has(errs, "manifest: workflows.retro.policy.items: more than 64 items"), errs
+    errs = check_manifest(root, with_policy({"long": "x" * 1001}))
+    assert has(errs, "manifest: workflows.retro.policy.long: "), errs
+
+
+@pytest.mark.parametrize("value", [
+    'say "hi"', "line\nbreak", "tab\there", "nul\x00", "del\x7f", "nel\x85", "ls ", "ps ", "cr\r",
+    "true", "False", "TRUE",
+])
+def test_policy_strings_the_loader_would_change_are_refused(root, value):
+    errs = check_manifest(root, with_policy({"mode": value}))
+    assert has(errs, "manifest: workflows.retro.policy.mode: "), errs
+
+
+@pytest.mark.parametrize("item", ["a,b", 'q"', "true", "x\ny"])
+def test_policy_list_items_have_no_comma_and_follow_the_string_rules(root, item):
+    errs = check_manifest(root, with_policy({"toolchain": ["ok", item]}))
+    assert has(errs, "manifest: workflows.retro.policy.toolchain[1]: "), errs
+
+
+def test_policy_errors_name_every_bad_entry(root):
+    errs = check_manifest(root, with_policy({"Bad": "x", "gate": 3, "mode": "ok"}))
+    assert has(errs, "manifest: workflows.retro.policy: key 'Bad'") and has(errs, "manifest: workflows.retro.policy.gate")
+
+
+def test_policy_with_a_non_string_key_does_not_raise(root):
+    errs = check_manifest(root, with_policy({1: "x"}))
+    assert errs  # the JSON shape check or the key rule refuses it; it never raises
+
+
 def test_workflow_path_may_point_inside_a_subdirectory(root):
     os.makedirs(os.path.join(root, "workflows", "sub"))
     shutil.copy(os.path.join(root, "workflows", "retro.json"), os.path.join(root, "workflows", "sub", "retro.json"))
