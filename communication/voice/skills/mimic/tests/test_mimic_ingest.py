@@ -135,6 +135,18 @@ class Ingest(unittest.TestCase):
         p = self.write("x.docx", "hi")
         self.assertEqual(self.sb.run("ingest.py", "--persona", "pat", p).returncode, 2)
 
+    def test_exclude_pattern_is_repeatable_and_counted(self):
+        p = self.write("x.txt", "keep me\n---\n>> caller line\n---\nalso [music] keep? no\n---\nfine one\n")
+        recs, r = self.ingest(p, extra=["--exclude-pattern", ">>", "--exclude-pattern", r"\[music\]"])
+        self.assertEqual([x["text"] for x in recs], ["keep me", "fine one"])
+        self.assertIn("excluded 2", r.stdout)
+
+    def test_bad_exclude_pattern_exits_2(self):
+        p = self.write("y.txt", "hi\n")
+        r = self.sb.run("ingest.py", "--persona", "pat", "--exclude-pattern", "([", p)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("exclude-pattern", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

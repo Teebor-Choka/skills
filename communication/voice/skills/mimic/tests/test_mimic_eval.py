@@ -69,6 +69,17 @@ class ReportMath(unittest.TestCase):
         self.assertEqual((s["n_total"], s["n_scored"]), (21, 20))
         self.assertEqual(s["excluded"], {"point_leak": 1})
 
+    def test_short_exact_match_rate_is_reported_but_not_judged(self):
+        items = balanced(20, 10)
+        for k, it in enumerate(items[:8]):
+            it["original"] = "Ship it."
+            it["generated"] = "ship it" if k < 2 else "Send it over."
+        items[8]["band"] = "long"
+        items[8]["original"] = items[8]["generated"] = "same long text here"
+        s = mimiclib.summarize(items)
+        self.assertEqual(s["short_exact_match"], {"n": 8, "matches": 2, "rate": 0.25})
+        self.assertEqual(s["verdict"], mimiclib.summarize(balanced(20, 10))["verdict"])
+
 
 class Verdict(unittest.TestCase):
     def test_pass_at_the_thresholds(self):
