@@ -349,8 +349,8 @@ The language is taken from the file extension. A surface change is satisfied whe
 changes the body of the component's page (frontmatter keys and whitespace do not count), or a commit
 in the range carries `Docs-Unchanged: <component>: <reason>`; a trailer with no reason or another name
 does not count. Otherwise stderr gets `warning: component-page-stale: <component>: <files>` (`error:` in
-`fail` mode, which exits 1). Flow changes have no mechanical signal; the staleness angle in the review
-plugin's `by-angle` skill covers them. The trigger resolves components with `components.py`, so it
+`fail` mode, which exits 1). Flow changes have no mechanical signal; the staleness angle of the team's
+review skill covers them. The trigger resolves components with `components.py`, so it
 inherits its needs-input halt (exit 3) and its `tomllib` rule (exit 2 naming the manifest on Python
 below 3.11). The default mode stays `warn` until the promotion rule in the spec is met.
 
