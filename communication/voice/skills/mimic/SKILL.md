@@ -31,8 +31,9 @@ Scripts live in `scripts/`. Run each with `--persona <name>`.
    txt, md, jsonl (`text`, `channel`, `audience`, `ts`, `reply_to`), json, eml and mbox. Text
    stays as written; repeats collapse with a count. Ask for channel and audience when the
    files carry none: the profile depends on them.
-2. **Split.** `split.py --persona P` makes train, dev and test (default 80/20, at least 20 test
-   items, a dev slice from 100 messages). Near duplicates of a held-out message never reach train.
+2. **Split.** `split.py --persona P` makes train and test (80/20, at least 20 test items), or
+   train, dev and test (70/10/20) from 100 distinct messages. Near duplicates of a held-out
+   message never reach train. Once `profile.md` exists, re-splitting needs `--force`.
    Under 50 messages the verdict will be INCONCLUSIVE: say so and ask for more.
 3. **Skeleton.** `profile.py skeleton --persona P` writes `profile.md` with measured stats from
    TRAIN, worked-example candidates and a `TODO` per section. Sections are in
