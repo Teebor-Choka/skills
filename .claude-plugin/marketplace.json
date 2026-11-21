@@ -46,18 +46,9 @@
       }
     },
     {
-      "name": "dep-pr-triage",
-      "description": "Triage open Dependabot and Renovate PRs across orgs: classify each red check, apply the mechanical fix on the PR branch, push, re-check. Never merges or approves.",
-      "source": "./engineering/ci/dep-pr-triage",
-      "strict": true,
-      "metadata": {
-        "version": "1.0.2"
-      }
-    },
-    {
       "name": "github-actions",
       "description": "Harden GitHub Actions workflows and configure Renovate \u2014 template-injection prevention, SHA-pinned actions, scoped permissions, zizmor, and dependency-bot rules.",
-      "source": "./engineering/ci/github-actions",
+      "source": "./engineering/infra/github-actions",
       "strict": true,
       "metadata": {
         "version": "1.0.2"
@@ -75,7 +66,7 @@
     {
       "name": "review",
       "description": "Read-only review: by-angle (red-first block loop plus four review angles), code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass), and security (gitleaks, trufflehog, osv-scanner, semgrep, SkillSpector, garak, nuclei, strix plus an AI triage pass).",
-      "source": "./engineering/review",
+      "source": "./engineering/swe/review",
       "strict": true,
       "metadata": {
         "version": "2.2.3"
@@ -93,7 +84,7 @@
     {
       "name": "code-graph",
       "description": "Keep the codebase-memory-mcp code graph fresh and in use: index the repo at session start and after edits, rewrite worktree indexing to the main checkout, and nudge agents and subagents to query the graph before grep or find sweeps.",
-      "source": "./engineering/code-graph",
+      "source": "./engineering/tools/code-graph",
       "strict": true,
       "metadata": {
         "version": "1.0.3"
@@ -102,7 +93,7 @@
     {
       "name": "swe",
       "description": "Engineering practice skills: rust and typescript (house guidelines on every change), performance (profile, optimize, benchmark), component-docs (write and update component pages) and tracker (live dependency map of a build's progress).",
-      "source": "./engineering/swe",
+      "source": "./engineering/swe/swe",
       "strict": true,
       "metadata": {
         "version": "2.5.1"
@@ -129,7 +120,7 @@
     {
       "name": "models",
       "description": "Work with the model itself: extension-author (skills, plugins and hooks across Claude Code, Codex, OpenCode, oh-my-pi) and reflect (mine sessions for agent struggles and propose fixes).",
-      "source": "./models/models",
+      "source": "./ai/model",
       "strict": true,
       "metadata": {
         "version": "2.3.2"
@@ -156,7 +147,7 @@
     {
       "name": "nix",
       "description": "Operate correctly inside Nix + direnv development repos \u2014 dev-shell entry, nix fmt over cargo fmt, the result-symlink and crane-rustflags build traps, and a lightweight pre-commit override.",
-      "source": "./technology/nix",
+      "source": "./engineering/tools/nix",
       "strict": true,
       "metadata": {
         "version": "1.2.2"
@@ -165,7 +156,7 @@
     {
       "name": "writing",
       "description": "Plain, human prose: unslop (remove AI tells) and prose-craft (compose and tighten).",
-      "source": "./writing/writing",
+      "source": "./communication/writing",
       "strict": true,
       "metadata": {
         "version": "2.0.1"

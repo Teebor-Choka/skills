@@ -1,5 +1,0 @@
-{
-  "name": "dep-pr-triage",
-  "version": "1.0.2",
-  "description": "Triage open Dependabot and Renovate PRs across orgs: classify each red check, apply the mechanical fix on the PR branch, push, re-check. Never merges or approves."
-}

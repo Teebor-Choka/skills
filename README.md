@@ -32,7 +32,6 @@ Layout: `<domain>/<plugin>/skills/<skill>`. The host shows `plugin:skill`.
 | `media-digest`      | `media-digest`      | Digest yt-dlp media and web articles into loss-checked notes     |
 | `find-ai-moat`      | `find-ai-moat`      | Find where your work complements AI                              |
 | `github-actions`    | `github-actions`    | Harden workflows, configure Renovate                             |
-| `dep-pr-triage`     | `dep-pr-triage`     | Fix red Dependabot and Renovate PRs; never merges                |
 | `nix`               | `nix`               | Nix + direnv dev workflow traps                                  |
 
 ## Install
