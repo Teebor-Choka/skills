@@ -25,13 +25,13 @@ def run_cli(*args: str, cwd=None, python_flags=()) -> subprocess.CompletedProces
 
 
 @pytest.fixture
-def sandy(tmp_path) -> Path:
-    """The conformant tree renamed to project `sandy`, plus the sandy-fsutil worked example."""
-    repo = tmp_path / "sandy"
+def widget(tmp_path) -> Path:
+    """The conformant tree renamed to project `widget`, plus the widget-fsutil worked example."""
+    repo = tmp_path / "widget"
     shutil.copytree(FIXTURES / "conformant", repo)
     for md in (repo / "docs").rglob("*.md"):
-        md.write_text(md.read_text().replace("project: widgetd", "project: sandy"))
-    shutil.copytree(FIXTURES / "sandy-fsutil", repo, dirs_exist_ok=True)
+        md.write_text(md.read_text().replace("project: widgetd", "project: widget"))
+    shutil.copytree(FIXTURES / "widget-fsutil", repo, dirs_exist_ok=True)
     return repo
 
 
@@ -50,8 +50,8 @@ def two(make_repo) -> Path:
 # --- AT-10: the worked example ------------------------------------------------
 
 
-def test_worked_example_passes(sandy):
-    assert validate_docs.validate_project(sandy) == []
+def test_worked_example_passes(widget):
+    assert validate_docs.validate_project(widget) == []
 
 
 # --- AT-5, AT-6: nothing changes where docs/components/ is absent -------------

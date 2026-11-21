@@ -222,5 +222,5 @@ def test_no_manifests_is_an_empty_set_not_a_guess(tmp_path):
 
 
 def test_page_name_replaces_characters_outside_the_set():
-    assert components.page_name("sandy-fsutil") == "sandy-fsutil"
+    assert components.page_name("widget-fsutil") == "widget-fsutil"
     assert components.page_name("@scope/pkg_x") == "-scope-pkg-x"

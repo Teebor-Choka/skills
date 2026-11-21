@@ -1,5 +1,5 @@
 [package]
-name = "sandy-fsutil"
+name = "widget-fsutil"
 version = "0.1.0"
 edition = "2021"
 

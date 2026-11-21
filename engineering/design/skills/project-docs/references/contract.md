@@ -257,8 +257,8 @@ Sections, as `##` headings in this order: **Purpose**, **Structure**, **Public A
 
 Size: at most 200 lines and 12 KB including frontmatter; target under 100 lines.
 
-A worked example, `sandy-fsutil` (facts from a real Rust workspace at one commit), is the validator's
-test fixture: `tests/fixtures/sandy-fsutil/docs/components/sandy-fsutil.md`.
+A worked example, `widget-fsutil` (facts from a real Rust workspace at one commit), is the validator's
+test fixture: `tests/fixtures/widget-fsutil/docs/components/widget-fsutil.md`.
 
 ### Component rules
 
