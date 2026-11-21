@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# pr-state: print where a GitHub PR stands and the one next action. One shot, no polling: use
+# `babysit` to wait. Fails clearly (exit 1, message on stderr) when gh or the API call fails.
+#
+#   pr-state [-C DIR] [BRANCH]      BRANCH defaults to the current branch
+#
+# Prints key=value lines, then `next: <action>`:
+#   state, draft, review (reviewDecision), threads (unresolved), merge (mergeStateStatus),
+#   queue (mergeQueueEntry state/position or none), head (sha), checks (rollup on head),
+#   run (latest workflow run: sha, status, conclusion; `stale` when its sha is not head).
+# Exit: 0 printed, 1 gh or API failure, 2 usage or no PR for the branch.
+set -euo pipefail
+
+dir=.
+branch=
+while [ $# -gt 0 ]; do
+  case $1 in
+    -C) dir=${2:?usage: pr-state [-C DIR] [BRANCH]}; shift 2 ;;
+    -h | --help) sed -n '2,12p' "$0"; exit 0 ;;
+    -*) echo "usage: pr-state [-C DIR] [BRANCH]" >&2; exit 2 ;;
+    *) branch=$1; shift ;;
+  esac
+done
+command -v gh >/dev/null 2>&1 || { echo "pr-state: gh is required" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo "pr-state: jq is required" >&2; exit 1; }
+cd "$dir"
+[ -n "$branch" ] || branch=$(git rev-parse --abbrev-ref HEAD)
+
+# shellcheck disable=SC2016 # GraphQL variables, not shell.
+query='query($owner: String!, $name: String!, $branch: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(headRefName: $branch, first: 1, orderBy: {field: CREATED_AT, direction: DESC}) {
+      nodes {
+        number state isDraft mergeStateStatus reviewDecision
+        mergeQueueEntry { state position }
+        commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
+        reviewThreads(first: 100) { nodes { isResolved } }
+      }
+    }
+  }
+}'
+pr=$(gh api graphql -F owner='{owner}' -F name='{repo}' -f branch="$branch" -f query="$query") \
+  || { echo "pr-state: gh api graphql failed for branch $branch" >&2; exit 1; }
+run=$(gh run list --branch "$branch" --limit 1 --json headSha,status,conclusion) \
+  || { echo "pr-state: gh run list failed for branch $branch" >&2; exit 1; }
+
+# shellcheck disable=SC2016 # jq program, not shell.
+jq -r --argjson run "$run" '
+  (.data.repository.pullRequests.nodes[0]) as $p
+  | if $p == null then "pr-state: no PR for this branch" | halt_error(2) else . end
+  | $p.commits.nodes[0].commit as $c
+  | ($c.statusCheckRollup.state // "none") as $checks
+  | ([$p.reviewThreads.nodes[] | select(.isResolved | not)] | length) as $open
+  | ($p.mergeQueueEntry | if . then "\(.state)/\(.position)" else "none" end) as $queue
+  | ($run[0] // null) as $r
+  | (if $r == null then "none"
+     else "\($r.headSha[0:7]) \($r.status) \($r.conclusion // "-")" + (if $r.headSha == $c.oid then "" else " stale" end) end) as $rs
+  | "state=\($p.state)", "draft=\($p.isDraft)", "review=\($p.reviewDecision // "none")",
+    "threads=\($open)", "merge=\($p.mergeStateStatus)", "queue=\($queue)",
+    "head=\($c.oid[0:7])", "checks=\($checks)", "run=\($rs)",
+    "next: " + (
+      if $p.state != "OPEN" then "run pr-landed (PR is \($p.state | ascii_downcase))"
+      elif $p.isDraft then "finish the work, then start babysit (marks it ready)"
+      elif $queue != "none" then "queued: wait for the merged event; if mergeQueueEntry goes null while OPEN, enqueue again"
+      elif $open > 0 then "address and resolve \($open) open thread(s): a later commit does not resolve them"
+      elif $p.reviewDecision == "CHANGES_REQUESTED" then "read the review: a real finding gets a fix; stuck with every thread resolved, ask for a fresh review"
+      elif $checks == "FAILURE" or $checks == "ERROR" then "diagnose the failing check and fix; if it fails on two unrelated PRs, name one owner and a repro, do not rerun blind"
+      elif ($r != null and $r.headSha != $c.oid) then "run is for an older commit: wait for the run on head \($c.oid[0:7])"
+      elif $checks == "PENDING" or $checks == "EXPECTED" then "checks pending: wait on babysit"
+      elif $p.mergeStateStatus == "BEHIND" or $p.mergeStateStatus == "DIRTY" then "rebase onto the target branch and push"
+      elif $p.reviewDecision == "APPROVED" or $p.reviewDecision == null then "ready: merge only with approval or a standing repo grant"
+      else "wait for review" end)' <<<"$pr"

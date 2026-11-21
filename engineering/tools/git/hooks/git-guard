@@ -1,0 +1,695 @@
+#!/usr/bin/env python3
+"""Claude Code PreToolUse hook (matcher: Bash): enforce the git rules the global instructions only state as prose.
+
+  deny  git add -A | --all | .
+  ask   gh pr merge (and the gh api pulls/N/merge equivalent), unless the target repo is in
+        $GIT_GUARD_MERGE_REPOS (comma/space separated owner/repo; from -R/--repo, the api path, or the
+        cwd's origin remote). The allowlist covers merges only, never pushes or tags.
+  ask   git push whose target is main, master or release/* (a bare push resolves the current branch)
+  ask   any tag push (--tags, --follow-tags, refs/tags/, `push origin tag X`) and `git tag <name>`
+  ask   git add of another agent tool's config (GEMINI.md, .gemini/, opencode.json, .opencode/, .tabnine/,
+        .vscode/, .cursor/, copilot-instructions.md): stray tool files get committed by accident
+  deny  git push of a `worktree-*` branch (the EnterWorktree default name; rename to the repo convention first)
+  ask   git push --all / --mirror (they include the protected branches)
+  deny  creating a branch (checkout -b/-B, switch -c/-C, branch <name>, worktree add -b/-B) whose name is not
+        <nick>/<type>/<component>/<dash-separated-description>; release/, renovate/, dependabot/ are exempt
+  deny  the first state-changing git/gh command (commit, push, merge, rebase, tag, reset, branch or worktree
+        creation, gh pr/issue create/edit/merge/comment) and EnterWorktree until the git-workflow skill has been
+        invoked in this session: a hook cannot load a skill, so it refuses with an instruction to load it
+  ask   git push --force / -f (not --force-with-lease), git reset --hard (except to an origin/ ref), git clean -f
+  deny  git commit -m with a backtick or $( in the message (use -F <file>; the `$(cat <<'EOF'` heredoc idiom is allowed); cargo update without -p/--precise;
+        gh pr create/edit with a comma-list close (`Closes #1, #2`: only the first issue closes)
+
+Hooks also fire inside subagents, which prose rules do not reach. The command is tokenized with shlex, so
+text inside quotes (echo "git add -A", commit messages) never triggers. Compound commands (&& || ; | &
+newline, parentheses) are split into segments and the strictest decision wins; `cd <dir>` and `git -C <dir>`
+set the directory a bare push resolves its branch in. Anything unparseable or unexpected is allowed (fail
+open): a guard bug must not wedge the session. Tests: hooks/tests/test_git_guard.py.
+Schema: https://docs.claude.com/en/docs/claude-code/hooks
+"""
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+try:
+    import skill_loaded  # the shared transcript scan; the guard rules below do not depend on it
+except ImportError:
+    skill_loaded = None
+
+DENY, ASK, ALLOW = "deny", "ask", "allow"
+_RANK = {ALLOW: 0, ASK: 1, DENY: 2}
+
+_SEPARATOR_CHARS = set(";&|()\n")
+_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+_WRAPPERS = {"env", "command", "exec", "time", "nohup"}
+_SHELLS = {"bash", "sh", "zsh"}
+_GIT_OPTS_WITH_VALUE = {"-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"}
+_PUSH_LONG_WITH_VALUE = {"--repo", "--push-option", "--receive-pack", "--exec"}
+_TAG_OPTS_WITH_VALUE = {"-m", "-F", "-u", "--message", "--file", "--local-user", "--cleanup", "--format", "--sort"}
+_COMMA_CLOSE = re.compile(r"(?:clos|fix|resolv)e[sd]?\s+#\d+\s*,\s*#?\d+", re.IGNORECASE)
+_TAG_NON_CREATE = {"-l", "--list", "-d", "--delete", "-v", "--verify", "--contains", "--no-contains", "--points-at",
+                   "--merged", "--no-merged", "--sort", "--format", "-n", "--column", "--no-column"}
+_LISTING_PREFIXES = ("--list=", "--contains=", "--no-contains=", "--points-at=", "--merged=", "--no-merged=",
+                     "--sort=", "--format=", "--column=")
+
+
+def current_branch(directory):
+    try:
+        r = subprocess.run(["git", "-C", directory, "branch", "--show-current"],
+                           capture_output=True, text=True, timeout=5)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def parse_merge_repos(value):
+    """Parse $GIT_GUARD_MERGE_REPOS into a set of lowercase owner/repo slugs."""
+    return frozenset(s.lower() for s in re.split(r"[\s,]+", value or "") if s)
+
+
+def repo_slug(value):
+    """owner/repo from a remote URL, `HOST/OWNER/REPO`, or `owner/repo`; "" if none."""
+    m = re.search(r"([^/:\s]+)/([^/:\s]+?)(?:\.git)?/?$", (value or "").strip())
+    return f"{m.group(1)}/{m.group(2)}".lower() if m else ""
+
+
+def origin_repo(directory):
+    try:
+        r = subprocess.run(["git", "-C", directory, "remote", "get-url", "origin"],
+                           capture_output=True, text=True, timeout=5)
+        return repo_slug(r.stdout) if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+# A heredoc body is text (a note, a commit message), not a command: a message that says "never git add -A"
+# was denied as if it ran it. The header line `<<'EOF' && git add .` stays, since the rest of that line
+# is shell. A body is kept when the shell would run it: the consumer is a shell, eval, source or ssh, or the
+# heredoc is unquoted and the body substitutes ($( or a backtick). The scan is linear and capped: a
+# backtracking regex took over 20 s on 100 KB of blank lines after a header.
+_HEREDOC_HEADER = re.compile(r"(?<![<'\"])<<-?[ \t]*(['\"]?)(\w+)\1[^\n]*")
+_SHELL_CONSUMER = re.compile(r"(?:^|[\s;&|(])(?:ba|z|da|k|)sh(?:\s|$)|\b(?:source|eval|ssh|su)\b|(?:^|\s)\.\s")
+# The header line pipes the heredoc into a shell: `cat <<'EOF' | bash`, `| sudo sh -s`, `| ssh host`.
+_PIPE_TO_SHELL = re.compile(
+    r"\|\s*(?:(?:sudo|env|command|exec|time|nohup|timeout|nice|stdbuf)\s+(?:-\S+\s+)*)*"
+    r"(?:\S*/)?(?:(?:ba|z|da|k|)sh|ssh|su|eval|source)(?:\s|$)")
+_HEREDOC_MAX_CHARS = 200_000
+_HEREDOC_MAX_HEADERS = 50
+
+
+def _strip_heredocs(command):
+    if "<<" not in command or len(command) > _HEREDOC_MAX_CHARS:
+        return command
+    cuts, pos, seen = [], 0, 0
+    for m in _HEREDOC_HEADER.finditer(command):
+        if m.start() < pos:
+            continue
+        seen += 1
+        if seen > _HEREDOC_MAX_HEADERS:
+            break
+        eol = command.find("\n", m.end())
+        if eol < 0:
+            continue
+        delim, start, i = m.group(2), eol + 1, eol + 1
+        while i <= len(command):
+            j = command.find("\n", i)
+            line = command[i:] if j < 0 else command[i:j]
+            if line.strip() == delim:
+                end = len(command) if j < 0 else j
+                body = command[start:i]
+                prefix = command[command.rfind("\n", 0, m.start()) + 1:m.start()]
+                runs = (_SHELL_CONSUMER.search(prefix) or _PIPE_TO_SHELL.search(m.group(0))
+                        or (not m.group(1) and re.search(r"\$\(|`", body)))
+                if not runs:
+                    cuts.append((eol, end))
+                pos = end
+                break
+            if j < 0:
+                break
+            i = j + 1
+    for a, b in reversed(cuts):
+        command = command[:a] + command[b:]
+    return command
+
+
+def split_segments(command):
+    """Tokenize and split on unquoted control operators. Raises ValueError on unbalanced quotes."""
+    command = _strip_heredocs(command).replace("\\\n", "")  # a line continuation joins the words around it
+    lex = shlex.shlex(command, posix=True, punctuation_chars="".join(_SEPARATOR_CHARS))
+    lex.whitespace = " \t\r"
+    lex.whitespace_split = True
+    segments, cur = [], []
+    for tok in lex:
+        if tok and set(tok) <= _SEPARATOR_CHARS:
+            if cur:
+                segments.append(cur)
+            cur = []
+        else:
+            cur.append(tok)
+    if cur:
+        segments.append(cur)
+    return segments
+
+
+def _worse(a, b):
+    return b if _RANK[b[0]] > _RANK[a[0]] else a
+
+
+def decide(command, cwd, resolve_branch=current_branch, resolve_repo=origin_repo, merge_repos=None):
+    """Return (decision, reason). Strictest decision across all segments wins."""
+    try:
+        segments = split_segments(command)
+    except ValueError:
+        return ALLOW, ""
+    if merge_repos is None:
+        merge_repos = parse_merge_repos(os.environ.get("GIT_GUARD_MERGE_REPOS"))
+    state = {"cwd": cwd, "resolve_repo": resolve_repo, "merge_repos": merge_repos}
+    result = (ALLOW, "")
+    reasons = []
+    for words in segments:
+        d, why = _segment(words, state, resolve_branch)
+        if d != ALLOW:
+            reasons.append(why)
+            result = _worse(result, (d, ""))
+    return result[0], "; ".join(reasons)
+
+
+_WRAPPER_VALUE_FLAGS = {
+    "env": {"-u", "--unset", "-C", "--chdir"},
+    "timeout": {"-k", "--kill-after", "-s", "--signal"},
+    "sudo": {"-u", "--user", "-g", "--group", "-C", "--close-from", "-D", "--chdir", "-h", "--host", "-p", "--prompt",
+             "-r", "--role", "-t", "--type", "-T", "--command-timeout", "-U", "--other-user"},
+    "nice": {"-n", "--adjustment"},
+    "ionice": {"-c", "--class", "-n", "--classdata", "-t", "--ignore", "-p", "-P", "-u"},
+    "xargs": {"-a", "--arg-file", "-d", "--delimiter", "-E", "-I", "-L", "-n", "--max-args", "-P", "--max-procs",
+              "-s", "--max-chars", "--max-lines", "--process-slot-var"},
+    "stdbuf": {"-i", "--input", "-o", "--output", "-e", "--error"},
+    "time": {"-o", "--output", "-f", "--format"},
+    "exec": {"-a"},
+    "command": set(), "builtin": set(), "nohup": set(), "setsid": set(),
+}
+_WRAPPER_POSITIONALS = {"timeout": 1}  # timeout takes a duration before the command
+
+
+def _unwrap_env(words):
+    """(words, assignments): drop leading VAR=val words and wrapper commands, each with its own flags and the
+    values those flags take (`env -u VAR`, `sudo -u bob`, `timeout -k 5 60`, `nice -n 5`). `env -S 'cmd args'` is
+    split into the words it runs."""
+    assigns = []
+    while words:
+        name = os.path.basename(words[0])
+        if _ASSIGNMENT.match(words[0]):
+            assigns.append(words[0])
+            words = words[1:]
+        elif name in _WRAPPER_VALUE_FLAGS:
+            value_flags = _WRAPPER_VALUE_FLAGS[name]
+            words = words[1:]
+            while words and words[0].startswith("-") and len(words[0]) > 1:
+                flag = words[0]
+                if flag == "--":
+                    words = words[1:]
+                    break
+                if name == "env" and (flag in ("-S", "--split-string") or flag.startswith("--split-string=")):
+                    value = flag.split("=", 1)[1] if "=" in flag else (words[1] if len(words) > 1 else "")
+                    try:
+                        words = shlex.split(value) + words[(1 if "=" in flag else 2):]
+                    except ValueError:
+                        words = []
+                    continue
+                words = words[2:] if flag in value_flags and len(words) > 1 else words[1:]
+            for _ in range(_WRAPPER_POSITIONALS.get(name, 0)):
+                words = words[1:]
+        else:
+            break
+    return words, assigns
+
+
+def _unwrap(words):
+    """Drop leading VAR=val assignments and wrapper commands (with their flags)."""
+    return _unwrap_env(words)[0]
+
+
+def _segment(words, state, resolve_branch):
+    leading = []
+    for w in words:
+        if not _ASSIGNMENT.match(w):
+            break
+        leading.append(w)
+    scratch_ok = not (state.get("moved") or any(w.startswith(("GIT_DIR=", "GIT_WORK_TREE=")) for w in leading))
+    words, assigns = _unwrap_env(words)
+    if not words:
+        return ALLOW, ""
+    gh_repo = next((repo_slug(a.split("=", 1)[1]) for a in reversed(assigns) if a.startswith("GH_REPO=")), "")
+    cmd = os.path.basename(words[0])
+    if cmd in _SHELLS:
+        for i, w in enumerate(words[1:], 1):
+            if re.fullmatch(r"-[a-z]*c[a-z]*", w) and i + 1 < len(words):
+                return decide(words[i + 1], state["cwd"], resolve_branch,
+                              state["resolve_repo"], state["merge_repos"])
+        return ALLOW, ""
+    if cmd == "cd":
+        state["moved"] = True  # a later scratch-repo exemption cannot trust the cwd: the cd may sit in a subshell
+        if len(words) > 1 and words[1] != "-":
+            state["cwd"] = os.path.normpath(os.path.join(state["cwd"], os.path.expanduser(words[1])))
+        return ALLOW, ""
+    if cmd == "git":
+        return _git(words, state["cwd"], resolve_branch, scratch_ok)
+    if cmd == "gh":
+        return _gh(words[1:], dict(state, gh_repo=gh_repo))
+    if cmd == "cargo" and words[1:2] == ["update"]:
+        if not any(a in ("-p", "--package", "--precise") or a.startswith(("--package=", "--precise="))
+                   for a in words[2:]):
+            return DENY, "bulk cargo update pulls unrelated upgrades; use cargo update -p <crate> --precise <version>"
+    return ALLOW, ""
+
+
+def _git_split(words, cwd):
+    """(directory, subcommand, args) of a `git ...` word list; subcommand is None for a bare `git`."""
+    i, directory = 1, cwd
+    while i < len(words) and words[i].startswith("-"):
+        opt = words[i]
+        if opt == "-C" and i + 1 < len(words):
+            directory = os.path.normpath(os.path.join(directory, os.path.expanduser(words[i + 1])))
+            i += 2
+        elif opt in _GIT_OPTS_WITH_VALUE:
+            i += 2
+        else:
+            i += 1
+    if i >= len(words):
+        return directory, None, []
+    return directory, words[i], words[i + 1:]
+
+
+def _git(words, cwd, resolve_branch, scratch_ok=True):
+    directory, sub, args = _git_split(words, cwd)
+    if sub is None:
+        return ALLOW, ""
+    if sub == "add":
+        decision = _git_add(args)
+        redirected = any(w.split("=")[0] in ("--git-dir", "--work-tree") for w in words)
+        if decision[0] == DENY and scratch_ok and not redirected and _throwaway_repo(directory):
+            return ALLOW, ""
+        return decision
+    if sub == "tag":
+        return _git_tag(args)
+    if sub == "push":
+        return _git_push(args, directory, resolve_branch)
+    if sub == "reset":
+        return _git_reset(args)
+    if sub == "clean":
+        return _git_clean(args)
+    if sub == "commit":
+        return _git_commit(args)
+    if sub in ("checkout", "switch", "branch", "worktree"):
+        return _git_branch_create(sub, args, directory)
+    return ALLOW, ""
+
+
+_BRANCH_TYPES = "feat|fix|docs|refactor|chore|test|perf|ci|build|style|revert"
+_BRANCH_NAME = re.compile(rf"[a-z0-9][a-z0-9._-]*/(?:{_BRANCH_TYPES})/[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*")
+_BRANCH_EXEMPT = ("release/", "renovate/", "dependabot/")
+_CREATE_FLAGS = {"checkout": {"-b", "-B"}, "switch": {"-c", "-C", "--create", "--force-create"},
+                 "worktree": {"-b", "-B"}}
+# `git branch` flags that act on existing branches or only list; anything else with a positional creates one.
+_BRANCH_NON_CREATE = {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "--copy", "-l", "--list", "-r",
+                      "--remotes", "-a", "--all", "--show-current", "-u", "--set-upstream-to", "--unset-upstream",
+                      "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format",
+                      "--column", "--no-column", "--edit-description"}
+
+
+def _created_branch(sub, args):
+    """Name of the branch this checkout/switch/branch/worktree call creates, or None."""
+    if sub == "worktree":
+        if args[:1] != ["add"]:
+            return None
+        args = args[1:]
+    if sub == "branch":
+        if any(a in _BRANCH_NON_CREATE or a.startswith(("--set-upstream-to=", "--contains=", "--no-contains=", "--merged=", "--no-merged=",
+                                                           "--points-at=", "--sort=", "--format=", "-v"))
+               for a in args):
+            return None
+        positional = [a for a in args if not a.startswith("-")]
+        return positional[0] if positional else None
+    for i, a in enumerate(args):
+        if a in _CREATE_FLAGS[sub] and i + 1 < len(args):
+            return args[i + 1]
+    return None
+
+
+_SHELL_VAR = re.compile(r"\$(?:\{\w+\}|\w+)")
+
+
+def _nick(directory):
+    """The caller's branch nick: the env override, else `git config customAgents.nick`, else 'agent'."""
+    nick = os.environ.get("GIT_CONFIG_CUSTOMAGENTS_NICK", "").strip()
+    if not nick:
+        try:
+            r = subprocess.run(["git", "-C", directory or ".", "config", "--get", "customAgents.nick"],
+                               capture_output=True, text=True, timeout=5)
+            nick = r.stdout.strip() if r.returncode == 0 else ""
+        except Exception:
+            nick = ""
+    return nick
+
+
+def _throwaway_repo(directory):
+    """True for a scratch repo: inside the system temp dir and with no remote. A /tmp worktree of a real
+    project has a remote and keeps the add-all protection."""
+    try:
+        real = os.path.realpath(directory)
+        roots = {os.path.realpath(r) for r in (tempfile.gettempdir(), "/tmp", "/var/tmp")}
+        if not any(real == r or real.startswith(r + os.sep) for r in roots):
+            return False
+        r = subprocess.run(["git", "-C", real, "remote"], capture_output=True, text=True, timeout=5)
+        return r.returncode == 0 and not r.stdout.strip()
+    except Exception:
+        return False
+
+
+def _git_branch_create(sub, args, directory=""):
+    name = _created_branch(sub, args)
+    if name is None or name.startswith(_BRANCH_EXEMPT):
+        return ALLOW, ""
+    check = name
+    if _SHELL_VAR.match(name):
+        # `$NICK/fix/x/y`: the variable is the nick segment; the rest must still follow the convention.
+        check = "nick" + name[_SHELL_VAR.match(name).end():]
+    if "$" in check or "`" in check:
+        return ALLOW, ""  # a dynamic segment cannot be checked here; do not wedge the session
+    if _BRANCH_NAME.fullmatch(check):
+        return ALLOW, ""
+    nick = _nick(directory)
+    who = (f"Your nick is '{nick}' (`git config customAgents.nick`)" if nick
+           else "no nick is configured (`git config customAgents.nick`), so use `agent`")
+    return DENY, (f"branch '{name}' is not <nick>/<type>/<component>/<dash-separated-description> "
+                 f"(type: {_BRANCH_TYPES.replace('|', ', ')}). {who}; "
+                 f"for example `{nick or 'agent'}/feat/hooks/short-description`")
+
+
+def _git_reset(args):
+    if "--hard" not in args:
+        return ALLOW, ""
+    refs = [a for a in args if not a.startswith("-")]
+    if refs and all(r.startswith("origin/") for r in refs):
+        return ALLOW, ""
+    return ASK, "git reset --hard discards uncommitted work"
+
+
+def _git_clean(args):
+    forced = any(a == "--force" or re.fullmatch(r"-[a-z]*f[a-z]*", a) for a in args)
+    dry = any(a == "--dry-run" or re.fullmatch(r"-[a-z]*n[a-z]*", a) for a in args)
+    if forced and not dry:
+        return ASK, "git clean -f deletes untracked files"
+    return ALLOW, ""
+
+
+_COMMIT_VALUE_SHORT = set("mFCct")  # short options that take a value, glued or as the next word
+_COMMIT_GLUED_ONLY = set("Su")  # -S[keyid] and -u[mode] take a value only when glued
+
+
+def _commit_messages(args):
+    """Every -m / --message value of a `git commit` word list, in any spelling: -m x, -mx, -am x, -qmx,
+    --message x, --message=x. A cluster ends at the first option that takes a value."""
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            return
+        if a == "--message" and i + 1 < len(args):
+            yield args[i + 1]
+            i += 1
+        elif a.startswith("--message="):
+            yield a.split("=", 1)[1]
+        elif a.startswith("-") and not a.startswith("--") and len(a) > 1:
+            for j, ch in enumerate(a[1:], 1):
+                if ch in _COMMIT_GLUED_ONLY:
+                    break
+                if ch in _COMMIT_VALUE_SHORT:
+                    glued = a[j + 1:]
+                    value = glued if glued else (args[i + 1] if i + 1 < len(args) else "")
+                    if not glued:
+                        i += 1
+                    if ch == "m":
+                        yield value
+                    break
+        i += 1
+
+
+def _git_commit(args):
+    for msg in _commit_messages(args):
+        if re.match(r"\$\(\s*cat\s*<<\s*['\"]", msg):
+            continue  # a quoted heredoc is not substituted
+        if "`" in msg or "$(" in msg:
+            return DENY, "backticks or $( in a git commit -m message get shell-substituted; use git commit -F <file>"
+    return ALLOW, ""
+
+
+_TOOL_FILES = re.compile(
+    r"(^|/)(GEMINI\.md|opencode\.json|copilot-instructions\.md|\.gemini|\.opencode|\.tabnine|\.vscode|\.cursor)(/|$)")
+
+
+_ADD_HINT = ("stage tracked changes with `git add -u`, and new files by name "
+             "(list them with `git status --porcelain`)")
+
+
+def _git_add(args):
+    """Strictest decision across all arguments wins, whatever their order."""
+    options = args[:args.index("--")] if "--" in args else args
+    update = any(a in ("--update",) or re.fullmatch(r"-[A-Za-z]*u[A-Za-z]*", a) for a in options)
+    result = (ALLOW, "")
+    for i, a in enumerate(args):
+        if _TOOL_FILES.search(a):
+            found = ASK, f"'{a}' is another agent tool's config; confirm it belongs in this commit"
+        elif i < len(options) and (a == "--all" or re.fullmatch(r"-[A-Za-z]+", a) and "A" in a):
+            found = DENY, "git add -A/--all stages everything; " + _ADD_HINT
+        elif a in (".", "./") and not update:
+            found = DENY, "git add . stages everything; " + _ADD_HINT
+        else:
+            continue
+        if _RANK[found[0]] > _RANK[result[0]]:
+            result = found
+    return result
+
+
+def _git_tag(args):
+    if any(a in _TAG_NON_CREATE or a.startswith(_LISTING_PREFIXES) or re.fullmatch(r"-n\d+", a) for a in args):
+        return ALLOW, ""
+    positional, skip = [], False
+    for a in args:
+        if skip:
+            skip = False
+        elif a in _TAG_OPTS_WITH_VALUE:
+            skip = True
+        elif not a.startswith("-"):
+            positional.append(a)
+    if positional:
+        return ASK, "creating a git tag needs explicit approval"
+    return ALLOW, ""
+
+
+def _protected(branch):
+    return branch in ("main", "master") or branch.startswith("release/")
+
+
+def _git_push(args, directory, resolve_branch):
+    positional, tags, mass, repo_flag, skip, force = [], False, False, False, False, False
+    rest = False
+    for a in args:
+        if skip:
+            skip = False
+        elif rest or not a.startswith("-") or a == "-":
+            positional.append(a)
+        elif a == "--":
+            rest = True
+        elif a.startswith("--"):
+            name = a.split("=", 1)[0]
+            if name == "--force":
+                force = True
+            elif name in ("--tags", "--follow-tags"):
+                tags = True
+            elif name in ("--all", "--mirror"):
+                mass = True
+            elif name in _PUSH_LONG_WITH_VALUE:
+                repo_flag = repo_flag or name == "--repo"
+                skip = "=" not in a
+        elif a == "-o":
+            skip = True
+        elif re.fullmatch(r"-[A-Za-z]*f[A-Za-z]*", a):
+            force = True
+    if force:
+        return ASK, "force push rewrites remote history; use --force-with-lease on your own branch"
+    if tags:
+        return ASK, "pushing tags needs explicit approval"
+    if mass:
+        return ASK, "git push --all/--mirror includes the protected branches"
+    refspecs = positional if repo_flag else positional[1:]
+    if refspecs and refspecs[0] == "tag":
+        return ASK, "pushing tags needs explicit approval"
+    if not refspecs:
+        refspecs = ["HEAD"]
+    for spec in refspecs:
+        dst = spec.lstrip("+")
+        if ":" in dst:
+            dst = dst.split(":", 1)[1]
+        if dst.startswith("refs/tags/"):
+            return ASK, "pushing tags needs explicit approval"
+        dst = dst.removeprefix("refs/heads/")
+        if dst == "HEAD":
+            dst = resolve_branch(directory)
+        if _protected(dst):
+            return ASK, f"git push targets protected branch '{dst}'"
+        if dst.startswith("worktree-"):
+            return DENY, f"'{dst}' is the EnterWorktree default name; rename it to the repo's branch convention (git branch -m)"
+    return ALLOW, ""
+
+
+_PR_URL = re.compile(r"[a-z][a-z0-9+.-]*://[^/\s]+/([^/\s]+)/([^/\s]+)/pull/\d+")
+
+
+def _merge_allowed(repo, state):
+    return bool(repo) and repo in state["merge_repos"]
+
+
+def _gh(args, state):
+    positional, skip, repo = [], False, ""
+    for a in args:
+        if skip:
+            skip, repo = False, repo_slug(a)
+        elif a in ("-R", "--repo"):
+            skip = True
+        elif a.startswith("--repo="):
+            repo = repo_slug(a.split("=", 1)[1])
+        elif not a.startswith("-"):
+            positional.append(a)
+    if positional[:2] in (["pr", "create"], ["pr", "edit"]):
+        if any(_COMMA_CLOSE.search(a) for a in args):
+            return DENY, "one `Closes #N` line per issue; a comma-list closes only the first"
+    if positional[:2] == ["pr", "merge"]:
+        # the target is what gh itself would use: a PR URL, then -R/--repo, then GH_REPO, then the cwd's origin
+        for a in positional[2:]:
+            m = _PR_URL.match(a)
+            if m:
+                repo = f"{m.group(1)}/{m.group(2)}".lower()
+                break
+        repo = repo or state.get("gh_repo") or repo_slug(os.environ.get("GH_REPO"))
+        if not repo and state["merge_repos"]:
+            repo = state["resolve_repo"](state["cwd"])
+        if _merge_allowed(repo, state):
+            return ALLOW, ""
+        return ASK, "gh pr merge needs explicit approval for this PR"
+    if positional[:1] == ["api"]:
+        for a in args:
+            m = re.search(r"repos/([^/\s]+/[^/\s]+)/pulls/\d+/merge", a)
+            if m:
+                return (ALLOW, "") if _merge_allowed(m.group(1).lower(), state) else \
+                    (ASK, "merging a PR through gh api needs explicit approval")
+        if any(re.search(r"pulls/\d+/merge", a) for a in args):
+            return ASK, "merging a PR through gh api needs explicit approval"
+    return ALLOW, ""
+
+
+_WORKFLOW_SUBS = {"commit", "push", "merge", "rebase", "cherry-pick", "reset", "revert"}
+_WORKFLOW_GH = {("pr", "create"), ("pr", "ready"), ("pr", "merge"), ("pr", "edit"), ("pr", "comment"),
+                ("pr", "review"), ("issue", "create"), ("issue", "edit"), ("issue", "comment")}
+WORKFLOW_SKILL = "git:workflow"
+WORKFLOW_ALIASES = ("git-workflow",)  # the standalone name before the skill moved into the plugin
+
+
+def needs_workflow(command):
+    """True if any segment changes git or GitHub state (the work the git-workflow skill governs)."""
+    try:
+        segments = split_segments(command)
+    except ValueError:
+        return False
+    return any(_workflow_segment(w) for w in segments)
+
+
+def _workflow_segment(words):
+    words = _unwrap(words)
+    if not words:
+        return False
+    cmd = os.path.basename(words[0])
+    if cmd in _SHELLS:
+        for i, w in enumerate(words[1:], 1):
+            if re.fullmatch(r"-[a-z]*c[a-z]*", w) and i + 1 < len(words):
+                return needs_workflow(words[i + 1])
+        return False
+    if cmd == "git":
+        _, sub, args = _git_split(words, "")
+        if sub in _WORKFLOW_SUBS:
+            return True
+        if sub == "tag":
+            return _git_tag(args)[0] != ALLOW
+        if sub == "worktree":
+            return args[:1] == ["add"]
+        if sub in ("checkout", "switch", "branch"):
+            return _created_branch(sub, args) is not None
+        return False
+    if cmd == "gh":
+        positional, skip = [], False
+        for a in words[1:]:
+            if skip:
+                skip = False
+            elif a in ("-R", "--repo"):
+                skip = True
+            elif not a.startswith("-"):
+                positional.append(a)
+        return tuple(positional[:2]) in _WORKFLOW_GH
+    return False
+
+
+def workflow_loaded(data, state_dir=None):
+    """True once the git-workflow skill was invoked by this agent (Skill tool call or slash command).
+
+    The scan is skill_loaded.py, shared with skill-gate: it reads the agent's own transcript (a subagent must
+    load the skill itself, a parent load does not cover it) and caches the hit as a marker file. Fails open
+    (True) when the transcript is unknown or unreadable: a guard bug must not wedge the session.
+    """
+    if skill_loaded is None:
+        print("git-guard: skill_loaded.py is missing, so the git:workflow gate is off; other rules still apply",
+              file=sys.stderr)
+        return True
+    state_dir = state_dir or os.environ.get("GIT_GUARD_STATE_DIR") or None
+    found = skill_loaded.skill_loaded(data, WORKFLOW_SKILL, WORKFLOW_ALIASES, state_dir)
+    return True if found is None else found
+
+
+WORKFLOW_REASON = ("load the git:workflow skill first (Skill tool, skill: git:workflow), then retry this command. "
+                   "It holds the branch naming <nick>/<type>/<component>/<description>, worktree, commit and PR rules")
+
+
+def main():
+    try:
+        data = json.load(sys.stdin)
+        tool = data.get("tool_name")
+        if tool == "EnterWorktree":
+            decision, reason = (ALLOW, "") if workflow_loaded(data) else (DENY, WORKFLOW_REASON)
+        elif tool == "Bash":
+            command = (data.get("tool_input") or {}).get("command")
+            if not isinstance(command, str) or not command.strip():
+                return
+            if needs_workflow(command) and not workflow_loaded(data):
+                decision, reason = DENY, WORKFLOW_REASON
+            else:
+                decision, reason = decide(command, data.get("cwd") or os.getcwd())
+        else:
+            return
+    except Exception as e:
+        print(f"git-guard: ignoring internal error: {e!r}", file=sys.stderr)
+        return
+    if decision == ALLOW:
+        return
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": decision,
+        "permissionDecisionReason": f"git-guard: {reason}",
+    }}))
+
+
+if __name__ == "__main__":
+    main()

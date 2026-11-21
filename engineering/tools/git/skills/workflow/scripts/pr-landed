@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+# pr-landed: clean up after a PR merged. Run it from the repo or from the PR branch's worktree.
+#
+#   pr-landed [-o|--output plain|json] [-f|--force] [-C DIR] [BRANCH]
+#
+# Output (-o/--output, default json): one JSON object on stdout. plain prints progress lines on
+# stdout and errors on stderr.
+#   {"ok":true,"exit":0,"branch":"feat","default_branch":"main","default_sha":"abc1234",
+#    "worktree_removed":"/path"|null,"local_branch_deleted":true,"remote_branch_deleted":true,
+#    "cd":"/path"|null}
+#   {"ok":false,"exit":3,"error":"..."}
+#
+# BRANCH defaults to the current branch. In one action it
+#   1. fetches origin (pruning) and fast-forwards the default branch,
+#   2. removes the branch's worktree,
+#   3. deletes the local branch and, if still present, the remote branch.
+# It never merges and never pushes anything except the delete of the PR branch.
+#
+# Safety: refuses a dirty worktree (even with --force), and refuses a branch that is neither an
+# ancestor of origin/<default> nor tracking a remote branch that is now gone (the squash-merge
+# signal). --force skips only that second check.
+# Exit: 0 done, 2 usage / unknown branch, 3 dirty worktree, 4 branch not landed, 1 other failure.
+set -euo pipefail
+
+usage() {
+  echo "usage: pr-landed [-o|--output plain|json] [-f|--force] [-C DIR] [BRANCH]"
+}
+
+# JSON string: escape \ " and the common control characters, drop the rest.
+jstr() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\n'/\\n}
+  s=${s//$'\r'/\\r}
+  s=${s//$'\t'/\\t}
+  s=$(printf '%s' "$s" | LC_ALL=C tr -d '\000-\010\013\014\016-\037')
+  printf '"%s"' "$s"
+}
+# Path or empty -> JSON string or null.
+jstr_or_null() {
+  if [ -n "$1" ]; then jstr "$1"; else printf null; fi
+}
+
+mode=json
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case ${args[i]} in
+    -o | --output)
+      i=$((i + 1))
+      if [ "${args[i]:-}" = plain ]; then mode=plain; fi
+      ;;
+    -C) i=$((i + 1)) ;;
+  esac
+done
+
+die() {
+  local code=$1
+  shift
+  if [ "$mode" = json ]; then
+    printf '{"ok":false,"exit":%s,"error":%s}\n' "$code" "$(jstr "$*")"
+  else
+    echo "pr-landed: $*" >&2
+    [ "$code" -ne 2 ] || usage >&2
+  fi
+  exit "$code"
+}
+# Human-form progress lines; JSON mode reports everything in the final object instead.
+say() {
+  [ "$mode" = plain ] && echo "$*"
+  return 0
+}
+
+force=0
+dir=.
+branch=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o | --output)
+      [ $# -ge 2 ] || die 2 "$1 needs a value"
+      case $2 in plain | json) ;; *) die 2 "--output must be plain or json, got '$2'" ;; esac
+      shift 2
+      ;;
+    -f | --force)
+      force=1
+      shift
+      ;;
+    -C)
+      [ $# -ge 2 ] || die 2 "-C needs a directory"
+      dir=$2
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    -*) die 2 "unknown option: $1" ;;
+    *)
+      [ -z "$branch" ] || die 2 "more than one BRANCH given"
+      branch=$1
+      shift
+      ;;
+  esac
+done
+
+git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 || die 2 "not a git repository: $dir"
+g() { git -C "$dir" "$@"; }
+
+# Default branch from origin/HEAD; fall back to main, then master.
+default=$(g symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
+default=${default#origin/}
+if [ -z "$default" ]; then
+  for cand in main master; do
+    if g rev-parse --verify -q "refs/remotes/origin/$cand" >/dev/null; then
+      default=$cand
+      break
+    fi
+  done
+fi
+[ -n "$default" ] || die 1 "cannot determine the default branch (no origin/HEAD, origin/main or origin/master)"
+
+[ -n "$branch" ] || branch=$(g symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+[ -n "$branch" ] || die 2 "detached HEAD and no BRANCH given"
+[ "$branch" != "$default" ] || die 2 "'$branch' is the default branch; name the PR branch to land"
+g rev-parse --verify -q "refs/heads/$branch" >/dev/null || die 2 "no local branch '$branch'"
+
+# Worktree list: path of the branch's worktree (if any) and where the default branch is checked out.
+branch_wt=
+default_wt=
+main_wt=
+cur_path=
+while IFS= read -r line; do
+  case "$line" in
+    "worktree "*)
+      cur_path=${line#worktree }
+      [ -n "$main_wt" ] || main_wt=$cur_path
+      ;;
+    "branch refs/heads/$branch") branch_wt=$cur_path ;;
+    "branch refs/heads/$default") default_wt=$cur_path ;;
+  esac
+done < <(g worktree list --porcelain)
+
+# Run the rest from the main worktree: the invoking directory may be the worktree we remove below.
+dir=$main_wt
+
+# Dirty check first: nothing is touched if the worktree has uncommitted or untracked files.
+if [ -n "$branch_wt" ] && [ -n "$(git -C "$branch_wt" status --porcelain)" ]; then
+  die 3 "worktree $branch_wt is dirty; commit, stash or clean it first"
+fi
+
+g fetch --quiet --prune origin
+
+# Landed = merged into origin/<default>, or upstream branch deleted on origin (squash/rebase merge).
+landed=0
+if g merge-base --is-ancestor "refs/heads/$branch" "refs/remotes/origin/$default" 2>/dev/null; then
+  landed=1
+else
+  up_remote=$(g config --get "branch.$branch.remote" || true)
+  up_merge=$(g config --get "branch.$branch.merge" || true)
+  up_ref=${up_merge#refs/heads/}
+  if [ "$up_remote" = origin ] && [ -n "$up_ref" ] && [ "$up_ref" != "$default" ] &&
+    ! g rev-parse --verify -q "refs/remotes/origin/$up_ref" >/dev/null; then
+    landed=1
+  fi
+fi
+if [ "$landed" -eq 0 ] && [ "$force" -eq 0 ]; then
+  die 4 "'$branch' is not merged into origin/$default and its remote branch still exists; use --force to land it anyway"
+fi
+
+# Fast-forward the default branch (never a merge).
+if [ -n "$default_wt" ]; then
+  git -C "$default_wt" merge --ff-only --quiet "refs/remotes/origin/$default" ||
+    die 1 "cannot fast-forward $default in $default_wt"
+else
+  g fetch --quiet origin "$default:$default" || die 1 "cannot fast-forward $default"
+fi
+default_sha=$(g rev-parse --short "refs/heads/$default")
+say "fast-forwarded $default to $default_sha"
+
+if [ -n "$branch_wt" ]; then
+  g worktree remove "$branch_wt"
+  say "removed worktree $branch_wt"
+fi
+
+# -D when landed by squash: -d would reject a branch that is not an ancestor.
+g branch -q -D "$branch"
+say "deleted local branch $branch"
+
+remote_deleted=false
+if g rev-parse --verify -q "refs/remotes/origin/$branch" >/dev/null; then
+  g push --quiet origin --delete "$branch"
+  remote_deleted=true
+  say "deleted origin/$branch"
+fi
+
+# The caller's shell may be sitting in the removed worktree.
+cd_to=
+if [ -n "$branch_wt" ]; then
+  cd_to=${default_wt:-$main_wt}
+  say "cd $cd_to   # your shell may still be in the removed worktree"
+fi
+
+if [ "$mode" = json ]; then
+  printf '{"ok":true,"exit":0,"branch":%s,"default_branch":%s,"default_sha":%s,"worktree_removed":%s,"local_branch_deleted":true,"remote_branch_deleted":%s,"cd":%s}\n' \
+    "$(jstr "$branch")" "$(jstr "$default")" "$(jstr "$default_sha")" \
+    "$(jstr_or_null "$branch_wt")" "$remote_deleted" "$(jstr_or_null "$cd_to")"
+fi

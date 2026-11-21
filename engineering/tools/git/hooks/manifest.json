@@ -1,0 +1,33 @@
+{
+  "hooks": [
+    {
+      "id": "git-guard",
+      "event": "tool.before",
+      "tools": ["shell"],
+      "script": "hooks/git-guard",
+      "enforce": "block"
+    },
+    {
+      "id": "git-guard-worktree",
+      "event": "tool.before",
+      "matcher": "EnterWorktree",
+      "claudeOnly": true,
+      "script": "hooks/git-guard",
+      "enforce": "block"
+    },
+    {
+      "id": "pr-poll-reminder",
+      "event": "tool.before",
+      "tools": ["shell"],
+      "script": "hooks/pr-poll-reminder",
+      "enforce": "block"
+    },
+    {
+      "id": "worktree-path-guard",
+      "event": "tool.before",
+      "tools": ["file.edit"],
+      "script": "hooks/worktree-path-guard",
+      "enforce": "block"
+    }
+  ]
+}
