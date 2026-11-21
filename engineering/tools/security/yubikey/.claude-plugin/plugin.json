@@ -1,0 +1,5 @@
+{
+  "name": "security",
+  "version": "0.1.1",
+  "description": "Developer security setup: hardware-backed keys with YubiKey (offline OpenPGP root key, on-card daily subkeys, FIDO2 SSH keys, signed commits, GitHub 2FA), plus the loss and recovery runbook."
+}

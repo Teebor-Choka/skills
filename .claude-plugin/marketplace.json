@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills \u2014 practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "4.1.0"
+    "version": "4.2.0"
   },
   "plugins": [
     {
@@ -147,6 +147,15 @@
       "strict": true,
       "metadata": {
         "version": "1.2.2"
+      }
+    },
+    {
+      "name": "security",
+      "description": "Developer security setup: hardware-backed keys with YubiKey (offline OpenPGP root key, on-card daily subkeys, FIDO2 SSH keys, signed commits, GitHub 2FA), plus the loss and recovery runbook.",
+      "source": "./engineering/tools/security/yubikey",
+      "strict": true,
+      "metadata": {
+        "version": "0.1.1"
       }
     },
     {

@@ -240,6 +240,35 @@
               touch $out
             '';
 
+          # The yubikey rehearsals: the ceremony and step scripts against a stub ykman and ssh-keygen and a
+          # software keyring, no card. b4 needs a pty: util-linux `script` on Linux, the system one on darwin.
+          yubikey =
+            pkgs.runCommand "yubikey-tests"
+              {
+                nativeBuildInputs = [
+                  pkgs.gnupg
+                  pkgs.openssh
+                  pkgs.coreutils
+                  pkgs.findutils
+                  pkgs.diffutils
+                  pkgs.gawk
+                  pkgs.gnugrep
+                  pkgs.gnused
+                  pkgs.gnutar
+                ]
+                ++ pkgs.lib.optional pkgs.stdenv.isLinux pkgs.util-linux;
+              }
+              ''
+                export HOME=$TMPDIR
+                ${pkgs.lib.optionalString pkgs.stdenv.isDarwin "export PATH=$PATH:/usr/bin # BSD script(1): nixpkgs ships none for darwin"}
+                cp -r ${self}/engineering/tools/security/yubikey/skills/yubikey skill
+                chmod -R u+w skill
+                patchShebangs skill
+                sh skill/tests/rehearse-ceremony.sh
+                sh skill/tests/rehearse-steps.sh
+                touch $out
+              '';
+
           skills-validate =
             pkgs.runCommand "skills-validate"
               {

@@ -7,3 +7,6 @@
 /result-*
 .pre-commit-config.yaml
 **/node_modules/
+
+# Runtime state of the yubikey skill: the device plan holds the serial numbers of one person's keys.
+**/yubikey/scripts/devices.tsv
