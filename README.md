@@ -13,8 +13,12 @@ Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`. The host shows `plugin:ski
 |                     | `decompose`         | Cut a goal into parallel units and file them                            |
 |                     | `graph-engine`      | Compute parallel waves, critical path, write-set collisions             |
 |                     | `project-docs`      | Standard `docs/` (overview, spec, ADRs) with a validator                |
-| `review`            | `by-angle`          | Red-first block loop plus four read-only review angles                  |
+| `swe-workflows`     | `implement`         | Per-task loop: spec check, test first, isolated review, integrate       |
+|                     | `find-bug`          | Turn a bug report into a committed failing test                         |
+|                     | `triage`            | Turn a vague issue into implementable items with a spec                 |
+|                     | `by-angle`          | Red-first block loop plus four read-only review angles                  |
 |                     | `code-quality`      | Risk audit from complexity, coverage, duplication metrics               |
+|                     | (hooks, commands)   | Policy gate, skill gate, isolated-reviewer agent, work-mode commands    |
 | `swe`               | `rust`              | Rust house guidelines on every change                                   |
 |                     | `typescript`        | TypeScript and JavaScript house guidelines on every change              |
 |                     | `component-docs`    | Write and update one docs page per component                            |
@@ -23,11 +27,17 @@ Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`. The host shows `plugin:ski
 | `harness`           | `assign`, `pull`    | Multi-agent runs over a shared board                                    |
 |                     | `tracker`           | Live dependency map of a multi-unit build's progress                    |
 |                     | `policy`            | The `.agents/policy` format and loader                                  |
+|                     | `session-hygiene`   | Handoffs and session nudges, plus a statusline script                   |
 |                     | (hooks)             | Guard hooks for every session, see [its README](./ai/harness/README.md) |
 | `models`            | `extension-author`  | Author and port skills and plugins across agents                        |
 |                     | `reflect`           | Mine sessions for agent struggles and propose fixes                     |
+|                     | `tiers`             | Route each subagent to the cheapest model tier (agents, guard hook)     |
 | `writing`           | `unslop`            | Remove AI tells from prose                                              |
 |                     | `prose-craft`       | Compose and tighten prose                                               |
+| `voice`             | `voice-style`       | Always-on plain-voice output style and its `unslop-mode` command        |
+| `presentation`      | `patterns`          | Plan, build or review a talk with 88 patterns and antipatterns          |
+|                     | `prep`              | Prepare a talk end to end: structure, build, rehearse                   |
+| `publishing`        | `blog-syndication`  | Cross-post one blog post to Astro, dev.to, Medium and Substack          |
 | `forge-idea`        | `forge-idea`        | Stress-test an idea with parallel agents                                |
 | `grounded-research` | `grounded-research` | Research under a fixed evidence contract                                |
 | `llm-wiki`          | `llm-wiki`          | Build and query a linked Markdown wiki                                  |
@@ -35,6 +45,7 @@ Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`. The host shows `plugin:ski
 | `find-ai-moat`      | `find-ai-moat`      | Find where your work complements AI                                     |
 | `github-actions`    | `github-actions`    | Harden workflows, configure Renovate                                    |
 | `nix`               | `nix`               | Nix + direnv dev workflow traps                                         |
+| `git`               | `workflow`          | Git and PR workflow; git-guard hooks and the pr-watcher agent           |
 
 ## Install
 
@@ -57,6 +68,10 @@ The [`architect`](./engineering/design/skills/architect/SKILL.md) skill was writ
 Its graph-engineering step ([`references/graph-patterns.md`](./engineering/design/skills/graph-engine/references/graph-patterns.md)) is grounded in the workflow / parallel / multi-agent-orchestration literature, every citation web-verified and authority-tagged, with the state of the art through 2026 folded in: the van der Aalst Workflow Patterns paper (2003), GPTSwarm (ICML 2024) and AFlow (ICLR 2025) on agents-as-optimizable-graphs, MaAS (ICML 2025) on query-dependent workflow-graph design, the topology-effects work of Shen et al. (EMNLP 2025) with G-Designer and AgentPrune/AGP, the MAST failure taxonomy (Cemri et al. 2025), and the Yue et al. 2026 survey of workflow optimization as agentic computation graphs. Full attribution with links, license notes, and preprint flags is in [engineering/architect/references/sources.md](./engineering/design/skills/architect/references/sources.md) and [graph-patterns.md](./engineering/design/skills/graph-engine/references/graph-patterns.md).
 
 Grounding the current state can optionally run through a code graph, single- or multi-repo, via a code indexing MCP when available, with a graceful fall back to manual reading otherwise ([`references/code-graphing.md`](./engineering/design/skills/architect/references/code-graphing.md)).
+
+### presentation
+
+The [`presentation`](./communication/presentation/skills/patterns/SKILL.md) plugin is built on the teachings of Neal Ford, _Presentation Patterns_ (Ford, McCullough, Schutta, Addison-Wesley, 2012). The pattern names are theirs; the entries are short paraphrased guidance, and no book text is bundled.
 
 ### unslop
 
