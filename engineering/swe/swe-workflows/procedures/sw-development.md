@@ -105,7 +105,7 @@ stages:
     uses: [vcs.remote, vcs.default-branch]
   reflect:
     entity: pm
-    skills: [models:reflect]
+    skills: [model:reflect]
     needs: [integrate]
     consumes: [merged]
     produces: [lessons]

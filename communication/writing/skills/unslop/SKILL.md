@@ -199,7 +199,7 @@ Toggle `/unslop-mode off|light|default|strict`:
 - Codex: invoke the skill explicitly with `$unslop <level>`.
 
 For a large multi-document sweep, delegate one pass per file to subagents (see the
-`models:extension-author` skill).
+`model:extension-author` skill).
 
 ## Sources
 

@@ -8,7 +8,7 @@ What differs is only the agent layer on top: the parallel fan-out of reviewers a
 verify pass.
 
 For general cross-agent mechanics (subagent definitions, orchestration, headless/CI
-invocation), see the models:extension-author references — this file does not duplicate them:
+invocation), see the model:extension-author references — this file does not duplicate them:
 
 - `ai/model/skills/extension-author/references/workflows.md` — subagents, parallel fan-out,
   orchestration per agent.

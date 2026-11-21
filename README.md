@@ -31,7 +31,7 @@ Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`; a domain with one plugin i
 |                 | `policy`            | The `.agents/policy` format and loader                                  |
 |                 | `session-hygiene`   | Handoffs and session nudges, plus a statusline script                   |
 |                 | (hooks)             | Guard hooks for every session, see [its README](./ai/harness/README.md) |
-| `models`        | `extension-author`  | Author and port skills and plugins across agents                        |
+| `model`         | `extension-author`  | Author and port skills and plugins across agents                        |
 |                 | `reflect`           | Mine sessions for agent struggles and propose fixes                     |
 |                 | `tiers`             | Route each subagent to the cheapest model tier (agents, guard hook)     |
 | `writing`       | `unslop`            | Remove AI tells from prose                                              |

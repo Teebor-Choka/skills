@@ -30,7 +30,7 @@ A watch or poll loop is `light`, never `reasoning`.
 `TODO`. Tier keys are `light`, `execution`, `reasoning` and `speed`; other keys are ignored. The
 `model-tier-guard` hook reads the map for the harness in `AGENT_HARNESS` (default `claude`) and accepts
 either a tier name or a model from the map as the subagent's `model`. An explicit model name is never
-remapped, and a model the Agent tool takes but the map does not list (`fable`, a full `claude-...` id) passes through unchanged on `claude`. A rewrite (a tier name, or a default for an agent) carries no permission decision, so your own permission rules still apply. A spawn of `reader`, `builder` or `reasoner` (with or without the `models:` prefix) with no
+remapped, and a model the Agent tool takes but the map does not list (`fable`, a full `claude-...` id) passes through unchanged on `claude`. A rewrite (a tier name, or a default for an agent) carries no permission decision, so your own permission rules still apply. A spawn of `reader`, `builder` or `reasoner` (with or without the `model:` prefix) with no
 model gets its tier's model. For `claude`, a tier the map leaves absent falls back to haiku, sonnet or
 opus. When the map is unreadable or holds no model for the harness, the hook fails open and says so in one
 line. Point `AGENT_TIERS_FILE` at another file to test a map.

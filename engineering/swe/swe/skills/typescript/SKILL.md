@@ -35,4 +35,4 @@ When TS/JS work justifies it, add:
   `../rust/overrides.md`): naming, module layout, async, error handling, testing.
 - a guidelines index — a curated, ID-addressed reference read on demand, not whole.
 
-See the `models:extension-author` skill for authoring, triggering, and the portability checklist.
+See the `model:extension-author` skill for authoring, triggering, and the portability checklist.
