@@ -14,10 +14,10 @@ operator that is rare: one item or sequential work needs no run. Cut the work in
 
 The charter sets one mode per run. Each mode is its own skill. Load only that one.
 
-| Work shape                                                             | Mode (alias)        | Skill                |
-| ---------------------------------------------------------------------- | ------------------- | -------------------- |
-| Units known up front, write-sets disjoint, each finishes alone         | **assign** (direct) | `orchestrate:assign` |
-| Work spawns work, review loops, many agents on one interacting surface | **pull** (swarm)    | `orchestrate:pull`   |
+| Work shape                                                             | Mode (alias)        | Skill            |
+| ---------------------------------------------------------------------- | ------------------- | ---------------- |
+| Units known up front, write-sets disjoint, each finishes alone         | **assign** (direct) | `harness:assign` |
+| Work spawns work, review loops, many agents on one interacting surface | **pull** (swarm)    | `harness:pull`   |
 
 Unsure: start with assign. Move to pull when you relay a message by hand twice.
 

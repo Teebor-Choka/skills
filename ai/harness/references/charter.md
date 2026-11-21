@@ -1,6 +1,6 @@
 # Charter: the process the run follows
 
-The `orchestrate` skill gives mechanics. The charter gives process. **No agent starts without an
+The `assign` and `pull` skills give mechanics. The charter gives process. **No agent starts without an
 owner-approved charter.** Write it in one file in the work area and name its path in every agent's
 spawn brief.
 
@@ -65,7 +65,7 @@ themselves.
 Put this in every agent's brief, with values filled in:
 
 ```
-Load skill `orchestrate:<pull|assign>`, role `<role>`. Charter: <path>. Board: <binding and reference>.
+Load skill `harness:<pull|assign>`, role `<role>`. Charter: <path>. Board: <binding and reference>.
 Agent id: <unique id>. Read and write the board directly. Do not relay through the dispatcher.
 ```
 

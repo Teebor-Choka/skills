@@ -5,7 +5,7 @@ Each wake re-reads the whole context to learn that nothing changed. Deny a wake 
 a PR or run (`gh pr`, `gh issue`, `gh run`), sleeps (`sleep N`) or waits on a subagent. Any other wake passes,
 however often the same prompt repeats: a dynamic loop re-issues one prompt every tick by design. The hook
 keeps no state. Fails open on malformed input.
-Tests: hooks/tests/test_orchestrate_guards.py.
+Tests: hooks/tests/test_harness_guards.py.
 """
 import json
 import re

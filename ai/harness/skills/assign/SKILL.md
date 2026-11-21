@@ -2,18 +2,18 @@
 name: assign
 description: >-
   Dispatch known, independent units to workers on the right model tier, driven by events not
-  polling. Use only when told "load orchestrate:assign, role X". Not for work that spawns work
-  (orchestrate:pull).
+  polling. Use only when told "load harness:assign, role X". Not for work that spawns work
+  (harness:pull).
 license: MIT
 compatibility: any
 metadata:
   version: "1.0.0"
 ---
 
-# orchestrate:assign: thin dispatcher
+# harness:assign: thin dispatcher
 
-Loaded as a plugin, this skill is `orchestrate:assign`. Copied or symlinked as a bare skill
-directory, it is `assign`. If `Skill orchestrate:assign` fails with "Unknown skill", load `assign`.
+Loaded as a plugin, this skill is `harness:assign`. Copied or symlinked as a bare skill
+directory, it is `assign`. If `Skill harness:assign` fails with "Unknown skill", load `assign`.
 
 > **First read [`../../references/mechanics.md`](../../references/mechanics.md).** It defines the claim,
 > lease, reap, hand-off, escalation and wind-down rules this mode builds on, and how an agent in a

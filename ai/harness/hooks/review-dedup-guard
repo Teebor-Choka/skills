@@ -9,7 +9,7 @@ Per PR: the first and second spawn pass, the third asks, the fourth and later ar
 a fan-out role (`verify`/`verifier`, `finder`) counts at most once per PR per role, so one review fanned out
 to several finder and verifier agents is one review, not six. A prompt naming several PRs is judged by its
 most-reviewed PR (at most 20 numbers are read). The count is per session; a duplicate started by another
-session is not seen, that needs the shared review lease (see the orchestrate pull skill).
+session is not seen, that needs the shared review lease (see the harness pull skill).
 State: $TMPDIR (else /tmp)/agent-review-dedup.<session>.log, one line `PR<TAB>role` per counted spawn,
 appended with O_APPEND (one write per line, so interleaved writers lose nothing; a torn last line is ignored).
 Matching uses bounded regexes (no nested quantifiers). Fails open on malformed input and unreadable files.

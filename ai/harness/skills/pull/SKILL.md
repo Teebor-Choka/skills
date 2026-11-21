@@ -3,17 +3,17 @@ name: pull
 description: >-
   Work as one peer in a swarm: pull items from a shared work board, claim, hold a lease, hand
   off on the item. Use for "swarm of builders", "report for work duty", "take from the board",
-  "load orchestrate:pull, role X". Not for dispatcher-led work.
+  "load harness:pull, role X". Not for dispatcher-led work.
 license: MIT
 compatibility: any
 metadata:
   version: "1.0.0"
 ---
 
-# orchestrate:pull: peer-to-peer swarm
+# harness:pull: peer-to-peer swarm
 
-Loaded as a plugin, this skill is `orchestrate:pull`. Copied or symlinked as a bare skill
-directory, the host knows it only as `pull` and `Skill orchestrate:pull` fails with "Unknown
+Loaded as a plugin, this skill is `harness:pull`. Copied or symlinked as a bare skill
+directory, the host knows it only as `pull` and `Skill harness:pull` fails with "Unknown
 skill". If it fails, load `pull`.
 
 > **First read [`../../references/mechanics.md`](../../references/mechanics.md).** It defines the claim,

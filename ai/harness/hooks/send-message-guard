@@ -3,7 +3,7 @@
 
 A long free-text message between sessions carries state the board does not hold. Deny a text body over
 LIMIT characters unless it references an item (`#N`) or a URL. Structured (non-string) messages and
-malformed input pass. Tests: hooks/tests/test_orchestrate_guards.py.
+malformed input pass. Tests: hooks/tests/test_harness_guards.py.
 """
 import json
 import re

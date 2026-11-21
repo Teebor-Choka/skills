@@ -2,8 +2,8 @@
 name: decompose
 description: >-
   Split a goal into parallel work units and file them as board items, each with one write-set,
-  dependencies, tests and model tier. Use for "split/divide/parallelise this" or before an
-  orchestrate run. Not for a single unit.
+  dependencies, tests and model tier. Use for "split/divide/parallelise this" or before a
+  harness:assign or harness:pull run. Not for a single unit.
 license: MIT
 compatibility: any
 metadata:
@@ -23,7 +23,7 @@ and integration cost often beats the wall-clock gain. Cut only where the seam is
   worker. It is not a separate artifact. It carries the unit's objective, interface, positive AND
   adversarial acceptance tests, write-set, dependencies and tier, taken from the spec blocks.
 - **Never does:** design the system (use `architect`), write a second brief beside the item, or run
-  the units (use `orchestrate:assign` or `orchestrate:pull`).
+  the units (use `harness:assign` or `harness:pull`).
 
 ## Steps
 
@@ -56,14 +56,14 @@ and integration cost often beats the wall-clock gain. Cut only where the seam is
    cycle, a dangling dependency or a write-set collision inside a wave. Fix the cut, not the check.
    `graph.py` does not read `tier` or `acceptance`: they stay on the item.
 
-5. **File the units** (destination, contents and coordination channel: `references/filing.md`). Use the board verbs (`references/board.md` of the `orchestrate` plugin; the tracker is the
+5. **File the units** (destination, contents and coordination channel: `references/filing.md`). Use the board verbs (`references/board.md` of the `harness` plugin; the tracker is the
    charter's `board`, else the policy key `work.tracker`). File in dependency order so a blocker's
    id exists before the item that cites it. Each item is the unit's brief: it carries the objective, interface, acceptance tests, write-set, tier, a
    `blocks`/`blocked-by` summary taken from the graph, and a link back to the spec.
    Mark an item that consumes another unit's output `blocked_by` that item. Never branch one
    unit's work from another unit's branch: the stack re-conflicts on every merge below it.
 6. **Pick the mode.** Units known and disjoint, each finishing alone: `assign`. Units that spawn
-   follow-on work or review loops: `pull`. Hand the filed board and the choice to `orchestrate:assign` or `orchestrate:pull`.
+   follow-on work or review loops: `pull`. Hand the filed board and the choice to `harness:assign` or `harness:pull`.
 
 ## Do not
 
@@ -74,4 +74,4 @@ and integration cost often beats the wall-clock gain. Cut only where the seam is
 - Split units that share a write-set to gain parallelism. Merge them or order them.
 - File a unit with no acceptance tests, or tests written only by the unit's implementer.
 - Hide a shared boundary. Where two units cannot be cleanly disjoint, say so in both items.
-- Run the units. Dispatch and integration belong to `orchestrate:assign` and `orchestrate:pull`.
+- Run the units. Dispatch and integration belong to `harness:assign` and `harness:pull`.
