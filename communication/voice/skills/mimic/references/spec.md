@@ -24,8 +24,14 @@ except the `claude` runner.
 ## Valid inputs
 
 - Persona name: `^[a-z0-9][a-z0-9_-]{0,63}$`. Anything else exits 2.
-- State dir: `--state-dir DIR`, default `${XDG_STATE_HOME:-~/.local/state}/voice/<persona>/`.
+- State dir: `--state-dir DIR`, else `$MIMIC_STATE_HOME/<persona>/`, else
+  `~/.config/agents/state/voice/<persona>/` (agent usage data lives under `~/.config/agents/`).
   Created with mode 0700; files written 0600.
+- Guard, before anything is written: when the target sits inside a git work tree (a `.git` dir
+  or file in an ancestor), `git check-ignore -q <target>` must succeed, so git would never track
+  it. `~/.config/agents` is such a tree, and its allowlist `.gitignore` ignores `/state/`. An
+  unignored target, or a `.git` that git cannot resolve, exits 3. `--allow-git-worktree`
+  overrides.
 - Sample files, by extension:
   - `.txt`, `.md`: messages separated by a line that is exactly `---`; with no such line, by blank
     lines. A leading YAML front matter block in `.md` is skipped.
@@ -102,7 +108,7 @@ For each item of the chosen slice (`--slice dev` or `--slice test`):
    without its wording. A point that shares a run of 4 or more canonical tokens with the
    original, or contains the whole of an original shorter than 4 tokens, is a leak: retry once
    with a stricter instruction, then exclude the item (`point_leak`).
-2. **Generate** (execution tier): the message, from the profile, the channel, the audience, the
+2. **Generate** (reasoning tier): the message, from the profile, the channel, the audience, the
    context and the point only. A generated text of an 8+ token original that is near-identical to
    it (Jaccard at least 0.9) is excluded (`copied`).
 3. **Identify** (judge, reasoning tier, blind): up to 4 TRAIN exemplars of the same channel and
@@ -159,10 +165,12 @@ Defaults: `--max-id-rate 0.65`, `--min-rubric 3.5`, `--min-n 20`, `--dim-floor 3
   Timeout 300 s, one retry. `--runner cmd:'<command>'` runs any command the same way (prompt on
   stdin, `MIMIC_ROLE` and `MIMIC_MODEL` in the environment) for other harnesses. `--runner stub`
   is the in-process test double.
-- Tiers: extract and generate use `execution`, the judge uses `reasoning`. A tier resolves to a
-  model through `AGENT_TIERS_FILE` (the tier map format, harness from `AGENT_HARNESS`, default
-  `claude`), else `light`=haiku, `execution`=sonnet, `reasoning`=opus. `--judge-model` below the
-  reasoning tier exits 2 unless `--allow-weak-judge`, and the report records it.
+- Tiers: extract uses `execution`; generate and judge use `reasoning`, the strongest. Owner
+  decision: no cost cap and no budget flags; the judge and the generator get the strongest model.
+  A tier resolves to a model through `AGENT_TIERS_FILE` (the tier map format, harness from
+  `AGENT_HARNESS`, default `claude`), else `light`=haiku, `execution`=sonnet, `reasoning`=opus.
+  `--extract-model`, `--generator-model` and `--judge-model` take a tier or a model. A judge below
+  the reasoning tier (or of unknown tier) runs, and the report carries a warning and the model.
 - The stub generator writes a template marked `[stub]`; the stub judge picks by a mode (`coin`
   from the item id, `marker`, `A`, `B`, `garbage`) with per-item overrides from `--stub-script`.
 
@@ -170,7 +178,7 @@ Defaults: `--max-id-rate 0.65`, `--min-rubric 3.5`, `--min-n 20`, `--dim-floor 3
 
 | Condition                                             | Behaviour                      |
 | ----------------------------------------------------- | ------------------------------ |
-| state dir inside a git work tree                      | exit 3, nothing written        |
+| state dir tracked by a git work tree (not ignored)    | exit 3, nothing written        |
 | bad persona, unknown extension, bad JSON line         | exit 2 with file and line      |
 | no corpus / no split / no profile for the next step   | exit 2 naming the missing step |
 | leak found after split                                | exit 2                         |
@@ -223,9 +231,11 @@ cutoff; 5,000 messages take seconds. An eval round costs 4 model calls per item.
 
 Offline, with the stub runner, in `tests/test_mimic_*.py`:
 
-- [ ] AT-1 guard: a state dir inside a git work tree (`.git` dir or file) exits 3 and writes
-      nothing; `--allow-git-worktree` lets it through; the default dir follows `XDG_STATE_HOME`,
-      is created 0700, files 0600.
+- [ ] AT-1 guard: an unignored path inside a git work tree exits 3 and writes nothing; an
+      ignored path inside one (the dotagents allowlist) and a path outside any work tree are
+      allowed; an unresolvable `.git` file is refused; `--allow-git-worktree` lets it through;
+      the default dir is `~/.config/agents/state/voice/<persona>`, `MIMIC_STATE_HOME` overrides
+      it, the dir is created 0700 and files 0600.
 - [ ] AT-2 ingest: txt with `---` and with blank lines, md front matter, jsonl with
       `reply_to` by id and by text, `--author` filter, eml and mbox with quotes and signature
       stripped, empty dropped, duplicates counted, casing, emoji and dashes preserved, band marked,
@@ -249,6 +259,7 @@ Offline, with the stub runner, in `tests/test_mimic_*.py`:
 - [ ] AT-11 leak checks: a point quoting the original is retried then excluded; a copied
       generation is excluded.
 - [ ] AT-12 runners: the `claude` argv is the isolated one above; tier resolution honours
-      `AGENT_TIERS_FILE`; a judge below the reasoning tier exits 2 without the flag.
+      `AGENT_TIERS_FILE`; generator and judge default to the reasoning tier; a weaker judge is
+      recorded with a warning.
 - [ ] AT-13 end to end: 60 synthetic messages through ingest, split, skeleton, fill, validate and
       a test run with stub runners produce a report and a verdict.
