@@ -20,3 +20,12 @@ Enable the plugin. The style appears as `voice:unslop` and the command as `/voic
 They have no output styles. Append the body of `output-styles/unslop.md` to the system prompt or the
 always-on instructions file (`AGENTS.md`, `APPEND_SYSTEM.md`, or the agent's `developer_instructions`).
 Run the mode command's steps by hand: state the depth and the length once, then follow them.
+
+## A persona profile
+
+The `mimic` skill writes a validated `profile.md` for one person in its state dir
+(`~/.config/agents/state/voice/<persona>/`). For text drafted as that person, load the profile
+after the style. Its measured habits (casing, punctuation, emoji, dashes, length, signature
+phrases) win over the style's surface rules, as the style's own precedence puts the author's voice
+above any anti-slop rule. The floor still holds: facts, code, exact strings and security warnings
+stay intact. The profile applies to that draft only, never to your own replies.
