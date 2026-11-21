@@ -46,6 +46,21 @@
           ps.pytest
         ]);
         codeQualityTools = import ./nix/code-quality-tools.nix { inherit pkgs; };
+        # swe-workflows as a closure artifact, so it can be installed without a mounted source
+        # checkout (a microVM has none). Dev-only tests dropped; shebangs patched so gate.sh and the
+        # hooks run from a stable store path where /usr/bin/env may be absent. Codex's config.toml
+        # hook and the OpenCode/oh-my-pi overlays resolve to this absolute path. The document skill's
+        # docs tooling (design's project-docs) ships beside it as skills/project-docs, where
+        # resolve.py looks first; without SKILL.md, so no host lists it as a skill of this plugin.
+        sweWorkflowsPlugin = pkgs.runCommand "swe-workflows-plugin" { } ''
+          cp -r ${self}/engineering/swe/swe-workflows $out
+          chmod -R u+w $out
+          rm -rf $out/tests
+          cp -r ${self}/engineering/design/skills/project-docs $out/skills/project-docs
+          chmod -R u+w $out/skills/project-docs
+          rm -rf $out/skills/project-docs/tests $out/skills/project-docs/SKILL.md
+          patchShebangs $out
+        '';
         codeQualitySupportedSystem = builtins.elem system [
           "aarch64-darwin"
           "x86_64-linux"
@@ -115,16 +130,7 @@
         # dependency of the code-quality-tests check. Gated to the same two
         # systems that check runs on (some tools ship no aarch64-linux build).
         packages = pkgs.lib.optionalAttrs codeQualitySupportedSystem codeQualityTools // {
-          # swe-workflows as a closure artifact, so it can be installed without a mounted source
-          # checkout (a microVM has none). Dev-only tests dropped; shebangs patched so gate.sh and the
-          # hooks run from a stable store path where /usr/bin/env may be absent. Codex's config.toml
-          # hook and the OpenCode/oh-my-pi overlays resolve to this absolute path.
-          swe-workflows-plugin = pkgs.runCommand "swe-workflows-plugin" { } ''
-            cp -r ${self}/engineering/swe/swe-workflows $out
-            chmod -R u+w $out
-            rm -rf $out/tests
-            patchShebangs $out
-          '';
+          swe-workflows-plugin = sweWorkflowsPlugin;
         };
 
         checks = {
@@ -150,6 +156,42 @@
                 chmod -R u+w plugin
                 patchShebangs plugin
                 bats plugin/tests
+                touch $out
+              '';
+
+          # The built closure: it ships the docs tooling as skills/project-docs (no SKILL.md, so the
+          # plugin's skill set equals the source's), and the document skill's resolve.py finds it there
+          # with no marketplace checkout and an empty HOME, scaffolds pages from it, and its validator
+          # accepts them but for the placeholder API row.
+          swe-workflows-closure =
+            pkgs.runCommand "swe-workflows-closure-tests"
+              {
+                nativeBuildInputs = [
+                  pkgs.python3
+                  pkgs.coreutils
+                  pkgs.diffutils
+                ];
+              }
+              ''
+                export HOME=$TMPDIR/home
+                p=${sweWorkflowsPlugin}
+                test -f $p/skills/project-docs/scripts/components.py
+                test -f $p/skills/project-docs/assets/component.skeleton.md
+                test ! -e $p/skills/project-docs/SKILL.md
+                diff <(cd ${self}/engineering/swe/swe-workflows/skills && ls -d */SKILL.md) \
+                  <(cd $p/skills && ls -d */SKILL.md)
+                cp -r ${self}/engineering/design/skills/project-docs/tests/fixtures/conformant repo
+                chmod -R u+w repo
+                mkdir -p repo/crates/a/src
+                printf '[workspace]\nmembers = ["crates/*"]\n' > repo/Cargo.toml
+                printf '[package]\nname = "a"\nversion = "0.1.0"\n' > repo/crates/a/Cargo.toml
+                touch repo/crates/a/src/lib.rs
+                python3 $p/skills/document/scripts/resolve.py repo > out.json
+                python3 -c 'import json; assert [c["name"] for c in json.load(open("out.json"))["components"]] == ["a"]'
+                python3 $p/skills/document/scripts/resolve.py repo --scaffold > /dev/null
+                test -f repo/docs/components/a.md
+                python3 $p/skills/project-docs/scripts/validate_docs.py repo --json > findings.json || true
+                python3 -c 'import json; r = sorted(f["rule"] for f in json.load(open("findings.json"))); assert r == ["component-api-unknown"], r'
                 touch $out
               '';
 

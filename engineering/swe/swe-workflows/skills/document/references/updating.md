@@ -24,7 +24,7 @@ How to update:
 How to skip: add one trailer line to a commit in the change, naming the component and the reason.
 
 ```
-Docs-Unchanged: sandy-fsutil: only reordered private helpers
+Docs-Unchanged: widget-fsutil: only reordered private helpers
 ```
 
 Give a reason that a reviewer can check. A bare "no change" is not one.

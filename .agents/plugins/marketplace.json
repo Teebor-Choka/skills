@@ -14,7 +14,7 @@
       "description": "The engineered per-task SWE workflow: the implement skill plus a policy-gate hook enforcing the repo's .agents/policy at commit/ready/integrate. The skill also reaches Codex via .agents/skills; this plugin adds the native hook. Needs the `harness` plugin (`harness:policy`, ai/harness) for the policy loader.",
       "source": "./engineering/swe/swe-workflows",
       "metadata": {
-        "version": "1.4.0"
+        "version": "1.5.1"
       }
     }
   ]

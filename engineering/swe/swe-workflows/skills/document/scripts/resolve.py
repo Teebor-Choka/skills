@@ -27,8 +27,10 @@ from pathlib import Path
 
 TOOL = "resolve.py"
 HERE = Path(__file__).resolve()
-# Beside this plugin in the marketplace layout, then the usual user-level install paths.
-STANDARD = (HERE.parents[5] / "design" / "skills" / "project-docs",
+# A sibling skill dir (the built plugin closure ships it there), beside this plugin in the marketplace
+# layout, then the usual user-level install paths.
+STANDARD = (HERE.parents[2] / "project-docs",
+            HERE.parents[5] / "design" / "skills" / "project-docs",
             Path("~/.config/agents/skills/project-docs"),
             Path("~/.claude/skills/project-docs"),
             Path("~/.agents/skills/project-docs"))

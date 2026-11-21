@@ -70,7 +70,7 @@ and integration cost often beats the wall-clock gain. Cut only where the seam is
 - Start more work on a branch cut before a restructure that is in flight. Rebase onto the
   restructure first.
 - Create worktrees outside the one `<repo>-worktrees/` directory the run names (for example
-  `sandy-worktrees/`).
+  `widget-worktrees/`).
 - Split units that share a write-set to gain parallelism. Merge them or order them.
 - File a unit with no acceptance tests, or tests written only by the unit's implementer.
 - Hide a shared boundary. Where two units cannot be cleanly disjoint, say so in both items.

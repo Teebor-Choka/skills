@@ -166,7 +166,7 @@ with `docs.components.adopt: false` in the policy.
     workspace member or the single `pyproject.toml` package, a Go module in `go.work` or the single
     `go.mod`.
   - **Declared directories**: directories matched by the `docs.components.include` globs, for
-    example `crates/sandy/src/*/` in a single crate. The resolver never picks modules on its own,
+    example `crates/widget/src/*/` in a single crate. The resolver never picks modules on its own,
     because which modules carry a public API is a judgment call. A matched directory with a manifest
     is read as a manifest member; one without is a module named by its directory.
 - **Component name**: the manifest's package name (`[package].name`, `package.json` `name`,
@@ -192,9 +192,9 @@ shared policy format: maps by indentation, inline lists, no block lists.
 ```yaml
 docs:
   components:
-    include: ["crates/sandy/src/*/"] # replaces manifest discovery; --components does the same
+    include: ["crates/widget/src/*/"] # replaces manifest discovery; --components does the same
     exclude: # name: reason, removes a member and its edges
-      sandy-test-kit: test helper, no public API
+      widget-test-kit: test helper, no public API
     adopt: false # only to opt out of components-not-adopted; any other value, or none, expects pages
 ```
 
@@ -257,8 +257,8 @@ Sections, as `##` headings in this order: **Purpose**, **Structure**, **Public A
 
 Size: at most 200 lines and 12 KB including frontmatter; target under 100 lines.
 
-A worked example, `sandy-fsutil` (facts from kauki-labs/sandy at `734b2a9a`), is the validator's
-test fixture: `tests/fixtures/sandy-fsutil/docs/components/sandy-fsutil.md`.
+A worked example, `widget-fsutil` (facts from a real Rust workspace at one commit), is the validator's
+test fixture: `tests/fixtures/widget-fsutil/docs/components/widget-fsutil.md`.
 
 ### Component rules
 
