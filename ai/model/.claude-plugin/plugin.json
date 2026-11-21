@@ -1,5 +1,5 @@
 {
   "name": "models",
-  "version": "2.3.2",
-  "description": "Work with the model itself: extension-author (skills, plugins and hooks across Claude Code, Codex, OpenCode, oh-my-pi) and reflect (mine sessions for agent struggles and propose fixes)."
+  "version": "2.4.0",
+  "description": "Work with the model itself: extension-author (skills, plugins and hooks across Claude Code, Codex, OpenCode, oh-my-pi), reflect (mine sessions for agent struggles and propose fixes) and tiers (route each subagent to the cheapest model tier: one tier-to-model map, the reader, builder and reasoner agents, and the model-tier-guard hook that makes every spawn name its tier)."
 }

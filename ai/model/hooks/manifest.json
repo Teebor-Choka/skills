@@ -1,0 +1,11 @@
+{
+  "hooks": [
+    {
+      "id": "model-tier-guard",
+      "event": "tool.before",
+      "tools": ["agent.spawn"],
+      "script": "hooks/model-tier-guard.py",
+      "enforce": "block"
+    }
+  ]
+}

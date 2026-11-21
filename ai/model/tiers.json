@@ -1,0 +1,22 @@
+{
+  "tiers": {
+    "light": {
+      "claude": "haiku",
+      "codex": "TODO",
+      "opencode": "TODO",
+      "omp": "TODO"
+    },
+    "execution": {
+      "claude": "sonnet",
+      "codex": "TODO",
+      "opencode": "TODO",
+      "omp": "TODO"
+    },
+    "reasoning": {
+      "claude": "opus",
+      "codex": "TODO",
+      "opencode": "TODO",
+      "omp": "TODO"
+    }
+  }
+}
