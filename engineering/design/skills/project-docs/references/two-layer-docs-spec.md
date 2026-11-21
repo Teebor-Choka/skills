@@ -16,14 +16,14 @@ deleted.
 | Layer     | Docs                                                          | Authoring skill                    | Contract and enforcement |
 | --------- | ------------------------------------------------------------- | ---------------------------------- | ------------------------ |
 | Project   | `docs/overview.md`, `spec.md`, `process.md`, `decisions/`     | `design:project-docs`              | `design:project-docs`    |
-| Component | `docs/components/<component>.md`, one page per component      | `swe:component-docs` (new)         | `design:project-docs`    |
+| Component | `docs/components/<component>.md`, one page per component      | `swe-workflows:document` (new)     | `design:project-docs`    |
 | Generated | `docs/generated/architecture.md`, `docs/generated/index.html` | none (written by `render_docs.py`) | `design:project-docs`    |
 
 - **`design:project-docs` stays in `design` under its current name** (resolves #135 and #138 without
   a move). It owns design records: the overview, the architecture and the ADRs, the same artefacts
   `architect` produces forward and this skill records as built. Sessions, hooks and other skills
   already invoke `design:project-docs`, so a move would break each caller for no gain in behaviour.
-- **`swe:component-docs` is authoring only.** It explores code and writes component pages; it is
+- **`swe-workflows:document` is authoring only.** It explores code and writes component pages; it is
   engineering work done next to the code change, so it sits in `swe`. The component contract, the
   component resolver, the validator rules and the renderer stay in `project-docs`, which keeps one
   contract for both layers and the same authoring/enforcement split the skill already has.
@@ -36,7 +36,7 @@ Component, component name, internal dependency and page name: see
 ## Valid inputs
 
 1. **Adoption.** Built in P1: component rules apply only where `docs/components/` exists. From P3 on
-   (once `swe:component-docs` can write the pages), the validator shall also emit
+   (once `swe-workflows:document` can write the pages), the validator shall also emit
    `components-not-adopted` when the repo resolves to two or more components and the policy key
    `docs.components.adopt` is not `false`, so the layer cannot be skipped by omission. That rule
    turns existing conformant monorepos red, so it ships as a major version of the `design` plugin.
@@ -85,7 +85,7 @@ component rules stays under 3 s at that size.
 | GitHub                | renders mermaid in `.md` files and PR bodies          | `architecture.md` stays readable as source                                                              |
 | jsDelivr              | serves the pinned mermaid build matching the SRI hash | `index.html` shows the mermaid source unrendered; no fallback fetch                                     |
 | Formatter (prettier)  | leaves `docs/generated/` alone                        | `--check` drifts forever; `install_hook.sh` prints the treefmt/prettier exclude for `docs/generated/**` |
-| `design:project-docs` | installed beside `swe:component-docs`                 | component-docs HALTs `needs-input`, field `project-docs`, supply `--project-docs <dir>`                 |
+| `design:project-docs` | installed beside `swe-workflows:document`             | document HALTs `needs-input`, field `project-docs`, supply `--project-docs <dir>`                       |
 
 ## Assumptions
 
@@ -135,7 +135,7 @@ _If an agent built this, passed all tests, but behaved wrong, what did I miss?_ 
 | Phase | Deliverable                                                                                                                                                                                                       | Plugin, version                        | Acceptance     |
 | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | -------------- |
 | P2    | `scripts/render_docs.py` (both layers, `--check`, `--pr-summary`, trigger in warn mode, `--trigger-audit`)                                                                                                        | design, minor                          | AT-11 to AT-25 |
-| P3    | `swe:component-docs` skill: explore, write pages, `needs-input`, `--interactive`; validator rule `components-not-adopted`                                                                                         | swe, minor; design, major; marketplace | AT-26 to AT-30 |
+| P3    | `swe-workflows:document` skill: explore, write pages, `needs-input`, `--interactive`; validator rule `components-not-adopted`                                                                                     | swe, minor; design, major; marketplace | AT-26 to AT-30 |
 | P4    | `install_hook.sh` pre-push render check and formatter exclude; Nix `checks.<system>.project-docs-render` (drift only); `AGENTS.pointer.md` mandatory line; `flow.md` render step after validate; `enforcement.md` | design, minor                          | AT-31 to AT-35 |
 | P5    | Teebor-Choka/skills-private `engineering/git/skills/workflow` PR conventions: paste `--pr-summary` when `docs/**/*.md` changes                                                                                    | git (private), patch                   | AT-36          |
 | P6    | Trigger promotion: run the audit, label hits, flip default when the rule holds                                                                                                                                    | design, minor                          | AT-37          |
@@ -161,7 +161,7 @@ P1 (AT-1 to AT-10) is built; see the tests named under "Work breakdown".
 P2 (AT-11 to AT-25) is built; see `tests/test_render_docs.py`. AT-18 is checked there only where
 prettier is installed; the formatter exclude itself is P4 (AT-34).
 
-P3, `swe:component-docs`:
+P3, `swe-workflows:document`:
 
 26. Run non-interactively on a fixture workspace: one conforming page per component, validator clean.
 27. Unsupported workspace: the skill returns the `needs-input` result unchanged and writes nothing.

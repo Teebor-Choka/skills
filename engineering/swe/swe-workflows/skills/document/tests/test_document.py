@@ -1,4 +1,4 @@
-"""Tests for the component-docs skill (spec AT-26 to AT-29): the resolve/scaffold helper and the
+"""Tests for the document skill (spec AT-26 to AT-29): the resolve/scaffold helper and the
 skill's structure. The skill text itself is prose; these pin what can be checked deterministically."""
 
 import json
@@ -176,7 +176,7 @@ def split(text: str):
 
 def test_frontmatter_names_the_skill_and_its_triggers():
     fm, _ = split((SKILL / "SKILL.md").read_text())
-    assert re.search(r"^name: component-docs$", fm, re.M)
+    assert re.search(r"^name: document$", fm, re.M)
     desc = " ".join(fm.split("description:", 1)[1].split())
     assert "public API" in desc and "adding a component" in desc
 

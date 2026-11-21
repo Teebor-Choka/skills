@@ -19,10 +19,10 @@ Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`; a domain with one plugin i
 |                 | `triage`            | Turn a vague issue into implementable items with a spec                 |
 |                 | `by-angle`          | Red-first block loop plus four read-only review angles                  |
 |                 | `code-quality`      | Risk audit from complexity, coverage, duplication metrics               |
+|                 | `document`          | Write and update one docs page per component (needs `design`)           |
 |                 | (hooks, commands)   | Policy gate, skill gate, isolated-reviewer agent, work-mode commands    |
 | `swe`           | `rust`              | Rust house guidelines on every change                                   |
 |                 | `typescript`        | TypeScript and JavaScript house guidelines on every change              |
-|                 | `component-docs`    | Write and update one docs page per component                            |
 | `devops`        | `ci`                | Harden GitHub Actions workflows, configure Renovate                     |
 |                 | `security`          | Run secret, dependency, SAST, CI scanners; AI triage                    |
 |                 | `deploy`            | Deploy a revision and verify it from real logs or state                 |

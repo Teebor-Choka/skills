@@ -78,7 +78,7 @@
       "source": "./engineering/design",
       "strict": true,
       "metadata": {
-        "version": "5.1.2"
+        "version": "5.1.3"
       }
     },
     {
@@ -92,25 +92,28 @@
     },
     {
       "name": "swe-workflows",
-      "description": "The engineered per-task software workflow: the implement skill (spec-check, test-first ATDD\u2192TDD, quality, isolated adversarial review, change-request, review loop, integrate, retrospective) plus a policy-gate hook that enforces the repo's .agents/policy at commit/ready/integrate (blocks in mode:team, warns in mode:single), and the default `sw-development` procedure (procedures/sw-development.md). Siblings triage and find-bug feed implement; by-angle (red-first block loop plus four review angles) and code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass) are the read-only review skills. Also ships the skill-gate hook, the isolated-reviewer agent and the feature, fix, infra, investigate, next, pickup, review and worker commands. Needs the `harness` plugin (`harness:policy`) for the policy loader.",
+      "description": "The engineered per-task software workflow: the implement skill (spec-check, test-first ATDD\u2192TDD, quality, isolated adversarial review, change-request, review loop, integrate, retrospective) plus a policy-gate hook that enforces the repo's .agents/policy at commit/ready/integrate (blocks in mode:team, warns in mode:single), and the default `sw-development` procedure (procedures/sw-development.md). Siblings triage and find-bug feed implement; by-angle (red-first block loop plus four review angles) and code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass) are the read-only review skills. document writes and updates one docs page per component under docs/components/. Also ships the skill-gate hook, the isolated-reviewer agent and the feature, fix, infra, investigate, next, pickup, review and worker commands. Needs the `harness` plugin (`harness:policy`) for the policy loader and the `design` plugin (`design:project-docs`) for document's docs tooling.",
       "source": "./engineering/swe/swe-workflows",
       "dependencies": [
         {
           "name": "harness"
+        },
+        {
+          "name": "design"
         }
       ],
       "strict": true,
       "metadata": {
-        "version": "1.4.0"
+        "version": "1.5.0"
       }
     },
     {
       "name": "swe",
-      "description": "Engineering practice skills: rust and typescript (house guidelines on every change), performance (profile, optimize, benchmark) and component-docs (write and update component pages).",
+      "description": "Engineering practice skills: rust and typescript (house guidelines on every change) and performance (profile, optimize, benchmark).",
       "source": "./engineering/swe/swe",
       "strict": true,
       "metadata": {
-        "version": "3.0.0"
+        "version": "4.0.0"
       }
     },
     {

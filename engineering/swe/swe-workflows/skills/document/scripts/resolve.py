@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve a project's components for component-docs, and optionally scaffold their pages.
+"""Resolve a project's components for the document skill, and optionally scaffold their pages.
 
 Finds the docs tooling's components.py and runs it, passing its stdout and exit code through
 unchanged: 0 resolved, 2 unreadable input, 3 needs-input. When the tooling cannot be found, or

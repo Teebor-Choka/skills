@@ -1,5 +1,5 @@
 ---
-name: component-docs
+name: document
 description: >
   Write or update a component page, under docs/components/, one per crate, package or module
   with a public API. Use when a change adds, removes or renames a public API item, changes how
@@ -8,7 +8,7 @@ description: >
   generation.
 ---
 
-# component-docs
+# document
 
 One page per component, written next to the code change that makes it true. The page is a
 short map for the next reader: what the component is for, how it is built, what a caller uses,
