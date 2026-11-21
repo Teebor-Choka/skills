@@ -63,4 +63,4 @@ def test_insertion_and_tier_are_stated():
 
 
 def test_plugin_manifest_matches_the_skill():
-    assert json.loads(PLUGIN.read_text())["name"] == "deploy"
+    assert json.loads(PLUGIN.read_text())["name"] == "devops"

@@ -1,5 +1,0 @@
-{
-  "name": "ops",
-  "version": "1.0.0",
-  "description": "Shared operating settings: policy (the layered .agents/policy settings a skill reads instead of hardcoding a constant, with its loader)."
-}

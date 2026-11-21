@@ -1,0 +1,5 @@
+{
+  "name": "devops",
+  "version": "1.0.0",
+  "description": "Operate and secure what ships: security (gitleaks, trufflehog, osv-scanner, semgrep, SkillSpector, garak, nuclei, strix plus an AI triage pass) and deploy (deploy a released or integrated revision and verify it from real logs or state; a failed verification leaves the stage open with the evidence)."
+}

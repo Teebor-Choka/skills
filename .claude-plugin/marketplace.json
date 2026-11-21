@@ -6,25 +6,34 @@
   },
   "metadata": {
     "description": "Public AI agent skills \u2014 practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "3.0.0"
+    "version": "4.0.0"
   },
   "plugins": [
     {
-      "name": "orchestrate",
-      "description": "Coordinate several agents on one shared goal through a shared work board: orchestrate:pull (alias swarm, peer-to-peer) and orchestrate:assign (alias direct, thin dispatcher), with shared claim/lease/reap mechanics, charter, escalation ladder and role cards.",
-      "source": "./agents/orchestrate",
+      "name": "harness",
+      "description": "Agent harness: harness:pull (alias swarm, peer-to-peer) and harness:assign (alias direct, thin dispatcher) over a shared work board with claim/lease/reap mechanics, charter, escalation ladder and role cards; tracker (live dependency map of a build's progress); policy (layered .agents/policy settings and their loader); guard hooks for polling wakes, unlinked messages, repeated review spawns, secret reads and large whole-file reads.",
+      "source": "./ai/harness",
       "strict": true,
       "metadata": {
-        "version": "2.3.0"
+        "version": "3.0.0"
       }
     },
     {
-      "name": "ops",
-      "description": "Shared operating settings: policy (the layered .agents/policy settings a skill reads instead of hardcoding a constant, with its loader).",
-      "source": "./agents/ops",
+      "name": "models",
+      "description": "Work with the model itself: extension-author (skills, plugins and hooks across Claude Code, Codex, OpenCode, oh-my-pi) and reflect (mine sessions for agent struggles and propose fixes).",
+      "source": "./ai/model",
       "strict": true,
       "metadata": {
-        "version": "1.0.0"
+        "version": "2.3.2"
+      }
+    },
+    {
+      "name": "writing",
+      "description": "Plain, human prose: unslop (remove AI tells) and prose-craft (compose and tighten).",
+      "source": "./communication/writing",
+      "strict": true,
+      "metadata": {
+        "version": "2.0.1"
       }
     },
     {
@@ -37,12 +46,21 @@
       }
     },
     {
-      "name": "deploy",
-      "description": "Deploy stage of a delivery pipeline: deploy a released or integrated revision and verify it from real logs or state. A failed verification leaves the stage open with the evidence.",
-      "source": "./engineering/ci/deploy",
+      "name": "design",
+      "description": "Design and plan before building: architect (work package), ramble (grill a rough idea into a brief), decompose (cut into parallel units), graph-engine (waves and critical path), project-docs (standard docs/ with a validator).",
+      "source": "./engineering/design",
       "strict": true,
       "metadata": {
-        "version": "1.0.1"
+        "version": "5.1.1"
+      }
+    },
+    {
+      "name": "devops",
+      "description": "Operate and secure what ships: security (gitleaks, trufflehog, osv-scanner, semgrep, SkillSpector, garak, nuclei, strix plus an AI triage pass) and deploy (deploy a released or integrated revision and verify it from real logs or state; a failed verification leaves the stage open with the evidence).",
+      "source": "./engineering/infra/devops",
+      "strict": true,
+      "metadata": {
+        "version": "1.0.0"
       }
     },
     {
@@ -55,30 +73,21 @@
       }
     },
     {
-      "name": "design",
-      "description": "Design and plan before building: architect (work package), ramble (grill a rough idea into a brief), decompose (cut into parallel units), graph-engine (waves and critical path), project-docs (standard docs/ with a validator).",
-      "source": "./engineering/design",
-      "strict": true,
-      "metadata": {
-        "version": "5.1.1"
-      }
-    },
-    {
       "name": "review",
-      "description": "Read-only review: by-angle (red-first block loop plus four review angles), code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass), and security (gitleaks, trufflehog, osv-scanner, semgrep, SkillSpector, garak, nuclei, strix plus an AI triage pass).",
+      "description": "Read-only review: by-angle (red-first block loop plus four review angles) and code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass).",
       "source": "./engineering/swe/review",
       "strict": true,
       "metadata": {
-        "version": "2.2.3"
+        "version": "3.0.0"
       }
     },
     {
-      "name": "guardrails",
-      "description": "Hook guardrails for agent sessions: ask before a command or Read prints a secret into the transcript, and nudge or deny whole-file reads of large files.",
-      "source": "./engineering/guardrails",
+      "name": "swe",
+      "description": "Engineering practice skills: rust and typescript (house guidelines on every change), performance (profile, optimize, benchmark) and component-docs (write and update component pages).",
+      "source": "./engineering/swe/swe",
       "strict": true,
       "metadata": {
-        "version": "1.1.1"
+        "version": "3.0.0"
       }
     },
     {
@@ -91,12 +100,12 @@
       }
     },
     {
-      "name": "swe",
-      "description": "Engineering practice skills: rust and typescript (house guidelines on every change), performance (profile, optimize, benchmark), component-docs (write and update component pages) and tracker (live dependency map of a build's progress).",
-      "source": "./engineering/swe/swe",
+      "name": "nix",
+      "description": "Operate correctly inside Nix + direnv development repos \u2014 dev-shell entry, nix fmt over cargo fmt, the result-symlink and crane-rustflags build traps, and a lightweight pre-commit override.",
+      "source": "./engineering/tools/nix",
       "strict": true,
       "metadata": {
-        "version": "2.5.1"
+        "version": "1.2.2"
       }
     },
     {
@@ -118,15 +127,6 @@
       }
     },
     {
-      "name": "models",
-      "description": "Work with the model itself: extension-author (skills, plugins and hooks across Claude Code, Codex, OpenCode, oh-my-pi) and reflect (mine sessions for agent struggles and propose fixes).",
-      "source": "./ai/model",
-      "strict": true,
-      "metadata": {
-        "version": "2.3.2"
-      }
-    },
-    {
       "name": "forge-idea",
       "description": "Forge rough ideas into viable ones through cooperative, research-driven iteration.",
       "source": "./research/forge-idea",
@@ -142,24 +142,6 @@
       "strict": true,
       "metadata": {
         "version": "1.0.1"
-      }
-    },
-    {
-      "name": "nix",
-      "description": "Operate correctly inside Nix + direnv development repos \u2014 dev-shell entry, nix fmt over cargo fmt, the result-symlink and crane-rustflags build traps, and a lightweight pre-commit override.",
-      "source": "./engineering/tools/nix",
-      "strict": true,
-      "metadata": {
-        "version": "1.2.2"
-      }
-    },
-    {
-      "name": "writing",
-      "description": "Plain, human prose: unslop (remove AI tells) and prose-craft (compose and tighten).",
-      "source": "./communication/writing",
-      "strict": true,
-      "metadata": {
-        "version": "2.0.1"
       }
     }
   ],
