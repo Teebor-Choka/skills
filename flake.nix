@@ -161,7 +161,8 @@
 
           # The built closure: it ships the docs tooling as skills/project-docs (no SKILL.md, so the
           # plugin's skill set equals the source's), and the document skill's resolve.py finds it there
-          # with no marketplace checkout and an empty HOME.
+          # with no marketplace checkout and an empty HOME, scaffolds pages from it, and its validator
+          # accepts them but for the placeholder API row.
           swe-workflows-closure =
             pkgs.runCommand "swe-workflows-closure-tests"
               {
@@ -179,12 +180,18 @@
                 test ! -e $p/skills/project-docs/SKILL.md
                 diff <(cd ${self}/engineering/swe/swe-workflows/skills && ls -d */SKILL.md) \
                   <(cd $p/skills && ls -d */SKILL.md)
+                cp -r ${self}/engineering/design/skills/project-docs/tests/fixtures/conformant repo
+                chmod -R u+w repo
                 mkdir -p repo/crates/a/src
                 printf '[workspace]\nmembers = ["crates/*"]\n' > repo/Cargo.toml
                 printf '[package]\nname = "a"\nversion = "0.1.0"\n' > repo/crates/a/Cargo.toml
                 touch repo/crates/a/src/lib.rs
                 python3 $p/skills/document/scripts/resolve.py repo > out.json
                 python3 -c 'import json; assert [c["name"] for c in json.load(open("out.json"))["components"]] == ["a"]'
+                python3 $p/skills/document/scripts/resolve.py repo --scaffold > /dev/null
+                test -f repo/docs/components/a.md
+                python3 $p/skills/project-docs/scripts/validate_docs.py repo --json > findings.json || true
+                python3 -c 'import json; r = sorted(f["rule"] for f in json.load(open("findings.json"))); assert r == ["component-api-unknown"], r'
                 touch $out
               '';
 
