@@ -240,6 +240,7 @@
                   pkgs.rust-code-analysis
                   pkgs.git
                   pkgs.jq
+                  pkgs.prettier # project-docs AT-18 skips without it
                   codeQualityTools.cargo-crap
                   codeQualityTools.cargo-iceberg4rust
                   codeQualityTools.cargo-anatomy
