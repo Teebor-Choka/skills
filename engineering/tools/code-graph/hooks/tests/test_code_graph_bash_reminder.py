@@ -1,4 +1,4 @@
-"""Table-driven tests for hooks/mcp-bash-reminder. Run: python3 -m pytest hooks/tests"""
+"""Table-driven tests for hooks/code-graph-bash-reminder. Run: python3 -m pytest hooks/tests"""
 import importlib.machinery
 import importlib.util
 import json
@@ -10,7 +10,7 @@ import unittest
 
 from cg_support import Sandbox
 
-HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "mcp-bash-reminder")
+HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code-graph-bash-reminder")
 _loader = importlib.machinery.SourceFileLoader("mcp_bash_reminder", HOOK)
 _spec = importlib.util.spec_from_loader("mcp_bash_reminder", _loader)
 reminder = importlib.util.module_from_spec(_spec)

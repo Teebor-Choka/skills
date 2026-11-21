@@ -4,7 +4,7 @@
 # instead of adding a project per worktree that outlives the pruned worktree. A submodule or a
 # bare-repo worktree (common dir not named .git) keeps its own toplevel. Exits 1 outside git.
 # The name mirrors codebase-memory-mcp's rule: the path without its leading "/", "/" -> "-".
-# Shared by git-index, git-reindex, mcp-subagent-context, index-repo-rewrite.
+# Shared by code-graph-index, code-graph-reindex, code-graph-subagent-reminder, code-graph-index-rewrite.
 set -euo pipefail
 
 dir="${1:-$PWD}"

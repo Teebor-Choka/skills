@@ -1,43 +1,43 @@
 {
   "hooks": [
     {
-      "id": "git-index",
+      "id": "code-graph-index",
       "event": "session.start",
       "matcher": "startup|resume",
-      "script": "hooks/git-index",
+      "script": "hooks/code-graph-index",
       "enforce": "warn"
     },
     {
-      "id": "git-reindex",
+      "id": "code-graph-reindex",
       "event": "stop",
-      "script": "hooks/git-reindex",
+      "script": "hooks/code-graph-reindex",
       "enforce": "warn"
     },
     {
-      "id": "mcp-bash-reminder",
+      "id": "code-graph-bash-reminder",
       "event": "tool.before",
       "tools": ["shell"],
-      "script": "hooks/mcp-bash-reminder",
+      "script": "hooks/code-graph-bash-reminder",
       "enforce": "warn"
     },
     {
-      "id": "mcp-find-reminder",
+      "id": "code-graph-find-reminder",
       "event": "tool.before",
       "matcher": "Grep|Glob",
-      "script": "hooks/mcp-find-reminder",
+      "script": "hooks/code-graph-find-reminder",
       "enforce": "warn"
     },
     {
-      "id": "index-repo-rewrite",
+      "id": "code-graph-index-rewrite",
       "event": "tool.before",
       "matcher": "mcp__codebase-memory-mcp__index_repository",
-      "script": "hooks/index-repo-rewrite",
+      "script": "hooks/code-graph-index-rewrite",
       "enforce": "warn"
     },
     {
-      "id": "mcp-subagent-context",
+      "id": "code-graph-subagent-reminder",
       "event": "subagent.start",
-      "script": "hooks/mcp-subagent-context",
+      "script": "hooks/code-graph-subagent-reminder",
       "enforce": "warn"
     }
   ]

@@ -1,4 +1,4 @@
-"""Tests for hooks/repo-root and hooks/index-repo-rewrite. Run: python3 -m pytest hooks/tests"""
+"""Tests for hooks/repo-root and hooks/code-graph-index-rewrite. Run: python3 -m pytest hooks/tests"""
 import json
 import os
 import subprocess
@@ -8,7 +8,7 @@ import unittest
 
 HOOKS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 REPO_ROOT = os.path.join(HOOKS, "repo-root")
-REWRITE = os.path.join(HOOKS, "index-repo-rewrite")
+REWRITE = os.path.join(HOOKS, "code-graph-index-rewrite")
 
 
 def git(*args, cwd):
@@ -85,7 +85,7 @@ class IndexRepoRewrite(Fixture):
         readme = os.path.join(HOOKS, "..", "README.md")
         with open(readme) as f:
             text = f.read().lower()
-        self.assertIn("index-repo-rewrite", text)
+        self.assertIn("code-graph-index-rewrite", text)
         self.assertIn("unverified", text)
         self.assertIn("claude code only", text)
 

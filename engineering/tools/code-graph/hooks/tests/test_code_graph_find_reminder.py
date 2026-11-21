@@ -1,11 +1,11 @@
-"""Tests for hooks/mcp-find-reminder. Run: python3 -m pytest hooks/tests"""
+"""Tests for hooks/code-graph-find-reminder. Run: python3 -m pytest hooks/tests"""
 import json
 import os
 import unittest
 
 from cg_support import Sandbox
 
-HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "mcp-find-reminder")
+HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code-graph-find-reminder")
 
 
 class McpFindReminder(unittest.TestCase):

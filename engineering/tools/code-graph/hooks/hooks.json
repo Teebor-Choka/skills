@@ -4,7 +4,7 @@
       {
         "hooks": [
           {
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/mcp-bash-reminder\"",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/code-graph-bash-reminder\"",
             "type": "command"
           }
         ],
@@ -13,7 +13,7 @@
       {
         "hooks": [
           {
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/mcp-find-reminder\"",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/code-graph-find-reminder\"",
             "type": "command"
           }
         ],
@@ -22,7 +22,7 @@
       {
         "hooks": [
           {
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/index-repo-rewrite\"",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/code-graph-index-rewrite\"",
             "type": "command"
           }
         ],
@@ -33,7 +33,7 @@
       {
         "hooks": [
           {
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/git-index\"",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/code-graph-index\"",
             "type": "command"
           }
         ],
@@ -44,7 +44,7 @@
       {
         "hooks": [
           {
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/git-reindex\"",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/code-graph-reindex\"",
             "type": "command"
           }
         ]
@@ -54,7 +54,7 @@
       {
         "hooks": [
           {
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/mcp-subagent-context\"",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/code-graph-subagent-reminder\"",
             "type": "command"
           }
         ]

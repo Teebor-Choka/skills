@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PreToolUse hook (tools: Grep, Glob): a non-blocking, once-per-session nudge to reach
 # for the codebase-memory-mcp graph before grepping for code. NEVER blocks — it only injects
-# additionalContext, so a legitimate grep/glob always proceeds. Same guard as git-index
+# additionalContext, so a legitimate grep/glob always proceeds. Same guard as code-graph-index
 # (git work tree + codebase-memory-mcp on PATH); outside that it is a silent no-op.
 #
 # Fires on the 1st, 6th and 16th Grep/Glob of a session (a per-session counter), so a nudge the agent

@@ -1,4 +1,4 @@
-"""Tests for hooks/mcp-subagent-context (SubagentStart): only the code-graph directive lives here.
+"""Tests for hooks/code-graph-subagent-reminder (SubagentStart): only the code-graph directive lives here.
 Run: python3 -m pytest hooks/tests"""
 import json
 import os
@@ -6,7 +6,7 @@ import unittest
 
 from cg_support import Sandbox
 
-HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "mcp-subagent-context")
+HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code-graph-subagent-reminder")
 
 
 class SubagentContext(unittest.TestCase):

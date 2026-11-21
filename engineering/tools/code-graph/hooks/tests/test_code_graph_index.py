@@ -1,4 +1,4 @@
-"""Tests for hooks/git-index (SessionStart). Run: python3 -m pytest hooks/tests"""
+"""Tests for hooks/code-graph-index (SessionStart). Run: python3 -m pytest hooks/tests"""
 import json
 import os
 import time
@@ -6,7 +6,7 @@ import unittest
 
 from cg_support import Sandbox, git
 
-HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "git-index")
+HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code-graph-index")
 
 
 def context(result):

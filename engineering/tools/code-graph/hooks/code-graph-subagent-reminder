@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # SubagentStart hook: subagents do NOT inherit the parent's CLAUDE.md or output style, so the
-# "query the knowledge graph instead of exploring by hand" directive that git-index injects for the main
+# "query the knowledge graph instead of exploring by hand" directive that code-graph-index injects for the main
 # session never reaches them. Re-inject it here at spawn. Register it for all subagents (no matcher).
 #
-# Fires only inside a git work tree with codebase-memory-mcp on PATH (same guard as git-index), else it
-# prints nothing. Keep the directive text in sync with git-index. Reads the payload `cwd`
+# Fires only inside a git work tree with codebase-memory-mcp on PATH (same guard as code-graph-index), else it
+# prints nothing. Keep the directive text in sync with code-graph-index. Reads the payload `cwd`
 # (CLAUDE_PROJECT_DIR only when it is absent).
 set -euo pipefail
 

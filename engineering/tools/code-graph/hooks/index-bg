@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Index one repo into codebase-memory-mcp in the background. Usage: index-bg <repo-root>.
-# Shared by git-index (SessionStart) and git-reindex (Stop), so both take the same per-repo lock.
+# Shared by code-graph-index (SessionStart) and code-graph-reindex (Stop), so both take the same per-repo lock.
 #
 # Lock: a directory under $HOME/.cache named by a hash of the repo path, holding the pid of the job.
 # A lock is stale, and taken over, when its pid is dead or the lock is older than 6 hours.

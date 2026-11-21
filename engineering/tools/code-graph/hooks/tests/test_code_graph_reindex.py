@@ -1,4 +1,4 @@
-"""Tests for hooks/git-reindex (Stop). Run: python3 -m pytest hooks/tests"""
+"""Tests for hooks/code-graph-reindex (Stop). Run: python3 -m pytest hooks/tests"""
 import json
 import os
 import signal
@@ -7,8 +7,8 @@ import unittest
 
 from cg_support import Sandbox, git, make_repo
 
-HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "git-reindex")
-INDEX_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "git-index")
+HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code-graph-reindex")
+INDEX_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code-graph-index")
 
 
 class GitReindex(unittest.TestCase):

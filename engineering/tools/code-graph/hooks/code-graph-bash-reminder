@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """PreToolUse hook (tool: Bash): a non-blocking, once-per-session nudge to reach
 for the codebase-memory-mcp graph before a grep/find sweep run through Bash. NEVER blocks — it
-only injects additionalContext, so a legitimate command always proceeds. Same guard as git-index
-and mcp-find-reminder (git work tree + codebase-memory-mcp on PATH); outside that it is a silent
+only injects additionalContext, so a legitimate command always proceeds. Same guard as code-graph-index
+and code-graph-find-reminder (git work tree + codebase-memory-mcp on PATH); outside that it is a silent
 no-op.
 
-mcp-find-reminder already covers the Grep/Glob tools; this is the gap it leaves open — a sweep
+code-graph-find-reminder already covers the Grep/Glob tools; this is the gap it leaves open — a sweep
 run via Bash (`grep -r`, `rg`, `find -name`, …) got no nudge at all. The command is tokenized
 with shlex (standalone, no shared imports) and split on
 unquoted control operators, so each pipeline/compound segment is checked independently; any
 segment matching a sweep pattern fires the nudge. Deliberately narrow: a single-file `grep`/`cat`
 with no recursion flag is NOT a sweep and never fires, to keep false positives low. Fires at most
-once per session (separate marker from mcp-find-reminder's, since these catch different mistakes).
+once per session (separate marker from code-graph-find-reminder's, since these catch different mistakes).
 Tests: hooks/tests/test_mcp_bash_reminder.py.
 Schema: https://docs.claude.com/en/docs/claude-code/hooks
 """

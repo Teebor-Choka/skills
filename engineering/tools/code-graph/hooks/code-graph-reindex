@@ -5,7 +5,7 @@
 # codebase-memory-mcp is absent, when the tree is clean (nothing to update), or when a refresh for
 # this repo is already running. Runs in the background and never blocks the turn (exits 0, silent).
 #
-# The main checkout is the unit (same project as git-index, via repo-root). Edits in a linked
+# The main checkout is the unit (same project as code-graph-index, via repo-root). Edits in a linked
 # worktree don't touch the main checkout's files, so they leave it clean and skip the refresh. codebase-memory re-hashes
 # incrementally, so a refresh of a barely-changed repo is cheap. Only catches edits on disk —
 # changes made and then committed before the turn ends leave a clean tree and are skipped (the
