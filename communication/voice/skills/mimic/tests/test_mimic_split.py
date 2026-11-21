@@ -76,11 +76,45 @@ class Stratification(unittest.TestCase):
             self.assertLessEqual(abs(test[key] - n_test * cnt / n_all), 1.0, key)
 
     def test_rare_short_band_still_gets_a_test_item(self):
-        recs = [r for r in synth_records(150) if r["channel"] == "email"][:45]
+        # 95 long + 2 short, T=20: largest remainder alone gives short 0 slots (0.41 < 0.59).
+        recs = [r for r in synth_records(300) if r["channel"] == "email"][:95]
         recs += [{"text": "nope", "channel": "chat"}, {"text": "sure thing pal", "channel": "chat"}]
         r = ingest_split(self.sb, recs)
         self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(slices(self.sb)["test"]), 20)
         self.assertIn("short", {x["band"] for x in slices(self.sb)["test"]})
+
+
+class ShortNearDuplicates(unittest.TestCase):
+    def test_short_variants_cluster(self):
+        texts = ["sounds good to me", "sounds good to me then", "nope", "lol yes", "on it, back by 5"]
+        roots = mimiclib.near_dup_clusters(texts)
+        self.assertEqual(roots[0], roots[1])
+        self.assertEqual(len(set(roots)), 4)
+
+
+class ContextLeak(unittest.TestCase):
+    def setUp(self):
+        self.sb = Sandbox()
+
+    def tearDown(self):
+        self.sb.close()
+
+    def test_train_context_quoting_a_held_out_message_is_redacted(self):
+        recs = synth_records(60)
+        for i, r in enumerate(recs):
+            r["id"] = f"m{i}"
+            r.pop("reply_to", None)
+        for i in range(1, 60):  # every message replies to the one before it, a self-reply chain
+            recs[i]["reply_to"] = f"m{i - 1}"
+        self.assertEqual(ingest_split(self.sb, recs).returncode, 0)
+        s = slices(self.sb)
+        held = [h["text"] for h in s["test"] + s["dev"]]
+        for t in s["train"]:
+            for h in held:
+                self.assertNotIn(mimiclib.canonical(h), mimiclib.canonical(t["context"]) if t["context"] else "")
+        manifest = json.loads((self.sb.state("pat") / "split" / "manifest.json").read_text())
+        self.assertGreater(manifest["redacted_contexts"], 0)
 
 
 class Sizes(unittest.TestCase):
@@ -116,6 +150,16 @@ class Sizes(unittest.TestCase):
         r = self.sb.run("split.py", "--persona", "pat")
         self.assertEqual(r.returncode, 2)
         self.assertEqual(self.sb.run("split.py", "--persona", "pat", "--force").returncode, 0)
+
+    def test_a_profile_blocks_resplitting_and_a_forced_resplit_invalidates_it(self):
+        ingest_split(self.sb, synth_records(80))
+        self.assertEqual(self.sb.run("profile.py", "skeleton", "--persona", "pat").returncode, 0)
+        r = self.sb.run("split.py", "--persona", "pat", "--seed", "8")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("profile.md", r.stderr)
+        self.assertEqual(self.sb.run("split.py", "--persona", "pat", "--seed", "8", "--force").returncode, 0)
+        v = self.sb.run("profile.py", "validate", "--persona", "pat")
+        self.assertIn("another split", v.stdout)
 
     def test_no_corpus_exits_2(self):
         self.assertEqual(self.sb.run("split.py", "--persona", "nobody").returncode, 2)

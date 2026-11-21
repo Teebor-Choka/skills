@@ -94,13 +94,22 @@ class Verdict(unittest.TestCase):
         t = dict(mimiclib.THRESHOLDS, max_id_rate=0.75, min_n=10)
         self.assertEqual(mimiclib.summarize(balanced(12, 9), t)["verdict"], "PASS")
 
-    def test_caricature_warning(self):
+    def test_caricature_fails(self):
+        # A judge that reliably picks the generated one can tell them apart: two-sided band.
         s = mimiclib.summarize(balanced(20, 6))
-        self.assertEqual(s["verdict"], "PASS")
+        self.assertEqual(s["verdict"], "FAIL")
         self.assertTrue(any("caricature" in w for w in s["warnings"]))
+        self.assertEqual(mimiclib.summarize(balanced(20, 7))["verdict"], "PASS")
 
 
 class LeakChecks(unittest.TestCase):
+    def test_emoji_only_messages_have_their_own_key_and_leak_check(self):
+        self.assertLess(mimiclib.similarity("👍", "😂"), 0.7)
+        self.assertEqual(mimiclib.similarity("👍", "👍 "), 1.0)
+        self.assertEqual(len(set(mimiclib.near_dup_clusters(["👍", "😂", "🔥", "..."]))), 4)
+        self.assertTrue(mimiclib.point_leaks("reacts with 👍", "👍"))
+        self.assertFalse(mimiclib.point_leaks("reacts with approval", "👍"))
+
     def test_point_leak_rules(self):
         orig = "can we push the staging db fix to friday please"
         self.assertTrue(mimiclib.point_leaks("asks to push the staging db fix later", orig))
@@ -214,6 +223,37 @@ class EndToEnd(unittest.TestCase):
         self.assertIsNone(items[test[1]["id"]]["excluded"])
         self.assertEqual(items[test[1]["id"]]["extract_attempts"], 2)
         self.assertEqual(items[long_ids[-1]]["excluded"], "copied")
+
+    def test_context_or_intent_quoting_the_original_is_a_leak(self):
+        test = read_jsonl(self.state / "split" / "test.jsonl")
+        data = {"extract": {test[0]["id"]: "quote_context", test[1]["id"]: "quote_intent"}}
+        self.run_eval("--slice", "test", "--stub-script", self.script(data))
+        items = {x["id"]: x for x in read_jsonl(self.state / "rounds" / "test-1" / "items.jsonl")}
+        self.assertEqual(items[test[0]["id"]]["excluded"], "point_leak")
+        self.assertEqual(items[test[1]["id"]]["excluded"], "point_leak")
+
+    def test_a_broken_runner_does_not_burn_the_seal(self):
+        r = self.sb.run("evaluate.py", "run", "--persona", "pat", "--slice", "test", "--runner", "cmd:/nonexistent/runner")
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse((self.state / "split" / "test.sealed").exists())
+        r = self.run_eval("--slice", "test", "--stub-script", self.sb.root / "missing.json")
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse((self.state / "split" / "test.sealed").exists())
+
+    def test_test_runs_counts_seal_entries(self):
+        self.assertEqual(self.run_eval("--slice", "test").returncode, 0)
+        sealed = self.state / "split" / "test.sealed"
+        data = json.loads(sealed.read_text())
+        data["runs"].append({"round": 99, "reason": "crashed run"})
+        sealed.write_text(json.dumps(data))
+        self.assertEqual(self.run_eval("--slice", "test", "--rerun-test", "again").returncode, 0)
+        rep = json.loads((self.state / "rounds" / "test-2" / "report.json").read_text())
+        self.assertEqual(rep["test_runs"], 3)
+
+    def test_non_finite_scores_count_as_zero(self):
+        import evaluate
+        scores, _ = evaluate.parse_scores('{"voice": {"score": NaN}, "length": {"score": Infinity}, "habit": 4}')
+        self.assertEqual((scores["voice"], scores["length"], scores["habit"]), (0.0, 0.0, 4.0))
 
     def test_judge_sees_train_exemplars_and_random_positions(self):
         self.run_eval("--slice", "test")

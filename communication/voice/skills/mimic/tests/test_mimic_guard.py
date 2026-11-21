@@ -66,6 +66,22 @@ class StateDirGuard(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue((repo / "s" / "corpus.jsonl").is_file())
 
+    def test_a_symlink_into_a_repo_is_refused(self):
+        repo = git_repo(self.sb.root / "repo5")
+        (repo / "data").mkdir()
+        link = self.sb.root / "innocent"
+        link.symlink_to(repo / "data")
+        r = self.sb.run("ingest.py", "--state-dir", link / "pat", self.src)
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertFalse((repo / "data" / "pat").exists())
+
+    def test_an_existing_loose_state_dir_is_tightened(self):
+        d = self.sb.state("pat")
+        d.mkdir(parents=True)
+        d.chmod(0o755)
+        self.assertEqual(self.sb.run("ingest.py", "--persona", "pat", self.src).returncode, 0)
+        self.assertEqual(stat.S_IMODE(d.stat().st_mode), 0o700)
+
     def test_a_dot_git_file_without_a_resolvable_repo_is_refused(self):
         wt = self.sb.root / "worktree"
         wt.mkdir()
