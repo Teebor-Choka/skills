@@ -1,0 +1,75 @@
+{
+  "owner": "example-owner",
+  "namespace": "demo",
+  "roles": {
+    "lead": {
+      "escalates-to": "owner",
+      "may-spawn": ["worker", "reviewer", "tester", "ci", "architect", "pm"]
+    },
+    "pm": {
+      "escalates-to": "lead"
+    },
+    "tester": {
+      "escalates-to": "lead"
+    },
+    "ci": {
+      "escalates-to": "lead"
+    },
+    "architect": {
+      "escalates-to": "lead"
+    },
+    "reviewer": {
+      "escalates-to": "lead"
+    },
+    "worker": {
+      "escalates-to": "lead"
+    },
+    "improver": {
+      "escalates-to": "owner"
+    }
+  },
+  "workflows": {
+    "ship": {
+      "path": "workflows/ship.yaml",
+      "floors": ["spec", "review", "release-gate"]
+    },
+    "unit-loop": {
+      "path": "workflows/unit-loop.yaml",
+      "floors": []
+    },
+    "retro": {
+      "path": "workflows/retro.yaml",
+      "floors": []
+    }
+  },
+  "targets": {
+    "rework": {
+      "at-most": 1,
+      "per": "item"
+    },
+    "wrong-failures": {
+      "at-most": 0,
+      "per": "unit"
+    },
+    "coverage": {
+      "at-least": 1.0
+    }
+  },
+  "vetoes": [
+    "no release without the release-gate decision",
+    "no task weakens a floor, a target or a criteria file"
+  ],
+  "checks": {
+    "spec-shape": "shape",
+    "unit-passed": "shape",
+    "report-sections": "shape",
+    "proposals-in-rung": "shape",
+    "workers-done": "shape",
+    "checks-fail-on-assertion": "fact",
+    "checks-green": "fact",
+    "gate-approved": "fact",
+    "fails-for-the-right-reason": "fact",
+    "suite-green": "fact",
+    "tests-untouched": "fact"
+  }
+}

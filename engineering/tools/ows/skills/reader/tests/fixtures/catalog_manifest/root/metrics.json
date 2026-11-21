@@ -1,0 +1,106 @@
+{
+  "escalations": {
+    "scope": "process",
+    "unit": "count per run",
+    "better": "lower",
+    "formula": "Raises to a higher role in one run.",
+    "collector": "collectors/escalations.py",
+    "reads": ["run-ledger"]
+  },
+  "rework": {
+    "scope": "node",
+    "unit": "count per item",
+    "better": "lower",
+    "formula": "Times the spec was reopened after it passed.",
+    "collector": "collectors/rework.py",
+    "reads": ["run-ledger"]
+  },
+  "coverage": {
+    "scope": "node",
+    "unit": "ratio, 0 to 1",
+    "better": "higher",
+    "formula": "Spec criteria with a check, divided by all criteria.",
+    "collector": "collectors/coverage.py",
+    "reads": ["spec.json", "test-ids"]
+  },
+  "wrong-failures": {
+    "scope": "node",
+    "unit": "count per unit",
+    "better": "lower",
+    "formula": "Red runs that failed on an import or compile error instead of an assertion.",
+    "collector": "collectors/wrong_failures.py",
+    "reads": ["test-runner-output"]
+  },
+  "rounds": {
+    "scope": "stage",
+    "unit": "count per item",
+    "better": "lower",
+    "formula": "Rounds until the checks pass.",
+    "collector": "collectors/rounds.py",
+    "reads": ["run-ledger"]
+  },
+  "review-findings": {
+    "scope": "node",
+    "unit": "count per unit",
+    "better": "context",
+    "formula": "Review findings the verdict upheld.",
+    "collector": "collectors/review_findings.py",
+    "reads": ["verdict-records"]
+  },
+  "escaped-defects": {
+    "scope": "process",
+    "unit": "count per 30 days",
+    "better": "lower",
+    "formula": "Defects filed against a released change within 30 days.",
+    "collector": "collectors/escaped_defects.py",
+    "reads": ["tracker"]
+  },
+  "cycle-time": {
+    "scope": "process",
+    "unit": "hours",
+    "better": "lower",
+    "formula": "Release time minus the time the change was requested.",
+    "collector": "collectors/cycle_time.py",
+    "reads": ["run-ledger"]
+  },
+  "decision-time": {
+    "scope": "node",
+    "unit": "hours",
+    "better": "lower",
+    "formula": "Time from the gate opening to the signed decision.",
+    "collector": "collectors/decision_time.py",
+    "reads": ["run-ledger"]
+  },
+  "report-gaps": {
+    "scope": "node",
+    "unit": "count per run",
+    "better": "lower",
+    "formula": "Required report sections that are missing.",
+    "collector": "collectors/report_gaps.py",
+    "reads": ["report.md"]
+  },
+  "proposals": {
+    "scope": "process",
+    "unit": "ratio, 0 to 1",
+    "better": "higher",
+    "formula": "Improvement proposals accepted, divided by all made.",
+    "collector": "collectors/proposals.py",
+    "reads": ["proposal-records"]
+  },
+  "tests-added": {
+    "scope": "node",
+    "unit": "count per unit",
+    "better": "context",
+    "formula": "Tests added or changed in a unit.",
+    "collector": "collectors/tests_added.py",
+    "reads": ["test-ids", "git-diff"]
+  },
+  "diff-size": {
+    "scope": "node",
+    "unit": "count per unit",
+    "better": "context",
+    "formula": "Lines added plus lines removed in a unit.",
+    "collector": "collectors/diff_size.py",
+    "reads": ["git-diff"]
+  }
+}
