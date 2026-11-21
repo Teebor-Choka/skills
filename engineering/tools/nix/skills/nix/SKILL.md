@@ -40,7 +40,7 @@ locally.
 - On macOS, a nix devshell that provides `gnused` puts GNU `sed` on `PATH` ahead of the system
   BSD `sed`. When you specifically need BSD in-place behavior, call `/usr/bin/sed` explicitly —
   GNU and BSD `sed` disagree on `-i` syntax.
-- BSD-only flags (`date -v`, `stat -f`) fail on GNU/Linux paths (ws01, CI), and GNU-only flags fail on
+- BSD-only flags (`date -v`, `stat -f`) fail on GNU/Linux paths (a Linux build host, CI), and GNU-only flags fail on
   macOS. Use a portable form, or branch on `uname`.
 
 ## Build traps
@@ -145,5 +145,5 @@ read [references/gotchas.md](references/gotchas.md).
 - **swe:rust** covers the `.rs` / `Cargo.toml` specifics and the Rust build sequence
   (including `nix fmt` as its first step); apply it for those. This skill owns the Nix/direnv
   build mechanics — the `result` symlink and crane-rustflags traps live only here.
-- **kauki-infra-setup** covers homelab secret injection into hosts and microVMs — a separate,
-  private concern that lives inside the kauki.xyz/infra repo, not general dev workflow.
+- Homelab secret injection into hosts and microVMs is out of scope: it is a separate concern
+  that belongs to the infra repo that runs those hosts, not general dev workflow.

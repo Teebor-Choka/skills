@@ -94,9 +94,9 @@ component rules stays under 3 s at that size.
   itself (open question 1).
 - **A2.** Normal internal dependencies are acyclic in every supported ecosystem when dev and build
   dependencies are excluded.
-- **A3.** The prototype renderer exists only in kauki-labs/sandy worktrees (`scripts/render_docs.py`
-  on the `nav-pointers` and `retro-rules` worktrees), not on sandy `main`. Its `FIXED_ORDER` hardcodes
-  sandy's `docs/architecture/` layout. P2 wrote the renderer from this spec and copied none of it.
+- **A3.** The prototype renderer exists only in feature worktrees of one downstream project
+  (`scripts/render_docs.py`), not on its `main`. Its `FIXED_ORDER` hardcodes that project's
+  `docs/architecture/` layout. P2 wrote the renderer from this spec and copied none of it.
 - **A4.** Committed generated files conflict on parallel docs PRs; the resolution is rebase and
   re-render (#107 open question, option "accept and rebase").
 
@@ -137,7 +137,7 @@ _If an agent built this, passed all tests, but behaved wrong, what did I miss?_ 
 | P2    | `scripts/render_docs.py` (both layers, `--check`, `--pr-summary`, trigger in warn mode, `--trigger-audit`)                                                                                                        | design, minor                          | AT-11 to AT-25 |
 | P3    | `swe-workflows:document` skill: explore, write pages, `needs-input`, `--interactive`; validator rule `components-not-adopted`                                                                                     | swe, minor; design, major; marketplace | AT-26 to AT-30 |
 | P4    | `install_hook.sh` pre-push render check and formatter exclude; Nix `checks.<system>.project-docs-render` (drift only); `AGENTS.pointer.md` mandatory line; `flow.md` render step after validate; `enforcement.md` | design, minor                          | AT-31 to AT-35 |
-| P5    | Teebor-Choka/skills-private `engineering/git/skills/workflow` PR conventions: paste `--pr-summary` when `docs/**/*.md` changes                                                                                    | git (private), patch                   | AT-36          |
+| P5    | `engineering/tools/git/skills/workflow` PR conventions: paste `--pr-summary` when `docs/**/*.md` changes                                                                                                          | git, patch                             | AT-36          |
 | P6    | Trigger promotion: run the audit, label hits, flip default when the rule holds                                                                                                                                    | design, minor                          | AT-37          |
 
 P2 is built: `scripts/render_docs.py` and `tests/test_render_docs.py`; the text moved into
@@ -179,7 +179,7 @@ P4, wiring:
 
 P5 and P6:
 
-36. The skills-private workflow PR conventions name `--pr-summary` for PRs touching `docs/**/*.md`.
+36. The git workflow skill's PR conventions name `--pr-summary` for PRs touching `docs/**/*.md`.
 37. `--trigger-audit` over a known range lists exactly the expected hits; the flip ships only with the labelled count recorded in the PR.
 
 ## Open questions
