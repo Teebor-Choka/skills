@@ -4,49 +4,50 @@ Portable [Agent Skills](https://code.claude.com/docs/en/skills) for Claude Code,
 
 ## Skills
 
-Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`. The host shows `plugin:skill`.
+Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`; a domain with one plugin is the plugin root
+(`research`, `knowledge`, `education`). The host shows `plugin:skill`.
 
-| Plugin              | Skill               | What it does                                                            |
-| ------------------- | ------------------- | ----------------------------------------------------------------------- |
-| `design`            | `architect`         | Turn a fuzzy systems requirement into an executable work package        |
-|                     | `ramble`            | Grill a rough idea into a gap-closed brief for the architect            |
-|                     | `decompose`         | Cut a goal into parallel units and file them                            |
-|                     | `graph-engine`      | Compute parallel waves, critical path, write-set collisions             |
-|                     | `project-docs`      | Standard `docs/` (overview, spec, ADRs) with a validator                |
-| `swe-workflows`     | `implement`         | Per-task loop: spec check, test first, isolated review, integrate       |
-|                     | `find-bug`          | Turn a bug report into a committed failing test                         |
-|                     | `triage`            | Turn a vague issue into implementable items with a spec                 |
-|                     | `by-angle`          | Red-first block loop plus four read-only review angles                  |
-|                     | `code-quality`      | Risk audit from complexity, coverage, duplication metrics               |
-|                     | (hooks, commands)   | Policy gate, skill gate, isolated-reviewer agent, work-mode commands    |
-| `swe`               | `rust`              | Rust house guidelines on every change                                   |
-|                     | `typescript`        | TypeScript and JavaScript house guidelines on every change              |
-|                     | `component-docs`    | Write and update one docs page per component                            |
-| `devops`            | `security`          | Run secret, dependency, SAST, CI scanners; AI triage                    |
-|                     | `deploy`            | Deploy a revision and verify it from real logs or state                 |
-| `harness`           | `assign`, `pull`    | Multi-agent runs over a shared board                                    |
-|                     | `tracker`           | Live dependency map of a multi-unit build's progress                    |
-|                     | `policy`            | The `.agents/policy` format and loader                                  |
-|                     | `session-hygiene`   | Handoffs and session nudges, plus a statusline script                   |
-|                     | (hooks)             | Guard hooks for every session, see [its README](./ai/harness/README.md) |
-| `models`            | `extension-author`  | Author and port skills and plugins across agents                        |
-|                     | `reflect`           | Mine sessions for agent struggles and propose fixes                     |
-|                     | `tiers`             | Route each subagent to the cheapest model tier (agents, guard hook)     |
-| `writing`           | `unslop`            | Remove AI tells from prose                                              |
-|                     | `prose-craft`       | Compose and tighten prose                                               |
-| `voice`             | `voice-style`       | Always-on plain-voice output style and its `unslop-mode` command        |
-| `presentation`      | `patterns`          | Plan, build or review a talk with 88 patterns and antipatterns          |
-|                     | `prep`              | Prepare a talk end to end: structure, build, rehearse                   |
-| `publishing`        | `blog-syndication`  | Cross-post one blog post to Astro, dev.to, Medium and Substack          |
-| `forge-idea`        | `forge-idea`        | Stress-test an idea with parallel agents                                |
-| `grounded-research` | `grounded-research` | Research under a fixed evidence contract                                |
-| `llm-wiki`          | `llm-wiki`          | Build and query a linked Markdown wiki                                  |
-| `media-digest`      | `media-digest`      | Digest yt-dlp media and web articles into loss-checked notes            |
-| `find-ai-moat`      | `find-ai-moat`      | Find where your work complements AI                                     |
-| `github-actions`    | `github-actions`    | Harden workflows, configure Renovate                                    |
-| `nix`               | `nix`               | Nix + direnv dev workflow traps                                         |
-| `git`               | `workflow`          | Git and PR workflow; git-guard hooks and the pr-watcher agent           |
-| `security`          | `yubikey`           | Hardware-backed keys: offline OpenPGP root, FIDO2 SSH, signing          |
+| Plugin          | Skill               | What it does                                                            |
+| --------------- | ------------------- | ----------------------------------------------------------------------- |
+| `design`        | `architect`         | Turn a fuzzy systems requirement into an executable work package        |
+|                 | `ramble`            | Grill a rough idea into a gap-closed brief for the architect            |
+|                 | `decompose`         | Cut a goal into parallel units and file them                            |
+|                 | `graph-engine`      | Compute parallel waves, critical path, write-set collisions             |
+|                 | `project-docs`      | Standard `docs/` (overview, spec, ADRs) with a validator                |
+| `swe-workflows` | `implement`         | Per-task loop: spec check, test first, isolated review, integrate       |
+|                 | `find-bug`          | Turn a bug report into a committed failing test                         |
+|                 | `triage`            | Turn a vague issue into implementable items with a spec                 |
+|                 | `by-angle`          | Red-first block loop plus four read-only review angles                  |
+|                 | `code-quality`      | Risk audit from complexity, coverage, duplication metrics               |
+|                 | `document`          | Write and update one docs page per component (needs `design`)           |
+|                 | (hooks, commands)   | Policy gate, skill gate, isolated-reviewer agent, work-mode commands    |
+| `swe`           | `rust`              | Rust house guidelines on every change                                   |
+|                 | `typescript`        | TypeScript and JavaScript house guidelines on every change              |
+| `devops`        | `ci`                | Harden GitHub Actions workflows, configure Renovate                     |
+|                 | `security`          | Run secret, dependency, SAST, CI scanners; AI triage                    |
+|                 | `deploy`            | Deploy a revision and verify it from real logs or state                 |
+| `harness`       | `assign`, `pull`    | Multi-agent runs over a shared board                                    |
+|                 | `tracker`           | Live dependency map of a multi-unit build's progress                    |
+|                 | `policy`            | The `.agents/policy` format and loader                                  |
+|                 | `session-hygiene`   | Handoffs and session nudges, plus a statusline script                   |
+|                 | (hooks)             | Guard hooks for every session, see [its README](./ai/harness/README.md) |
+| `model`         | `extension-author`  | Author and port skills and plugins across agents                        |
+|                 | `reflect`           | Mine sessions for agent struggles and propose fixes                     |
+|                 | `tiers`             | Route each subagent to the cheapest model tier (agents, guard hook)     |
+| `writing`       | `unslop`            | Remove AI tells from prose                                              |
+|                 | `prose-craft`       | Compose and tighten prose                                               |
+| `voice`         | `voice-style`       | Always-on plain-voice output style and its `unslop-mode` command        |
+| `presentation`  | `patterns`          | Plan, build or review a talk with 88 patterns and antipatterns          |
+|                 | `prep`              | Prepare a talk end to end: structure, build, rehearse                   |
+| `publishing`    | `blog-syndication`  | Cross-post one blog post to Astro, dev.to, Medium and Substack          |
+| `research`      | `forge-idea`        | Stress-test an idea with parallel agents                                |
+|                 | `grounded-research` | Research under a fixed evidence contract                                |
+| `knowledge`     | `llm-wiki`          | Build and query a linked Markdown wiki                                  |
+|                 | `media-digest`      | Digest yt-dlp media and web articles into loss-checked notes            |
+| `education`     | `find-ai-moat`      | Find where your work complements AI                                     |
+| `nix`           | `nix`               | Nix + direnv dev workflow traps                                         |
+| `git`           | `workflow`          | Git and PR workflow; git-guard hooks and the pr-watcher agent           |
+| `security`      | `yubikey`           | Hardware-backed keys: offline OpenPGP root, FIDO2 SSH, signing          |
 
 ## Install
 
@@ -57,7 +58,7 @@ claude plugin marketplace add https://github.com/Teebor-Choka/skills
 One plugin:
 
 ```bash
-claude plugin marketplace add https://github.com/Teebor-Choka/skills --plugin forge-idea
+claude plugin marketplace add https://github.com/Teebor-Choka/skills --plugin research
 ```
 
 ## Acknowledgements

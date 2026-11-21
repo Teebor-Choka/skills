@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills \u2014 practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "4.2.0"
+    "version": "5.0.0"
   },
   "plugins": [
     {
@@ -15,16 +15,16 @@
       "source": "./ai/harness",
       "strict": true,
       "metadata": {
-        "version": "3.1.0"
+        "version": "3.1.1"
       }
     },
     {
-      "name": "models",
+      "name": "model",
       "description": "Work with the model itself: extension-author (skills, plugins and hooks across Claude Code, Codex, OpenCode, oh-my-pi), reflect (mine sessions for agent struggles and propose fixes) and tiers (route each subagent to the cheapest model tier: one tier-to-model map, the reader, builder and reasoner agents, and the model-tier-guard hook that makes every spawn name its tier).",
       "source": "./ai/model",
       "strict": true,
       "metadata": {
-        "version": "2.4.0"
+        "version": "3.0.0"
       }
     },
     {
@@ -33,7 +33,7 @@
       "source": "./communication/writing",
       "strict": true,
       "metadata": {
-        "version": "2.0.1"
+        "version": "2.0.2"
       }
     },
     {
@@ -64,12 +64,12 @@
       }
     },
     {
-      "name": "find-ai-moat",
-      "description": "Interview one question at a time to find where your work complements AI versus where a model already does it, then give three concrete 30-day moves to widen the gap in your favor.",
-      "source": "./education/find-ai-moat",
+      "name": "education",
+      "description": "Learning and self-assessment: find-ai-moat (interview one question at a time to find where your work complements AI versus where a model already does it, then give three concrete 30-day moves to widen the gap in your favor).",
+      "source": "./education",
       "strict": true,
       "metadata": {
-        "version": "0.1.1"
+        "version": "1.0.0"
       }
     },
     {
@@ -78,48 +78,42 @@
       "source": "./engineering/design",
       "strict": true,
       "metadata": {
-        "version": "5.1.2"
+        "version": "5.1.3"
       }
     },
     {
       "name": "devops",
-      "description": "Operate and secure what ships: security (gitleaks, trufflehog, osv-scanner, semgrep, SkillSpector, garak, nuclei, strix plus an AI triage pass) and deploy (deploy a released or integrated revision and verify it from real logs or state; a failed verification leaves the stage open with the evidence).",
+      "description": "Operate and secure what ships: ci (harden GitHub Actions workflows and configure Renovate: template-injection prevention, SHA-pinned actions, scoped permissions, zizmor, dependency-bot rules), security (gitleaks, trufflehog, osv-scanner, semgrep, SkillSpector, garak, nuclei, strix plus an AI triage pass) and deploy (deploy a released or integrated revision and verify it from real logs or state; a failed verification leaves the stage open with the evidence).",
       "source": "./engineering/infra/devops",
       "strict": true,
       "metadata": {
-        "version": "1.0.0"
-      }
-    },
-    {
-      "name": "github-actions",
-      "description": "Harden GitHub Actions workflows and configure Renovate \u2014 template-injection prevention, SHA-pinned actions, scoped permissions, zizmor, and dependency-bot rules.",
-      "source": "./engineering/infra/github-actions",
-      "strict": true,
-      "metadata": {
-        "version": "1.0.3"
+        "version": "1.1.0"
       }
     },
     {
       "name": "swe-workflows",
-      "description": "The engineered per-task software workflow: the implement skill (spec-check, test-first ATDD\u2192TDD, quality, isolated adversarial review, change-request, review loop, integrate, retrospective) plus a policy-gate hook that enforces the repo's .agents/policy at commit/ready/integrate (blocks in mode:team, warns in mode:single), and the default `sw-development` procedure (procedures/sw-development.md). Siblings triage and find-bug feed implement; by-angle (red-first block loop plus four review angles) and code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass) are the read-only review skills. Also ships the skill-gate hook, the isolated-reviewer agent and the feature, fix, infra, investigate, next, pickup, review and worker commands. Needs the `harness` plugin (`harness:policy`) for the policy loader.",
+      "description": "The engineered per-task software workflow: the implement skill (spec-check, test-first ATDD\u2192TDD, quality, isolated adversarial review, change-request, review loop, integrate, retrospective) plus a policy-gate hook that enforces the repo's .agents/policy at commit/ready/integrate (blocks in mode:team, warns in mode:single), and the default `sw-development` procedure (procedures/sw-development.md). Siblings triage and find-bug feed implement; by-angle (red-first block loop plus four review angles) and code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass) are the read-only review skills. document writes and updates one docs page per component under docs/components/. Also ships the skill-gate hook, the isolated-reviewer agent and the feature, fix, infra, investigate, next, pickup, review and worker commands. Needs the `harness` plugin (`harness:policy`) for the policy loader and the `design` plugin (`design:project-docs`) for document's docs tooling.",
       "source": "./engineering/swe/swe-workflows",
       "dependencies": [
         {
           "name": "harness"
+        },
+        {
+          "name": "design"
         }
       ],
       "strict": true,
       "metadata": {
-        "version": "1.4.0"
+        "version": "1.5.0"
       }
     },
     {
       "name": "swe",
-      "description": "Engineering practice skills: rust and typescript (house guidelines on every change), performance (profile, optimize, benchmark) and component-docs (write and update component pages).",
+      "description": "Engineering practice skills: rust and typescript (house guidelines on every change) and performance (profile, optimize, benchmark).",
       "source": "./engineering/swe/swe",
       "strict": true,
       "metadata": {
-        "version": "3.0.0"
+        "version": "4.0.0"
       }
     },
     {
@@ -159,39 +153,21 @@
       }
     },
     {
-      "name": "llm-wiki",
-      "description": "Create, maintain, and query a personal knowledge wiki designed for LLM navigation.",
-      "source": "./knowledge/llm-wiki",
+      "name": "knowledge",
+      "description": "Personal knowledge: llm-wiki (create, maintain and query a linked Markdown wiki designed for LLM navigation) and media-digest (fetch the transcript of any yt-dlp media or the text of a web article, save it locally, and write a loss-checked summary with a short version and follow-up points).",
+      "source": "./knowledge",
       "strict": true,
       "metadata": {
-        "version": "1.1.1"
+        "version": "1.0.0"
       }
     },
     {
-      "name": "media-digest",
-      "description": "Fetch the transcript of any yt-dlp media or the text of a web article, save it locally, and write a loss-checked summary with a short version and follow-up points.",
-      "source": "./knowledge/media-digest",
+      "name": "research",
+      "description": "Research and test ideas: forge-idea (forge a rough idea into a viable one through cooperative, research-driven iteration) and grounded-research (answer a question under a fixed evidence contract: primary sources first, every claim cited with URL and date, fact kept apart from hearsay).",
+      "source": "./research",
       "strict": true,
       "metadata": {
-        "version": "0.2.1"
-      }
-    },
-    {
-      "name": "forge-idea",
-      "description": "Forge rough ideas into viable ones through cooperative, research-driven iteration.",
-      "source": "./research/forge-idea",
-      "strict": true,
-      "metadata": {
-        "version": "1.1.1"
-      }
-    },
-    {
-      "name": "grounded-research",
-      "description": "Research a question under a fixed evidence contract: primary sources first, every claim cited with URL and date, fact kept apart from hearsay.",
-      "source": "./research/grounded-research",
-      "strict": true,
-      "metadata": {
-        "version": "1.0.1"
+        "version": "1.0.0"
       }
     }
   ],

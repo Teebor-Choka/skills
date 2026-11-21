@@ -1,6 +1,6 @@
 # Friction signals and extraction schema
 
-Reference for step 3 (scoring) and step 4 (extraction) of `models:reflect`.
+Reference for step 3 (scoring) and step 4 (extraction) of `model:reflect`.
 
 ## What the scan measures
 

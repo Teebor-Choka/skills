@@ -361,7 +361,7 @@
           # -- cargo-llvm-cov, rust-code-analysis, llvm -- or pinned in
           # ./nix/code-quality-tools.nix for what nixpkgs doesn't package), and
           # some of those tools ship no aarch64-linux build. The lighter suites
-          # (project-docs, models:reflect) need only python/pytest/git,
+          # (project-docs, model:reflect) need only python/pytest/git,
           # already in this env, so they ride along. CARGO_NET_OFFLINE guards
           # against this actually needing network during the build -- the
           # fixtures declare zero dependencies so it shouldn't, verified

@@ -44,7 +44,7 @@ DEFAULT_TIER = {
     "builder": "execution",
     "reasoner": "reasoning",
 }
-PLUGIN_PREFIX = "models:"
+PLUGIN_PREFIX = "model:"
 
 DEFAULT_MAP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tiers.json")
 

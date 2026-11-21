@@ -280,13 +280,16 @@ class MapDrivesTheHook(Helpers, unittest.TestCase):
 
     def test_d4_own_agents_default_to_their_tier(self):
         for st, model in (("reader", "haiku"), ("builder", "sonnet"), ("reasoner", "opus"),
-                          ("models:reader", "haiku"), ("models:builder", "sonnet"),
-                          ("models:reasoner", "opus")):
+                          ("model:reader", "haiku"), ("model:builder", "sonnet"),
+                          ("model:reasoner", "opus")):
             with self.subTest(subagent_type=st):
                 self.assert_defaulted(run_hook(agent(subagent_type=st)), model)
 
     def test_d4_other_plugins_agents_are_not_ours(self):
         self.assert_denied(run_hook(agent(subagent_type="other:reader")))
+
+    def test_d4_the_old_models_prefix_is_not_ours(self):
+        self.assert_denied(run_hook(agent(subagent_type="models:reader")))
 
 
     def test_shipped_map_has_the_three_tiers_for_claude(self):

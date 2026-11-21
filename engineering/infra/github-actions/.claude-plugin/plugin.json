@@ -1,5 +1,0 @@
-{
-  "name": "github-actions",
-  "version": "1.0.3",
-  "description": "Harden GitHub Actions workflows and configure Renovate — template-injection prevention, SHA-pinned actions, scoped permissions, zizmor, and dependency-bot rules."
-}

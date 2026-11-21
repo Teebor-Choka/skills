@@ -8,7 +8,7 @@ Reviewers, validators and advisors judge work. They do not change it.
    commands. No edit, write, or shell with side effects.
 2. State it in the brief: "report only, do not modify any file".
 3. Enforce it by tool allowlist or sandbox, not by the instruction alone. Per-host bindings are
-   in `models:extension-author` (platform notes) and `code-quality/references/cross-agent.md`.
+   in `model:extension-author` (platform notes) and `code-quality/references/cross-agent.md`.
 4. A patch in a reviewer's output is a suggested fix inside a finding. Never apply it blind.
 5. Read-only on the work does not mean read-only on the board: they write findings, verdicts and
    notes to items.
