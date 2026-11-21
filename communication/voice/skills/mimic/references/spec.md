@@ -212,7 +212,7 @@ cutoff; 5,000 messages take seconds. An eval round costs 4 model calls per item.
 
 ## Dependencies
 
-- Python 3.11+ stdlib. No PyYAML: the repo tooling has it, a user's Python may not.
+- Python 3.13 or newer, standard library only. No PyYAML: the repo tooling has it, a user's Python may not.
 - `claude` CLI only for `--runner claude`. Its absence exits 2 at the first call.
 
 ## Assumptions

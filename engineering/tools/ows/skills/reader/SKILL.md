@@ -11,7 +11,7 @@ description: >-
 
 # OWS reader
 
-Read-only. It never edits a file and never runs a task. Standard library Python 3.10+; YAML needs PyYAML
+Read-only. It never edits a file and never runs a task. Standard library Python 3.13 or newer; YAML needs PyYAML
 (`uv run --with pyyaml`), or use the `.json` form.
 
 ## Commands

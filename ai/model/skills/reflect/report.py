@@ -13,7 +13,7 @@ session's last event; the "before" column is the N days before that. --changes i
 one accepted change per line: {"date", "rule", "metric", "baseline"}; the report prints the metric
 over the sessions since each date and flags a change that moved nothing as a no-op candidate.
 
-Prints a table. Exit 1 when any alert fires, else 0. Python 3.11 or newer (tomllib).
+Prints a table. Exit 1 when any alert fires, else 0. Python 3.13 or newer.
 """
 import argparse
 import json
