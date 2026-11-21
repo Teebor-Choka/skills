@@ -37,6 +37,7 @@ Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`; a domain with one plugin i
 | `writing`       | `unslop`            | Remove AI tells from prose                                              |
 |                 | `prose-craft`       | Compose and tighten prose                                               |
 | `voice`         | `voice-style`       | Always-on plain-voice output style and its `unslop-mode` command        |
+|                 | `mimic`             | Learn a person's voice from samples; prove it with a blind judge        |
 | `presentation`  | `patterns`          | Plan, build or review a talk with 88 patterns and antipatterns          |
 |                 | `prep`              | Prepare a talk end to end: structure, build, rehearse                   |
 | `publishing`    | `blog-syndication`  | Cross-post one blog post to Astro, dev.to, Medium and Substack          |

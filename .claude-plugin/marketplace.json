@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills \u2014 practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "6.0.0"
+    "version": "6.1.0"
   },
   "plugins": [
     {
@@ -38,11 +38,11 @@
     },
     {
       "name": "voice",
-      "description": "The always-on plain-voice output style and the command that sets its depth and length for a session.",
+      "description": "The always-on plain-voice output style and the command that sets its depth and length for a session; mimic learns one person's voice from samples into a profile and proves it on held-out messages with a blind judge.",
       "source": "./communication/voice",
       "strict": true,
       "metadata": {
-        "version": "0.1.0"
+        "version": "0.2.0"
       }
     },
     {
