@@ -6,25 +6,25 @@
   },
   "metadata": {
     "description": "Public AI agent skills \u2014 practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "4.0.0"
+    "version": "4.1.0"
   },
   "plugins": [
     {
       "name": "harness",
-      "description": "Agent harness: harness:pull (alias swarm, peer-to-peer) and harness:assign (alias direct, thin dispatcher) over a shared work board with claim/lease/reap mechanics, charter, escalation ladder and role cards; tracker (live dependency map of a build's progress); policy (layered .agents/policy settings and their loader); guard hooks for polling wakes, unlinked messages, repeated review spawns, secret reads and large whole-file reads.",
+      "description": "Agent harness: harness:pull (alias swarm, peer-to-peer) and harness:assign (alias direct, thin dispatcher) over a shared work board with claim/lease/reap mechanics, charter, escalation ladder and role cards; tracker (live dependency map of a build's progress); policy (layered .agents/policy settings and their loader); session-hygiene (handoffs and session nudges); guard hooks for polling wakes, unlinked messages, repeated review spawns, secret reads, large whole-file reads and empty questions; session hooks that nudge a handoff or a session name, state a duration before a slow command, remind after compaction and lint the hooks and memory index; a statusline script.",
       "source": "./ai/harness",
       "strict": true,
       "metadata": {
-        "version": "3.0.0"
+        "version": "3.1.0"
       }
     },
     {
       "name": "models",
-      "description": "Work with the model itself: extension-author (skills, plugins and hooks across Claude Code, Codex, OpenCode, oh-my-pi) and reflect (mine sessions for agent struggles and propose fixes).",
+      "description": "Work with the model itself: extension-author (skills, plugins and hooks across Claude Code, Codex, OpenCode, oh-my-pi), reflect (mine sessions for agent struggles and propose fixes) and tiers (route each subagent to the cheapest model tier: one tier-to-model map, the reader, builder and reasoner agents, and the model-tier-guard hook that makes every spawn name its tier).",
       "source": "./ai/model",
       "strict": true,
       "metadata": {
-        "version": "2.3.2"
+        "version": "2.4.0"
       }
     },
     {
@@ -34,6 +34,33 @@
       "strict": true,
       "metadata": {
         "version": "2.0.1"
+      }
+    },
+    {
+      "name": "voice",
+      "description": "The always-on plain-voice output style and the command that sets its depth and length for a session.",
+      "source": "./communication/voice",
+      "strict": true,
+      "metadata": {
+        "version": "0.1.0"
+      }
+    },
+    {
+      "name": "presentation",
+      "description": "Plan, prepare, and improve presentations with 88 patterns and antipatterns, built on the teachings of Neal Ford, Presentation Patterns (Ford, McCullough, Schutta, 2012). Includes both the pattern catalog and the prep workflow; install together, they share reference files.",
+      "source": "./communication/presentation",
+      "strict": true,
+      "metadata": {
+        "version": "2.0.2"
+      }
+    },
+    {
+      "name": "publishing",
+      "description": "Author, validate, and cross-publish blog posts to Astro, dev.to, Medium, and Substack.",
+      "source": "./communication/publishing",
+      "strict": true,
+      "metadata": {
+        "version": "2.0.0"
       }
     },
     {
@@ -73,12 +100,17 @@
       }
     },
     {
-      "name": "review",
-      "description": "Read-only review: by-angle (red-first block loop plus four review angles) and code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass).",
-      "source": "./engineering/swe/review",
+      "name": "swe-workflows",
+      "description": "The engineered per-task software workflow: the implement skill (spec-check, test-first ATDD\u2192TDD, quality, isolated adversarial review, change-request, review loop, integrate, retrospective) plus a policy-gate hook that enforces the repo's .agents/policy at commit/ready/integrate (blocks in mode:team, warns in mode:single), and the default `sw-development` procedure (procedures/sw-development.md). Siblings triage and find-bug feed implement; by-angle (red-first block loop plus four review angles) and code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass) are the read-only review skills. Also ships the skill-gate hook, the isolated-reviewer agent and the feature, fix, infra, investigate, next, pickup, review and worker commands. Needs the `harness` plugin (`harness:policy`) for the policy loader.",
+      "source": "./engineering/swe/swe-workflows",
+      "dependencies": [
+        {
+          "name": "harness"
+        }
+      ],
       "strict": true,
       "metadata": {
-        "version": "3.0.0"
+        "version": "1.4.0"
       }
     },
     {
@@ -97,6 +129,15 @@
       "strict": true,
       "metadata": {
         "version": "1.0.4"
+      }
+    },
+    {
+      "name": "git",
+      "description": "Git and GitHub pull-request workflow in an opinionated house style: worktrees, conventional/atomic commits, branch naming, draft-PR conventions, the review-thread reply/resolve procedure, multi-repo stacks, and the force-push gotchas. Ships the git-guard, worktree-path-guard and pr-poll-reminder hooks and the pr-watcher agent.",
+      "source": "./engineering/tools/git",
+      "strict": true,
+      "metadata": {
+        "version": "1.2.4"
       }
     },
     {

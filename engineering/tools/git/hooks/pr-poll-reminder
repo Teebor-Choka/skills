@@ -1,0 +1,307 @@
+#!/usr/bin/env python3
+"""PreToolUse hook (shell): steer PR polling toward events. Points to git:workflow's `scripts/babysit`
+watcher instead of a hand-rolled `gh pr view` poll loop, and toward babysitting a change request right when
+`gh pr create` / `glab mr create` opens it.
+
+Escalation: a PR-create nudge and a 2nd bare status call only inject additionalContext; a hand-rolled poll
+loop and a 3rd+ bare status call are denied (permissionDecision "deny"). Advisory-only nudges fired 50
+times across 30 days of sessions without changing behaviour, so the repeat offenders block. Any
+`run_in_background` call stays allowed.
+
+The generic rule against a foreground `sleep N` wait is not here: it is not about git, so it belongs to the
+plugin that owns waiting.
+
+git:workflow's babysit exists specifically to replace "a model sitting in a watch loop re-reading its
+context to check a PR" (its own doc comment) with a cheap shell poll. Two trigger shapes, both read from the
+same tokenized command (shlex, no cross-hook import):
+  1. `gh pr view`/`gh pr checks` appears alongside an explicit `while`/`until` loop in the SAME
+     command: an unambiguous hand-rolled poll, written in one shot. Fires immediately.
+  2. A bare `gh pr view ... state` / `gh pr checks` call with no loop in sight: ambiguous on its own (could
+     be a one-off status check), so this only fires on the 2nd+ sighting in a session, tracked by a small
+     per-session counter file (not a binary marker: a *second* sighting is the actual polling signal).
+The scripts are found beside this hook (<plugin>/skills/workflow/scripts).
+Tests: hooks/tests/test_pr_poll_reminder.py.
+"""
+import json
+import os
+import re
+import shlex
+import sys
+import time
+
+_SEPARATOR_CHARS = set(";&|()\n")
+_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+_WRAPPERS = {"env", "command", "exec", "time", "nohup"}
+_LOOP_WORDS = {"while", "until"}
+# `for`/`select` bound a wait too (`for i in 1 2 3; do ...; sleep 1; done`) but a status call inside
+# them is usually a sweep over PRs, so only analyze_loop_poll uses them.
+_ANY_LOOP_WORDS = _LOOP_WORDS | {"for", "select"}
+_LEADING_KEYWORDS = {"do", "then", "else", "while", "until"}
+# A heredoc body is text (a note, a commit message), not a command. A body is kept when the shell would run it:
+# the consumer is a shell, eval, source or ssh, or the heredoc is unquoted and the body substitutes ($( or a
+# backtick). The scan is linear and capped: a backtracking regex took over 20 s on 100 KB of blank lines.
+_HEREDOC_HEADER = re.compile(r"(?<![<'\"])<<-?[ \t]*(['\"]?)(\w+)\1[^\n]*")
+_SHELL_CONSUMER = re.compile(r"(?:^|[\s;&|(])(?:ba|z|da|k|)sh(?:\s|$)|\b(?:source|eval|ssh|su)\b|(?:^|\s)\.\s")
+_HEREDOC_MAX_CHARS = 200_000
+_HEREDOC_MAX_HEADERS = 50
+
+
+def _strip_heredocs(command):
+    if "<<" not in command or len(command) > _HEREDOC_MAX_CHARS:
+        return command
+    cuts, pos, seen = [], 0, 0
+    for m in _HEREDOC_HEADER.finditer(command):
+        if m.start() < pos:
+            continue
+        seen += 1
+        if seen > _HEREDOC_MAX_HEADERS:
+            break
+        eol = command.find("\n", m.end())
+        if eol < 0:
+            continue
+        delim, start, i = m.group(2), eol + 1, eol + 1
+        while i <= len(command):
+            j = command.find("\n", i)
+            line = command[i:] if j < 0 else command[i:j]
+            if line.strip() == delim:
+                end = len(command) if j < 0 else j
+                body = command[start:i]
+                prefix = command[command.rfind("\n", 0, m.start()) + 1:m.start()]
+                runs = _SHELL_CONSUMER.search(prefix) or (not m.group(1) and re.search(r"\$\(|`", body))
+                if not runs:
+                    cuts.append((eol, end))
+                pos = end
+                break
+            if j < 0:
+                break
+            i = j + 1
+    for a, b in reversed(cuts):
+        command = command[:a] + command[b:]
+    return command
+
+
+POLL_WINDOW = 600  # seconds: bare status reads further apart than this are routine checks, not a poll
+
+
+def _scripts_dir():
+    """Absolute path of git:workflow's scripts/ in this plugin, or '' when the plugin is partly installed."""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "skills", "workflow", "scripts")
+    return path if os.path.isdir(path) else ""
+
+
+def split_segments(command):
+    """Tokenize and split on unquoted control operators. Raises ValueError on unbalanced quotes."""
+    command = _strip_heredocs(command)
+    lex = shlex.shlex(command, posix=True, punctuation_chars="".join(_SEPARATOR_CHARS))
+    lex.whitespace = " \t\r"
+    lex.whitespace_split = True
+    segments, cur = [], []
+    for tok in lex:
+        if tok and set(tok) <= _SEPARATOR_CHARS:
+            if cur:
+                segments.append(cur)
+            cur = []
+        else:
+            cur.append(tok)
+    if cur:
+        segments.append(cur)
+    return segments
+
+
+def _unwrap(words):
+    while words:
+        if _ASSIGNMENT.match(words[0]):
+            words = words[1:]
+        elif words[0] in _LEADING_KEYWORDS:
+            words = words[1:]
+        elif words[0] in _WRAPPERS:
+            words = words[1:]
+            while words and words[0].startswith("-"):
+                words = words[1:]
+        else:
+            break
+    return words
+
+
+def _json_flag_has_state(words):
+    for i, w in enumerate(words):
+        if w == "--json" and i + 1 < len(words):
+            if "state" in words[i + 1].split(","):
+                return True
+        elif w.startswith("--json="):
+            if "state" in w.split("=", 1)[1].split(","):
+                return True
+    return False
+
+
+def _is_pr_status_call(words):
+    words = _unwrap(words)
+    if len(words) < 3 or os.path.basename(words[0]) != "gh":
+        return False
+    sub = words[1:3]
+    if sub == ["pr", "checks"]:
+        return True
+    if sub == ["pr", "view"]:
+        return _json_flag_has_state(words[3:])
+    return False
+
+
+def _is_pr_create(words):
+    words = _unwrap(words)
+    if len(words) < 3:
+        return False
+    tool = os.path.basename(words[0])
+    return (tool, *words[1:3]) in {("gh", "pr", "create"), ("glab", "mr", "create")}
+
+
+def analyze_create(command):
+    """True when the command opens a PR."""
+    try:
+        return any(_is_pr_create(seg) for seg in split_segments(command))
+    except ValueError:
+        return False
+
+
+def _in_loop(segments, words=_ANY_LOOP_WORDS):
+    """True when a segment starts with a loop keyword. A loop word further in (`grep while .`,
+    `echo until`) is an argument, not a loop."""
+    return any(seg and seg[0] in words for seg in segments)
+
+
+def _is_gh_poll_call(words):
+    """A gh call that re-reads CI or PR state: the PR status calls plus run, pr list and api reads."""
+    if _is_pr_status_call(words):
+        return True
+    words = _unwrap(words)
+    if len(words) < 3 or os.path.basename(words[0]) != "gh":
+        return False
+    sub = words[1:3]
+    if sub in (["run", "list"], ["run", "view"], ["run", "watch"], ["pr", "list"]):
+        return True
+    return words[1] == "api" and any(k in w for w in words[2:] for k in ("/pulls", "/runs", "check-runs", "/statuses"))
+
+
+def analyze_loop_poll(command):
+    """True for a loop that sleeps and re-reads CI or PR state: a hand-rolled poll. Needs the sleep,
+    so a `for` over repos that lists PRs (a sweep) is not caught."""
+    try:
+        segments = split_segments(command)
+    except ValueError:
+        return False
+    if not _in_loop(segments):
+        return False
+    has_sleep = any(len(w) >= 2 and w[0] == "sleep" for w in map(_unwrap, segments))
+    # a `for` whose gh call uses the loop variable walks a list of repos or PRs: a sweep, not a poll
+    sweep_vars = [seg[1] for seg in segments if len(seg) > 1 and seg[0] in ("for", "select")]
+    polls = [seg for seg in segments if _is_gh_poll_call(seg)
+             and not any(f"${v}" in w or f"${{{v}}}" in w for v in sweep_vars for w in seg)]
+    return has_sleep and bool(polls)
+
+
+def analyze(command):
+    """Return (has_pr_status_call, has_loop_word)."""
+    try:
+        segments = split_segments(command)
+    except ValueError:
+        return False, False
+    has_call = any(_is_pr_status_call(seg) for seg in segments)
+    return has_call, _in_loop(segments, _LOOP_WORDS)
+
+
+def main():
+    try:
+        payload = json.load(sys.stdin)
+        if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
+            return
+        tool_input = payload.get("tool_input") or {}
+        command = tool_input.get("command")
+    except Exception:
+        return
+    if not isinstance(command, str) or not command.strip():
+        return
+    if tool_input.get("run_in_background") is True:
+        return
+
+    if analyze_create(command):
+        emit(
+            "Opening a PR: babysit it until it merges. Once it exists, start git:workflow's "
+            "`scripts/babysit` in the background (under Monitor on Claude Code, re-armed on expiry) and "
+            "act on each event it prints; see the skill's \"Babysitting a PR until it merges\"."
+        )
+        return
+
+    if analyze_loop_poll(command):
+        deny(poll_advice())
+        return
+
+    has_call, has_loop = analyze(command)
+    if not has_call:
+        return
+
+    count = 0
+    if not has_loop:
+        count = record_status_call(payload.get("session_id") or "nosession")
+        if count < 2:
+            return
+
+    advice = poll_advice()
+    if has_loop or count >= 3:
+        deny(advice)
+    else:
+        emit(advice)
+
+
+def record_status_call(session, now=None):
+    """Count bare status reads in this session within POLL_WINDOW seconds; return the count including
+    this one. The counter file is append-only: one `\\n<timestamp>\\n` record per call, written with a single
+    O_APPEND write, so concurrent hooks lose no call and need no lock. A line that does not parse (a writer
+    that died mid-line, a file in an older format) is skipped, never a reason to reset the count."""
+    now = time.time() if now is None else now
+    session = re.sub(r"[^A-Za-z0-9_.-]", "_", str(session)).lstrip(".") or "nosession"
+    path = os.path.join(os.environ.get("TMPDIR") or "/tmp", f"agent-pr-poll-reminder.{session}")
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        try:
+            os.write(fd, f"\n{now}\n".encode())
+        finally:
+            os.close(fd)
+        with open(path) as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return 1
+    count = 0
+    for line in lines:
+        try:
+            if 0 <= now - float(line) <= POLL_WINDOW:
+                count += 1
+        except ValueError:
+            pass
+    return max(count, 1)
+
+
+def poll_advice():
+    d = _scripts_dir()
+    babysit = os.path.join(d, "babysit") if d else "git:workflow's scripts/babysit"
+    pr_state = os.path.join(d, "pr-state") if d else "scripts/pr-state"
+    return (
+        "Watching a PR? Don't poll `gh pr view`/`gh pr checks` yourself. For one read (reviewDecision, "
+        f"open threads, merge queue, run vs head SHA, next action) run `{pr_state}` once. To wait, start "
+        f"Monitor {{command: \"{babysit} --heartbeat 600 <branch>\", persistent: true}} (load it first with "
+        "ToolSearch select:Monitor); it prints only the changes you must act on (comments, threads, "
+        "reviews, checks, behind/dirty, merged). Without `persistent` the watcher expires after 30 "
+        "minutes and you pay a full-context turn to re-arm it. For a silent wait-for-merge, "
+        f"`{babysit} --quiet` hands off to `pr-landed`."
+    )
+
+
+def emit(reminder):
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reminder}}))
+
+
+def deny(reason):
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/model-tier-guard.py\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "Agent"
+      }
+    ]
+  }
+}

@@ -114,10 +114,131 @@
         # on its own (`nix build .#cargo-anatomy`) -- not just as a hidden
         # dependency of the code-quality-tests check. Gated to the same two
         # systems that check runs on (some tools ship no aarch64-linux build).
-        packages = pkgs.lib.optionalAttrs codeQualitySupportedSystem codeQualityTools;
+        packages = pkgs.lib.optionalAttrs codeQualitySupportedSystem codeQualityTools // {
+          # swe-workflows as a closure artifact, so it can be installed without a mounted source
+          # checkout (a microVM has none). Dev-only tests dropped; shebangs patched so gate.sh and the
+          # hooks run from a stable store path where /usr/bin/env may be absent. Codex's config.toml
+          # hook and the OpenCode/oh-my-pi overlays resolve to this absolute path.
+          swe-workflows-plugin = pkgs.runCommand "swe-workflows-plugin" { } ''
+            cp -r ${self}/engineering/swe/swe-workflows $out
+            chmod -R u+w $out
+            rm -rf $out/tests
+            patchShebangs $out
+          '';
+        };
 
         checks = {
           formatting = treefmtEval.config.build.check self;
+
+          # swe-workflows' gate, loader and context-hook tests. The plugin is copied out alone: its
+          # stubs and hooks carry `#!/usr/bin/env sh`, which the Linux sandbox cannot resolve, so the
+          # copy is patchShebangs'd; the bats files resolve ../hooks and ../skills as siblings of tests/.
+          swe-gate =
+            pkgs.runCommand "swe-gate-tests"
+              {
+                nativeBuildInputs = [
+                  pkgs.bats
+                  pkgs.python3
+                  pkgs.git
+                  pkgs.gnugrep
+                  pkgs.coreutils
+                ];
+              }
+              ''
+                export HOME=$TMPDIR
+                cp -r ${self}/engineering/swe/swe-workflows plugin
+                chmod -R u+w plugin
+                patchShebangs plugin
+                bats plugin/tests
+                touch $out
+              '';
+
+          # Each harness overlay turns gate.sh's exit code into its own veto.
+          swe-overlays =
+            pkgs.runCommand "swe-overlay-tests"
+              {
+                nativeBuildInputs = [
+                  pkgs.nodejs
+                  pkgs.coreutils
+                ];
+              }
+              ''
+                export HOME=$TMPDIR
+                node ${self}/engineering/swe/swe-workflows/tests/overlays.mjs
+                touch $out
+              '';
+
+          # The git workflow scripts (babysit, pr-landed, pr-state) against stub forge CLIs.
+          git-workflow =
+            pkgs.runCommand "git-workflow-tests"
+              {
+                nativeBuildInputs = [
+                  pkgs.bats
+                  pkgs.jq
+                  pkgs.git
+                  pkgs.python3
+                  pkgs.coreutils
+                  pkgs.gnugrep
+                  pkgs.gnused
+                  pkgs.gawk
+                ];
+              }
+              ''
+                export HOME=$TMPDIR
+                cp -r ${self}/engineering/tools/git/skills/workflow/scripts scripts
+                chmod -R u+w scripts
+                patchShebangs scripts
+                bats scripts
+                touch $out
+              '';
+
+          # Node suites of presentation (deck-io, the patterns linter, the registry check) and
+          # publishing. Dependencies come from each package-lock.json, so the sandbox needs no network.
+          presentation =
+            let
+              mods =
+                dir:
+                pkgs.importNpmLock.buildNodeModules {
+                  npmRoot = self + "/communication/presentation/${dir}";
+                  nodejs = pkgs.nodejs;
+                };
+            in
+            pkgs.runCommand "presentation-tests"
+              {
+                nativeBuildInputs = [
+                  pkgs.nodejs
+                  pkgs.python3
+                ];
+              }
+              ''
+                export HOME=$TMPDIR
+                cp -r ${self}/communication/presentation plugin
+                chmod -R u+w plugin
+                ln -s ${mods "deck-io/scripts"}/node_modules plugin/deck-io/scripts/node_modules
+                ln -s ${mods "skills/patterns/scripts"}/node_modules plugin/skills/patterns/scripts/node_modules
+                (cd plugin/deck-io/scripts && node --test test.mjs)
+                (cd plugin/skills/patterns/scripts && node --test test.mjs)
+                python3 plugin/skills/patterns/scripts/verify.py
+                touch $out
+              '';
+
+          publishing =
+            let
+              dir = "communication/publishing/skills/blog-syndication/scripts";
+              mods = pkgs.importNpmLock.buildNodeModules {
+                npmRoot = self + "/${dir}";
+                nodejs = pkgs.nodejs;
+              };
+            in
+            pkgs.runCommand "publishing-tests" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
+              export HOME=$TMPDIR
+              cp -r ${self}/${dir} scripts
+              chmod -R u+w scripts
+              ln -s ${mods}/node_modules scripts/node_modules
+              cd scripts
+              node --test test.mjs
+              touch $out
+            '';
 
           skills-validate =
             pkgs.runCommand "skills-validate"
@@ -293,6 +414,7 @@
           buildInputs = preCommit.enabledPackages;
           nativeBuildInputs = with pkgs; [
             nodejs
+            bats
             py
             treefmt
             nixfmt-rfc-style

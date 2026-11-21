@@ -29,6 +29,8 @@ A skill never names a skill from another repo. Cross-repo binding goes through `
 - Edit a skill: bump the plugin's version in `plugin.json` and `marketplace.json` (patch fix, minor
   addition, major breaking).
 - Check: `python3 scripts/check-marketplace.py .` and `python3 scripts/validate-skills.py .`.
+- Hooks: edit `hooks/manifest.json`, then `scripts/render-hooks.sh <plugin-dir>` writes `hooks/hooks.json`
+  (the `hooks-manifest` check compares the two).
 
 ## Conventions
 

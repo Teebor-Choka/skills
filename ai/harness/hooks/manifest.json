@@ -41,6 +41,67 @@
       "tools": ["file.read"],
       "script": "hooks/read-size-nudge",
       "enforce": "block"
+    },
+    {
+      "id": "context-reset-nudge",
+      "event": "prompt.submit",
+      "script": "hooks/context-reset-nudge.py",
+      "timeout": 15,
+      "enforce": "warn"
+    },
+    {
+      "id": "session-name-nudge",
+      "event": "prompt.submit",
+      "script": "hooks/session-name-nudge.py",
+      "timeout": 10,
+      "enforce": "warn"
+    },
+    {
+      "id": "session-manifest-record",
+      "event": "session.start",
+      "matcher": "startup|resume",
+      "script": "hooks/session-manifest-record.py",
+      "timeout": 10,
+      "enforce": "warn"
+    },
+    {
+      "id": "hook-doctor",
+      "event": "session.start",
+      "matcher": "startup|resume",
+      "script": "hooks/hook-doctor.py",
+      "timeout": 10,
+      "enforce": "warn"
+    },
+    {
+      "id": "memory-index-lint",
+      "event": "session.start",
+      "matcher": "startup",
+      "script": "hooks/memory-index-lint.py",
+      "timeout": 10,
+      "enforce": "warn"
+    },
+    {
+      "id": "post-compact-reminder",
+      "event": "compact",
+      "script": "hooks/post-compact-reminder.sh",
+      "timeout": 10,
+      "enforce": "warn"
+    },
+    {
+      "id": "long-command-nudge",
+      "event": "tool.before",
+      "tools": ["shell"],
+      "script": "hooks/long-command-nudge.py",
+      "timeout": 10,
+      "enforce": "warn"
+    },
+    {
+      "id": "ask-question-guard",
+      "event": "tool.before",
+      "tools": ["ask.user"],
+      "script": "hooks/ask-question-guard.py",
+      "timeout": 10,
+      "enforce": "block"
     }
   ]
 }

@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Claude Code PreToolUse hook (matcher: Edit|Write|MultiEdit): keep edits inside the session's worktree.
+
+64 of 263 "File has not been read yet" failures were a Read of the main-checkout path followed by an Edit
+under the worktree (or the reverse), and an edit that does land in the main checkout changes the wrong tree.
+When the session cwd is in a linked git worktree and the edit path lies in the MAIN checkout of the same repo
+(outside the worktree), deny with the equivalent path under the worktree. Paths in other worktrees of the repo
+and unrelated paths pass.
+
+The worktree is found with git (`--git-dir` differs from `--git-common-dir`). When git cannot answer (not
+installed, cwd gone) the `.claude/worktrees/<name>` or `.agents/worktrees/<name>` path layout is the fallback.
+Anything else fails open, as does malformed input. String and path logic only: linear, no regex.
+Tests: hooks/tests/test_worktree_path_guard.py.
+"""
+import json
+import os
+import subprocess
+import sys
+
+EDIT_TOOLS = {"Edit", "Write", "MultiEdit"}
+WORKTREE_DIRS = (".claude/worktrees", ".agents/worktrees")
+
+
+def git_roots(cwd):
+    """(worktree_root, main_root) when git says cwd is in a linked worktree; ("", "") when it says it is not;
+    None when git cannot answer."""
+    try:
+        r = subprocess.run(["git", "-C", cwd, "rev-parse", "--path-format=absolute",
+                            "--show-toplevel", "--git-dir", "--git-common-dir"],
+                           capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = r.stdout.splitlines()
+    if r.returncode != 0 or len(lines) != 3:
+        return None
+    top, git_dir, common = (os.path.realpath(p) for p in lines)
+    if git_dir == common or os.path.basename(common) != ".git":
+        return "", ""
+    return top, os.path.dirname(common)
+
+
+def pattern_roots(cwd):
+    """Same pair from the .claude/worktrees/<name> layout, or None."""
+    for sub in WORKTREE_DIRS:
+        marker = "/" + sub + "/"
+        i = cwd.find(marker)
+        if i <= 0:
+            continue
+        name = cwd[i + len(marker):].split("/", 1)[0]
+        if name:
+            return cwd[:i + len(marker)] + name, cwd[:i]
+    return None
+
+
+def under(path, root):
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def redirect(cwd, file_path):
+    """The equivalent path under the worktree when file_path is in the main checkout, else ""."""
+    roots = git_roots(cwd)
+    if roots is None:
+        roots = pattern_roots(cwd)
+    if not roots or not roots[0]:
+        return ""
+    wt_root, main_root = roots
+    path = os.path.realpath(file_path)
+    if under(path, wt_root) or not under(path, main_root):
+        return ""
+    if any(under(path, os.path.join(main_root, sub)) for sub in WORKTREE_DIRS):
+        return ""  # another worktree of the same repo, not the main checkout
+    return os.path.join(wt_root, os.path.relpath(path, main_root))
+
+
+def main():
+    try:
+        payload = json.load(sys.stdin)
+        if not isinstance(payload, dict) or payload.get("tool_name") not in EDIT_TOOLS:
+            return
+        file_path = (payload.get("tool_input") or {}).get("file_path")
+        cwd = payload.get("cwd")
+        if not (isinstance(file_path, str) and os.path.isabs(file_path) and isinstance(cwd, str) and cwd):
+            return
+        target = redirect(os.path.realpath(cwd), file_path)
+    except Exception:
+        return
+    if target:
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse", "permissionDecision": "deny",
+            "permissionDecisionReason": (
+                f"This session works in a git worktree, but {file_path} is in the main checkout. "
+                f"Use {target} instead, and Read it by that path first: a Read of the main-checkout "
+                "path does not unlock an Edit of the worktree path.")}}))
+
+
+if __name__ == "__main__":
+    main()

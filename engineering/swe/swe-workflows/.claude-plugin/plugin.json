@@ -1,0 +1,5 @@
+{
+  "name": "swe-workflows",
+  "version": "1.4.0",
+  "description": "The engineered per-task software workflow: the implement skill (spec-check, test-first ATDD→TDD, quality, isolated adversarial review, change-request, review loop, integrate, retrospective) plus a policy-gate hook that enforces the repo's .agents/policy at commit/ready/integrate (blocks in mode:team, warns in mode:single), and the default `sw-development` procedure (procedures/sw-development.md). Siblings triage and find-bug feed implement; by-angle (red-first block loop plus four review angles) and code-quality (risk from complexity, coverage, duplication metrics, and a comment-quality pass) are the read-only review skills. Also ships the skill-gate hook, the isolated-reviewer agent and the feature, fix, infra, investigate, next, pickup, review and worker commands. Needs the `harness` plugin (`harness:policy`) for the policy loader."
+}

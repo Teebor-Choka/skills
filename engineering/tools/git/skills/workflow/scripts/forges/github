@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# forges/github <fetch|ready|merge> DIR BRANCH: print the babysit change-request model for
+# BRANCH's GitHub PR, mark it ready, or enqueue it for merge.
+# Contract (shared by every forges/* backend; see babysit's header): fetch prints one JSON object,
+# nothing when no PR exists; exit 127 when the CLI is missing, other nonzero on failure.
+set -euo pipefail
+
+verb=$1
+dir=$2
+branch=$3
+command -v gh >/dev/null 2>&1 || { echo "gh is required for GitHub" >&2; exit 127; }
+
+if [ "$verb" = ready ]; then
+  cd "$dir" && exec gh pr ready "$branch"
+fi
+
+if [ "$verb" = merge ]; then
+  # No --squash: the merge queue, not this flag, owns the default branch's merge
+  # strategy (AGENTS.md's own documented gotcha for repos that use one).
+  cd "$dir" && exec gh pr merge "$branch" --auto
+fi
+
+# shellcheck disable=SC2016 # GraphQL variables, not shell.
+query='query($owner: String!, $name: String!, $branch: String!) {
+  viewer { login }
+  repository(owner: $owner, name: $name) {
+    pullRequests(headRefName: $branch, first: 1, orderBy: {field: CREATED_AT, direction: DESC}) {
+      nodes {
+        state isDraft mergeStateStatus reviewDecision
+        commits(last: 1) { nodes { commit { oid statusCheckRollup { state contexts(first: 100) { nodes {
+          __typename
+          ... on CheckRun { name conclusion status }
+          ... on StatusContext { context state }
+        } } } } } }
+        reviewThreads(first: 100) { nodes { id isResolved path line
+          comments(last: 1) { nodes { databaseId author { login } body } } } }
+        comments(last: 50) { nodes { databaseId author { login } body } }
+        reviews(last: 30) { nodes { databaseId author { login } state body } }
+      }
+    }
+  }
+}'
+
+raw=$(cd "$dir" && gh api graphql -F owner='{owner}' -F name='{repo}' -f branch="$branch" -f query="$query")
+
+# shellcheck disable=SC2016 # jq program, not shell.
+jq -c '
+  .data.viewer.login as $me
+  | .data.repository.pullRequests.nodes[0] // empty
+  | (.commits.nodes[0].commit.statusCheckRollup // {state: null, contexts: {nodes: []}}) as $roll
+  | {
+      state, draft: .isDraft, merge: .mergeStateStatus, decision: .reviewDecision,
+      head: .commits.nodes[0].commit.oid,
+      checks: $roll.state,
+      failing: [$roll.contexts.nodes[]
+        | select((.conclusion // .state) as $c | ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"] | index($c))
+        | .name // .context] | sort,
+      threads: [.reviewThreads.nodes[] | select(.isResolved | not) | .comments.nodes[-1] as $c
+        | {id, path, line, last: $c.databaseId, author: $c.author.login, self: ($c.author.login == $me), body: $c.body}],
+      comments: [.comments.nodes[]
+        | {id: .databaseId, author: .author.login, self: (.author.login == $me), body}],
+      reviews: [.reviews.nodes[] | select(.state != "COMMENTED" or .body != "")
+        | {id: .databaseId, author: .author.login, self: (.author.login == $me), state, body}]
+    }' <<<"$raw"

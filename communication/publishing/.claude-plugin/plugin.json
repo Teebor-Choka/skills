@@ -1,0 +1,5 @@
+{
+  "name": "publishing",
+  "version": "2.0.0",
+  "description": "Author, validate, and cross-publish blog posts to Astro, dev.to, Medium, and Substack."
+}

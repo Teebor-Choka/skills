@@ -1,0 +1,20 @@
+{
+  "name": "presentation-deck-io",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "pptx/pdf -> neutral deck IR (ingest) + pptx emit (safe-fix).",
+  "bin": {
+    "deck-io": "./cli.mjs"
+  },
+  "scripts": {
+    "test": "node --test test.mjs"
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.1",
+    "fast-xml-parser": "^5.12.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

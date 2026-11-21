@@ -1,0 +1,21 @@
+{
+  "name": "blog-syndication-scripts",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Validate + convert a neutral post source into per-platform outputs via lazy adapters.",
+  "bin": {
+    "syndicate-validate": "./validate.mjs",
+    "syndicate-convert": "./convert.mjs",
+    "syndicate-verify": "./verify.mjs"
+  },
+  "scripts": {
+    "test": "node --test test.mjs"
+  },
+  "dependencies": {
+    "js-yaml": "^4.3.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

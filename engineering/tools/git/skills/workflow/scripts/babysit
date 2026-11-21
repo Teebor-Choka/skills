@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+# babysit: watch a branch's change request (GitHub PR, GitLab MR, ...) until it lands and print
+# only what needs action.
+#
+#   babysit [-i|--interval SECONDS] [--heartbeat SECONDS] [--max-errors N] [-C DIR]
+#           [--forge NAME] [--quiet] [--no-land] [--once] [BRANCH]
+#
+# The engine knows no forge. It resolves a forge name (--forge, else `git config babysit.forge`,
+# else the backend whose name appears in origin's host) and only then runs forges/<name>, so a
+# new forge is one new file there. A backend implements three verbs, each exiting 127 when its CLI
+# is missing:
+#
+#   forges/<name> ready DIR BRANCH   mark the change request ready (out of draft)
+#   forges/<name> merge DIR BRANCH   enqueue the change request for merge (e.g. auto-merge)
+#   forges/<name> fetch DIR BRANCH   print one JSON object, nothing when no change request exists:
+#
+#   {state: OPEN|MERGED|CLOSED, draft, head: <commit sha>, merge: CLEAN|BEHIND|DIRTY|BLOCKED|..., decision,
+#    checks: SUCCESS|FAILURE|PENDING|null, failing: [name],
+#    threads: [{id, path, line, last, author, self, body}]   (unresolved only; last = newest note)
+#    comments: [{id, author, self, body}], reviews: [{id, author, self, state, body}]}
+#
+# Each poll is diffed against a state file under the repo's git dir, so a restarted watch (e.g. a
+# re-armed background monitor) never re-emits old events. stdout is the event stream, one compact
+# JSON object per line:
+#
+#   snapshot   first poll only: state, merge status, checks, failing checks, unresolved threads,
+#              the last few comments
+#   ready      a draft was marked ready: babysitting a change request means it is up for review,
+#              so the first poll of a run does this whatever CI says; ready_failed {error} if not
+#   comment    new conversation comment               {id, author, self, body}
+#   thread     unresolved review thread, new or with a new reply   {id, path, line, author, self, body}
+#   review     new review with a verdict or a body    {id, author, self, state, body}
+#   checks     checks settled on a new result, or on any new commit   {state, failing}
+#   merge      merge status became BEHIND, DIRTY or CLEAN          {status}
+#   enqueued   auto-merge requested (see babysit.automerge below)
+#   enqueue_failed  the merge-verb call itself failed             {error}
+#   heartbeat  only with --heartbeat, after that many seconds without any other event
+#   merged     merged; then pr-landed cleans up (its JSON line follows) unless --no-land
+#   closed     closed unmerged; exit 5
+#   error      --max-errors consecutive failed polls (forge, auth, nothing found), or a missing
+#              forge CLI at once; exit 1
+#
+# `self` is true when the author is the account the forge CLI is logged in as. That is the agent
+# AND the human when they share a token, so self-authored events are not dropped; skip only the
+# ones you just posted. Null, false and empty fields are omitted. Bodies are cut to 200
+# characters; fetch the rest by id from the forge.
+#
+# Auto-enqueue (opt-in, per repo): `git config babysit.automerge true` in the WATCHED repo (not
+# this skill's own repo) makes babysit call the forge's `merge` verb, once, the first poll where
+# decision is APPROVED, checks is SUCCESS, merge is CLEAN, and there are zero unresolved threads.
+# This is OFF by default everywhere: the house rule is never to merge without explicit,
+# in-the-moment approval, and that default must hold in every repo this skill runs in. Set the
+# config only in a repo where the human has already given a standing, repo-wide merge grant (the
+# config is the record of that grant, scoped to the one repo it was given for) — never set it
+# globally, and never infer a grant from a single approval.
+#
+# --quiet prints only merged/closed/error (and heartbeats if asked): a silent wait for the merge.
+# After `merged` the sibling pr-landed runs and its JSON line and exit code are forwarded;
+# --no-land skips that and exits 0.
+#
+# This is a CHEAP shell poll (no model tokens): run it in the background and react to its lines.
+# Exit: pr-landed's on a merge (0 with --no-land), 5 closed unmerged, 1 error, 2 usage.
+# --once polls a single time and exits 0.
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+
+usage() { echo "usage: babysit [-i|--interval SECONDS] [--heartbeat SECONDS] [--max-errors N] [-C DIR] [--forge NAME] [--quiet] [--no-land] [--once] [BRANCH]"; }
+
+interval=60
+heartbeat=0
+max_errors=5
+dir=.
+forge=
+once=
+quiet=
+land=1
+readied=
+automerged=
+branch=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -i | --interval) [ $# -ge 2 ] || { usage >&2; exit 2; }; interval=$2; shift 2 ;;
+    --heartbeat)     [ $# -ge 2 ] || { usage >&2; exit 2; }; heartbeat=$2; shift 2 ;;
+    --max-errors)    [ $# -ge 2 ] || { usage >&2; exit 2; }; max_errors=$2; shift 2 ;;
+    -C)              [ $# -ge 2 ] || { usage >&2; exit 2; }; dir=$2; shift 2 ;;
+    --forge)         [ $# -ge 2 ] || { usage >&2; exit 2; }; forge=$2; shift 2 ;;
+    --once)          once=1; shift ;;
+    --quiet)         quiet=1; shift ;;
+    --no-land)       land=; shift ;;
+    -h | --help)     usage; exit 0 ;;
+    -*)              echo "babysit: unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *)               [ -z "$branch" ] || { echo "babysit: more than one BRANCH given" >&2; exit 2; }; branch=$1; shift ;;
+  esac
+done
+
+command -v jq >/dev/null 2>&1 || { echo "babysit: jq is required" >&2; exit 1; }
+git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 || { echo "babysit: not a git repository: $dir" >&2; exit 2; }
+[ -n "$branch" ] || branch=$(git -C "$dir" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+[ -n "$branch" ] || { echo "babysit: detached HEAD and no BRANCH given" >&2; exit 2; }
+
+# Resolve the forge lazily: nothing forge-specific is touched until the name is known.
+available=$(for f in "$here"/forges/*; do [ -x "$f" ] && printf '%s ' "${f##*/}"; done)
+available=${available% }
+[ -n "$forge" ] || forge=$(git -C "$dir" config --get babysit.forge || true)
+if [ -z "$forge" ]; then
+  host=$(git -C "$dir" remote get-url origin 2>/dev/null || true)
+  host=${host#*://}; host=${host#*@}; host=${host%%[:/]*}
+  for f in $available; do
+    case "$host" in *"$f"*) forge=$f; break ;; esac
+  done
+  [ -n "$forge" ] || { echo "babysit: cannot tell the forge of origin host '${host:-none}'; pass --forge ($available)" >&2; exit 2; }
+fi
+backend="$here/forges/$forge"
+case "$forge" in */* | .*) backend= ;; esac
+[ -n "$backend" ] && [ -x "$backend" ] || { echo "babysit: unknown forge '$forge' (available: $available)" >&2; exit 2; }
+
+state_dir="$(cd "$dir" && cd "$(git rev-parse --git-common-dir)" && pwd)/babysit"
+state_file="$state_dir/${branch//\//_}.json"
+mkdir -p "$state_dir"
+
+# Diff the previous poll ($prev, null on the first poll) against the current one.
+# shellcheck disable=SC2016 # jq program, not shell.
+diff_events='
+  def settled: . != null and . != "PENDING" and . != "EXPECTED";
+  def actionable: . == "BEHIND" or . == "DIRTY" or . == "CLEAN";
+  # Drop null, false, empty fields so every line is as short as it can be.
+  def prune: if type == "object" then with_entries(select(.value | . != null and . != false and . != [] and . != "") | .value |= prune)
+             elif type == "array" then map(prune) else . end;
+  . as $cur
+  | if $prev == null then
+      {event: "snapshot", state, draft, merge, decision, checks, failing,
+       threads: [.threads[] | del(.last)], recent_comments: .comments[-3:]}
+    else
+      ([$prev.comments[].id] as $seen | .comments[] | select(.id as $i | $seen | index($i) | not)
+        | {event: "comment"} + .),
+      ([$prev.threads[] | {key: (.id | tostring), value: .last}] | from_entries) as $pt
+        | (.threads[] | select($pt[.id | tostring] != .last) | {event: "thread"} + del(.last)),
+      ([$prev.reviews[].id] as $seen | .reviews[] | select(.id as $i | $seen | index($i) | not)
+        | {event: "review"} + .),
+      # Keyed on the head commit too: a fix that fails the same check again is still reported.
+      (select((.checks | settled) and ([.head, .checks, .failing] != [$prev.head, $prev.checks, $prev.failing]))
+        | {event: "checks", state: .checks, failing}),
+      (select((.merge | actionable) and .merge != $prev.merge) | {event: "merge", status: .merge})
+    end
+  | prune'
+
+# Bodies are cut here, once, rather than in every backend.
+# shellcheck disable=SC2016 # jq program, not shell.
+cut_bodies='
+  def cut: if (. // "") | length > 200 then .[:200] + "…" else . end;
+  .threads[].body |= cut | .comments[].body |= cut | .reviews[].body |= cut'
+
+# One poll: print events, update the state file. Returns 1 on a failed poll, 2 on a missing CLI.
+poll() {
+  local raw cur prev rc=0
+  raw=$("$backend" fetch "$dir" "$branch" 2>"$state_file.stderr") || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    last_error=$(tail -1 "$state_file.stderr" 2>/dev/null || true)
+    [ -n "$last_error" ] || last_error="$forge fetch failed for '$branch'"
+    [ "$rc" -eq 127 ] && return 2
+    return 1
+  fi
+  [ -n "$raw" ] || { last_error="no change request found for '$branch'"; return 1; }
+  cur=$(jq -c "$cut_bodies" <<<"$raw" 2>/dev/null) || { last_error="unexpected $forge backend output for '$branch'"; return 1; }
+  prev=$(cat "$state_file" 2>/dev/null || echo null)
+  out=$(jq -c --argjson prev "$prev" "$diff_events" <<<"$cur")
+  [ -z "$out" ] || [ -n "$quiet" ] || { echo "$out"; last_output=$(date +%s); }
+  # A transient UNKNOWN merge status is not remembered, so settling back is not a change.
+  jq -c --argjson prev "$prev" 'if .merge == "UNKNOWN" and $prev != null then .merge = $prev.merge else . end' \
+    <<<"$cur" >"$state_file.tmp" && mv "$state_file.tmp" "$state_file"
+  cr_state=$(jq -r .state <<<"$cur")
+  # Babysitting means up for review: take a draft out of draft once per run.
+  if [ -z "$readied" ] && [ "$cr_state" = OPEN ] && [ "$(jq -r .draft <<<"$cur")" = true ]; then
+    readied=1
+    if "$backend" ready "$dir" "$branch" >/dev/null 2>"$state_file.stderr"; then
+      [ -n "$quiet" ] || echo '{"event":"ready"}'
+    else
+      [ -n "$quiet" ] || jq -cn --arg e "$(tail -1 "$state_file.stderr")" '{event: "ready_failed", error: $e}'
+    fi
+  fi
+  # Auto-enqueue, opt-in per repo (see the header comment) — attempted at most once per run, the
+  # first poll the change request is clean: approved, checks green, nothing left unresolved.
+  if [ -z "$automerged" ] && [ "$(git -C "$dir" config --get --type=bool babysit.automerge 2>/dev/null || echo false)" = true ] \
+    && [ "$(jq -r .decision <<<"$cur")" = APPROVED ] && [ "$(jq -r .checks <<<"$cur")" = SUCCESS ] \
+    && [ "$(jq -r .merge <<<"$cur")" = CLEAN ] && [ "$(jq '.threads | length' <<<"$cur")" -eq 0 ]; then
+    automerged=1
+    if "$backend" merge "$dir" "$branch" >/dev/null 2>"$state_file.stderr"; then
+      [ -n "$quiet" ] || echo '{"event":"enqueued"}'
+    else
+      [ -n "$quiet" ] || jq -cn --arg e "$(tail -1 "$state_file.stderr")" '{event: "enqueue_failed", error: $e}'
+    fi
+  fi
+  summary=$(jq -c '{state, merge, decision, checks, failing, unresolved: (.threads | length)}' <<<"$cur")
+}
+
+fail() { jq -cn --arg e "$last_error" '{event: "error", error: $e}'; exit 1; }
+
+errors=0
+last_error=
+last_output=$(date +%s)
+while :; do
+  rc=0
+  poll || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    errors=0
+    case "$cr_state" in
+      MERGED)
+        rm -f "$state_file"
+        echo '{"event":"merged"}'
+        [ -z "$land" ] || exec "$here/pr-landed" -o json -C "$dir" "$branch"
+        exit 0
+        ;;
+      CLOSED) rm -f "$state_file"; echo '{"event":"closed"}'; exit 5 ;;
+    esac
+    [ -z "$once" ] || exit 0
+    if [ "$heartbeat" -gt 0 ] && [ $(( $(date +%s) - last_output )) -ge "$heartbeat" ]; then
+      jq -c '{event: "heartbeat"} + . | with_entries(select(.value | . != null and . != []))' <<<"$summary"
+      last_output=$(date +%s)
+    fi
+  else
+    errors=$((errors + 1))
+    if [ "$rc" -eq 2 ] || [ -n "$once" ] || [ "$errors" -ge "$max_errors" ]; then fail; fi
+  fi
+  sleep "$interval"
+done

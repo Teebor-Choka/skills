@@ -1,0 +1,90 @@
+{
+  "skill_name": "workflow",
+  "outcome_evals": [],
+  "trigger_evals": [
+    {
+      "query": "open a draft PR for this branch and assign it to me",
+      "should_trigger": true
+    },
+    {
+      "query": "I need to spin up a worktree to start on the auth refactor",
+      "should_trigger": true
+    },
+    {
+      "query": "commit these staged changes with a sensible message",
+      "should_trigger": true
+    },
+    {
+      "query": "address the review comments on PR 42 and resolve the threads",
+      "should_trigger": true
+    },
+    {
+      "query": "force-push the rebased branch — don't forget auto-merge",
+      "should_trigger": true
+    },
+    {
+      "query": "how should I name the branch for this new session feature?",
+      "should_trigger": true
+    },
+    {
+      "query": "the base PR merged, rebase the rest of the stack",
+      "should_trigger": true
+    },
+    {
+      "query": "I'm about to commit everything with git add -A, that fine?",
+      "should_trigger": true
+    },
+    {
+      "query": "babysit PRs",
+      "should_trigger": true
+    },
+    {
+      "query": "babysit this PR until it merges",
+      "should_trigger": true
+    },
+    {
+      "query": "keep an eye on PR 12 and handle whatever reviewers say until it lands",
+      "should_trigger": true
+    },
+    {
+      "query": "file a GitHub issue for the flaky login test",
+      "should_trigger": true
+    },
+    {
+      "query": "harden this github actions workflow yaml against injection",
+      "should_trigger": false
+    },
+    {
+      "query": "resolve the Cargo.lock merge conflict after the rebase",
+      "should_trigger": false
+    },
+    {
+      "query": "add a dependency to Cargo.toml and update features",
+      "should_trigger": false
+    },
+    {
+      "query": "explain conceptually how git rebase rewrites history",
+      "should_trigger": false
+    },
+    {
+      "query": "write a python script that parses git log output into CSV",
+      "should_trigger": false
+    },
+    {
+      "query": "set up a CI pipeline that runs tests on every push",
+      "should_trigger": false
+    },
+    {
+      "query": "review this module for bugs and risky complexity",
+      "should_trigger": false
+    },
+    {
+      "query": "what does HEAD~3 mean in git?",
+      "should_trigger": false
+    },
+    {
+      "query": "babysit the dependabot PRs across the org",
+      "should_trigger": false
+    }
+  ]
+}

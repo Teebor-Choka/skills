@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# forges/gitlab <fetch|ready|merge> DIR BRANCH: print the babysit change-request model for
+# BRANCH's GitLab MR, mark it ready, or enqueue it for merge.
+# Same contract as every forges/* backend (see babysit's header). GitLab terms are mapped onto
+# the shared model: an approval is an APPROVED review, a resolvable discussion is a thread, any
+# other non-system note is a comment, and detailedMergeStatus becomes CLEAN/BEHIND/DIRTY/BLOCKED.
+set -euo pipefail
+
+verb=$1
+dir=$2
+branch=$3
+command -v glab >/dev/null 2>&1 || { echo "glab is required for GitLab" >&2; exit 127; }
+
+if [ "$verb" = ready ]; then
+  cd "$dir" && exec glab mr update "$branch" --ready
+fi
+
+if [ "$verb" = merge ]; then
+  cd "$dir" && exec glab mr merge "$branch" --auto-merge
+fi
+
+# The project's full path from origin: git@host:group/sub/proj.git or https://host/group/proj.git.
+url=$(git -C "$dir" remote get-url origin)
+path=${url%.git}
+case "$path" in
+  *://*) path=${path#*://}; path=${path#*/} ;;
+  *:*) path=${path#*:} ;;
+esac
+
+# shellcheck disable=SC2016 # GraphQL variables, not shell.
+query='query($path: ID!, $branch: [String!]) {
+  currentUser { username }
+  project(fullPath: $path) {
+    mergeRequests(sourceBranches: $branch, first: 1, sort: CREATED_DESC) {
+      nodes {
+        state draft detailedMergeStatus approved diffHeadSha
+        approvedBy { nodes { username } }
+        headPipeline { status jobs(first: 100) { nodes { name status } } }
+        discussions(first: 100) { nodes { id resolvable resolved
+          notes(first: 100) { nodes { id system body author { username } position { newPath newLine } } } } }
+      }
+    }
+  }
+}'
+
+raw=$(cd "$dir" && glab api graphql -f path="$path" -f branch="$branch" -f query="$query")
+
+# shellcheck disable=SC2016 # jq program, not shell.
+jq -c '
+  .data.currentUser.username as $me
+  | .data.project.mergeRequests.nodes[0] // empty
+  | (.headPipeline.status) as $p
+  | [.discussions.nodes[] | .notes = [.notes.nodes[] | select(.system | not)] | select(.notes | length > 0)] as $ds
+  | {
+      state: ({opened: "OPEN", merged: "MERGED", closed: "CLOSED", locked: "CLOSED"}[.state] // .state),
+      draft,
+      head: .diffHeadSha,
+      merge: (.detailedMergeStatus as $m
+        | if $m == "MERGEABLE" then "CLEAN"
+          elif $m == "NEED_REBASE" then "BEHIND"
+          elif $m == "CONFLICT" then "DIRTY"
+          elif $m == null or $m == "CHECKING" or $m == "UNCHECKED" or $m == "PREPARING" then "UNKNOWN"
+          else "BLOCKED" end),
+      decision: (if .approved then "APPROVED" else null end),
+      checks: (if $p == null then null
+        elif $p == "SUCCESS" or $p == "SKIPPED" then "SUCCESS"
+        elif $p == "FAILED" or $p == "CANCELED" then "FAILURE"
+        else "PENDING" end),
+      failing: [.headPipeline.jobs.nodes[]? | select(.status == "FAILED") | .name] | sort,
+      threads: [$ds[] | select(.resolvable and (.resolved | not)) | .notes[0].position as $pos | .notes[-1] as $n
+        | {id, path: $pos.newPath, line: $pos.newLine, last: $n.id, author: $n.author.username, self: ($n.author.username == $me), body: $n.body}],
+      comments: [$ds[] | select(.resolvable | not) | .notes[]
+        | {id, author: .author.username, self: (.author.username == $me), body}],
+      reviews: [.approvedBy.nodes[]
+        | {id: ("approved:" + .username), author: .username, self: (.username == $me), state: "APPROVED", body: ""}]
+    }' <<<"$raw"

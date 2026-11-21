@@ -77,4 +77,4 @@ Read only the file for your language and step.
 ## Related skills
 
 - `swe:rust` and `swe:typescript` for the language rules a change must still follow.
-- `review:code-quality` to check the cost in complexity before you merge an optimization.
+- `swe-workflows:code-quality` to check the cost in complexity before you merge an optimization.
