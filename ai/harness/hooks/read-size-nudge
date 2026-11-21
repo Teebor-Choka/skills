@@ -7,7 +7,7 @@ a ranged read, grep by section, or the code graph. The nudge never blocks and fi
 
 Exception: a whole-file Read of a SOURCE file over DENY_THRESHOLD is denied while no codebase-memory graph
 tool has been called this session.
-The hook cannot ask the MCP whether the repo is indexed. The code-graph plugin's git-index hook indexes every
+The hook cannot ask the MCP whether the repo is indexed. The code-graph plugin's code-graph-index hook indexes every
 git work tree at session start whenever `codebase-memory-mcp` is on PATH, so that pair (binary on PATH, file in a git work tree)
 stands in for "indexed". "No graph tool this session" is read from the whole transcript, streamed: an assistant tool_use line
 named mcp__codebase-memory-mcp__* (parsed as JSON, so quoted text never counts). Any doubt (no binary, not a repo, transcript unreadable) fails open.
