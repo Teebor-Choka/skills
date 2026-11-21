@@ -1,0 +1,363 @@
+{
+  "document": {
+    "dsl": "1.1.0",
+    "namespace": "demo",
+    "name": "ship",
+    "version": "0.1.0",
+    "title": "Ship one change (example)",
+    "summary": "An invented delivery workflow for tests: frame, spec, failing checks, plan, build, review, release.",
+    "metadata": {
+      "org": {
+        "policy": ["vcs.remote", "vcs.default-branch", "report.sink"]
+      }
+    }
+  },
+  "schedule": {
+    "on": {
+      "one": {
+        "with": {
+          "type": "demo.change-requested"
+        }
+      }
+    }
+  },
+  "do": [
+    {
+      "frame": {
+        "run": {
+          "shell": {
+            "command": "agent-run",
+            "arguments": []
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "model",
+            "role": "pm",
+            "brief": "briefs/frame.md",
+            "metrics": ["escalations"],
+            "acceptance": [
+              {
+                "rubric": "criteria/frame.md",
+                "judge": "lead"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "spec": {
+        "run": {
+          "shell": {
+            "command": "agent-run",
+            "arguments": []
+          }
+        },
+        "output": {
+          "schema": {
+            "format": "json",
+            "resource": {
+              "endpoint": "schemas/spec.json"
+            }
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "model",
+            "role": "lead",
+            "brief": "briefs/spec.md",
+            "floor": true,
+            "metrics": ["rework"],
+            "acceptance": [
+              {
+                "check": "spec-shape"
+              },
+              {
+                "rubric": "criteria/spec.md",
+                "judge": "reviewer"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "checks-fail": {
+        "run": {
+          "shell": {
+            "command": "run-tests",
+            "arguments": ["acceptance", "red"]
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "code",
+            "role": "ci",
+            "metrics": ["wrong-failures"],
+            "acceptance": [
+              {
+                "check": "checks-fail-on-assertion"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "plan": {
+        "run": {
+          "shell": {
+            "command": "agent-run",
+            "arguments": []
+          }
+        },
+        "output": {
+          "schema": {
+            "format": "json",
+            "resource": {
+              "endpoint": "schemas/units.json"
+            }
+          }
+        },
+        "export": {
+          "as": "${ $context + . }"
+        },
+        "metadata": {
+          "org": {
+            "by": "model",
+            "role": "architect",
+            "brief": "briefs/plan.md",
+            "metrics": ["escalations"],
+            "acceptance": [
+              {
+                "rubric": "criteria/plan.md",
+                "judge": "reviewer"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "build": {
+        "for": {
+          "each": "round",
+          "in": [1, 2]
+        },
+        "while": "${ $accepted[\"build/checks-pass\"] != true }",
+        "do": [
+          {
+            "units": {
+              "for": {
+                "each": "unit",
+                "in": "${ $context.units }"
+              },
+              "do": [
+                {
+                  "implement": {
+                    "run": {
+                      "workflow": {
+                        "namespace": "demo",
+                        "name": "unit-loop",
+                        "version": "0.1.0",
+                        "input": {
+                          "unit": "${ $unit }"
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "org": {
+                        "by": "code",
+                        "role": "lead",
+                        "metrics": ["escalations"],
+                        "acceptance": [
+                          {
+                            "check": "unit-passed"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "checks-pass": {
+              "run": {
+                "shell": {
+                  "command": "run-tests",
+                  "arguments": ["acceptance", "green"]
+                }
+              },
+              "metadata": {
+                "org": {
+                  "by": "code",
+                  "role": "ci",
+                  "metrics": ["rounds"],
+                  "acceptance": [
+                    {
+                      "check": "checks-green"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "gave-up": {
+        "if": "${ $accepted[\"build/checks-pass\"] != true }",
+        "raise": {
+          "error": {
+            "type": "https://example.org/errors/checks-still-red",
+            "status": 409,
+            "title": "Checks still red after the round bound"
+          }
+        },
+        "metadata": {
+          "org": {
+            "to": "lead"
+          }
+        }
+      }
+    },
+    {
+      "review": {
+        "run": {
+          "shell": {
+            "command": "agent-run",
+            "arguments": ["--isolated"]
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "model",
+            "role": "reviewer",
+            "brief": "briefs/review.md",
+            "floor": true,
+            "metrics": ["review-findings", "escaped-defects"],
+            "acceptance": [
+              {
+                "rubric": "criteria/review.md",
+                "judge": "owner"
+              }
+            ]
+          }
+        },
+        "timeout": {
+          "after": {
+            "days": 7
+          }
+        }
+      }
+    },
+    {
+      "release-gate": {
+        "listen": {
+          "to": {
+            "one": {
+              "with": {
+                "type": "org.owner-decided"
+              }
+            }
+          }
+        },
+        "timeout": {
+          "after": {
+            "days": 2
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "human",
+            "role": "owner",
+            "floor": true,
+            "metrics": ["escalations", "decision-time"],
+            "acceptance": [
+              {
+                "human": "decision signed and verified"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "release": {
+        "if": "${ $accepted[\"release-gate\"] == true }",
+        "run": {
+          "shell": {
+            "command": "publish",
+            "arguments": ["--to", "vcs.default-branch"]
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "code",
+            "role": "ci",
+            "metrics": ["cycle-time"],
+            "acceptance": [
+              {
+                "check": "gate-approved"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "report": {
+        "emit": {
+          "event": {
+            "with": {
+              "type": "org.run-reported",
+              "source": "ship"
+            }
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "code",
+            "role": "ci",
+            "metrics": ["report-gaps"],
+            "acceptance": [
+              {
+                "check": "report-sections"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "retro": {
+        "run": {
+          "workflow": {
+            "namespace": "demo",
+            "name": "retro",
+            "version": "latest",
+            "input": {
+              "run": "${ $workflow.id }"
+            }
+          }
+        },
+        "metadata": {
+          "org": {
+            "by": "model",
+            "role": "improver",
+            "metrics": ["proposals"],
+            "acceptance": [
+              {
+                "check": "proposals-in-rung"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
