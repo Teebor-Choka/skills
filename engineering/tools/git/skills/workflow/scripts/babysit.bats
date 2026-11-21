@@ -19,8 +19,9 @@ setup() {
   # repeats the previous response. A response file holding the word FAIL makes that call fail.
   export GH_STUB_DIR="$TMP/stub"
   mkdir -p "$GH_STUB_DIR" "$TMP/bin"
-  cat >"$TMP/bin/gh" <<'EOF'
-#!/usr/bin/env bash
+  # The resolved bash, not /usr/bin/env: the Linux nix sandbox has no /usr/bin/env.
+  printf '#!%s\n' "$(command -v bash)" >"$TMP/bin/gh"
+  cat >>"$TMP/bin/gh" <<'EOF'
 # Marking ready/merge is recorded, not answered from the sequence; GH_STUB_READY_FAIL and
 # GH_STUB_MERGE_FAIL make the respective call fail.
 case "$*" in

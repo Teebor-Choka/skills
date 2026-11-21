@@ -9,8 +9,9 @@ setup() {
   git init -q -b feat "$TMP/repo"
   git -C "$TMP/repo" -c user.name=t -c user.email=t@e.x -c commit.gpgsign=false commit -q --allow-empty -m init
   mkdir -p "$TMP/bin"
-  cat >"$TMP/bin/gh" <<'STUB'
-#!/usr/bin/env bash
+  # The resolved bash, not /usr/bin/env: the Linux nix sandbox has no /usr/bin/env.
+  printf '#!%s\n' "$(command -v bash)" >"$TMP/bin/gh"
+  cat >>"$TMP/bin/gh" <<'STUB'
 case "$*" in
   "api graphql"*) [ -z "${GH_FAIL:-}" ] || { echo boom >&2; exit 1; }; cat "$GH_PR" ;;
   "run list"*) echo "${GH_RUN:-[]}" ;;
