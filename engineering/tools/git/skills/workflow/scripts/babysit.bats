@@ -320,9 +320,13 @@ note() { echo "{id: \"gid://gitlab/Note/$1\", system: false, body: \"$3\", autho
   run "$BABYSIT" --once --quiet --no-land -C "$TMP/repo"
   [ "$output" = '{"event":"merged"}' ]
   git -C "$TMP/repo" remote set-url origin git@github.com:o/r.git
-  # Only jq and git beside the stubs, so no real gh on PATH can answer.
+  # Only jq, git and the basic tools beside the stubs, so no real gh on PATH can answer. The basic
+  # tools are linked one by one because the Linux nix sandbox has none in /usr/bin or /bin.
   mkdir "$TMP/tools"
   ln -s "$(command -v jq)" "$(command -v git)" "$TMP/tools/"
+  for t in awk cat cut date dirname env grep head mkdir mktemp mv rm sed sleep sort tail tr; do
+    p=$(command -v "$t") && ln -sf "$p" "$TMP/tools/"
+  done
   export PATH="$TMP/bin:$TMP/tools:/usr/bin:/bin"
   run "$BABYSIT" -i 1 --max-errors 9 -C "$TMP/repo"
   [ "$status" -eq 1 ]
