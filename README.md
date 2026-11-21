@@ -48,7 +48,7 @@ Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`; a domain with one plugin i
 | `education`     | `find-ai-moat`      | Find where your work complements AI                                     |
 | `nix`           | `nix`               | Nix + direnv dev workflow traps                                         |
 | `git`           | `workflow`          | Git and PR workflow; git-guard hooks and the pr-watcher agent           |
-| `security`      | `yubikey`           | Hardware-backed keys: offline OpenPGP root, FIDO2 SSH, signing          |
+| `yubikey`       | `yubikey`           | Hardware-backed keys: offline OpenPGP root, FIDO2 SSH, signing          |
 
 ## Install
 

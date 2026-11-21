@@ -142,6 +142,18 @@ def test_project_docs_env_var_supplies_the_tooling(repo, isolated_script):
     assert out.returncode == 0, out.stdout + out.stderr
 
 
+def test_project_docs_as_a_sibling_skill_is_found(repo, tmp_path):
+    """The built plugin closure layout: skills/document beside skills/project-docs, no marketplace."""
+    skills = tmp_path / "closure" / "skills"
+    (skills / "document" / "scripts").mkdir(parents=True)
+    shutil.copy(RESOLVE, skills / "document" / "scripts" / "resolve.py")
+    shutil.copytree(PROJECT_DOCS, skills / "project-docs", ignore=shutil.ignore_patterns("tests", "SKILL.md"))
+    env = {"HOME": str(tmp_path / "home"), "PATH": "/usr/bin:/bin"}
+    out = run(repo, script=skills / "document" / "scripts" / "resolve.py", env=env)
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert [c["name"] for c in json.loads(out.stdout)["components"]] == ["a", "b"]
+
+
 def test_flag_naming_a_dir_without_the_resolver_halts(repo, tmp_path):
     out = run(repo, "--project-docs", tmp_path)
     assert out.returncode == 3 and json.loads(out.stdout)["missing"][0]["field"] == "project-docs"
