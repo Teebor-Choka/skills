@@ -20,7 +20,7 @@
     },
     {
       "query": "draft a quick chat reply to Sam saying no to friday, in my voice from the profile",
-      "should_trigger": true
+      "should_trigger": false
     },
     {
       "query": "can you test whether a model can pass as me in short chat replies?",
