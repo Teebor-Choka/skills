@@ -7,13 +7,13 @@ compatibility: any
 
 # Voice style
 
-The `voice` plugin ships the plain-voice rules as an output style (`output-styles/unslop.md`) and a
+The `writing` plugin ships the plain-voice rules as an output style (`output-styles/unslop.md`) and a
 command (`commands/unslop-mode.md`) that sets two axes for one session: de-slop depth (off, light,
 default, strict) and length (terse, normal, full).
 
 ## Claude Code
 
-Enable the plugin. The style appears as `voice:unslop` and the command as `/voice:unslop-mode`.
+Enable the plugin. The style appears as `writing:unslop` and the command as `/writing:unslop-mode`.
 
 ## Other harnesses
 

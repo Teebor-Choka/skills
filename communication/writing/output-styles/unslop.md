@@ -47,5 +47,5 @@ one is fine, repetition is the tell. Facts first — never invent a specific to 
 human. Precedence: facts > quotations > the author's voice > domain register > any anti-slop rule.
 
 This is the **default** de-slop level at the **terse** budget. Adjust either axis per session:
-`/voice:unslop-mode off|light|default|strict` for de-slop depth, `/voice:unslop-mode terse|normal|full`
+`/writing:unslop-mode off|light|default|strict` for de-slop depth, `/writing:unslop-mode terse|normal|full`
 for length.
