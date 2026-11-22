@@ -73,6 +73,34 @@ def test_empty_acceptance_cell_fails():
     assert any("modules" in e for e in depth_errs(text))
 
 
+def test_acceptance_for_a_rung_deeper_than_the_dialed_one_fails():
+    extra = DEPTH_OK + "| functions | The parser rejects empty input. |\n"
+    assert any("functions" in e and "deeper" in e for e in depth_errs(extra))
+
+
+resolve_input = _load("resolve_input")
+
+
+@pytest.mark.parametrize("depth,want", [
+    ("interfaces", ["interfaces"]),
+    ("modules", ["interfaces", "modules"]),
+    ("components", ["interfaces", "modules", "components"]),
+    ("functions", ["interfaces", "modules", "components", "functions"]),
+])
+def test_traversed_rungs_run_from_interfaces_down_to_and_including_the_dialed_one(depth, want):
+    assert resolve_input.traversed(depth) == want
+
+
+def test_traversed_rejects_an_unknown_rung_and_has_no_default():
+    for bad in ("layers", "", None):
+        with pytest.raises(ValueError):
+            resolve_input.traversed(bad)
+
+
+def test_traversed_is_case_insensitive():
+    assert resolve_input.traversed("Modules") == ["interfaces", "modules"]
+
+
 # --- #43 isolation --------------------------------------------------------------------------
 
 def spec(rows, extra=""):
@@ -229,6 +257,17 @@ def test_tail_is_listed_and_not_emitted():
     assert improve_errs(text) == []
 
 
+def test_tail_must_name_every_finding_below_the_cap():
+    rows = [row(1, "yes"), row(2, "no"), row(3, "no")]
+    errs = improve_errs(report(rows, box(1), tail="- f2 (below the cap)"))
+    assert any("I7" in e and "f3" in e for e in errs)
+
+
+def test_tail_naming_every_finding_below_the_cap_passes():
+    rows = [row(1, "yes"), row(2, "no"), row(3, "no")]
+    assert improve_errs(report(rows, box(1), tail="- f2\n- f3")) == []
+
+
 def test_tail_without_a_note_fails():
     rows = [row(1, "yes"), row(2, "yes"), row(3, "no")]
     assert improve_errs(report(rows, box(1) + box(2), tail=""))
@@ -296,7 +335,7 @@ def test_depth_and_improve_docs_cross_reference_each_other(name):
 
 def test_improve_doc_names_the_report_and_the_boundary():
     text = (SKILL / "references" / "improve.md").read_text()
-    for needle in ("improve-report.md", "code-quality", "never edits", "Box cap"):
+    for needle in ("improve-report.md", "code-quality", "never edits", "Box cap", "Conjoined methods"):
         assert needle in text, needle
 
 

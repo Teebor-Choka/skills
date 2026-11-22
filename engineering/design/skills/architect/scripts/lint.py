@@ -159,6 +159,9 @@ def check_depth(text, errs):
     for r in LADDER[: LADDER.index(rung) + 1]:
         if r not in have:
             errs.append(f"E9 spec: no acceptance criteria for traversed rung '{r}'")
+    for r in LADDER[LADDER.index(rung) + 1:]:
+        if r in have:
+            errs.append(f"E9 spec: acceptance for rung '{r}' is deeper than the dialed '{rung}'; the run stops at the dialed rung")
 
 
 def _block_chunks(text):
@@ -277,6 +280,12 @@ def check_improve(text, errs):
         errs.append("I6 improve report: emitted rows must be the top-ranked ones, listed first")
     if not all(emitted) and not (section(text, "Not emitted") or "").strip():
         errs.append("I6 improve report: findings below the cap need a 'Not emitted' tail note")
+    tail = (section(text, "Not emitted") or "").lower()
+    fi = next((i for i, h in enumerate(h.lower() for h in header) if h == "finding"), None)
+    if fi is not None and tail.strip():
+        for r, e in zip(rows, emitted):
+            if not e and len(r) > fi and r[fi].strip().lower() not in tail:
+                errs.append(f"I7 improve report: finding '{r[fi].strip()}' is not listed in 'Not emitted'")
 
 
 def check_decision_log(path, errs):

@@ -478,7 +478,7 @@ def main():
             return f"invocation arg `{name}`" if kind == "arg" else (
                 f"policy key `{name}`" if kind == "policy" else "the stated default")
         if mode == "design":
-            rungs = resolve_input.LADDER[: resolve_input.LADDER.index(r["depth"]["value"]) + 1]
+            rungs = resolve_input.traversed(r["depth"]["value"])
             sub.update(depth=r["depth"]["value"], scope=r["scope"]["value"], given=src("depth"),
                        acc_rows="\n".join(f"| {x} | FILL-IN |" for x in rungs))
         else:

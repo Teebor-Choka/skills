@@ -43,7 +43,8 @@ Deeper rungs refine, they do not replace, the acceptance of the rungs above them
 The spec records this in two scaffolded sections, "Decomposition depth" (the dialed rung, the scope,
 and who gave them) and "Acceptance by rung" (one row per rung from `interfaces` to the dialed one).
 `lint.py` rule E9 fails a spec that lacks either, names an unknown rung, says the depth was a default,
-or skips a traversed rung.
+skips a traversed rung, or carries acceptance for a rung deeper than the dialed one
+(the run stops at the dialed rung). `resolve_input.traversed(depth)` gives the rungs traversed.
 
 ## Relation to `:improve`
 
