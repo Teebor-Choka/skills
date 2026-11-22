@@ -37,8 +37,9 @@ Scripts live in `scripts/`. Run each with `--persona <name>`.
    held-out message never reach train. Once `profile.md` exists, re-splitting needs `--force`.
    Under 50 messages the verdict will be INCONCLUSIVE: say so and ask for more. For a persona
    built from a subset of another's corpus (one channel), `--derive-from OTHER` reuses that split.
-   Whether one persona with channel sections or one persona per channel imitates a multi-channel
-   person better is still open; a channel experiment will decide it. Do not recommend either yet.
+   Default to one persona with per-channel sections: on one public figure, a persona per channel
+   did not beat it beyond noise (see `references/spec.md`, "Channel strategy"). Written short posts
+   get close to the pass band; spoken caption text does not, whatever the profile says.
 3. **Analyze.** `profile.py analyze --persona P` writes `analysis-stats.md` from TRAIN. Then a
    reasoning-tier agent that reads only TRAIN and those stats writes `analysis.md` in the state
    dir: the person's mental model (beliefs, framing, reasoning moves, emotional range, stance,

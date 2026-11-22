@@ -217,6 +217,32 @@ Defaults: `--max-id-rate 0.65`, `--min-rubric 3.5`, `--min-n 20`, `--dim-floor 3
 - Without folds (under 100 clusters) there is no revision loop: build the profile once, then run
   the test. Tiny corpora (under 50) still run, but the verdict is INCONCLUSIVE.
 
+## Channel strategy
+
+Evidence from one public figure (short written posts and spoken caption segments, 61 sealed test
+items, aggregate only): one persona with per-channel sections against one persona per channel,
+paired on the same held-out items, up to 5 rounds with the fold loop, one sealed test each.
+
+| channel       | sections (one persona)             | one persona per channel |
+| ------------- | ---------------------------------- | ----------------------- |
+| post (n = 32) | judge picks real 0.72, rubric 3.76 | 0.66, rubric 3.91       |
+| talk (n = 29) | 0.90, rubric 3.14                  | 0.93, rubric 3.12       |
+
+- The post difference (0.06) is inside one standard error at that size (about 0.09), and the talk
+  difference is noise. Default to one persona with channel sections: it is simpler and no worse.
+- Short written posts approach the pass band (dev rounds reached 0.52 to 0.64 on 25 item folds,
+  0.66 on the sealed test). Hard length caps, one claim and one twist per post, headline casing
+  rules and at most one marked quirk per post were what moved the rate.
+- Spoken caption text did not converge in either condition (0.90 to 1.00 over every round). The
+  samples carry caption texture (cut points, glitches, other speakers) that a clean generator does
+  not reproduce. Do not spend more rounds on such a corpus; use clean transcripts or the person's
+  own writing, or say the spoken channel is out of reach.
+- Treat one 25 to 32 item slice as a trend. The best of several dev rounds is optimistic: the
+  best dev rate (0.52) became 0.66 on the sealed test.
+- Caveats: auto captions, titles possibly written by a team, small bands (long band n = 11 stays
+  INCONCLUSIVE), judge and generator from one model family, and 16 of the 61 test items also
+  appeared in an earlier sealed test.
+
 ## Runners and tiers
 
 - A runner turns `(role, model, prompt)` into text. `--runner claude` runs
