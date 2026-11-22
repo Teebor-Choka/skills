@@ -49,37 +49,16 @@ A hosted model is acceptable only if the user accepts that exposure.
 | Daily machine, user's terminal | user                           | `00-init.sh`, `10-verify-keys.sh` (prompting wrappers of the in-session scripts)                                              |
 | Tails, offline                 | user, no agent                 | `go.sh`, which runs `b0` to `b9` in order                                                                                     |
 
-State lives in `${XDG_STATE_HOME:-~/.local/state}/yubikey-hw-keys/` (override `YKHK_STATE`), with no secrets: `devices.tsv`
-(index, role, label, serial, firmware, verified), `done.<step>` markers, fingerprints. `YKHK_TTY` redirects prompt input,
-for tests. Every script resolves its tool from `PATH` and otherwise from nixpkgs through nix, resolved once per session.
+Read `references/state.md` for where state lives, the `YKHK_*` overrides and tool resolution.
 
 ## Inputs to settle first
 
-Ask only for what is missing:
-
-1. Scope: solo (default) or team (`references/team.md`).
-2. Daily OS: run `uname -s` first. `Darwin` is macOS. For `Linux`, read `/etc/os-release`. Ask only when that is unclear.
-   Windows is out of scope.
-3. A laptop that boots Tails (x86-64 only). Stop here if none exists.
-4. Identity: query the user, with defaults where available: `git config user.email`, and for GitHub the verified emails
-   of the account (`gh api user/emails`), GitHub being the default source. Confirm the exact `Name <email>`. For commits
-   to show as verified, the email must match a verified email at the Git host.
-5. Secrets encryption with a KMS (optional, skippable). `references/sops-kms.md` documents SOPS with Google Cloud KMS
-   (a project, billing and KMS rights). Another KMS, such as OpenBao, follows the same pattern: ask which one exists.
-6. Hardware: one root key and two daily keys from the YubiKey 5 series, firmware 5.7.4 or later (read it with
-   `ykman info`; the `ykman` tool itself needs 5.x), and three USB sticks (1: 8 GB or more for Tails; 2: LUKS for the
-   backup; 3: FAT for the public key and these scripts).
-7. How many USB ports are free. One is enough: Tails keeps its port. The encrypted backup is exported to memory first
-   (`b4-backup.sh`) and then copied to each stick in turn (`b4-copy.sh`). With both sticks attached the flow is the
-   same and only faster.
+Ask only for what is missing. Read `references/inputs.md` for the seven inputs (scope, daily OS, Tails laptop, identity, KMS, hardware, USB ports) before the first step.
 
 ## Quick start
 
-1. Ask Claude to set up YubiKey hardware keys. It asks the inputs below, then walks the phases in order.
-2. Phase A, on your online Mac: plug each key in once so Claude reads its serial and firmware, then confirm each is genuine.
-3. Phase B, offline: boot Tails from stick 1, check the scripts against the paper digest, run `sh ~/scripts/go.sh`. It prompts for every PIN and passphrase.
-4. Phase C, back on the Mac: import the public key, run the checks, register the keys on GitHub.
-5. Phase E can wait. Do the GitHub 2FA keys, recovery codes and `ykman otp delete 1` on the NFC key later; `references/daily-machine.md` and `references/recovery.md` list the steps.
+1. Ask Claude to set up YubiKey hardware keys. It asks the inputs, then walks the phases in order.
+   Read `references/quick-start.md` for the per-phase summary (steps 2 to 5) when the user asks for the overview.
 
 Type PINs and passphrases only in your own terminal or on Tails, never in the chat.
 
@@ -114,12 +93,7 @@ Each phase has an exit check. Do not start the next phase until it passes.
 
 ## Done means
 
-- Three keys with PINs changed before any key material existed.
-- Primary key on the root card, two tested encrypted backups with an independent passphrase.
-- Six on-card subkeys with an expiry, two independent FIDO2 SSH keys, both registered on GitHub.
-- A verified SSH login and a verified signature from each daily key.
-- GitHub 2FA with both keys and saved recovery codes.
-- The user can state where each recovery item is stored.
+Read `references/state.md` for the full done-means list; every item must hold before the work is called done.
 
 ## References
 

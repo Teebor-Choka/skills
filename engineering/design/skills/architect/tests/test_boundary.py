@@ -18,7 +18,7 @@ def test_the_architect_no_longer_files_work_items():
 
 
 def test_the_architect_hands_the_package_to_decompose():
-    text = (ARCHITECT / "SKILL.md").read_text()
+    text = (ARCHITECT / "references" / "workflow.md").read_text()
     step = text[text.index("7. **State status honestly"):text.index("8. ")]
     assert "decompose" in step and "work.tracker" not in step
 
@@ -51,6 +51,6 @@ def test_decompose_links_its_filing_guide_and_it_exists():
 
 
 def test_a_single_unit_plan_is_handed_to_the_executor_without_a_cut():
-    text = (ARCHITECT / "SKILL.md").read_text()
+    text = (ARCHITECT / "references" / "workflow.md").read_text()
     step = text[text.index("7. **State status honestly"):text.index("8. ")]
     assert "implement" in step
