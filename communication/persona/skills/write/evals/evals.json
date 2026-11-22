@@ -1,0 +1,38 @@
+{
+  "skill_name": "persona:write",
+  "outcome_evals": [],
+  "trigger_evals": [
+    {
+      "query": "write as the cofounder persona: a short reply declining the friday call",
+      "should_trigger": true
+    },
+    {
+      "query": "draft this in the ops-lead persona's voice for the team channel: the release slips a day",
+      "should_trigger": true
+    },
+    {
+      "query": "reply as the persona to this chat message, keep it to one line",
+      "should_trigger": true
+    },
+    {
+      "query": "answer that email the way the persona would, medium length",
+      "should_trigger": true
+    },
+    {
+      "query": "this paragraph sounds like ChatGPT, de-slop it",
+      "should_trigger": false
+    },
+    {
+      "query": "tighten my blog post but keep my voice",
+      "should_trigger": false
+    },
+    {
+      "query": "learn how my colleague writes from these 300 messages and build a profile",
+      "should_trigger": false
+    },
+    {
+      "query": "write a sonnet in the style of Shakespeare",
+      "should_trigger": false
+    }
+  ]
+}

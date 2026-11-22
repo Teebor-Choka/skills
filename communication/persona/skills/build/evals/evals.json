@@ -1,0 +1,51 @@
+{
+  "skill_name": "persona:build",
+  "outcome_evals": [],
+  "trigger_evals": [
+    {
+      "query": "here are 300 of my slack messages, learn to write like me",
+      "should_trigger": true
+    },
+    {
+      "query": "build a voice profile from these email exports so you can draft replies as me",
+      "should_trigger": true
+    },
+    {
+      "query": "learn my voice from these samples and tell me how close you get",
+      "should_trigger": true
+    },
+    {
+      "query": "imitate how my cofounder writes, she sent me her tweets and said it's fine",
+      "should_trigger": true
+    },
+    {
+      "query": "draft a quick chat reply to Sam saying no to friday, in my voice from the profile",
+      "should_trigger": false
+    },
+    {
+      "query": "can you test whether a model can pass as me in short chat replies?",
+      "should_trigger": true
+    },
+    {
+      "query": "write like me: one-liners, lowercase, the way I answer in our team channel",
+      "should_trigger": true
+    },
+    {
+      "query": "this paragraph sounds like ChatGPT, de-slop it",
+      "should_trigger": false
+    },
+    {
+      "query": "tighten my blog post but keep my voice",
+      "should_trigger": false
+    },
+    {
+      "query": "write a sonnet in the style of Shakespeare",
+      "should_trigger": false
+    },
+    {
+      "query": "set the unslop mode to strict for this session",
+      "should_trigger": false
+    },
+    { "query": "summarize this podcast episode", "should_trigger": false }
+  ]
+}
