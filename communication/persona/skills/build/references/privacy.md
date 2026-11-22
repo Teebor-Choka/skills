@@ -27,6 +27,11 @@ and temperament, and every report, which holds their messages.
 - Never use a profile to get past a check that relies on someone's writing (support, banking,
   identity), or to deceive their contacts.
 
+## Migrating from the old `voice` plugin
+
+`mv ~/.config/agents/state/voice ~/.config/agents/state/persona` (the old `MIMIC_STATE_HOME` still
+works for one release).
+
 ## Sharing results
 
 Report aggregates: identification rate, rubric means, band and channel rows, counts, rounds. Do

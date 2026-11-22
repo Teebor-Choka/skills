@@ -15,13 +15,11 @@ legacy path writes a profile by hand and revises it on folds
 
 ## Before you start: the data is personal
 
-Tell the user this first, in one or two lines:
+Tell the user this first:
 
 - Samples, splits, profile and reports stay in the state dir,
   `~/.config/agents/state/persona/<persona>/` (or `$PERSONA_STATE_HOME/<persona>/`), created 0700.
-  They are never committed. Migrating from the old `voice` plugin: `mv ~/.config/agents/state/voice ~/.config/agents/state/persona`
-  (the old `MIMIC_STATE_HOME` still works for one release.)
-  The scripts refuse a path that a git work tree would track (exit 3)
+  They are never committed. The scripts refuse a path that a git work tree would track (exit 3)
   unless `--allow-git-worktree` is passed.
 - Imitate a third party only with their consent, or from their public material for study. Never
   send a generated message as if the person wrote it. See [references/privacy.md](references/privacy.md).
@@ -33,17 +31,15 @@ Scripts live in `scripts/`. Run each with `--persona <name>`. Steps 1 and 2 are 
 
 1. **Ingest.** `ingest.py --persona P [--author A] [--channel C] [--audience A] FILES...` reads
    txt, md, jsonl (`text`, `channel`, `audience`, `ts`, `reply_to`), json, eml and mbox. Text
-   stays as written; repeats collapse with a count. Ask for channel and audience when the
-   files carry none: the profile depends on them. Drop lines that are not the person's (other
+   stays as written. Ask for channel and audience when the
+   files carry none. Drop lines that are not the person's (other
    speakers, bots) with `--exclude-pattern REGEX`; never edit the split files afterwards.
 2. **Split.** `split.py --persona P` makes train and test (80/20, at least 20 test items). From
    100 distinct messages it also deals TRAIN into 5 folds for revision. Near duplicates of a
    held-out message never reach train. Once `profile.md` exists, re-splitting needs `--force`.
    Under 50 messages the verdict will be INCONCLUSIVE: say so and ask for more. For a persona
    built from a subset of another's corpus (one channel), `--derive-from OTHER` reuses that split.
-   Default to one persona with per-channel sections: on one public figure, a persona per channel
-   did not beat it beyond noise (see `references/spec.md`, "Channel strategy"). Written short posts
-   get close to the pass band; spoken caption text does not, whatever the profile says.
+   Default to one persona with per-channel sections (`references/spec.md`, "Channel strategy").
 
 ### Default path: the predictive loop
 
@@ -55,8 +51,9 @@ Scripts live in `scripts/`. Run each with `--persona <name>`. Steps 1 and 2 are 
 5. **Run.** `world.py run --persona P --max-cost-usd X`. Per message: the point is extracted
    without its words, the map predicts the message, a judge compares prediction and actual, and
    the map gets small patches when the surprise is high or the message shows something new. It
-   checkpoints every step; on exit 4 (cap reached) continue with `--resume` and a higher cap.
-   `world.py status` shows progress, the surprise curve and the cost.
+   checkpoints every step; on exit 4 (cap reached) continue with `--resume` and a higher cap. After
+   3 failed attempts at one step it halts (exit 5): fix the cause, `--resume --retry-failed`.
+   `world.py status` shows progress, the surprise curve, and measured and estimated cost.
 6. **Final.** `world.py final --persona P` judges the sealed slice once with the frozen map. Report
    the verdict, the per-band and per-channel rows, the first and last curve window, and the cost.
    A second run needs `--rerun-test "<reason>"`.
@@ -87,8 +84,7 @@ Scripts live in `scripts/`. Run each with `--persona <name>`. Steps 1 and 2 are 
    (worst band closest to 0.5 at rubric 3.5 or more, ties within noise to the latest). Do it
    before the test, and say which round it picked and why.
 9. **Test once.** `evaluate.py run --persona P --slice test`. This seals the test slice and runs
-   the selected snapshot. Report the verdict, identification rate, rubric means and the per-band
-   and per-channel rows with their verdicts. A second test run needs `--rerun-test "<reason>"`.
+   the selected snapshot. Report the verdict and the band and channel rows. A second run needs `--rerun-test "<reason>"`.
 
 Never read `items.jsonl` or a report's worst items to revise the profile: that is training on the
 test.
@@ -99,26 +95,23 @@ Per item: an extractor writes the point of the original without its words; the g
 the message from the profile and the point; a blind judge call sees TRAIN exemplars and both
 messages in seeded random order and names the original; a second call scores the generated one on
 the [rubric](references/rubric.md). Defaults: PASS when the identification rate is within 0.35 to 0.65
-and the mean rubric at least 3.5, on at least 20 items. 0.5 means the judge cannot tell; below 0.35
-the generated messages overdo the habits (caricature). A judge that
+and the mean rubric at least 3.5, on at least 20 items. Below 0.35 the generated messages overdo the habits (caricature). A judge that
 always picks one position, or too many excluded items, makes the round INVALID.
 
-Runners: `--runner claude` (isolated `claude -p`: no tools, no user settings, no session saved),
-`--runner cmd:'<command>'` for another harness (prompt on stdin), `--runner stub` for offline
-tests. Generator and judge default to the `reasoning` tier, the extractor to `execution`;
-`AGENT_TIERS_FILE` maps tiers to models, and `--judge-model` and `--generator-model` take a tier or
-a model. In the loop, per-step scoring uses the cheaper `execution` tier (`--score-model`).
+Runners: `--runner claude`, `cmd:'<command>'` (another harness, prompt on stdin) or `stub` (offline
+tests). Generator and judge default to the `reasoning` tier, the extractor to `execution`; model
+flags and `AGENT_TIERS_FILE` are in [references/world-model.md](references/world-model.md).
 
-Every call's cost lands in `<state>/ledger.jsonl`. `--max-cost-usd X` (both scripts) refuses the
-call that would pass `X` with exit 4; sealed runs check the estimate before sealing.
+Every call's cost lands in `<state>/ledger.jsonl`. `--max-cost-usd X` refuses the call that would
+pass `X` (exit 4); sealed runs check the estimate before sealing.
 
 ## Drafting as the persona
 
 `map.md` (default path) or the selected round's `profile.md` (legacy path) is the input of the
-`write` skill: load it as the voice for text written as that person. For a message the user will send themselves, draft it, then check it
-against the profile's Short messages and Never sections. Say which map or profile you used and
-its last verdict. Without a PASS, call the draft an approximation.
+`write` skill (the voice for text written as that person). For a message the user sends
+themselves, draft it, then check it against the profile's Short messages and Never sections. Say
+which map or profile you used and its last verdict; without a PASS, call the draft an approximation.
 
 ## Tests
 
-`python3 -m pytest tests` (offline, stub runners). The repo's flake `tests` check runs them.
+`python3 -m pytest tests` (offline, stub runners); the flake `tests` check runs them.
