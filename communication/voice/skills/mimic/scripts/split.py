@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Split <state>/corpus.jsonl into train, dev and test, seeded and stratified, with no leakage.
+"""Split <state>/corpus.jsonl into train and test, seeded and stratified, with no leakage.
 
 Near-duplicate clusters move as one unit; a held-out cluster keeps only its first member and the
 rest are dropped, never put in train. Test size: max(round(N*test_frac), min(min_test, N*0.4)).
-A dev slice exists from --dev-min clusters up.
+From --dev-min clusters up, TRAIN clusters are dealt into --folds folds for the revision loop.
+--derive-from PERSONA reuses another persona's assignment for the messages this corpus shares.
 
-  split.py --persona NAME [--seed 1337] [--test-frac 0.2] [--dev-frac 0.1] [--min-test 20] [--force]
+  split.py --persona NAME [--seed 1337] [--test-frac 0.2] [--folds 5] [--min-test 20] [--force]
+  split.py --persona NAME --derive-from SOURCE [--force]
 """
 
 import argparse
@@ -61,6 +63,37 @@ def take(clusters, total, rng):
     return picked, [c for c in clusters if id(c) not in chosen]
 
 
+def deal_folds(clusters, k, rng):
+    """Deal train clusters into k folds, stratified: each stratum is shuffled, then dealt round
+    robin from the fold that holds the fewest records so far."""
+    strata = {}
+    for c in clusters:
+        strata.setdefault((c[0]["band"], c[0]["channel"], c[0]["audience"]), []).append(c)
+    size = [0] * k
+    for key in sorted(strata, key=str):
+        group = sorted(strata[key], key=lambda c: c[0]["id"])
+        rng.shuffle(group)
+        start = min(range(k), key=lambda f: (size[f], f))
+        for j, c in enumerate(group):
+            f = (start + j) % k
+            for r in c:
+                r["fold"] = f
+            size[f] += len(c)
+
+
+def derive(d, source, corpus):
+    """train/dev/test (with folds) of another persona's split, restricted to this corpus."""
+    sd = d.parent / source / "split"
+    m.require(sd / "manifest.json", f"split.py --persona {source}")
+    src = m.load_split(d.parent / source)
+    by_id = {r["id"]: r for r in corpus}
+    out = []
+    for rows in src[1:]:
+        out.append([dict(by_id[r["id"]], **({"fold": r["fold"]} if "fold" in r else {}))
+                    for r in rows if r["id"] in by_id])
+    return src[0], out
+
+
 def redact_contexts(train, held, threshold):
     """Blank a train record's context when it quotes or nearly repeats a held-out message (a
     reply_to chain). The profile author reads train, so held-out text must not ride along."""
@@ -83,9 +116,10 @@ def main():
     m.add_state_args(p)
     p.add_argument("--seed", type=int, default=1337)
     p.add_argument("--test-frac", type=float, default=0.2)
-    p.add_argument("--dev-frac", type=float, default=0.1)
+    p.add_argument("--folds", type=int, default=5, help="revision folds over TRAIN (0: none)")
     p.add_argument("--min-test", type=int, default=20)
-    p.add_argument("--dev-min", type=int, default=100, help="clusters needed before a dev slice exists")
+    p.add_argument("--dev-min", type=int, default=100, help="clusters needed before folds exist")
+    p.add_argument("--derive-from", metavar="PERSONA", help="reuse that persona's split for shared messages")
     p.add_argument("--near-dup", type=float, default=m.NEAR_DUP)
     p.add_argument("--force", action="store_true", help="re-split even after a test run (overfits)")
     a = p.parse_args()
@@ -102,23 +136,34 @@ def main():
     if not corpus:
         raise m.Fail("corpus.jsonl is empty")
 
-    roots = m.near_dup_clusters([r["text"] for r in corpus], a.near_dup)
-    groups = {}
-    for r, root in zip(corpus, roots):
-        groups.setdefault(root, []).append(r)
-    clusters = [groups[k] for k in sorted(groups)]
-    n = len(clusters)
-    n_test = max(round(n * a.test_frac), min(a.min_test, int(n * 0.4)), 1 if n >= 2 else 0)
-    n_dev = round(n * a.dev_frac) if n >= a.dev_min else 0
+    derived = None
+    if a.derive_from:
+        if not m.PERSONA_RE.match(a.derive_from):
+            raise m.Fail(f"bad --derive-from persona {a.derive_from!r}")
+        src_manifest, (train, dev, test) = derive(d, a.derive_from, corpus)
+        derived = {"persona": a.derive_from, "split_id": src_manifest["split_id"]}
+        n_folds, seed = src_manifest.get("folds", 0), src_manifest["seed"]
+        n = len(set(m.near_dup_clusters([r["text"] for r in corpus], a.near_dup)))
+        dropped = len(corpus) - len(train) - len(dev) - len(test)
+    else:
+        roots = m.near_dup_clusters([r["text"] for r in corpus], a.near_dup)
+        groups = {}
+        for r, root in zip(corpus, roots):
+            groups.setdefault(root, []).append(r)
+        clusters = [groups[k] for k in sorted(groups)]
+        n = len(clusters)
+        n_test = max(round(n * a.test_frac), min(a.min_test, int(n * 0.4)), 1 if n >= 2 else 0)
+        n_folds, seed = (a.folds if n >= a.dev_min else 0), a.seed
 
-    rng = random.Random(a.seed)
-    clusters.sort(key=lambda c: c[0]["id"])
-    test_c, rest = take(clusters, n_test, rng)
-    dev_c, train_c = take(rest, n_dev, rng)
-    train = [r for c in train_c for r in c]
-    dev = [c[0] for c in dev_c]
-    test = [c[0] for c in test_c]
-    dropped = sum(len(c) - 1 for c in test_c + dev_c)
+        rng = random.Random(a.seed)
+        clusters.sort(key=lambda c: c[0]["id"])
+        test_c, train_c = take(clusters, n_test, rng)
+        if n_folds:
+            deal_folds(train_c, n_folds, rng)
+        train = [r for c in train_c for r in c]
+        dev = []
+        test = [c[0] for c in test_c]
+        dropped = sum(len(c) - 1 for c in test_c)
     redacted = redact_contexts(train, dev + test, a.near_dup)
 
     max_sim = 0.0
@@ -146,15 +191,17 @@ def main():
     manifest = {
         "corpus_hash": hashlib.sha256(corpus_path.read_bytes()).hexdigest()[:16],
         "split_id": m.split_id(dev, test), "redacted_contexts": redacted,
-        "seed": a.seed, "clusters": n, "messages": len(corpus),
+        "seed": seed, "clusters": n, "messages": len(corpus), "folds": n_folds,
         "counts": {"train": len(train), "dev": len(dev), "test": len(test)},
         "dropped_near_duplicates": dropped, "max_cross_similarity": round(max_sim, 4),
         "near_dup_threshold": a.near_dup, "strata": strata,
     }
+    if derived:
+        manifest["derived_from"] = derived
     m.write_json(sd / "manifest.json", manifest)
     print(json.dumps({k: manifest[k] for k in ("counts", "clusters", "dropped_near_duplicates", "max_cross_similarity")}))
-    if n_dev == 0:
-        print(f"no dev slice ({n} clusters < {a.dev_min}): build the profile once, then run the test.")
+    if n_folds == 0:
+        print(f"no folds ({n} clusters < {a.dev_min}): build the profile once, then run the test.")
     if len(test) < a.min_test:
         print(f"only {len(test)} test items: the verdict will be INCONCLUSIVE (needs {a.min_test}).")
 

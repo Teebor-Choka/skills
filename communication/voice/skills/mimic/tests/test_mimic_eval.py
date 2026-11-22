@@ -293,10 +293,10 @@ class EndToEnd(unittest.TestCase):
         self.assertIn("missing section", r.stderr)
         self.assertFalse((self.state / "split" / "test.sealed").exists())
 
-    def test_dev_slice_needed_for_revision(self):
+    def test_folds_needed_for_revision(self):
         r = self.run_eval("--slice", "dev")
         self.assertEqual(r.returncode, 2)
-        self.assertIn("no dev slice", r.stderr)
+        self.assertIn("no folds", r.stderr)
 
     def test_weak_judge_is_recorded(self):
         r = self.run_eval("--slice", "test", "--judge-model", "haiku")
@@ -307,7 +307,7 @@ class EndToEnd(unittest.TestCase):
 
 
 class RevisionIsolation(unittest.TestCase):
-    """AT-10 on a corpus big enough for a dev slice."""
+    """AT-10 on a corpus big enough for folds."""
 
     def setUp(self):
         self.sb = Sandbox()
@@ -316,11 +316,12 @@ class RevisionIsolation(unittest.TestCase):
     def tearDown(self):
         self.sb.close()
 
-    def test_feedback_holds_no_held_out_text_and_rounds_are_capped(self):
-        dev = read_jsonl(self.state / "split" / "dev.jsonl")
+    def test_feedback_holds_no_held_out_text(self):
+        train = read_jsonl(self.state / "split" / "train.jsonl")
         test = read_jsonl(self.state / "split" / "test.jsonl")
-        reasons = {d["id"]: f'sounds off, the original said "{d["text"]}" instead' for d in dev}
-        reasons[dev[0]["id"]] = "the generated text misses " + test[0]["text"]
+        reasons = {t["id"]: f'sounds off, the original said "{t["text"]}" instead' for t in train}
+        first = next(t for t in train if t["fold"] == 0)
+        reasons[first["id"]] = "the generated text misses " + test[0]["text"]
         stub = self.sb.root / "stub.json"
         stub.write_text(json.dumps({"reasons": reasons, "score_default": 2}))
         for k in (1, 2, 3):
@@ -330,16 +331,216 @@ class RevisionIsolation(unittest.TestCase):
             fb = (self.state / "rounds" / f"dev-{k}" / "feedback.json").read_text()
             data = json.loads(fb)
             self.assertIn("failed_dims", data)
+            self.assertIn("by_band", data)
             canon = mimiclib.canonical(fb)
-            for msg in dev + test:
+            for msg in [t for t in train if t["fold"] == k - 1] + test:
                 toks = mimiclib.canonical(msg["text"]).split()
                 for j in range(max(1, len(toks) - 3)):
                     span = " ".join(toks[j:j + 4])
                     if len(toks) >= 4:
                         self.assertNotIn(span, canon, msg["id"])
-        r = self.sb.run("evaluate.py", "run", "--persona", "pat", "--runner", "stub", "--slice", "dev")
+
+
+
+def rnd(k, short, long, rub=4.0, n_short=40, n_long=10, fold=None):
+    """A scripted dev round: per-band (id rate, rubric)."""
+    rs, rl = (rub, rub) if not isinstance(rub, tuple) else rub
+    return {"round": k, "fold": fold, "profile_hash": f"h{k}",
+            "by_band": {"short": {"n": n_short, "id_rate": short, "mean_rubric": rs},
+                        "long": {"n": n_long, "id_rate": long, "mean_rubric": rl}}}
+
+
+class GroupVerdicts(unittest.TestCase):
+    def test_each_channel_and_band_gets_its_own_verdict_and_the_overall_one_is_unchanged(self):
+        chat = [item(i, identified=i < 10, picked="AB"[i % 2], channel="chat") for i in range(20)]
+        mail = [item(100 + i, identified=True, picked="AB"[i % 2], channel="email", band="long") for i in range(20)]
+        few = [item(200 + i, identified=i < 2, picked="AB"[i % 2], channel="sms") for i in range(5)]
+        s = mimiclib.summarize(chat + mail + few)
+        self.assertEqual(s["by_channel"]["chat"]["verdict"], "PASS")
+        self.assertEqual(s["by_channel"]["email"]["verdict"], "FAIL")
+        self.assertEqual(s["by_channel"]["sms"]["verdict"], "INCONCLUSIVE")
+        self.assertEqual(s["by_band"]["long"]["verdict"], "FAIL")
+        self.assertEqual(s["verdict"], "FAIL")  # 32 of 45: overall rule as before
+        self.assertAlmostEqual(s["id_rate"], 32 / 45, places=4)
+
+    def test_a_channel_with_too_many_exclusions_is_invalid(self):
+        chat = balanced(20, 10) + [item(300 + i, excluded="copied") for i in range(6)]
+        mail = [item(100 + i, identified=i < 20, picked="AB"[i % 2], channel="email") for i in range(40)]
+        s = mimiclib.summarize(chat + mail)
+        self.assertEqual(s["by_channel"]["chat"]["verdict"], "INVALID")
+        self.assertEqual(s["by_channel"]["email"]["verdict"], "PASS")
+        self.assertEqual(s["verdict"], "PASS")  # 6 of 66 excluded overall
+
+    def test_report_table_shows_group_verdicts(self):
+        import evaluate
+        s = mimiclib.summarize(balanced(20, 10))
+        s.update(persona="pat", slice="test", round=1, models={"judge": "opus"}, runner="stub")
+        self.assertIn("| channel: chat | 20 | 0.50 | 4.00 | PASS |", evaluate.report_md(s))
+
+
+class Selection(unittest.TestCase):
+    """The best-round rule: worst band closest to 0.5, rubric floor per band, noise margin, latest."""
+
+    def test_picks_the_round_whose_worst_band_is_closest_to_half(self):
+        rounds = [rnd(1, 0.5, 1.0, n_long=40), rnd(2, 0.55, 0.5, n_long=40), rnd(3, 0.3, 0.6, n_long=40)]
+        sel = mimiclib.select_round(rounds, 3.5)
+        self.assertEqual(sel["round"], 2)
+        self.assertTrue(sel["floor_met"])
+        self.assertAlmostEqual(sel["margin"], (0.25 / 40) ** 0.5, places=4)
+
+    def test_rubric_floor_applies_per_band(self):
+        rounds = [rnd(1, 0.5, 0.5, rub=(4.0, 3.4)), rnd(2, 0.7, 0.9)]
+        self.assertEqual(mimiclib.select_round(rounds, 3.5)["round"], 2)
+
+    def test_within_the_noise_margin_the_latest_round_wins(self):
+        # long n=10: margin 0.158; round 3 is 0.10 worse than round 1, within noise
+        rounds = [rnd(1, 0.5, 0.5), rnd(2, 0.5, 0.9), rnd(3, 0.6, 0.4)]
+        sel = mimiclib.select_round(rounds, 3.5)
+        self.assertEqual(sel["round"], 3)
+        self.assertEqual(sel["tie_set"], [1, 3])
+        # outside the margin the closer round holds
+        rounds[2] = rnd(3, 0.5, 0.75, n_long=40, n_short=40)
+        rounds[0] = rnd(1, 0.5, 0.5, n_long=40, n_short=40)
+        self.assertEqual(mimiclib.select_round(rounds, 3.5)["round"], 1)
+
+    def test_exact_tie_takes_the_latest(self):
+        self.assertEqual(mimiclib.select_round([rnd(1, 0.6, 0.6), rnd(2, 0.4, 0.4)], 3.5)["round"], 2)
+
+    def test_no_round_meets_the_floor(self):
+        rounds = [rnd(1, 0.5, 0.5, rub=3.0), rnd(2, 0.9, 0.9, rub=(3.4, 3.2)), rnd(3, 0.5, 0.5, rub=(3.2, 3.6))]
+        sel = mimiclib.select_round(rounds, 3.5)
+        self.assertFalse(sel["floor_met"])
+        self.assertEqual(sel["round"], 3)  # highest worst-band rubric (3.2), latest of the tie
+
+    def test_no_rounds(self):
+        with self.assertRaises(mimiclib.Fail):
+            mimiclib.select_round([], 3.5)
+
+
+class StopRule(unittest.TestCase):
+    def test_converges_when_both_bands_pass_twice_and_hold_steady(self):
+        rounds = [rnd(1, 0.5, 0.9), rnd(2, 0.5, 0.6), rnd(3, 0.55, 0.5)]
+        self.assertEqual(mimiclib.stop_rule(rounds)[0], "converged")
+        self.assertIsNone(mimiclib.stop_rule(rounds[:2])[0])
+
+    def test_no_convergence_when_a_band_moves_more_than_its_se(self):
+        rounds = [rnd(1, 0.5, 0.36, n_long=40), rnd(2, 0.5, 0.64, n_long=40)]  # 0.28 > se 0.079
+        self.assertIsNone(mimiclib.stop_rule(rounds)[0])
+
+    def test_no_convergence_below_the_rubric_floor(self):
+        rounds = [rnd(1, 0.5, 0.5, rub=(4.0, 3.0)), rnd(2, 0.5, 0.5, rub=(4.0, 3.0))]
+        self.assertIsNone(mimiclib.stop_rule(rounds)[0])
+
+    def test_plateau_after_three_rounds_without_improvement(self):
+        base = [rnd(1, 0.5, 1.0, n_long=40), rnd(2, 0.5, 0.8, n_long=40)]
+        flat = [rnd(3, 0.5, 0.85, n_long=40), rnd(4, 0.5, 0.75, n_long=40), rnd(5, 0.5, 0.9, n_long=40)]
+        self.assertEqual(mimiclib.stop_rule(base + flat)[0], "plateau")
+        better = flat[:2] + [rnd(5, 0.5, 0.65, n_long=40)]  # 0.15 better than 0.8: beyond se 0.079
+        self.assertIsNone(mimiclib.stop_rule(base + better)[0])
+        self.assertIsNone(mimiclib.stop_rule(base + flat[:2])[0])
+
+    def test_cap(self):
+        # long improves by 0.02 a round (beyond se 0.016 at n 1000) but never enters the band
+        rounds = [rnd(k, 0.5, 1.01 - 0.02 * k, n_long=1000) for k in range(1, 11)]
+        self.assertIsNone(mimiclib.stop_rule(rounds[:9], max_rounds=10)[0])
+        self.assertEqual(mimiclib.stop_rule(rounds, max_rounds=10)[0], "cap")
+
+
+class Folds(unittest.TestCase):
+    """k-fold revision over TRAIN, the profile snapshot per round, and the recorded selection."""
+
+    def setUp(self):
+        self.sb = Sandbox()
+        self.state = build_state(self.sb, n=200)
+        self.train = read_jsonl(self.state / "split" / "train.jsonl")
+
+    def tearDown(self):
+        self.sb.close()
+
+    def run_eval(self, *args):
+        return self.sb.run("evaluate.py", "run", "--persona", "pat", "--runner", "stub", *args)
+
+    def select(self):
+        return self.sb.run("evaluate.py", "select", "--persona", "pat")
+
+    def test_dev_rounds_rotate_folds_and_snapshot_the_profile(self):
+        prof = self.state / "profile.md"
+        self.assertEqual(self.run_eval("--slice", "dev").returncode, 0)
+        self.assertEqual(self.run_eval("--slice", "dev").returncode, 0)
+        prof.write_text(prof.read_text() + "\nOne more rule.\n")
+        r = self.run_eval("--slice", "dev")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        examples = mimiclib.example_ids(prof.read_text())
+        self.assertTrue(examples)
+        for k in (1, 2, 3):
+            out = self.state / "rounds" / f"dev-{k}"
+            rep = json.loads((out / "report.json").read_text())
+            self.assertEqual(rep["fold"], k - 1)
+            fold_ids = {t["id"] for t in self.train if t["fold"] == k - 1} - examples
+            items = read_jsonl(out / "items.jsonl")
+            self.assertEqual({x["id"] for x in items}, fold_ids)
+            for x in items:
+                self.assertFalse(set(x["exemplars"]) & fold_ids)
+            self.assertTrue((out / "profile.md").exists())
+        self.assertEqual((self.state / "rounds" / "dev-3" / "profile.md").read_text(), prof.read_text())
+        revised = [json.loads((self.state / "rounds" / f"dev-{k}" / "report.json").read_text())["revised"]
+                   for k in (1, 2, 3)]
+        self.assertEqual(revised, [None, False, True])
+
+    def test_a_profile_quoting_the_round_fold_is_refused(self):
+        prof = self.state / "profile.md"
+        examples = mimiclib.example_ids(prof.read_text())
+        quote = next(t for t in self.train if t["fold"] == 0 and len(t["text"].split()) >= 8
+                     and t["id"] not in examples)
+        prof.write_text(prof.read_text().replace("## Lexicon\n", "## Lexicon\n\n" + quote["text"] + "\n", 1))
+        r = self.run_eval("--slice", "dev")
         self.assertEqual(r.returncode, 2)
-        self.assertIn("3 rounds", r.stderr)
+        self.assertIn("held-out", r.stderr)
+        self.assertFalse((self.state / "rounds" / "dev-1").exists())
+
+    def test_the_sealed_test_needs_a_recorded_selection_and_uses_its_profile(self):
+        self.assertEqual(self.select().returncode, 2)  # no dev rounds yet
+        self.assertEqual(self.run_eval("--slice", "dev").returncode, 0)
+        r = self.run_eval("--slice", "test")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("select", r.stderr)
+        self.assertFalse((self.state / "split" / "test.sealed").exists())
+        r = self.select()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        sel = json.loads((self.state / "rounds" / "selection.json").read_text())
+        self.assertEqual(sel["round"], 1)
+        self.assertIn("rule", sel)
+        prof = self.state / "profile.md"
+        prof.write_text(prof.read_text() + "\nA later edit that was never judged.\n")
+        r = self.run_eval("--slice", "test")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rep = json.loads((self.state / "rounds" / "test-1" / "report.json").read_text())
+        self.assertEqual(rep["profile_hash"], sel["profile_hash"])
+        self.assertEqual(rep["selected_round"], 1)
+        self.assertEqual(self.select().returncode, 2)  # sealed: the choice is final
+
+    def test_a_tampered_snapshot_is_refused(self):
+        self.assertEqual(self.run_eval("--slice", "dev").returncode, 0)
+        self.assertEqual(self.select().returncode, 0)
+        snap = self.state / "rounds" / "dev-1" / "profile.md"
+        snap.write_text(snap.read_text() + "\nedited\n")
+        r = self.run_eval("--slice", "test")
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse((self.state / "split" / "test.sealed").exists())
+
+    def test_a_converged_loop_refuses_more_rounds(self):
+        order = sorted(self.train, key=lambda t: (t["fold"], t["band"], t["id"]))  # half right per fold and band
+        ident = {t["id"]: ("correct" if k % 2 else "wrong") for k, t in enumerate(order)}
+        stub = self.sb.root / "stub.json"
+        stub.write_text(json.dumps({"identify": ident, "score_default": 4}))
+        for _ in (1, 2):
+            r = self.run_eval("--slice", "dev", "--stub-script", stub)
+            self.assertEqual(r.returncode, 0, r.stderr)
+        rep = json.loads((self.state / "rounds" / "dev-2" / "report.json").read_text())
+        self.assertEqual(rep["stop"], "converged")
+        r = self.run_eval("--slice", "dev", "--stub-script", stub)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("converged", r.stderr)
 
 
 if __name__ == "__main__":

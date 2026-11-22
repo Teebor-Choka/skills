@@ -5,8 +5,10 @@ import unittest
 
 from mimic_fixtures import Sandbox, build_state, read_jsonl
 
-SECTIONS = ["Measured stats", "Habits", "Temperament", "Short messages", "Channels and audiences",
-            "Lexicon", "Never", "Decisions and responses", "Worked examples"]
+SECTIONS = ["Measured stats", "Mental model", "Habits", "Temperament", "Short messages", "Long messages",
+            "Channels and audiences", "Lexicon", "Never", "Decisions and responses", "Worked examples"]
+MODEL = ["Beliefs and values", "Framing", "Reasoning moves", "Emotional range", "Stance", "Compressed",
+         "Expanded"]
 
 
 class Profile(unittest.TestCase):
@@ -85,6 +87,29 @@ class Profile(unittest.TestCase):
         long_test = next(t for t in self.test if len(t["text"].split()) >= 8)
         bad = self.good.replace("## Lexicon\n", "## Lexicon\n\n" + long_test["text"] + "\n", 1)
         self.assertInvalid(bad, "held-out text")
+
+    def test_skeleton_has_the_mental_model_subsections(self):
+        model = self.good.split("## Mental model\n", 1)[1].split("\n## ", 1)[0]
+        for sub in MODEL:
+            self.assertIn(f"### {sub}\n", model)
+
+    def test_missing_mental_model_subsection(self):
+        self.assertInvalid(self.good.replace("### Reasoning moves\n", "### Moves\n"),
+                           "missing mental model subsection: Reasoning moves")
+
+    def test_empty_mental_model_subsection(self):
+        text = re.sub(r"(### Stance\n)(.*?)(\n### )", r"\1\n\3", self.good, flags=re.S)
+        self.assertInvalid(text, "empty mental model subsection: Stance")
+
+    def test_at_most_six_worked_examples(self):
+        shorts = [t for t in self.train if t["band"] == "short"][:7]
+        lines = "".join(f"- [train:{t['id']}] {t['text']}\n" for t in shorts)
+        head, _, _ = self.good.partition("## Worked examples\n")
+        self.assertInvalid(head + "## Worked examples\n\n" + lines, "at most 6 worked examples")
+
+    def test_stats_cover_the_analysis_measures(self):
+        for key in ("hedging", "questions", "imperative", "person", "tense", "rhythm", "top words"):
+            self.assertIn(key, self.good)
 
     def test_too_large(self):
         self.assertInvalid(self.good + "\nfiller words " * 2000, "16 KB")

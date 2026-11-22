@@ -129,11 +129,34 @@ class Sizes(unittest.TestCase):
         s = slices(self.sb)
         self.assertEqual((len(s["train"]), len(s["dev"]), len(s["test"])), (40, 0, 20))
 
-    def test_200_messages_give_a_dev_slice(self):
+    def test_200_messages_give_five_stratified_folds_over_train(self):
         self.assertEqual(ingest_split(self.sb, synth_records(200)).returncode, 0)
         s = slices(self.sb)
-        self.assertEqual(len(s["test"]), 40)
-        self.assertEqual(len(s["dev"]), 20)
+        self.assertEqual((len(s["train"]), len(s["dev"]), len(s["test"])), (160, 0, 40))
+        folds = Counter(t["fold"] for t in s["train"])
+        self.assertEqual(sorted(folds), [0, 1, 2, 3, 4])
+        self.assertLessEqual(max(folds.values()) - min(folds.values()), 1)
+        for b in ("short", "long"):
+            per = Counter(t["fold"] for t in s["train"] if t["band"] == b)
+            self.assertLessEqual(max(per.values()) - min(per.values()), 1, b)
+        man = json.loads((self.sb.state("pat") / "split" / "manifest.json").read_text())
+        self.assertEqual(man["folds"], 5)
+
+    def test_near_duplicates_share_a_fold(self):
+        base = synth_records(150)
+        recs = base + [dict(r, text=r["text"].upper()) for r in base[:60]]
+        self.assertEqual(ingest_split(self.sb, recs).returncode, 0)
+        fold, members = {}, Counter()
+        for t in slices(self.sb)["train"]:
+            key = mimiclib.canonical(t["text"])
+            fold.setdefault(key, set()).add(t["fold"])
+            members[key] += 1
+        self.assertGreater(max(members.values()), 1)
+        self.assertTrue(all(len(f) == 1 for f in fold.values()))
+
+    def test_60_messages_have_no_folds(self):
+        self.assertEqual(ingest_split(self.sb, synth_records(60)).returncode, 0)
+        self.assertTrue(all("fold" not in t for t in slices(self.sb)["train"]))
 
     def test_same_seed_same_files_other_seed_differs(self):
         recs = synth_records(80)
@@ -163,6 +186,42 @@ class Sizes(unittest.TestCase):
 
     def test_no_corpus_exits_2(self):
         self.assertEqual(self.sb.run("split.py", "--persona", "nobody").returncode, 2)
+
+
+class Derive(unittest.TestCase):
+    """A channel persona reuses the held-out items of a whole-corpus split."""
+
+    def setUp(self):
+        self.sb = Sandbox()
+        recs = synth_records(200)
+        self.assertEqual(ingest_split(self.sb, recs, persona="whole").returncode, 0)
+        src = self.sb.root / "chat.jsonl"
+        write_jsonl(src, [r for r in recs if r["channel"] == "chat"])
+        self.assertEqual(self.sb.run("ingest.py", "--persona", "chat", src).returncode, 0)
+
+    def tearDown(self):
+        self.sb.close()
+
+    def test_derived_split_keeps_the_source_held_out_items_of_its_corpus(self):
+        r = self.sb.run("split.py", "--persona", "chat", "--derive-from", "whole")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        whole, chat = slices(self.sb, "whole"), slices(self.sb, "chat")
+        ids = {x["id"] for x in read_jsonl(self.sb.state("chat") / "corpus.jsonl")}
+        for k in ("train", "dev", "test"):
+            self.assertEqual([(x["id"], x.get("fold")) for x in chat[k]],
+                             [(x["id"], x.get("fold")) for x in whole[k] if x["id"] in ids], k)
+            self.assertTrue(all(x["channel"] == "chat" for x in chat[k]))
+        self.assertTrue(chat["test"])
+        self.assertEqual({x["fold"] for x in chat["train"]}, {0, 1, 2, 3, 4})
+        man = json.loads((self.sb.state("chat") / "split" / "manifest.json").read_text())
+        src = json.loads((self.sb.state("whole") / "split" / "manifest.json").read_text())
+        self.assertEqual(man["derived_from"], {"persona": "whole", "split_id": src["split_id"]})
+        self.assertEqual(man["split_id"], mimiclib.split_id(chat["dev"], chat["test"]))
+
+    def test_derive_needs_a_source_split(self):
+        r = self.sb.run("split.py", "--persona", "chat", "--derive-from", "nobody")
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse((self.sb.state("chat") / "split").exists())
 
 
 if __name__ == "__main__":

@@ -289,8 +289,9 @@ def _group(items):
             "mean_rubric": round(_mean([_item_mean(it) for it in items]), 4)}
 
 
-def summarize(items, thresholds=None):
-    """Report math over judged items. Unparseable picks count as identified; unparseable scores as 0."""
+def summarize(items, thresholds=None, groups=True):
+    """Report math over judged items. Unparseable picks count as identified; unparseable scores as 0.
+    Each band and channel row also carries the verdict the same rules give over its own items."""
     t = dict(THRESHOLDS, **(thresholds or {}))
     scored = [it for it in items if not it.get("excluded")]
     excluded = {}
@@ -309,10 +310,12 @@ def summarize(items, thresholds=None):
         "thresholds": t, "warnings": [],
     }
     s["mean_rubric"] = round(_mean(list(s["dims"].values())), 4)
-    s["by_band"] = {b: _group([it for it in scored if it.get("band") == b])
-                    for b in sorted({str(it.get("band")) for it in scored})}
-    s["by_channel"] = {c: _group([it for it in scored if it.get("channel") == c])
-                       for c in sorted({str(it.get("channel")) for it in scored})}
+    for kind, key in (("by_band", "band"), ("by_channel", "channel")):
+        s[kind] = {}
+        for g in sorted({str(it.get(key)) for it in scored}):
+            s[kind][g] = _group([it for it in scored if str(it.get(key)) == g])
+            if groups:
+                s[kind][g]["verdict"] = summarize([it for it in items if str(it.get(key)) == g], t, False)["verdict"]
     worst = sorted(scored, key=lambda it: (_item_mean(it), it["identified"] is False, it["id"]))
     s["worst"] = [it["id"] for it in worst[:5]]
     s["failed_dims"] = [d for d in DIMS if s["dims"][d] < t["dim_floor"]]
@@ -342,6 +345,85 @@ def summarize(items, thresholds=None):
                              "the profile overdoes habits (FAIL: the band is two-sided)")
     s["verdict"] = verdict
     return s
+
+
+# --- revision rounds: stop rule and selection -------------------------------------------------
+
+def band_se(n):
+    """Binomial standard error of a rate at p = 0.5 over n items (the noise margin)."""
+    return (0.25 / max(n, 1)) ** 0.5
+
+
+def _bands(r):
+    return {b: v for b, v in (r.get("by_band") or {}).items() if v.get("n")}
+
+
+def _worst(r):
+    """(distance from 0.5, n) of the worst length band; on a tie the smaller band (wider noise)."""
+    return max(((abs(v["id_rate"] - 0.5), -v["n"]) for v in _bands(r).values()), default=(0.5, -1))
+
+
+def worst_distance(r):
+    """How far the worst length band of a round is from 0.5."""
+    return _worst(r)[0]
+
+
+def worst_se(r):
+    return band_se(-_worst(r)[1])
+
+
+def _band_rubric(r):
+    return min((v["mean_rubric"] for v in _bands(r).values()), default=0.0)
+
+
+def stop_rule(rounds, max_rounds=10, min_rubric=THRESHOLDS["min_rubric"],
+              low=THRESHOLDS["caricature"], high=THRESHOLDS["max_id_rate"]):
+    """(reason, detail) after the given dev rounds, reason None to go on.
+    converged: in the last two rounds every band is in [low, high] with rubric >= min_rubric, and
+      no band's rate moved by more than its standard error between them.
+    plateau: in the last three rounds the worst band never beat the best earlier round by more
+      than its standard error.
+    cap: max_rounds rounds done."""
+    if len(rounds) >= 2:
+        prev, last = rounds[-2], rounds[-1]
+        ok = all(low <= v["id_rate"] <= high and v["mean_rubric"] >= min_rubric
+                 for r in (prev, last) for v in _bands(r).values())
+        steady = set(_bands(prev)) == set(_bands(last)) and all(
+            abs(_bands(last)[b]["id_rate"] - _bands(prev)[b]["id_rate"])
+            <= band_se(min(_bands(last)[b]["n"], _bands(prev)[b]["n"])) for b in _bands(last))
+        if ok and steady:
+            return "converged", f"rounds {prev['round']} and {last['round']}: every band passes and holds"
+    if len(rounds) >= 4:
+        ref = min(rounds[:-3], key=worst_distance)
+        se = worst_se(ref)
+        if all(worst_distance(r) > worst_distance(ref) - se for r in rounds[-3:]):
+            return "plateau", (f"rounds {rounds[-3]['round']} to {rounds[-1]['round']}: worst band no better "
+                               f"than round {ref['round']} by more than {se:.3f}")
+    if len(rounds) >= max_rounds:
+        return "cap", f"{max_rounds} rounds done"
+    return None, ""
+
+
+def select_round(rounds, min_rubric=THRESHOLDS["min_rubric"]):
+    """The dev round whose profile the sealed test uses (spec: Selection)."""
+    if not rounds:
+        raise Fail("no dev rounds to select from: run evaluate.py run --slice dev first")
+    eligible = [r for r in rounds if _bands(r) and _band_rubric(r) >= min_rubric]
+    if eligible:
+        best = min(eligible, key=worst_distance)
+        margin = worst_se(best)
+        ties = [r for r in eligible if worst_distance(r) <= worst_distance(best) + margin + 1e-9]
+    else:
+        top = max(_band_rubric(r) for r in rounds)
+        ties, margin = [r for r in rounds if _band_rubric(r) >= top - 1e-9], None
+    pick = max(ties, key=lambda r: r["round"])
+    return {"round": pick["round"], "fold": pick.get("fold"), "profile_hash": pick.get("profile_hash"),
+            "floor_met": bool(eligible), "margin": round(margin, 4) if margin is not None else None,
+            "worst_distance": round(worst_distance(pick), 4), "tie_set": sorted(r["round"] for r in ties),
+            "rule": ("among rounds whose every length band has rubric >= min_rubric, the worst band's id "
+                     "rate closest to 0.5; rounds within one standard error (p 0.5, n of that band in the "
+                     "best round) tie and the latest wins; with no round at the floor, the highest "
+                     "worst-band rubric, latest on a tie")}
 
 
 # --- models and runners ----------------------------------------------------------------------
@@ -496,8 +578,11 @@ def parse_json(text):
 
 # --- profile ---------------------------------------------------------------------------------
 
-SECTIONS = ("Measured stats", "Habits", "Temperament", "Short messages", "Channels and audiences",
-            "Lexicon", "Never", "Decisions and responses", "Worked examples")
+SECTIONS = ("Measured stats", "Mental model", "Habits", "Temperament", "Short messages", "Long messages",
+            "Channels and audiences", "Lexicon", "Never", "Decisions and responses", "Worked examples")
+MODEL_SUBSECTIONS = ("Beliefs and values", "Framing", "Reasoning moves", "Emotional range", "Stance",
+                     "Compressed", "Expanded")
+MAX_EXAMPLES = 6
 PROFILE_MAX_BYTES = 16 * 1024
 EXAMPLE_RE = re.compile(r"^- \[train:([^\]]*)\] (.*)$")
 
@@ -519,6 +604,20 @@ def example_text(s):
     return s.replace("\\n", "\n")
 
 
+def example_ids(text):
+    """TRAIN ids the profile quotes as worked examples."""
+    return {e.group(1) for e in map(EXAMPLE_RE.match, sections(text).get("Worked examples", "").splitlines()) if e}
+
+
+def fold_view(train, fold, keep=()):
+    """(TRAIN without the fold, the fold's records) for the revision round on that fold. Ids in
+    keep (the profile's worked examples) stay on the TRAIN side and are never judged."""
+    if fold is None:
+        return train, []
+    held = lambda t: t.get("fold") == fold and t["id"] not in keep  # noqa: E731
+    return [t for t in train if not held(t)], [t for t in train if held(t)]
+
+
 def load_split(d):
     sd = Path(d) / "split"
     require(sd / "manifest.json", "split.py")
@@ -532,14 +631,17 @@ def split_id(dev, test):
     return hashlib.sha256(json.dumps(ids, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def validate_profile(d, text):
-    """Errors for a profile against the schema and the split in state dir d (empty list = valid)."""
+def validate_profile(d, text, fold=None):
+    """Errors for a profile against the schema and the split in state dir d (empty list = valid).
+    With a fold, that fold counts as held out: the profile judged on it must not carry its text."""
     manifest, train, dev, test = load_split(d)
+    sid = split_id(dev, test)
+    train, held_fold = fold_view(train, fold, example_ids(text))
+    dev = dev + held_fold
     errs = []
     if len(text.encode("utf-8")) > PROFILE_MAX_BYTES:
         errs.append(f"profile is {len(text.encode('utf-8'))} bytes, over 16 KB")
     mh = re.search(r"^split: (\S+)\s*$", text, re.M)
-    sid = split_id(dev, test)
     if not mh or mh.group(1) != sid:
         errs.append(f"split line missing or not {sid}: profile was built for another split")
     sec = sections(text)
@@ -552,6 +654,21 @@ def validate_profile(d, text):
             errs.append(f"TODO left in section: {s}")
     if "TODO" in text.split("\n## ", 1)[0]:
         errs.append("TODO left in the header")
+    subs = {}
+    cur = None
+    for line in sec.get("Mental model", "").splitlines():
+        mt = re.match(r"^### (.+?)\s*$", line)
+        if mt:
+            cur = mt.group(1)
+            subs[cur] = []
+        elif cur is not None:
+            subs[cur].append(line)
+    if "Mental model" in sec:
+        for sub in MODEL_SUBSECTIONS:
+            if sub not in subs:
+                errs.append(f"missing mental model subsection: {sub}")
+            elif not "\n".join(subs[sub]).strip():
+                errs.append(f"empty mental model subsection: {sub}")
 
     by_id = {t["id"]: t for t in train}
     examples = [EXAMPLE_RE.match(ln) for ln in sec.get("Worked examples", "").splitlines()]
@@ -567,6 +684,9 @@ def validate_profile(d, text):
             bands.add(by_id[tid]["band"])
     if len(examples) < 3:
         errs.append(f"{len(examples)} worked examples: need at least 3 worked examples")
+    elif len(examples) > MAX_EXAMPLES:
+        errs.append(f"{len(examples)} worked examples: at most {MAX_EXAMPLES} worked examples (the mental "
+                    "model carries the voice, not a pile of samples)")
     if any(t["band"] == "short" for t in train) and "short" not in bands:
         errs.append("no short worked example, but TRAIN has short messages")
 
