@@ -1,4 +1,4 @@
-# mimic: specification
+# build: specification
 
 Intent: from samples of how one person writes, build a guideline file (the profile) that lets a
 model write as that person, including chat replies and one-liners, and prove it with a held-out
@@ -17,7 +17,7 @@ agent fills profile.md from TRAIN and analysis.md ─ profile.py validate
 evaluate.py run --slice dev  ─▶ feedback.json on a rotating fold ─▶ agent revises (until the stop rule)
 evaluate.py select           ─▶ rounds/selection.json (the profile the test will use)
 evaluate.py run --slice test ─▶ report (once, sealed, on the selected profile)
-profile.md ─▶ voice-style (drafting as the persona)
+profile.md ─▶ write (drafting as the persona)
 ```
 
 All scripts are Python 3 stdlib only, deterministic for a given input and seed, and run offline
@@ -27,7 +27,7 @@ except the `claude` runner.
 
 - Persona name: `^[a-z0-9][a-z0-9_-]{0,63}$`. Anything else exits 2.
 - State dir: `--state-dir DIR`, else `$MIMIC_STATE_HOME/<persona>/`, else
-  `~/.config/agents/state/voice/<persona>/` (agent usage data lives under `~/.config/agents/`).
+  `~/.config/agents/state/persona/<persona>/` (agent usage data lives under `~/.config/agents/`).
   Created with mode 0700; files written 0600.
 - Guard, before anything is written: when the target sits inside a git work tree (a `.git` dir
   or file in an ancestor), `git check-ignore -q <target>` must succeed, so git would never track
@@ -149,7 +149,7 @@ exemplar pool and the fold is held out everywhere (validation, exemplars, feedba
    temperament, 0 to 5 with a one-line reason each.
 
 Identification is blind and scoring is a separate call, so knowing which one is generated
-cannot bias the pick. A judge reply that does not parse counts against the mimic: as a correct
+cannot bias the pick. A judge reply that does not parse counts against the persona: as a correct
 identification, and as 0 on every dimension.
 
 Outputs in `rounds/<slice>-<k>/`: `items.jsonl` (everything, with text), `report.json`,
@@ -194,14 +194,14 @@ Defaults: `--max-id-rate 0.65`, `--min-rubric 3.5`, `--min-n 20`, `--dim-floor 3
   every fold is reused only every fifth round. Caveat: the analysis and earlier profiles were
   written from all of TRAIN, so a fold is not unseen in the abstract; its text cannot enter the
   profile (the validator), and the sealed test stays the only unbiased number.
-- Stop rule, checked after each dev round, in this order (`mimiclib.stop_rule`); `se(n)` is
+- Stop rule, checked after each dev round, in this order (`personalib.stop_rule`); `se(n)` is
   `sqrt(0.25 / n)`, the binomial standard error at p 0.5:
   - converged: in the last two rounds every length band has an identification rate in 0.35 to
     0.65 and a rubric of at least 3.5, and no band moved by more than `se` of its smaller n.
   - plateau: from round 4, the worst band (the band farthest from 0.5) of each of the last three
     rounds is no closer to 0.5 than the best earlier round's, less that band's `se`.
   - cap: 10 rounds. A dev round after any stop exits 2.
-- Selection (`evaluate.py select`, `mimiclib.select_round`), written to `rounds/selection.json`
+- Selection (`evaluate.py select`, `personalib.select_round`), written to `rounds/selection.json`
   before the test can run: among rounds whose every band has a rubric of at least 3.5, take the
   round whose worst band is closest to 0.5; rounds within one `se` of it (n of the worst band of
   that best round) tie, and the latest of them wins (it answers the most feedback; profile size
@@ -240,7 +240,7 @@ beyond the noise of a 25 to 35 item test slice, and one persona is simpler.
 --system-prompt S` with the prompt on stdin, so the user's own instructions, output style and
   hooks cannot pull the persona toward a house voice, and nothing is written to session history.
   Timeout 300 s, one retry. `--runner cmd:'<command>'` runs any command the same way (prompt on
-  stdin, `MIMIC_ROLE` and `MIMIC_MODEL` in the environment) for other harnesses. `--runner stub`
+  stdin, `PERSONA_ROLE` and `PERSONA_MODEL` in the environment) for other harnesses. `--runner stub`
   is the in-process test double.
 - Tiers: extract uses `execution`; generate and judge use `reasoning`, the strongest. Owner
   decision: no cost cap and no budget flags; the judge and the generator get the strongest model.
@@ -266,7 +266,7 @@ beyond the noise of a 25 to 35 item test slice, and one persona is simpler.
 | second test run without `--rerun-test`                | exit 2                         |
 | profile invalid before a run                          | exit 2 with the validator text |
 | runner times out or fails twice (extract or generate) | item excluded as `error`       |
-| judge fails or returns unparseable output             | counted against the mimic      |
+| judge fails or returns unparseable output             | counted against the persona    |
 
 ## Scale
 
@@ -309,12 +309,12 @@ cutoff; 5,000 messages take seconds. An eval round costs 4 model calls per item.
 
 ## Acceptance tests
 
-Offline, with the stub runner, in `tests/test_mimic_*.py`:
+Offline, with the stub runner, in `tests/test_persona_*.py`:
 
 - [ ] AT-1 guard: an unignored path inside a git work tree exits 3 and writes nothing; an
       ignored path inside one (the dotagents allowlist) and a path outside any work tree are
       allowed; an unresolvable `.git` file is refused; `--allow-git-worktree` lets it through;
-      the default dir is `~/.config/agents/state/voice/<persona>`, `MIMIC_STATE_HOME` overrides
+      the default dir is `~/.config/agents/state/persona/<persona>`, `MIMIC_STATE_HOME` overrides
       it, the dir is created 0700 and files 0600.
 - [ ] AT-2 ingest: txt with `---` and with blank lines, md front matter, jsonl with
       `reply_to` by id and by text, `--author` filter, eml and mbox with quotes and signature
@@ -331,7 +331,7 @@ Offline, with the stub runner, in `tests/test_mimic_*.py`:
 - [ ] AT-7 judge order: positions come from the seed, are reproducible, and are near balanced;
       an always-A judge gives INVALID.
 - [ ] AT-8 report math: identification rate, means, per-band and per-channel breakdowns, worst
-      items and unparseable verdicts counted against the mimic, on scripted verdicts.
+      items and unparseable verdicts counted against the persona, on scripted verdicts.
 - [ ] AT-9 verdict: PASS, FAIL, INCONCLUSIVE and INVALID at and around each threshold; the
       caricature FAIL below the lower bound.
 - [ ] AT-10 isolation: no held-out message text reaches `feedback.json`, even when a judge reason

@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import mimiclib as m  # noqa: E402
+import personalib as m  # noqa: E402
 
 WROTE_RE = re.compile(r"^On .+wrote:\s*$")
 

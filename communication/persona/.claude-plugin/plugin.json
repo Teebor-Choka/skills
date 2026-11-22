@@ -1,0 +1,5 @@
+{
+  "name": "persona",
+  "version": "2.1.0",
+  "description": "Personas from samples: build learns one person's voice into a validated profile and proves it on held-out messages with a blind judge; write drafts a message as that persona."
+}

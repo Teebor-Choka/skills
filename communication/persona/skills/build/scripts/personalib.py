@@ -1,4 +1,4 @@
-"""Shared helpers for the mimic scripts: state dir and guard, text measures, report math, runners.
+"""Shared helpers for the persona scripts: state dir and guard, text measures, report math, runners.
 
 Stdlib only. See ../references/spec.md for the contract each function implements.
 """
@@ -38,7 +38,7 @@ def main_wrapper(fn):
     try:
         sys.exit(fn() or 0)
     except Fail as e:
-        print(f"mimic: {e}", file=sys.stderr)
+        print(f"persona: {e}", file=sys.stderr)
         sys.exit(e.code)
 
 
@@ -280,7 +280,7 @@ def _item_mean(it):
 
 
 def _hit(it):
-    """Identified, with an unparseable pick (None) counted against the mimic."""
+    """Identified, with an unparseable pick (None) counted against the persona."""
     return 0.0 if it["identified"] is False else 1.0
 
 
@@ -483,7 +483,7 @@ class CommandRunner:
             raise Fail(f"runner command not found: {exe!r}")
 
     def complete(self, role, model, system, prompt, meta):
-        env = dict(os.environ, MIMIC_ROLE=role, MIMIC_MODEL=model, MIMIC_SYSTEM=system)
+        env = dict(os.environ, PERSONA_ROLE=role, PERSONA_MODEL=model, PERSONA_SYSTEM=system)
         last = ""
         for _ in range(2):
             try:

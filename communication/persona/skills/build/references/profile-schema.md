@@ -1,6 +1,6 @@
 # Profile schema
 
-`profile.md` is Markdown, so the voice-style handoff and any harness can read it as instructions.
+`profile.md` is Markdown, so the `write` skill and any harness can read it as instructions.
 `profile.py validate` enforces this schema. Write every section from TRAIN messages only.
 
 ```markdown

@@ -1,5 +1,5 @@
 {
-  "skill_name": "voice:mimic",
+  "skill_name": "persona:build",
   "outcome_evals": [],
   "trigger_evals": [
     {
@@ -15,7 +15,7 @@
       "should_trigger": true
     },
     {
-      "query": "mimic how my cofounder writes, she sent me her tweets and said it's fine",
+      "query": "imitate how my cofounder writes, she sent me her tweets and said it's fine",
       "should_trigger": true
     },
     {

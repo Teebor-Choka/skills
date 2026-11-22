@@ -1,11 +1,11 @@
 ---
-name: mimic
-description: Learn how one person communicates from samples of their messages and write a voice profile that lets a model write as them, chat replies and one-liners included, then prove it on held-out messages with a blind judge. Use for "write like me", "mimic this person", "learn my voice from these samples", "build a voice profile", or drafting a short message or chat reply in a persona's voice. Not for generic de-slop or removing AI tells (writing:unslop), nor for editing your own draft while keeping your voice (prose-craft voice matching).
+name: build
+description: Learn how one person communicates from samples of their messages and write a voice profile that lets a model write as them, chat replies and one-liners included, then prove it on held-out messages with a blind judge. Use for "write like me", "imitate this person", "learn my voice from these samples", "build a voice profile", or drafting a short message or chat reply in a persona's voice. Not for generic de-slop or removing AI tells (writing:unslop), nor for editing your own draft while keeping your voice (prose-craft voice matching).
 license: MIT
 compatibility: Python 3.13 or newer, standard library only. The live judge needs the claude CLI or any command that reads a prompt on stdin.
 ---
 
-# mimic
+# build
 
 Build a guideline file (the profile) from TRAIN samples, then show on TEST samples it never saw
 that a blind judge cannot tell the generated messages from the real ones. The contract, with every
@@ -16,10 +16,10 @@ threshold and failure path, is [references/spec.md](references/spec.md).
 Tell the user this first, in one or two lines:
 
 - Samples, splits, profile and reports stay in the state dir,
-  `~/.config/agents/state/voice/<persona>/` (or `$MIMIC_STATE_HOME/<persona>/`), created 0700.
+  `~/.config/agents/state/persona/<persona>/` (or `$MIMIC_STATE_HOME/<persona>/`), created 0700.
   They are never committed. The scripts refuse a path that a git work tree would track (exit 3)
   unless `--allow-git-worktree` is passed.
-- Mimic a third party only with their consent, or from their public material for study. Never
+- Imitate a third party only with their consent, or from their public material for study. Never
   send a generated message as if the person wrote it. See [references/privacy.md](references/privacy.md).
 - Samples must be the person's own words without AI help, or the profile learns the AI.
 
@@ -86,7 +86,7 @@ a model.
 
 ## Drafting as the persona
 
-The selected round's `profile.md` is the input of the `voice-style` skill: load it as the voice for text
+The selected round's `profile.md` is the input of the `write` skill: load it as the voice for text
 written as that person. For a message the user will send themselves, draft it, then check it
 against the profile's Short messages and Never sections. Say which profile and round you used and
 its last verdict. Without a PASS, call the draft an approximation.

@@ -3,7 +3,7 @@
 import re
 import unittest
 
-from mimic_fixtures import Sandbox, build_state, read_jsonl
+from persona_fixtures import Sandbox, build_state, read_jsonl
 
 SECTIONS = ["Measured stats", "Mental model", "Habits", "Temperament", "Short messages", "Long messages",
             "Channels and audiences", "Lexicon", "Never", "Decisions and responses", "Worked examples"]

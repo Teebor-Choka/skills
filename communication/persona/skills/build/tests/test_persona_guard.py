@@ -4,7 +4,7 @@ import stat
 import subprocess
 import unittest
 
-from mimic_fixtures import Sandbox, synth_records, write_jsonl
+from persona_fixtures import Sandbox, synth_records, write_jsonl
 
 
 def git_repo(path, ignore=None):

@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import mimiclib as m  # noqa: E402
+import personalib as m  # noqa: E402
 
 MAX_DEV_ROUNDS = 10
 
@@ -188,7 +188,7 @@ def feedback(summary, items, held_out, floor):
 def report_md(rep):
     t = rep["thresholds"]
     lines = [
-        f"# mimic report: {rep['persona']} {rep['slice']}-{rep['round']}", "",
+        f"# persona report: {rep['persona']} {rep['slice']}-{rep['round']}", "",
         f"verdict: {rep['verdict']}",
         f"items: {rep['n_scored']} scored of {rep['n_total']} (excluded: "
         + (", ".join(f"{k} {v}" for k, v in rep["excluded"].items()) or "none") + ")",

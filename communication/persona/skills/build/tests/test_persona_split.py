@@ -4,8 +4,8 @@ import json
 import unittest
 from collections import Counter
 
-from mimic_fixtures import Sandbox, read_jsonl, synth_records, write_jsonl
-import mimiclib  # noqa: E402  (path set by mimic_fixtures)
+from persona_fixtures import Sandbox, read_jsonl, synth_records, write_jsonl
+import personalib  # noqa: E402  (path set by persona_fixtures)
 
 
 def ingest_split(sb, records, *split_args, persona="pat"):
@@ -45,15 +45,15 @@ class NoLeak(unittest.TestCase):
         self.assertTrue(held)
         for h in held:
             for t in s["train"]:
-                self.assertLess(mimiclib.similarity(h["text"], t["text"]), 0.7, (h["text"], t["text"]))
+                self.assertLess(personalib.similarity(h["text"], t["text"]), 0.7, (h["text"], t["text"]))
         manifest = json.loads((self.sb.state("pat") / "split" / "manifest.json").read_text())
         self.assertLess(manifest["max_cross_similarity"], 0.7)
         self.assertGreater(manifest["dropped_near_duplicates"], 0)
 
     def test_similarity_catches_case_and_punctuation(self):
-        self.assertEqual(mimiclib.similarity("ok!", "OK"), 1.0)
-        self.assertGreaterEqual(mimiclib.similarity("ship the staging db fix today please", "ship the staging db fix today pls"), 0.7)
-        self.assertLess(mimiclib.similarity("ok", "okay sure"), 0.7)
+        self.assertEqual(personalib.similarity("ok!", "OK"), 1.0)
+        self.assertGreaterEqual(personalib.similarity("ship the staging db fix today please", "ship the staging db fix today pls"), 0.7)
+        self.assertLess(personalib.similarity("ok", "okay sure"), 0.7)
 
 
 class Stratification(unittest.TestCase):
@@ -88,7 +88,7 @@ class Stratification(unittest.TestCase):
 class ShortNearDuplicates(unittest.TestCase):
     def test_short_variants_cluster(self):
         texts = ["sounds good to me", "sounds good to me then", "nope", "lol yes", "on it, back by 5"]
-        roots = mimiclib.near_dup_clusters(texts)
+        roots = personalib.near_dup_clusters(texts)
         self.assertEqual(roots[0], roots[1])
         self.assertEqual(len(set(roots)), 4)
 
@@ -112,7 +112,7 @@ class ContextLeak(unittest.TestCase):
         held = [h["text"] for h in s["test"] + s["dev"]]
         for t in s["train"]:
             for h in held:
-                self.assertNotIn(mimiclib.canonical(h), mimiclib.canonical(t["context"]) if t["context"] else "")
+                self.assertNotIn(personalib.canonical(h), personalib.canonical(t["context"]) if t["context"] else "")
         manifest = json.loads((self.sb.state("pat") / "split" / "manifest.json").read_text())
         self.assertGreater(manifest["redacted_contexts"], 0)
 
@@ -148,7 +148,7 @@ class Sizes(unittest.TestCase):
         self.assertEqual(ingest_split(self.sb, recs).returncode, 0)
         fold, members = {}, Counter()
         for t in slices(self.sb)["train"]:
-            key = mimiclib.canonical(t["text"])
+            key = personalib.canonical(t["text"])
             fold.setdefault(key, set()).add(t["fold"])
             members[key] += 1
         self.assertGreater(max(members.values()), 1)
@@ -216,7 +216,7 @@ class Derive(unittest.TestCase):
         man = json.loads((self.sb.state("chat") / "split" / "manifest.json").read_text())
         src = json.loads((self.sb.state("whole") / "split" / "manifest.json").read_text())
         self.assertEqual(man["derived_from"], {"persona": "whole", "split_id": src["split_id"]})
-        self.assertEqual(man["split_id"], mimiclib.split_id(chat["dev"], chat["test"]))
+        self.assertEqual(man["split_id"], personalib.split_id(chat["dev"], chat["test"]))
 
     def test_derive_needs_a_source_split(self):
         r = self.sb.run("split.py", "--persona", "chat", "--derive-from", "nobody")

@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from mimic_fixtures import Sandbox, read_jsonl
+from persona_fixtures import Sandbox, read_jsonl
 
 EML = """From: Pat Example <pat@example.invalid>
 To: team@example.invalid

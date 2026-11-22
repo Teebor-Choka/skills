@@ -15,7 +15,7 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import mimiclib as m  # noqa: E402
+import personalib as m  # noqa: E402
 
 GUIDE = {
     "Long messages": "How a long piece is built: opening, setup, structure, repetition, examples, close.",

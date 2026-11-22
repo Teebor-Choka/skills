@@ -1,4 +1,4 @@
-"""Shared fixtures for the mimic tests: a synthetic persona corpus and a script runner.
+"""Shared fixtures for the persona tests: a synthetic persona corpus and a script runner.
 
 The persona is invented ("Pat Example"); no real person's messages appear anywhere.
 Unique module name on purpose: the repo runs every tests/ dir in one pytest call.
