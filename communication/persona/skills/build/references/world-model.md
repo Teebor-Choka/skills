@@ -19,7 +19,7 @@ world.py init      ─▶ stream.json (train ids in stream order), empty map.jso
 world.py run       ─▶ per item: EXTRACT ─ PREDICT ─ SCORE ─ UPDATE (─ CONSOLIDATE every N)
                       map.json, map.md, log.jsonl, curve.json, ledger.jsonl, state.json
 world.py final     ─▶ final/report.{json,md} on the sealed slice, once, frozen map
-map.md ─▶ write and advise (drafting and answering as the persona)
+map.md ─▶ write (drafting as the persona)
 ```
 
 Python 3.13, stdlib only, deterministic for a given input, seed and runner, offline except the
@@ -41,9 +41,15 @@ world.py validate --persona P
 Runners as in [spec.md](spec.md): `claude`, `cmd:'<command>'`, `stub` (with `--stub-script`).
 Model flags take a tier or a model: `--extract-model` (default `execution`), `--predict-model`
 (`reasoning`), `--score-model` (`execution`, the cheaper tier for per-step scoring),
-`--update-model` (`reasoning`), and for `final` `--generator-model` and `--judge-model`
-(`reasoning`). Loop knobs: `--threshold` (0.3), `--window` (20), `--consolidate-every` (10),
-`--max-nodes` (120), `--max-map-bytes` (16384), `--exemplars` (4).
+`--update-model` and `--consolidate-model` (`reasoning`), and for `final` `--generator-model`
+and `--judge-model` (`reasoning`). Loop knobs: `--threshold` (0.3), `--window` (20),
+`--consolidate-every` (10), `--max-nodes` (120), `--max-map-bytes` (16384), `--exemplars` (4),
+`--seed` (for `init` the stream seed, default the split seed; for `run` the judge's position
+seed, default 1337). Budget: `--max-cost-usd`, `--call-estimate-usd` (0.50).
+
+The first `run` pins the models and loop knobs (all but `--window`) in `state.json`. Later runs
+fill unset flags from there; a flag that differs from the pinned value exits 2, so a resumed run
+cannot drift. `validate` checks against the pinned caps.
 
 ## Stream and sealed slice
 
@@ -56,6 +62,9 @@ Model flags take a tier or a model: `--extract-model` (default `execution`), `--
   stream, never shown to predict, score or update, and judged once by `final`.
 - As a second line of defence, `init` drops from the stream any item that is a near duplicate
   (`NEAR_DUP`) of a sealed item and records the count; split already prevents this.
+- A context that quotes or nearly repeats a later stream item (a `reply_to` chain read out of
+  order, which a seeded order can produce) would show the predictor that item early. `init`
+  lists such items in `redacted_contexts`; `run` and `final` blank their context.
 - `run` and `final` refuse (exit 2) when the split's id no longer matches `stream.json` (a
   re-split happened): start over with `init --force`.
 
@@ -143,7 +152,7 @@ any other rule.
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `stream.json`  | order, seed, split id, stream ids, sealed ids, dropped near duplicates                                                                                                  |
 | `map.json`     | the map above                                                                                                                                                           |
-| `map.md`       | `render` of `map.json`: deterministic, no timestamps; what `write` and `advise` load                                                                                    |
+| `map.md`       | `render` of `map.json`: deterministic, no timestamps; what `write` loads                                                                                                |
 | `log.jsonl`    | one row per step: item, band, channel, excluded, prediction, pick, scores, rubric, hit, surprise, missed, new, update or skip, applied and rejected patches, node count |
 | `curve.json`   | rolling-window id rate, rubric and surprise per scored step, first and last window                                                                                      |
 | `state.json`   | `next` (index of the next step), `map_hash`, `ledger_total`, `steps_total`                                                                                              |
@@ -173,23 +182,30 @@ any other rule.
 - Every runner reports `(text, usage)`. The `claude` runner adds `--output-format json` and reads
   `result`, `is_error`, `subtype`, `total_cost_usd` and `usage.input_tokens`,
   `usage.output_tokens` (plus `cache_creation_input_tokens` and `cache_read_input_tokens` into
-  input). `is_error: true` or a subtype other than `success` is a failed call. A `cmd:` runner
-  whose stdout is such a JSON object is read the same way; plain text is the reply with unknown
-  cost.
-- Every call appends a row to `<state>/ledger.jsonl` (also for `evaluate.py`). A call of unknown
-  cost is charged its estimate, never 0, and flagged `estimated`.
+  input). `is_error: true` or a subtype other than `success` is a failed call. For the `claude`
+  runner any other stdout is a failed call too (fail closed). A `cmd:` runner whose stdout is
+  such a JSON object is read the same way; plain text is the reply with unknown cost.
+- A command runner makes up to 2 attempts per call. Every paid attempt appends a row to
+  `<state>/ledger.jsonl` (also for `evaluate.py`), failed ones included. An attempt of unknown
+  cost (a timeout, plain text, a call killed mid-flight) is charged one call's estimate, never 0,
+  and flagged `estimated`.
 - Estimate for the next call: 1.5 times the largest cost seen for the same role and model, or 1.5
   times that role and model's largest cost per prompt character times this prompt's length,
   whichever is larger; with no history `--call-estimate-usd` (default 0.50).
-- With `--max-cost-usd X`, before each call the guard reserves the estimate under a lock (so
-  parallel `--jobs` cannot overshoot together) and refuses when ledger total plus reservations
-  plus the estimate exceeds `X`: exit 4, `budget: ...` on stderr, nothing of the current step
-  committed. The run resumes with a higher cap.
+- With `--max-cost-usd X`, before each call the guard re-reads the ledger (so another process's
+  spend on the same state dir counts) and reserves the estimate times the runner's attempts under
+  a lock (so parallel `--jobs` cannot overshoot together). It refuses when ledger total plus
+  reservations plus that exceeds `X`: exit 4, `budget: ...` on stderr, nothing of the current
+  step committed. The run resumes with a higher cap. Reservations are per process: two processes
+  started together can each pass the check once.
 - Before sealing, `final` and `evaluate.py --slice test` refuse (exit 4, seal untouched) when the
-  ledger total plus items times the per-item estimate exceeds the cap.
+  ledger total plus items times the per-item estimate (2 attempts of each call, the extractor's
+  retry included) exceeds the cap. If the cap still stops a sealed run, no result is written and
+  the run is marked `aborted` in `test.sealed`: it does not use up the slice, and the next run
+  needs no `--rerun-test`.
 - `cost-estimate --steps N` runs up to N real steps (they count; `run --resume` continues after
   them), then prints the mean and maximum cost per step, the projected total for the remaining
-  stream and consolidations, and the projected final from the per-role means at the final's
+  stream (consolidations only at the rate they occurred in the sampled steps), and the projected final from the per-role means at the final's
   models (a lower bound when the final uses a stronger tier than the steps; it says so).
 - Stub runners take costs from the script (`cost` per role, `cost_default`), so tests cover the
   guard.
@@ -202,12 +218,13 @@ any other rule.
 - On start: a `map.next.json` whose hash equals `state.map_hash` is renamed into place (a crash
   after the state commit); any other `map.next.json` is deleted. `log.jsonl` rows with
   `step >= next` are dropped. A `map.json` whose hash differs from `state.map_hash` is an error
-  (exit 2): the map was edited by hand.
+  (exit 2): the map was edited by hand. A torn last line of `log.jsonl` is dropped. `map.md` and
+  `curve.json` are rewritten from the checkpoint.
 - A crash or a budget stop mid-step therefore repeats only that step, and a resumed run gives the
   same `map.json` and `log.jsonl` bytes as an uninterrupted one. The ledger is append-only: money
   spent on an aborted step stays recorded.
 - `run` without `--resume` after a step was committed exits 2. A lock file stops two runs on one
-  persona (exit 2).
+  persona (exit 2); `init` takes the same lock.
 
 ## Failure
 
@@ -237,7 +254,9 @@ any other rule.
   resume test.
 - The cap leaks under parallel calls or unknown costs: closed by reservations and charging the
   estimate.
-- A budget stop burns the sealed slice: closed by the preflight before the seal.
+- A budget stop burns the sealed slice: closed by the preflight before the seal and the aborted
+  run that does not count as a use.
+- A reply-to context carries a later message into an early prompt: closed by `redacted_contexts`.
 
 ## Acceptance tests
 
@@ -246,27 +265,32 @@ Offline, stub runners, in `tests/test_persona_world_*.py`:
 - [ ] AT-W1 stream: chronological when every ts parses (ISO and RFC 2822 mixed), seeded and
       recorded otherwise, same seed same order; no sealed id in the stream; split change refused.
 - [ ] AT-W2 order and resume: steps run in stream order; `--max-steps` stops and `--resume`
-      continues; a crash injected at each role mid-step, then a resume, gives byte-identical
-      `map.json` and `log.jsonl` to an uninterrupted run; `run` without `--resume` after a commit
-      exits 2; a hand-edited map exits 2.
-- [ ] AT-W3 prediction leak: a canary in the current item and in a later item never appears in a
-      predict prompt or system prompt of that step; judge exemplars are only earlier items.
+      continues; a crash injected at each role mid-step, or between the log append and the state
+      commit, then a resume, gives byte-identical `map.json` and `log.jsonl` to an uninterrupted
+      run; `run` without `--resume` after a commit exits 2; a hand-edited map exits 2; a resume
+      with different pinned settings exits 2 and unset flags come from `state.json`.
+- [ ] AT-W3 prediction leak: with an updater that copies every canary it sees into the map, a
+      canary in item k reaches no predict prompt up to step k and every one after; judge
+      exemplars are only earlier items; a context quoting a later item is blanked.
 - [ ] AT-W4 sealed slice: a canary in a sealed item appears in no prompt of any role during `run`,
       nor in `map.json`, `map.md`, `log.jsonl`, `curve.json`; a patch citing a sealed or future id
       is rejected.
-- [ ] AT-W5 patches: each op applies; each invalid patch kind is rejected with a reason while the
-      valid ones in the same reply apply; the current item is added to evidence.
+- [ ] AT-W5 patches: each op applies; each invalid patch kind (malformed ids included) is
+      rejected with a reason while the valid ones in the same reply apply; the current item is
+      added to evidence; past 24 patches are rejected; consolidation may not add or cite evidence.
 - [ ] AT-W6 cap and consolidation: adds past `max_nodes` are rejected and trigger consolidation;
       consolidation reduces the node count; a garbage consolidator still leaves the map under the
       cap by the deterministic prune.
 - [ ] AT-W7 threshold: a low-surprise step skips the update; a low-surprise step with a new
       entity or a missed belief updates; an excluded step updates unscored.
 - [ ] AT-W8 budget: the guard stops before the cap with exit 4 and the last checkpoint intact; the
-      ledger sums to the scripted costs; an unknown cost is charged the estimate; parallel
-      reservations cannot overshoot; the final preflight refuses before the seal;
-      `cost-estimate` runs N steps and projects the rest.
+      ledger sums to the scripted costs; an unknown cost is charged the estimate; every paid
+      attempt is charged; parallel reservations and another process's spend cannot overshoot;
+      the final preflight refuses before the seal; a budget stop inside the final leaves the slice
+      unused; `cost-estimate` runs N steps and projects the rest.
 - [ ] AT-W9 claude JSON: the argv carries `--output-format json`; result, cost and tokens are
-      parsed; `is_error` is a failure; plain text from `cmd:` is the reply with an estimated cost.
+      parsed; `is_error` is a failure; anything but the JSON object fails the claude runner; plain
+      text from `cmd:` is the reply with an estimated cost.
 - [ ] AT-W10 math: surprise per item, rolling window, first and last window, final report fields
       on scripted judges.
 - [ ] AT-W11 render: `map.md` is byte-identical across runs and node orderings; `validate` flags

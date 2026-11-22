@@ -467,7 +467,8 @@ def claude_argv(model, system):
 
 
 class RunnerError(Exception):
-    pass
+    usage = None  # the failed reply's usage, when it reported one
+    attempts = ()  # usage of each failed paid attempt
 
 
 class CommandRunner:
@@ -489,11 +490,15 @@ class CommandRunner:
     def complete(self, role, model, system, prompt, meta):
         return self.invoke(role, model, system, prompt, meta)[0]
 
+    max_attempts = 2
+
     def invoke(self, role, model, system, prompt, meta):
-        """(reply text, usage). A failed attempt's cost is unknown; the ledger charges its estimate."""
+        """(reply text, usage). usage["prior"] lists the usage of failed paid attempts before the one
+        that answered; a RunnerError carries .attempts. A cost not reported is None (charged its
+        estimate by the ledger)."""
         env = dict(os.environ, PERSONA_ROLE=role, PERSONA_MODEL=model, PERSONA_SYSTEM=system)
-        last = ""
-        for _ in range(2):
+        last, prior = "", []
+        for _ in range(self.max_attempts):
             try:
                 r = subprocess.run(self.argv(model, system), input=prompt, capture_output=True,
                                    text=True, timeout=self.timeout, env=env)
@@ -501,47 +506,58 @@ class CommandRunner:
                 raise Fail(f"runner not found: {e.filename}") from e
             except subprocess.TimeoutExpired:
                 last = "timeout"
+                prior.append(dict(NO_USAGE))
                 continue
             if r.returncode == 0 and r.stdout.strip():
                 try:
-                    text, usage = parse_cli_reply(r.stdout)
+                    text, usage = parse_cli_reply(r.stdout, strict=self.spec == "claude")
                 except RunnerError as e:
                     last = str(e)
+                    prior.append(e.usage or dict(NO_USAGE))
                     continue
                 if text:
-                    return text, usage
+                    return text, dict(usage, prior=prior)
                 last = "empty result"
+                prior.append(usage)
                 continue
             last = (r.stderr or r.stdout).strip()[-300:]
-        raise RunnerError(f"{role} failed twice: {last}")
+            prior.append(dict(NO_USAGE))
+        err = RunnerError(f"{role} failed twice: {last}")
+        err.attempts = prior
+        raise err
 
 
 NO_USAGE = {"cost_usd": None, "input_tokens": None, "output_tokens": None}
 
 
-def parse_cli_reply(stdout):
+def parse_cli_reply(stdout, strict=False):
     """(text, usage) from `claude -p --output-format json` (or a cmd runner printing the same object).
     Fields relied on: result, is_error, subtype, total_cost_usd, usage.{input,output}_tokens and
-    usage.cache_{creation,read}_input_tokens. Anything else is plain text of unknown cost."""
+    usage.cache_{creation,read}_input_tokens. strict (the claude runner): anything but that object
+    is an error. Otherwise anything else is plain text of unknown cost."""
     raw = stdout.strip()
     try:
         obj = json.loads(raw)
     except ValueError:
         obj = None
     if not isinstance(obj, dict) or not ("result" in obj or "is_error" in obj):
+        if strict:
+            raise RunnerError(f"not a claude JSON reply: {raw[:200]!r}")
         return raw, dict(NO_USAGE)
-    if obj.get("is_error") or obj.get("subtype", "success") != "success":
-        raise RunnerError(f"error reply: {obj.get('subtype')}: {str(obj.get('result', ''))[-200:]}")
     u = obj.get("usage") if isinstance(obj.get("usage"), dict) else {}
 
     def num(v):
         return v if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else None
 
     ins = [num(u.get(k)) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")]
-    return str(obj.get("result") or "").strip(), {
-        "cost_usd": num(obj.get("total_cost_usd")),
-        "input_tokens": sum(x for x in ins if x is not None) if any(x is not None for x in ins) else None,
-        "output_tokens": num(u.get("output_tokens"))}
+    usage = {"cost_usd": num(obj.get("total_cost_usd")),
+             "input_tokens": sum(x for x in ins if x is not None) if any(x is not None for x in ins) else None,
+             "output_tokens": num(u.get("output_tokens"))}
+    if obj.get("is_error") or obj.get("subtype", "success") != "success" or not isinstance(obj.get("result", ""), str):
+        err = RunnerError(f"error reply: {obj.get('subtype')}: {str(obj.get('result', ''))[-200:]}")
+        err.usage = usage
+        raise err
+    return str(obj.get("result") or "").strip(), usage
 
 
 class BudgetExceeded(Fail):
@@ -582,9 +598,12 @@ class Ledger:
         per = max(float(r["cost_usd"]) / max(1, int(r.get("prompt_chars") or 1)) for r in seen)
         return 1.5 * max(top, per * chars)
 
-    def reserve(self, role, model, chars):
+    def reserve(self, role, model, chars, attempts=1):
+        """Hold the estimate of up to `attempts` paid attempts; refuse past the cap. Spend is re-read
+        from the file, so another process's calls on the same state dir count too."""
         with self._lock:
-            est = self.estimate(role, model, chars)
+            self._rows = read_jsonl(self.path)
+            est = self.estimate(role, model, chars) * attempts
             spent, held = self.total(), sum(self._reserved.values())
             if self.max_cost is not None and spent + held + est > self.max_cost + 1e-9:
                 raise BudgetExceeded(
@@ -599,21 +618,26 @@ class Ledger:
         with self._lock:
             self._reserved.pop(token, None)
 
-    def commit(self, token, role, model, chars, usage, tags=None):
+    def commit(self, token, role, model, chars, usages, tags=None):
+        """One row per paid attempt; an attempt of unknown cost is charged one call's estimate."""
         with self._lock:
-            est = self._reserved.pop(token, self.call_estimate)
-            cost = usage.get("cost_usd")
-            row = dict({"tool": self.tool}, **(tags or {}))
-            row.update(ts=datetime.now(timezone.utc).isoformat(timespec="seconds"), role=role, model=model,
-                       cost_usd=round(float(est if cost is None else cost), 6), estimated=cost is None,
-                       input_tokens=usage.get("input_tokens"), output_tokens=usage.get("output_tokens"),
-                       prompt_chars=chars)
+            self._reserved.pop(token, None)
+            est = self.estimate(role, model, chars)
+            rows = []
+            for usage in usages:
+                cost = usage.get("cost_usd")
+                row = dict({"tool": self.tool}, **(tags or {}))
+                row.update(ts=datetime.now(timezone.utc).isoformat(timespec="seconds"), role=role, model=model,
+                           cost_usd=round(float(est if cost is None else cost), 6), estimated=cost is None,
+                           input_tokens=usage.get("input_tokens"), output_tokens=usage.get("output_tokens"),
+                           prompt_chars=chars)
+                rows.append(row)
             make_dir(self.path.parent)
             fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             with os.fdopen(fd, "a", encoding="utf-8") as f:
-                f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
-            self._rows.append(row)
-            return row
+                f.write("".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in rows))
+            self._rows += rows
+            return rows
 
 
 class Metered:
@@ -623,24 +647,32 @@ class Metered:
         self.runner, self.ledger, self.tags = runner, ledger, {}
 
     def complete(self, role, model, system, prompt, meta):
-        token = self.ledger.reserve(role, model, len(prompt))
+        n = len(prompt)
+        token = self.ledger.reserve(role, model, n, getattr(self.runner, "max_attempts", 1))
         try:
             text, usage = self.runner.invoke(role, model, system, prompt, meta)
-        except RunnerError:
-            self.ledger.commit(token, role, model, len(prompt), dict(NO_USAGE), self.tags)
+        except RunnerError as e:
+            self.ledger.commit(token, role, model, n, list(e.attempts) or [dict(NO_USAGE)], self.tags)
+            raise
+        except Fail:
+            self.ledger.release(token)  # the runner never started (not found)
             raise
         except BaseException:
-            self.ledger.release(token)
+            # killed mid-call: the call may have been billed, charge its estimate
+            self.ledger.commit(token, role, model, n, [dict(NO_USAGE)], self.tags)
             raise
-        self.ledger.commit(token, role, model, len(prompt), usage, self.tags)
+        prior = usage.pop("prior", [])
+        self.ledger.commit(token, role, model, n, prior + [usage], self.tags)
         return text
 
 
-def preflight(ledger, calls, n_items, what):
-    """Refuse (exit 4) before a sealed run whose estimated cost would pass the cap."""
+def preflight(ledger, calls, n_items, what, attempts=2):
+    """Refuse (exit 4) before a sealed run whose estimated cost would pass the cap. Counts every
+    paid attempt a call may make, so a run that passes rarely meets the cap mid-way."""
     if ledger is None or ledger.max_cost is None:
         return
-    per = sum(ledger.estimate(role, model, chars) for role, model, chars in calls)
+    ledger._rows = read_jsonl(ledger.path)
+    per = attempts * sum(ledger.estimate(role, model, chars) for role, model, chars in calls)
     spent = ledger.total()
     if spent + per * n_items > ledger.max_cost + 1e-9:
         raise BudgetExceeded(
@@ -716,6 +748,10 @@ class StubRunner:
             if mode == "add":
                 mode = [{"op": "add", "node": {"id": f"n-{iid}", "type": "belief", "confidence": 0.5,
                                                "text": f"stub belief learned from item {iid}"}}]
+            elif mode == "echo":  # copies test canaries (zqx...) it was shown into the map
+                seen = " ".join(sorted(set(re.findall(r"zqx\w+", prompt))))
+                mode = [{"op": "add", "node": {"id": f"n-{iid}", "type": "belief", "confidence": 0.5,
+                                               "text": f"stub belief from item {iid} {seen}".strip()}}]
             return json.dumps({"patches": mode})
         if role == "consolidate":
             mode = self.s.get("consolidate", "halve")
@@ -756,6 +792,31 @@ def parse_json(text):
         if isinstance(obj, dict):
             return obj
     return None
+
+
+# --- the sealed slice -------------------------------------------------------------------------
+
+def seal_check(path, rerun):
+    """Earlier runs of the sealed slice; refuse a second use without a rerun reason. A run stopped by
+    the budget before any result was written does not count as a use."""
+    path = Path(path)
+    runs = json.loads(path.read_text(encoding="utf-8") or "{}").get("runs", []) if path.exists() else []
+    if any(not r.get("aborted") for r in runs) and not rerun:
+        raise Fail("the sealed slice was already used (by world.py final or evaluate.py --slice test); "
+                   "pass --rerun-test REASON to run it again (it overfits)")
+    return runs
+
+
+def seal_write(path, runs, entry):
+    runs = runs + [dict(entry, at=datetime.now(timezone.utc).isoformat(timespec="seconds"))]
+    write_json(path, {"runs": runs})
+    return runs
+
+
+def seal_abort(path, runs, why):
+    """Mark the last run aborted: no result was written, so the slice is not used up."""
+    runs[-1] = dict(runs[-1], aborted=why)
+    write_json(path, {"runs": runs})
 
 
 # --- profile ---------------------------------------------------------------------------------

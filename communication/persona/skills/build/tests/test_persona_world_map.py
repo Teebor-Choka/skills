@@ -91,6 +91,37 @@ class Patches(unittest.TestCase):
         self.assertEqual(applied, [good])
         self.assertEqual(world.validate_map(mp, SEEN), [])
 
+    def test_malformed_ids_are_rejected_not_raised(self):
+        good = {"op": "add", "node": {"id": "ok2", "type": "belief", "text": "fine"}}
+        bad = [{"op": "strengthen", "id": ["b1"]},
+               {"op": "add_edge", "edge": {"from": ["b1"], "to": "b2", "type": "supports"}},
+               {"op": "merge", "ids": [["b1"], "b2"], "into": {"id": "m1", "type": "belief", "text": "x"}},
+               {"op": "merge", "ids": ["b1", "b2"], "into": {"id": ["m1"], "type": "belief", "text": "x"}},
+               {"op": "add", "node": {"id": {"x": 1}, "type": "belief", "text": "x"}}]
+        mp = base_map()
+        applied, rejected = apply(mp, bad + [good])
+        self.assertEqual(applied, [good])
+        self.assertEqual(len(rejected), len(bad))
+        broken = base_map()
+        broken["nodes"][0]["id"] = ["b1"]
+        broken["edges"].append({"from": ["b1"], "to": "b2", "type": "supports"})
+        self.assertTrue(world.validate_map(broken, SEEN))
+
+    def test_reply_patch_limit_and_consolidation_rules(self):
+        many = [{"op": "strengthen", "id": "b1", "by": 0.01} for _ in range(30)]
+        mp = base_map()
+        applied, rejected = apply(mp, many)
+        self.assertEqual((len(applied), len(rejected)), (24, 6))
+        mp = base_map()
+        applied, rejected = world.apply_patches(mp, [
+            {"op": "add", "node": {"id": "c1", "type": "belief", "text": "x"}},
+            {"op": "strengthen", "id": "b1", "evidence": ["a2"]},
+            {"op": "merge", "ids": ["b1", "b2"], "into": {"id": "m", "type": "belief", "text": "x", "evidence": ["a2"]}},
+            {"op": "remove", "id": "f1"},
+        ], None, SEEN, 5, 120, world.CONSOLIDATE_OPS)
+        self.assertEqual(applied, [{"op": "remove", "id": "f1"}])
+        self.assertEqual(len(rejected), 3)
+
     def test_evidence_must_be_seen(self):
         mp = base_map()
         _, rejected = apply(mp, [{"op": "strengthen", "id": "b1", "evidence": ["future9"]}])

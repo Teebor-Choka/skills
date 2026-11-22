@@ -86,6 +86,17 @@ class Opts:
     def model(self, role):
         return m.resolve_model(self.models.get(role) or ROLE_DEFAULTS[role])[0]
 
+    def pinned(self):
+        """The settings a resumed run must keep (the curve window may change)."""
+        return {"models": {r: self.model(r) for r in ("extract", "predict", "score", "update", "consolidate")},
+                "threshold": self.threshold, "consolidate_every": self.consolidate_every,
+                "max_nodes": self.max_nodes, "max_map_bytes": self.max_map_bytes, "exemplars": self.exemplars,
+                "seed": self.seed}
+
+
+PIN_FLAGS = {"threshold": "threshold", "consolidate_every": "consolidate-every", "max_nodes": "max-nodes",
+             "max_map_bytes": "max-map-bytes", "exemplars": "exemplars", "seed": "seed"}
+
 
 # --- files -----------------------------------------------------------------------------------
 
@@ -159,7 +170,11 @@ def order_stream(items, seed):
 
 
 def init(d, seed=None, force=False):
-    d = Path(d)
+    with locked(d):
+        return _init(Path(d), seed, force)
+
+
+def _init(d, seed, force):
     manifest, train, dev, test = m.load_split(d)
     if (d / "stream.json").exists() and not force:
         raise m.Fail("world.py init already ran: pass --force to start over (drops the map, log and curve; "
@@ -172,8 +187,9 @@ def init(d, seed=None, force=False):
         (dropped if any(m.jaccard(g, k) >= m.NEAR_DUP for k in keys) else kept).append(t)
     seed = manifest.get("seed", 1337) if seed is None else seed
     ids, order, reason = order_stream(kept, seed)
+    redacted = later_context_ids({t["id"]: t for t in kept}, ids)
     stream = {"version": 1, "split_id": manifest["split_id"], "corpus_hash": manifest.get("corpus_hash"),
-              "order": order, "seed": seed, "reason": reason, "ids": ids,
+              "order": order, "seed": seed, "reason": reason, "ids": ids, "redacted_contexts": redacted,
               "sealed": [h["id"] for h in test], "dropped_near_duplicates": sorted(t["id"] for t in dropped)}
     for f in ("map.next.json", "log.jsonl", "curve.json"):
         (d / f).unlink(missing_ok=True)
@@ -186,6 +202,31 @@ def init(d, seed=None, force=False):
     write_atomic(d / "state.json", dumps({"next": 0, "map_hash": text_hash(text), "steps_total": len(ids),
                                          "ledger_total": round(ledger_total(d), 6)}))
     return stream
+
+
+def later_context_ids(items, ids):
+    """Ids whose context quotes or nearly repeats a later stream item (a reply_to chain read out of
+    order): their context would show the predictor a message before its step."""
+    out = []
+    keys = [(f" {m.norm(items[x]['text'])} " if len(m.norm(items[x]["text"]).split()) >= 3 else None,
+             m.grams(items[x]["text"])) for x in ids]
+    for k, x in enumerate(ids):
+        ctx = items[x].get("context") or ""
+        if not ctx:
+            continue
+        c, cg = f" {m.norm(ctx)} ", m.grams(ctx)
+        if any((key and key in c) or m.jaccard(cg, g) >= m.NEAR_DUP for key, g in keys[k + 1:]):
+            out.append(x)
+    return sorted(out)
+
+
+def load_items(train, stream):
+    """Stream items by id, with the contexts init found leaking a later item blanked."""
+    items = {r["id"]: dict(r) for r in train}
+    for x in stream.get("redacted_contexts", []):
+        if x in items:
+            items[x]["context"] = ""
+    return items
 
 
 def ledger_total(d):
@@ -262,6 +303,7 @@ def validate_map(mp, seen=None, max_nodes=120, max_map_bytes=16384):
     for n in mp["nodes"]:
         errs += node_errors(n, seen)
         nid = n.get("id") if isinstance(n, dict) else None
+        nid = nid if isinstance(nid, str) else None
         if nid in ids:
             errs.append(f"duplicate node id {nid!r}")
         ids.add(nid)
@@ -270,8 +312,8 @@ def validate_map(mp, seen=None, max_nodes=120, max_map_bytes=16384):
         if not isinstance(e, dict):
             errs.append("edge is not an object")
             continue
-        k = (e.get("from"), e.get("to"), e.get("type"))
-        if e.get("from") not in ids or e.get("to") not in ids:
+        k = tuple(x if isinstance(x, str) else repr(x) for x in (e.get("from"), e.get("to"), e.get("type")))
+        if k[0] not in ids or k[1] not in ids:
             errs.append(f"edge {k}: unknown node")
         if e.get("from") == e.get("to"):
             errs.append(f"edge {k}: joins a node to itself")
@@ -326,12 +368,14 @@ def _apply_one(mp, p, item_id, seen, step, max_nodes, ops):
         raise PatchError(f"unknown op {op!r}")
     if op not in ops:
         raise PatchError(f"op {op} is not allowed here")
+    if ops is CONSOLIDATE_OPS and ("evidence" in p or (isinstance(p.get("into"), dict) and "evidence" in p["into"])):
+        raise PatchError("consolidation adds no evidence")
     extra = _evidence(p, seen)
     tag = set(extra) | ({item_id} if item_id else set())
     nodes = {n["id"]: n for n in mp["nodes"]}
 
     def get(nid):
-        if nid not in nodes:
+        if not isinstance(nid, str) or nid not in nodes:
             raise PatchError(f"unknown node {nid!r}")
         return nodes[nid]
 
@@ -377,6 +421,8 @@ def _apply_one(mp, p, item_id, seen, step, max_nodes, ops):
         into = p.get("into") if isinstance(p.get("into"), dict) else None
         if into is None:
             raise PatchError("merge needs an into node")
+        if not isinstance(into.get("id"), str):
+            raise PatchError("merge into needs a string id")
         if into.get("id") in nodes and into.get("id") not in ids:
             raise PatchError(f"duplicate node id {into.get('id')!r}")
         spec = dict(into)
@@ -434,6 +480,9 @@ def apply_patches(mp, patches, item_id, seen, step, max_nodes, ops=OPS):
             _apply_one(cand, p, item_id, seen, step, max_nodes, ops)
         except PatchError as e:
             rejected.append({"patch": p, "reason": str(e)})
+            continue
+        except (TypeError, ValueError, KeyError, AttributeError) as e:  # a malformed field the checks missed
+            rejected.append({"patch": p, "reason": f"malformed patch: {type(e).__name__}"})
             continue
         mp.clear()
         mp.update(normalize(cand))
@@ -651,7 +700,23 @@ def do_step(i, it, ids, items, mp, runner, opts):
     return row, mp
 
 
-def recover(d):
+def pin_opts(d, st, opts):
+    """Record the loop settings on the first run; refuse a resume that changes them."""
+    want = opts.pinned()
+    have = st.get("opts")
+    if have is None:
+        st = dict(st, opts=want)
+        write_atomic(d / "state.json", dumps(st))
+        return st
+    diff = sorted(k for k in want if want[k] != have.get(k))
+    if diff:
+        raise m.Fail("this loop runs with " + ", ".join(f"{k} {have.get(k)}" for k in diff)
+                     + f"; got {', '.join(f'{k} {want[k]}' for k in diff)}. Resume with the same settings "
+                     "(world.py run fills unset flags from state.json) or start over with init --force")
+    return st
+
+
+def recover(d, window=20):
     """Finish or undo a half-written step; refuse a hand-edited map. Returns state.json."""
     st = load_json(d / "state.json", "world.py init")
     nxt = d / "map.next.json"
@@ -663,11 +728,21 @@ def recover(d):
     if file_hash(d / "map.json") != st["map_hash"]:
         raise m.Fail("map.json changed outside world.py (its hash is not the checkpoint's): restore it, or "
                      "run world.py init --force to start over")
-    rows = m.read_jsonl(d / "log.jsonl")
+    rows = []
+    lines = (d / "log.jsonl").read_text(encoding="utf-8").splitlines() if (d / "log.jsonl").exists() else []
+    for k, line in enumerate(lines):
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            if k != len(lines) - 1:
+                raise m.Fail(f"log.jsonl line {k + 1} is corrupt") from None  # only the last write can tear
     keep = [r for r in rows if r["step"] < st["next"]]
-    if len(keep) != len(rows):
+    if len(keep) != len(lines):
         write_atomic(d / "log.jsonl", "".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n"
                                                for r in keep))
+    # a crash after the rename may have left them stale
+    write_atomic(d / "map.md", render(json.loads((d / "map.json").read_text(encoding="utf-8"))))
+    write_atomic(d / "curve.json", dumps(curve(keep, window)))
     return st
 
 
@@ -690,10 +765,11 @@ def run(d, runner, opts, max_steps=None, resume=False, echo=None):
     """Run steps until the stream ends or max_steps; return the number of steps done."""
     d = Path(d)
     stream, train, _ = check_split(d)
-    items = {r["id"]: r for r in train}
+    items = load_items(train, stream)
     ids = stream["ids"]
     with locked(d):
-        st = recover(d)
+        st = recover(d, opts.window)
+        st = pin_opts(d, st, opts)
         if st["next"] > 0 and not resume:
             raise m.Fail(f"the loop already ran {st['next']} of {len(ids)} steps: pass --resume to continue")
         mp = json.loads((d / "map.json").read_text(encoding="utf-8"))
@@ -726,21 +802,16 @@ def cost_summary(d):
 def final(d, runner, opts, ledger=None, rerun=None, gen_model="reasoning", judge_model="reasoning"):
     d = Path(d)
     stream, train, test = check_split(d)
-    items = {r["id"]: r for r in train}
+    items = load_items(train, stream)
     ids = stream["ids"]
     with locked(d):
-        st = recover(d)
+        st = recover(d, opts.window)
         if st["next"] < len(ids):
             raise m.Fail(f"the loop has run {st['next']} of {len(ids)} steps: finish world.py run --resume first")
         mp = json.loads((d / "map.json").read_text(encoding="utf-8"))
         profile = render(mp)
         sealed = d / "split" / "test.sealed"
-        seal = {}
-        if sealed.exists():
-            seal = json.loads(sealed.read_text(encoding="utf-8") or "{}")
-            if not rerun:
-                raise m.Fail("the sealed slice was already used (by world.py final or evaluate.py --slice test); "
-                             "pass --rerun-test REASON to run it again (it overfits)")
+        seal = m.seal_check(sealed, rerun)
         if not test:
             raise m.Fail("the sealed slice is empty")
         models = {"extract": opts.model("extract"), "generate": m.resolve_model(gen_model)[0],
@@ -749,14 +820,16 @@ def final(d, runner, opts, ledger=None, rerun=None, gen_model="reasoning", judge
         if m.resolve_model(judge_model)[1] != "reasoning":
             warnings.append(f"judge model {models['judge']} is not the reasoning tier: the verdict is weaker")
         m.preflight(ledger, ev.cost_calls(models, profile, test), len(test), "the sealed final")
-        runs = seal.get("runs", []) + [{"tool": "world", "map": st["map_hash"], "reason": rerun,
-                                        "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}]
-        m.write_json(sealed, {"runs": runs})
+        runs = m.seal_write(sealed, seal, {"tool": "world", "map": st["map_hash"], "reason": rerun})
         if getattr(runner, "tags", None) is not None:
             runner.tags = {"tool": "world-final"}
         stream_items = [items[x] for x in ids]
-        results = [ev.run_item(runner, models, it, profile, stream_items, opts.seed, len(runs), opts.exemplars)
-                   for it in test]
+        try:
+            results = [ev.run_item(runner, models, it, profile, stream_items, opts.seed, len(runs), opts.exemplars)
+                       for it in test]
+        except m.BudgetExceeded as e:
+            m.seal_abort(sealed, runs, "budget")
+            raise m.BudgetExceeded(f"{e}; no result was written, so the sealed slice is not used up") from e
     rep = m.summarize(results)
     rep["warnings"] = warnings + rep["warnings"]
     cv = curve(m.read_jsonl(d / "log.jsonl"), opts.window)
@@ -832,13 +905,31 @@ def status(d, opts):
             "cost": cost_summary(d)}
 
 
+def make_opts(a, d):
+    """Flags over the settings pinned in state.json over the defaults. A flag that conflicts with a
+    pinned setting is refused by run (pin_opts)."""
+    pinned = {}
+    try:
+        pinned = json.loads((d / "state.json").read_text(encoding="utf-8")).get("opts") or {}
+    except (OSError, ValueError):
+        pass
+    base = Opts()
+    kw = {k: (getattr(a, k) if getattr(a, k) is not None else pinned.get(k, getattr(base, k))) for k in PIN_FLAGS}
+    if a.command == "init" or kw["seed"] is None:
+        kw["seed"] = pinned.get("seed", base.seed)
+    models = {r: getattr(a, f"{r}_model") or (pinned.get("models") or {}).get(r) or ROLE_DEFAULTS[r]
+              for r in ("extract", "predict", "score", "update", "consolidate")}
+    return Opts(models=models, window=a.window, **kw)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("command", choices=["init", "run", "cost-estimate", "status", "final", "render", "validate"])
     m.add_state_args(p)
     p.add_argument("--runner", default="claude", help="claude, stub, or cmd:'<command>'")
     p.add_argument("--stub-script", type=Path, help="scripted replies and costs for --runner stub")
-    p.add_argument("--seed", type=int, help="init: stream shuffle seed (default the split seed); run: judge seed")
+    p.add_argument("--seed", type=int, help="init: stream shuffle seed (default the split seed); run: judge seed "
+                   "(default 1337)")
     p.add_argument("--force", action="store_true", help="init: start over")
     p.add_argument("--resume", action="store_true", help="run: continue after the last checkpoint")
     p.add_argument("--max-steps", type=int, help="run: stop after this many steps")
@@ -848,22 +939,19 @@ def main():
                    help="cost assumed for a role and model with no ledger history")
     p.add_argument("--rerun-test", metavar="REASON", help="final: judge the sealed slice again, recording why")
     for role in ("extract", "predict", "score", "update", "consolidate"):
-        p.add_argument(f"--{role}-model", default=ROLE_DEFAULTS[role], help="tier or model")
+        p.add_argument(f"--{role}-model", help=f"tier or model (default {ROLE_DEFAULTS[role]})")
     p.add_argument("--generator-model", default="reasoning", help="final: tier or model")
     p.add_argument("--judge-model", default="reasoning", help="final: tier or model")
-    p.add_argument("--threshold", type=float, default=0.3, help="surprise below this skips the update")
+    p.add_argument("--threshold", type=float, help="surprise below this skips the update (default 0.3)")
     p.add_argument("--window", type=int, default=20, help="curve window")
-    p.add_argument("--consolidate-every", type=int, default=10)
-    p.add_argument("--max-nodes", type=int, default=120)
-    p.add_argument("--max-map-bytes", type=int, default=16384)
-    p.add_argument("--exemplars", type=int, default=4, help="earlier stream items shown to the judge")
+    p.add_argument("--consolidate-every", type=int, help="default 10")
+    p.add_argument("--max-nodes", type=int, help="default 120")
+    p.add_argument("--max-map-bytes", type=int, help="default 16384")
+    p.add_argument("--exemplars", type=int, help="earlier stream items shown to the judge (default 4)")
     a = p.parse_args()
     d = m.state_dir(a)
     m.guard(d, a.allow_git_worktree)
-    opts = Opts(models={r: getattr(a, f"{r}_model") for r in ("extract", "predict", "score", "update", "consolidate")},
-                threshold=a.threshold, window=a.window, consolidate_every=a.consolidate_every,
-                max_nodes=a.max_nodes, max_map_bytes=a.max_map_bytes, exemplars=a.exemplars,
-                seed=1337 if a.seed is None else a.seed)
+    opts = make_opts(a, d)
     if a.command == "init":
         m.make_dir(d)
         s = init(d, a.seed, a.force)
@@ -878,7 +966,8 @@ def main():
             print(f"rendered {d / 'map.md'}")
             return 0
         stream = load_json(d / "stream.json", "world.py init")
-        errs = validate_map(mp, set(stream["ids"]), a.max_nodes, a.max_map_bytes)
+        st = load_json(d / "state.json", "world.py init")
+        errs = validate_map(mp, set(stream["ids"][:st["next"]]), opts.max_nodes, opts.max_map_bytes)
         if errs:
             raise m.Fail("map.json invalid:\n" + "\n".join(errs))
         print("valid")

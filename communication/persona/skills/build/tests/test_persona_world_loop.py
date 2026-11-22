@@ -137,6 +137,41 @@ class OrderAndResume(Base):
         self.assertFalse((d / "map.next.json").exists())
         self.assertEqual(world.file_hash(d / "map.json"), st["map_hash"])
 
+    def test_crash_between_the_log_append_and_the_state_commit(self):
+        want = self._uninterrupted()
+        d = split_state(self.sb)
+        world.init(d)
+        real, calls = world.write_atomic, []
+
+        def flaky(path, text):
+            if str(path).endswith("state.json"):
+                calls.append(path)
+                if len(calls) == 7:  # the 6th step's commit (the first is the opts pin)
+                    raise Crash()
+            real(path, text)
+
+        world.write_atomic = flaky
+        try:
+            with self.assertRaises(Crash):
+                world.run(d, stub(HOT), opts(consolidate_every=4))
+        finally:
+            world.write_atomic = real
+        self.assertEqual(len(read_jsonl(d / "log.jsonl")), 6)  # a row past the checkpoint
+        world.run(d, stub(HOT), opts(consolidate_every=4), resume=True)
+        self.assertEqual(((d / "map.json").read_bytes(), (d / "log.jsonl").read_bytes()), want)
+
+    def test_resume_with_other_settings_is_refused(self):
+        d = split_state(self.sb)
+        world.init(d)
+        world.run(d, stub(), opts(max_nodes=8), max_steps=3)
+        with self.assertRaises(world.m.Fail) as e:
+            world.run(d, stub(), opts(), resume=True)
+        self.assertIn("max_nodes", str(e.exception))
+        self.sb.run("world.py", "run", "--persona", "pat", "--runner", "stub", "--resume", "--max-steps", "1")
+        self.assertEqual(json.loads((d / "state.json").read_text())["next"], 4)  # unset flags come from state
+        r = self.sb.run("world.py", "run", "--persona", "pat", "--runner", "stub", "--resume", "--max-nodes", "9")
+        self.assertEqual(r.returncode, 2)
+
     def test_hand_edited_map_is_refused(self):
         d = split_state(self.sb)
         world.init(d)
@@ -159,15 +194,14 @@ class Leaks(Base):
         plant(d, "train.jsonl", train[now], CANARY_NOW)
         plant(d, "train.jsonl", train[later], CANARY_LATER)
         world.init(d, force=True)  # ids are content hashes of ingest; the split file text changed only
-        rec = Recorder(stub({"score_default": 1}))  # every step updates
-        world.run(d, rec, opts())
+        # every step updates, and the updater copies any canary it sees into the map
+        rec = Recorder(stub({"score_default": 1, "update_default": "echo"}))
+        world.run(d, rec, opts(max_nodes=500, max_map_bytes=10**6, consolidate_every=1000))
         for c in rec.calls:
             if c["role"] == "predict":
                 blob = c["prompt"] + c["system"] + json.dumps(c["meta"])
-                if c["step"] <= 6:
-                    self.assertNotIn(CANARY_NOW, blob, c["step"])
-                if c["step"] <= 12:
-                    self.assertNotIn(CANARY_LATER, blob, c["step"])
+                self.assertEqual(CANARY_NOW in blob, c["step"] > 6, c["step"])
+                self.assertEqual(CANARY_LATER in blob, c["step"] > 12, c["step"])
         # the update of step 6 does see it: the loop learns after predicting
         self.assertTrue(any(CANARY_NOW in c["prompt"] for c in rec.calls if c["role"] == "update" and c["step"] == 6))
 
@@ -179,6 +213,31 @@ class Leaks(Base):
         for row in read_jsonl(d / "log.jsonl"):
             before = set(ids[:row["step"]])
             self.assertTrue(set(row.get("exemplars") or []) <= before, row["step"])
+
+    def test_a_context_quoting_a_later_item_is_blanked(self):
+        recs = synth_records(40)
+        for r in recs:
+            r["ts"] = "no date"  # seeded order
+        d = split_state(self.sb, records=recs)
+        p = d / "split" / "train.jsonl"
+        train = read_jsonl(p)
+        train[3]["text"] = "the parent message names zqxcanaryparentzqx and the plan for friday"
+        train[4]["context"] = train[3]["text"]  # a reply_to chain inside TRAIN
+        p.write_text("".join(json.dumps(r) + "\n" for r in train), encoding="utf-8")
+        parent, child = train[3]["id"], train[4]["id"]
+        for seed in range(50):
+            s = world.init(d, seed=seed, force=True)
+            if s["ids"].index(child) < s["ids"].index(parent):
+                break
+        else:
+            self.fail("no seed put the child first")
+        self.assertIn(child, s["redacted_contexts"])
+        rec = Recorder(stub())
+        world.run(d, rec, opts())
+        k = s["ids"].index(parent)
+        for c in rec.calls:
+            if c["step"] is not None and c["step"] < k and c["role"] != "update":
+                self.assertNotIn("zqxcanaryparentzqx", c["prompt"] + json.dumps(c["meta"]), (c["role"], c["step"]))
 
     def test_sealed_canary_reaches_no_prompt_and_no_file(self):
         d = split_state(self.sb)

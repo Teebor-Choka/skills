@@ -106,7 +106,51 @@ class ClaudeReply(unittest.TestCase):
                               "'usage': {'input_tokens': 3, 'output_tokens': 4}}))\n")
             r = m.CommandRunner(f"cmd:{sys.executable} {script}")
             self.assertEqual(r.invoke("score", "sonnet", "s", "p", {}),
-                             ("ok", {"cost_usd": 0.25, "input_tokens": 3, "output_tokens": 4}))
+                             ("ok", {"cost_usd": 0.25, "input_tokens": 3, "output_tokens": 4, "prior": []}))
+        finally:
+            sb.close()
+
+    def test_claude_runner_refuses_a_reply_that_is_not_the_json_object(self):
+        env = json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "x",
+                          "total_cost_usd": 0.1})
+        for out in ("Warning: something\n" + env, "[1, 2]", "plain words"):
+            with self.subTest(out=out[:20]), self.assertRaises(m.RunnerError):
+                m.parse_cli_reply(out, strict=True)
+
+    def test_every_paid_attempt_is_charged(self):
+        sb = Sandbox()
+        try:
+            flag = sb.root / "first"
+            script = sb.root / "flaky.py"
+            script.write_text(
+                "import json, os, sys\nsys.stdin.read()\nflag = sys.argv[1]\n"
+                "first = not os.path.exists(flag)\nopen(flag, 'w').close()\n"
+                "print(json.dumps({'type': 'result', 'subtype': 'success', 'is_error': first, "
+                "'result': 'boom' if first else 'ok', 'total_cost_usd': 0.3}))\n")
+            led = m.Ledger(sb.root / "ledger.jsonl", max_cost=10)
+            run = m.Metered(m.CommandRunner(f"cmd:{sys.executable} {script} {flag}"), led)
+            self.assertEqual(run.complete("score", "sonnet", "s", "p", {}), "ok")
+            self.assertAlmostEqual(led.total(), 0.6)
+            self.assertEqual(len(read_jsonl(sb.root / "ledger.jsonl")), 2)
+            # both attempts failing: both are charged too
+            bad = sb.root / "bad.py"
+            bad.write_text("import json, sys\nsys.stdin.read()\nprint(json.dumps({'is_error': True, "
+                           "'result': 'no', 'total_cost_usd': 0.2}))\n")
+            run = m.Metered(m.CommandRunner(f"cmd:{sys.executable} {bad}"), led)
+            with self.assertRaises(m.RunnerError):
+                run.complete("score", "sonnet", "s", "p", {})
+            self.assertAlmostEqual(led.total(), 1.0)
+        finally:
+            sb.close()
+
+    def test_a_command_runner_call_reserves_both_attempts(self):
+        sb = Sandbox()
+        try:
+            led = m.Ledger(sb.root / "ledger.jsonl", max_cost=0.9, call_estimate=0.5)
+            run = m.Metered(m.CommandRunner(f"cmd:{sys.executable} -c pass"), led)
+            with self.assertRaises(m.BudgetExceeded):
+                run.complete("score", "sonnet", "s", "p", {})  # 2 x 0.5 > 0.9, refused before running
+            self.assertFalse((sb.root / "ledger.jsonl").exists())
         finally:
             sb.close()
 
@@ -161,6 +205,27 @@ class WorldBudget(unittest.TestCase):
         r = self.sb.run("evaluate.py", "run", "--persona", "pat", "--slice", "test", "--runner", "stub")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(read_jsonl(self.d / "ledger.jsonl"))  # evaluate logs to the same ledger
+
+    def test_budget_stop_inside_the_final_does_not_use_up_the_slice(self):
+        self.assertEqual(self.world("run").returncode, 0)
+        # the preflight passes on history; the generator then costs far more than ever seen
+        self.script.write_text(json.dumps({"cost_default": 0.01, "score_default": 1, "cost": {"generate": 5.0}}))
+        r = self.world("final", "--max-cost-usd", "20", "--call-estimate-usd", "0.01")
+        self.assertEqual(r.returncode, 4, r.stderr)
+        self.assertIn("not used up", r.stderr)
+        seal = json.loads((self.d / "split" / "test.sealed").read_text())
+        self.assertEqual(seal["runs"][-1]["aborted"], "budget")
+        self.script.write_text(json.dumps({"cost_default": 0.01, "score_default": 1}))
+        r = self.world("final")  # no --rerun-test needed: nothing was reported
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.world("final").returncode, 2)
+
+    def test_ledger_counts_another_process_spend(self):
+        led = m.Ledger(self.d / "ledger.jsonl", max_cost=1.0, call_estimate=0.1)
+        other = m.Ledger(self.d / "ledger.jsonl")
+        m.Metered(m.StubRunner({"cost_default": 0.95}), other).complete("score", "x", "s", "p", {})
+        with self.assertRaises(m.BudgetExceeded):
+            led.reserve("score", "y", 1)
 
     def test_cost_estimate_runs_n_steps_and_projects(self):
         r = self.world("cost-estimate", "--steps", "5")

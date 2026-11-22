@@ -229,7 +229,7 @@ def report_md(rep):
 def cost_calls(models, profile, items):
     """(role, model, prompt chars) of one item's calls, for the budget preflight."""
     n = max((len(it["text"]) + len(it.get("context") or "") for it in items), default=0)
-    return [("extract", models["extract"], n + 600), ("generate", models["generate"], len(profile) + n + 300),
+    return [("extract", models["extract"], n + 600), ("extract", models["extract"], n + 700), ("generate", models["generate"], len(profile) + n + 300),
             ("identify", models["judge"], 4 * n + 1500), ("score", models["judge"], 4 * n + 2000)]
 
 
@@ -316,7 +316,7 @@ def main():
         raise m.Fail("profile invalid, fix it first:\n" + "\n".join(errs))
 
     sealed = d / "split" / "test.sealed"
-    seal = {}
+    seal = []
     history = dev_reports(rounds) if a.slice == "dev" and rounds.is_dir() else []
     if a.slice == "dev":
         if not n_folds and not dev:
@@ -327,10 +327,7 @@ def main():
             raise m.Fail(f"dev revision is capped at {MAX_DEV_ROUNDS} rounds; run evaluate.py select now")
         train, items_in = m.fold_view(train, fold, m.example_ids(profile)) if n_folds else (train, dev)
     else:
-        if sealed.exists():
-            seal = json.loads(sealed.read_text(encoding="utf-8") or "{}")
-            if not a.rerun_test:
-                raise m.Fail("the test slice was already used; pass --rerun-test REASON to run it again (it overfits)")
+        seal = m.seal_check(sealed, a.rerun_test)
         items_in = test
     if not items_in:
         raise m.Fail(f"the {a.slice} slice is empty")
@@ -348,13 +345,17 @@ def main():
     runs = []
     if a.slice == "test":
         m.preflight(ledger, cost_calls(models, profile, items_in), len(items_in), "the sealed test")
-        runs = seal.get("runs", []) + [{"round": rnd, "profile": prof_hash, "reason": a.rerun_test,
-                                         "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}]
-        m.write_json(sealed, {"runs": runs})
+        runs = m.seal_write(sealed, seal, {"round": rnd, "profile": prof_hash, "reason": a.rerun_test})
 
-    with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
-        items = list(pool.map(lambda it: run_item(runner, models, it, profile, train, a.seed, rnd, a.exemplars),
-                              items_in))
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
+            items = list(pool.map(lambda it: run_item(runner, models, it, profile, train, a.seed, rnd, a.exemplars),
+                                  items_in))
+    except m.BudgetExceeded as e:
+        if a.slice == "test":
+            m.seal_abort(sealed, runs, "budget")
+            raise m.BudgetExceeded(f"{e}; no result was written, so the test slice is not used up") from e
+        raise
     th = {"max_id_rate": a.max_id_rate, "min_rubric": a.min_rubric, "min_n": a.min_n, "dim_floor": a.dim_floor}
     rep = m.summarize(items, th)
     rep["warnings"] = warnings + rep["warnings"]
