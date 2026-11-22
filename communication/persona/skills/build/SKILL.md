@@ -1,15 +1,17 @@
 ---
 name: build
-description: Learn how one person communicates from samples of their messages and write a voice profile that lets a model write as them, chat replies and one-liners included, then prove it on held-out messages with a blind judge. Use for "write like me", "imitate this person", "learn my voice from these samples", "build a voice profile". Not for drafting a message from a finished profile (persona:write), generic de-slop or removing AI tells (writing:unslop), nor for editing your own draft while keeping your voice (prose-craft voice matching).
+description: Learn how one person communicates from samples of their messages into a world model map (predicting each message before learning from it) or a voice profile that lets a model write as them, chat replies and one-liners included, then prove it on held-out messages with a blind judge. Use for "write like me", "imitate this person", "learn my voice from these samples", "build a voice profile". Not for drafting a message from a finished profile (persona:write), generic de-slop or removing AI tells (writing:unslop), nor for editing your own draft while keeping your voice (prose-craft voice matching).
 license: MIT
 compatibility: Python 3.13 or newer, standard library only. The live judge needs the claude CLI or any command that reads a prompt on stdin.
 ---
 
 # build
 
-Build a guideline file (the profile) from TRAIN samples, then show on TEST samples it never saw
-that a blind judge cannot tell the generated messages from the real ones. The contract, with every
-threshold and failure path, is [references/spec.md](references/spec.md).
+Learn a persona from samples, then show on samples it never saw that a blind judge cannot tell
+the generated messages from the real ones. The default path builds a world model map by predicting
+each message before learning from it ([references/world-model.md](references/world-model.md)). The
+legacy path writes a profile by hand and revises it on folds
+([references/spec.md](references/spec.md)). Both share ingest, split, the judge and the report.
 
 ## Before you start: the data is personal
 
@@ -27,7 +29,7 @@ Tell the user this first, in one or two lines:
 
 ## Steps
 
-Scripts live in `scripts/`. Run each with `--persona <name>`.
+Scripts live in `scripts/`. Run each with `--persona <name>`. Steps 1 and 2 are shared.
 
 1. **Ingest.** `ingest.py --persona P [--author A] [--channel C] [--audience A] FILES...` reads
    txt, md, jsonl (`text`, `channel`, `audience`, `ts`, `reply_to`), json, eml and mbox. Text
@@ -42,6 +44,27 @@ Scripts live in `scripts/`. Run each with `--persona <name>`.
    Default to one persona with per-channel sections: on one public figure, a persona per channel
    did not beat it beyond noise (see `references/spec.md`, "Channel strategy"). Written short posts
    get close to the pass band; spoken caption text does not, whatever the profile says.
+
+### Default path: the predictive loop
+
+3. **Init.** `world.py init --persona P` orders TRAIN into the stream (by time when every message
+   has a parseable timestamp, else a recorded seeded order). The test slice is sealed: never
+   streamed, never shown to the loop.
+4. **Estimate.** `world.py cost-estimate --persona P --steps 10` runs 10 real steps and projects
+   the cost of the rest and of the final. Tell the user the projection and agree a cap.
+5. **Run.** `world.py run --persona P --max-cost-usd X`. Per message: the point is extracted
+   without its words, the map predicts the message, a judge compares prediction and actual, and
+   the map gets small patches when the surprise is high or the message shows something new. It
+   checkpoints every step; on exit 4 (cap reached) continue with `--resume` and a higher cap.
+   `world.py status` shows progress, the surprise curve and the cost.
+6. **Final.** `world.py final --persona P` judges the sealed slice once with the frozen map. Report
+   the verdict, the per-band and per-channel rows, the first and last curve window, and the cost.
+   A second run needs `--rerun-test "<reason>"`.
+
+`map.md` in the state dir is what `write` loads. `world.py validate` checks `map.json`.
+
+### Legacy path: a hand-written profile revised on folds
+
 3. **Analyze.** `profile.py analyze --persona P` writes `analysis-stats.md` from TRAIN. Then a
    reasoning-tier agent that reads only TRAIN and those stats writes `analysis.md` in the state
    dir: the person's mental model (beliefs, framing, reasoning moves, emotional range, stance,
@@ -84,13 +107,16 @@ Runners: `--runner claude` (isolated `claude -p`: no tools, no user settings, no
 `--runner cmd:'<command>'` for another harness (prompt on stdin), `--runner stub` for offline
 tests. Generator and judge default to the `reasoning` tier, the extractor to `execution`;
 `AGENT_TIERS_FILE` maps tiers to models, and `--judge-model` and `--generator-model` take a tier or
-a model.
+a model. In the loop, per-step scoring uses the cheaper `execution` tier (`--score-model`).
+
+Every call's cost lands in `<state>/ledger.jsonl`. `--max-cost-usd X` (both scripts) refuses the
+call that would pass `X` with exit 4; sealed runs check the estimate before sealing.
 
 ## Drafting as the persona
 
-The selected round's `profile.md` is the input of the `write` skill: load it as the voice for text
-written as that person. For a message the user will send themselves, draft it, then check it
-against the profile's Short messages and Never sections. Say which profile and round you used and
+`map.md` (default path) or the selected round's `profile.md` (legacy path) is the input of the
+`write` skill: load it as the voice for text written as that person. For a message the user will send themselves, draft it, then check it
+against the profile's Short messages and Never sections. Say which map or profile you used and
 its last verdict. Without a PASS, call the draft an approximation.
 
 ## Tests

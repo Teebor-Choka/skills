@@ -5,6 +5,7 @@ Stdlib only. See ../references/spec.md for the contract each function implements
 
 import hashlib
 import json
+import math
 import os
 import random
 import re
@@ -12,7 +13,9 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import unicodedata
+from datetime import datetime, timezone
 from pathlib import Path
 
 PERSONA_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -458,13 +461,14 @@ def resolve_model(value, env=None):
 
 def claude_argv(model, system):
     """Isolated: no tools, no MCP, no user/project settings (CLAUDE.md, output style, hooks),
-    no session history on disk."""
-    return ["claude", "-p", "--model", model, "--no-session-persistence", "--tools", "",
+    no session history on disk. JSON output carries the cost of the call."""
+    return ["claude", "-p", "--output-format", "json", "--model", model, "--no-session-persistence", "--tools", "",
             "--strict-mcp-config", "--setting-sources", "", "--system-prompt", system]
 
 
 class RunnerError(Exception):
-    pass
+    usage = None  # the failed reply's usage, when it reported one
+    attempts = ()  # usage of each failed paid attempt
 
 
 class CommandRunner:
@@ -484,9 +488,17 @@ class CommandRunner:
             raise Fail(f"runner command not found: {exe!r}")
 
     def complete(self, role, model, system, prompt, meta):
+        return self.invoke(role, model, system, prompt, meta)[0]
+
+    max_attempts = 2
+
+    def invoke(self, role, model, system, prompt, meta):
+        """(reply text, usage). usage["prior"] lists the usage of failed paid attempts before the one
+        that answered; a RunnerError carries .attempts. A cost not reported is None (charged its
+        estimate by the ledger)."""
         env = dict(os.environ, PERSONA_ROLE=role, PERSONA_MODEL=model, PERSONA_SYSTEM=system)
-        last = ""
-        for _ in range(2):
+        last, prior = "", []
+        for _ in range(self.max_attempts):
             try:
                 r = subprocess.run(self.argv(model, system), input=prompt, capture_output=True,
                                    text=True, timeout=self.timeout, env=env)
@@ -494,11 +506,178 @@ class CommandRunner:
                 raise Fail(f"runner not found: {e.filename}") from e
             except subprocess.TimeoutExpired:
                 last = "timeout"
+                prior.append(dict(NO_USAGE))
                 continue
             if r.returncode == 0 and r.stdout.strip():
-                return r.stdout.strip()
+                try:
+                    text, usage = parse_cli_reply(r.stdout, strict=self.spec == "claude")
+                except RunnerError as e:
+                    last = str(e)
+                    prior.append(e.usage or dict(NO_USAGE))
+                    continue
+                if text:
+                    return text, dict(usage, prior=prior)
+                last = "empty result"
+                prior.append(usage)
+                continue
             last = (r.stderr or r.stdout).strip()[-300:]
-        raise RunnerError(f"{role} failed twice: {last}")
+            prior.append(dict(NO_USAGE))
+        err = RunnerError(f"{role} failed twice: {last}")
+        err.attempts = prior
+        raise err
+
+
+NO_USAGE = {"cost_usd": None, "input_tokens": None, "output_tokens": None}
+
+
+def parse_cli_reply(stdout, strict=False):
+    """(text, usage) from `claude -p --output-format json` (or a cmd runner printing the same object).
+    Fields relied on: result, is_error, subtype, total_cost_usd, usage.{input,output}_tokens and
+    usage.cache_{creation,read}_input_tokens. strict (the claude runner): anything but that object
+    is an error. Otherwise anything else is plain text of unknown cost."""
+    raw = stdout.strip()
+    try:
+        obj = json.loads(raw)
+    except ValueError:
+        obj = None
+    if not isinstance(obj, dict) or not ("result" in obj or "is_error" in obj):
+        if strict:
+            raise RunnerError(f"not a claude JSON reply: {raw[:200]!r}")
+        return raw, dict(NO_USAGE)
+    u = obj.get("usage") if isinstance(obj.get("usage"), dict) else {}
+
+    def num(v):
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else None
+
+    ins = [num(u.get(k)) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")]
+    usage = {"cost_usd": num(obj.get("total_cost_usd")),
+             "input_tokens": sum(x for x in ins if x is not None) if any(x is not None for x in ins) else None,
+             "output_tokens": num(u.get("output_tokens"))}
+    if obj.get("is_error") or obj.get("subtype", "success") != "success" or not isinstance(obj.get("result", ""), str):
+        err = RunnerError(f"error reply: {obj.get('subtype')}: {str(obj.get('result', ''))[-200:]}")
+        err.usage = usage
+        raise err
+    return str(obj.get("result") or "").strip(), usage
+
+
+class BudgetExceeded(Fail):
+    """The next call would pass --max-cost-usd (exit 4)."""
+
+    def __init__(self, msg):
+        super().__init__(msg, 4)
+
+
+class Ledger:
+    """Append-only cost log of model calls with a reservation-based cap.
+
+    Before a call, reserve() adds the call's estimate to the open reservations under a lock and
+    refuses when spent + reserved + estimate would pass the cap, so parallel calls cannot overshoot
+    together. commit() replaces the reservation with the real cost, or the estimate when the cost
+    is unknown (never 0)."""
+
+    def __init__(self, path, max_cost=None, call_estimate=0.5, tool="evaluate"):
+        self.path, self.max_cost, self.call_estimate, self.tool = Path(path), max_cost, call_estimate, tool
+        self._lock = threading.Lock()
+        self._rows = read_jsonl(self.path)
+        self._reserved, self._next = {}, 0
+
+    def rows(self):
+        return list(self._rows)
+
+    def total(self):
+        return sum(float(r.get("cost_usd") or 0) for r in self._rows)
+
+    def estimate(self, role, model, chars):
+        """1.5 x the larger of the top cost seen for this role and model and the top cost per prompt
+        character times this prompt; the default with no history. Estimated rows do not count."""
+        seen = [r for r in self._rows if r.get("role") == role and r.get("model") == model
+                and not r.get("estimated")]
+        if not seen:
+            return self.call_estimate
+        top = max(float(r["cost_usd"]) for r in seen)
+        per = max(float(r["cost_usd"]) / max(1, int(r.get("prompt_chars") or 1)) for r in seen)
+        return 1.5 * max(top, per * chars)
+
+    def reserve(self, role, model, chars, attempts=1):
+        """Hold the estimate of up to `attempts` paid attempts; refuse past the cap. Spend is re-read
+        from the file, so another process's calls on the same state dir count too."""
+        with self._lock:
+            self._rows = read_jsonl(self.path)
+            est = self.estimate(role, model, chars) * attempts
+            spent, held = self.total(), sum(self._reserved.values())
+            if self.max_cost is not None and spent + held + est > self.max_cost + 1e-9:
+                raise BudgetExceeded(
+                    f"budget: the next {role} call ({model}, about ${est:.4f}) would pass --max-cost-usd "
+                    f"{self.max_cost} (spent ${spent:.4f}, in flight ${held:.4f}); state is saved, rerun with "
+                    "a higher cap to continue")
+            self._next += 1
+            self._reserved[self._next] = est
+            return self._next
+
+    def release(self, token):
+        with self._lock:
+            self._reserved.pop(token, None)
+
+    def commit(self, token, role, model, chars, usages, tags=None):
+        """One row per paid attempt; an attempt of unknown cost is charged one call's estimate."""
+        with self._lock:
+            self._reserved.pop(token, None)
+            est = self.estimate(role, model, chars)
+            rows = []
+            for usage in usages:
+                cost = usage.get("cost_usd")
+                row = dict({"tool": self.tool}, **(tags or {}))
+                row.update(ts=datetime.now(timezone.utc).isoformat(timespec="seconds"), role=role, model=model,
+                           cost_usd=round(float(est if cost is None else cost), 6), estimated=cost is None,
+                           input_tokens=usage.get("input_tokens"), output_tokens=usage.get("output_tokens"),
+                           prompt_chars=chars)
+                rows.append(row)
+            make_dir(self.path.parent)
+            fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                f.write("".join(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in rows))
+            self._rows += rows
+            return rows
+
+
+class Metered:
+    """A runner behind the ledger: reserve, call, record. `tags` go on every ledger row."""
+
+    def __init__(self, runner, ledger):
+        self.runner, self.ledger, self.tags = runner, ledger, {}
+
+    def complete(self, role, model, system, prompt, meta):
+        n = len(prompt)
+        token = self.ledger.reserve(role, model, n, getattr(self.runner, "max_attempts", 1))
+        try:
+            text, usage = self.runner.invoke(role, model, system, prompt, meta)
+        except RunnerError as e:
+            self.ledger.commit(token, role, model, n, list(e.attempts) or [dict(NO_USAGE)], self.tags)
+            raise
+        except Fail:
+            self.ledger.release(token)  # the runner never started (not found)
+            raise
+        except BaseException:
+            # killed mid-call: the call may have been billed, charge its estimate
+            self.ledger.commit(token, role, model, n, [dict(NO_USAGE)], self.tags)
+            raise
+        prior = usage.pop("prior", [])
+        self.ledger.commit(token, role, model, n, prior + [usage], self.tags)
+        return text
+
+
+def preflight(ledger, calls, n_items, what, attempts=2):
+    """Refuse (exit 4) before a sealed run whose estimated cost would pass the cap. Counts every
+    paid attempt a call may make, so a run that passes rarely meets the cap mid-way."""
+    if ledger is None or ledger.max_cost is None:
+        return
+    ledger._rows = read_jsonl(ledger.path)
+    per = attempts * sum(ledger.estimate(role, model, chars) for role, model, chars in calls)
+    spent = ledger.total()
+    if spent + per * n_items > ledger.max_cost + 1e-9:
+        raise BudgetExceeded(
+            f"budget: {what} needs about ${per * n_items:.4f} ({n_items} items x ${per:.4f}) on top of "
+            f"${spent:.4f} spent, over --max-cost-usd {ledger.max_cost}; the sealed slice is untouched")
 
 
 class StubRunner:
@@ -507,6 +686,14 @@ class StubRunner:
 
     def __init__(self, script=None):
         self.s = script or {}
+
+    def invoke(self, role, model, system, prompt, meta):
+        """(reply, usage) with the scripted cost: `cost` per role, else `cost_default` (0);
+        roles in `cost_unknown` report no cost."""
+        text = self.complete(role, model, system, prompt, meta)
+        cost = None if role in self.s.get("cost_unknown", []) else \
+            float(self.s.get("cost", {}).get(role, self.s.get("cost_default", 0.0)))
+        return text, {"cost_usd": cost, "input_tokens": len(prompt) // 4, "output_tokens": len(text) // 4}
 
     def complete(self, role, model, system, prompt, meta):
         iid = meta.get("item_id", "")
@@ -545,22 +732,52 @@ class StubRunner:
                 return "no scores"
             reason = self.s.get("reasons", {}).get(iid, "stub reason")
             per = mode if isinstance(mode, dict) else {d: mode for d in DIMS}
-            return json.dumps({d: {"score": per.get(d, 0), "reason": reason} for d in DIMS})
+            out = {d: {"score": per.get(d, 0), "reason": reason} for d in DIMS}
+            out.update(missed=self.s.get("missed", {}).get(iid, []), entities=self.s.get("entities", {}).get(iid, []))
+            return json.dumps(out)
+        if role == "predict":
+            if self.s.get("predict", {}).get(iid) == "error":
+                raise RunnerError("scripted predictor error")
+            return f"{STUB_MARK} {meta.get('point', '')}"
+        if role == "update":
+            mode = self.s.get("update", {}).get(iid, self.s.get("update_default", "add"))
+            if mode == "garbage":
+                return "no patches here"
+            if mode == "error":
+                raise RunnerError("scripted updater error")
+            if mode == "add":
+                mode = [{"op": "add", "node": {"id": f"n-{iid}", "type": "belief", "confidence": 0.5,
+                                               "text": f"stub belief learned from item {iid}"}}]
+            elif mode == "echo":  # copies test canaries (zqx...) it was shown into the map
+                seen = " ".join(sorted(set(re.findall(r"zqx\w+", prompt))))
+                mode = [{"op": "add", "node": {"id": f"n-{iid}", "type": "belief", "confidence": 0.5,
+                                               "text": f"stub belief from item {iid} {seen}".strip()}}]
+            return json.dumps({"patches": mode})
+        if role == "consolidate":
+            mode = self.s.get("consolidate", "halve")
+            if mode == "garbage":
+                return "nothing useful"
+            nodes = sorted((meta.get("map") or {}).get("nodes", []), key=lambda n: (n["confidence"], n["id"]))
+            return json.dumps({"patches": [{"op": "remove", "id": n["id"]} for n in nodes[:len(nodes) // 2]]})
         raise RunnerError(f"unknown role {role}")
 
 
-def make_runner(spec, stub_script=None):
-    """Build and preflight a runner, so a typo fails before the test slice is sealed."""
+def make_runner(spec, stub_script=None, ledger=None):
+    """Build and preflight a runner, so a typo fails before the test slice is sealed. With a ledger,
+    every call is metered and capped."""
     if spec == "stub":
         try:
             script = json.loads(Path(stub_script).read_text(encoding="utf-8")) if stub_script else {}
         except (OSError, ValueError) as e:
             raise Fail(f"bad --stub-script: {e}") from e
-        return StubRunner(script)
-    if spec == "claude" or spec.startswith("cmd:"):
+        r = StubRunner(script)
+    elif spec == "claude" or spec.startswith("cmd:"):
         r = CommandRunner(spec)
         r.check()
-        return r
+    else:
+        r = None
+    if r is not None:
+        return Metered(r, ledger) if ledger is not None else r
     raise Fail(f"unknown runner {spec!r}: use claude, stub or cmd:'<command>'")
 
 
@@ -575,6 +792,31 @@ def parse_json(text):
         if isinstance(obj, dict):
             return obj
     return None
+
+
+# --- the sealed slice -------------------------------------------------------------------------
+
+def seal_check(path, rerun):
+    """Earlier runs of the sealed slice; refuse a second use without a rerun reason. A run stopped by
+    the budget before any result was written does not count as a use."""
+    path = Path(path)
+    runs = json.loads(path.read_text(encoding="utf-8") or "{}").get("runs", []) if path.exists() else []
+    if any(not r.get("aborted") for r in runs) and not rerun:
+        raise Fail("the sealed slice was already used (by world.py final or evaluate.py --slice test); "
+                   "pass --rerun-test REASON to run it again (it overfits)")
+    return runs
+
+
+def seal_write(path, runs, entry):
+    runs = runs + [dict(entry, at=datetime.now(timezone.utc).isoformat(timespec="seconds"))]
+    write_json(path, {"runs": runs})
+    return runs
+
+
+def seal_abort(path, runs, why):
+    """Mark the last run aborted: no result was written, so the slice is not used up."""
+    runs[-1] = dict(runs[-1], aborted=why)
+    write_json(path, {"runs": runs})
 
 
 # --- profile ---------------------------------------------------------------------------------

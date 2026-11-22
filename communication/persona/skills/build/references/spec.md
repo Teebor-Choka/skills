@@ -242,8 +242,10 @@ beyond the noise of a 25 to 35 item test slice, and one persona is simpler.
   Timeout 300 s, one retry. `--runner cmd:'<command>'` runs any command the same way (prompt on
   stdin, `PERSONA_ROLE` and `PERSONA_MODEL` in the environment) for other harnesses. `--runner stub`
   is the in-process test double.
-- Tiers: extract uses `execution`; generate and judge use `reasoning`, the strongest. Owner
-  decision: no cost cap and no budget flags; the judge and the generator get the strongest model.
+- Tiers: extract uses `execution`; generate and judge use `reasoning`, the strongest. The judge
+  and the generator get the strongest model. Cost: every call is logged to `<state>/ledger.jsonl`
+  and `--max-cost-usd` caps the total (the budget guard of [world-model.md](world-model.md));
+  without the flag there is no cap.
   A tier resolves to a model through `AGENT_TIERS_FILE` (the tier map format, harness from
   `AGENT_HARNESS`, default `claude`), else `light`=haiku, `execution`=sonnet, `reasoning`=opus.
   `--extract-model`, `--generator-model` and `--judge-model` take a tier or a model. A judge below
@@ -253,20 +255,21 @@ beyond the noise of a 25 to 35 item test slice, and one persona is simpler.
 
 ## Failure
 
-| Condition                                             | Behaviour                      |
-| ----------------------------------------------------- | ------------------------------ |
-| state dir tracked by a git work tree (not ignored)    | exit 3, nothing written        |
-| bad persona, unknown extension, bad JSON line         | exit 2 with file and line      |
-| no corpus / no split / no profile for the next step   | exit 2 naming the missing step |
-| leak found after split                                | exit 2                         |
-| `--slice dev` with no folds; a round after a stop     | exit 2                         |
-| test after dev rounds with no `selection.json`        | exit 2, test not sealed        |
-| selected snapshot edited after selection              | exit 2, test not sealed        |
-| `select` with no dev rounds, or after the seal        | exit 2                         |
-| second test run without `--rerun-test`                | exit 2                         |
-| profile invalid before a run                          | exit 2 with the validator text |
-| runner times out or fails twice (extract or generate) | item excluded as `error`       |
-| judge fails or returns unparseable output             | counted against the persona    |
+| Condition                                             | Behaviour                                                           |
+| ----------------------------------------------------- | ------------------------------------------------------------------- |
+| state dir tracked by a git work tree (not ignored)    | exit 3, nothing written                                             |
+| bad persona, unknown extension, bad JSON line         | exit 2 with file and line                                           |
+| no corpus / no split / no profile for the next step   | exit 2 naming the missing step                                      |
+| leak found after split                                | exit 2                                                              |
+| `--slice dev` with no folds; a round after a stop     | exit 2                                                              |
+| test after dev rounds with no `selection.json`        | exit 2, test not sealed                                             |
+| selected snapshot edited after selection              | exit 2, test not sealed                                             |
+| `select` with no dev rounds, or after the seal        | exit 2                                                              |
+| second test run without `--rerun-test`                | exit 2                                                              |
+| profile invalid before a run                          | exit 2 with the validator text                                      |
+| runner times out or fails twice (extract or generate) | item excluded as `error`                                            |
+| judge fails or returns unparseable output             | counted against the persona                                         |
+| next call would pass `--max-cost-usd`                 | exit 4; a test run whose estimate passes it refuses before the seal |
 
 ## Scale
 

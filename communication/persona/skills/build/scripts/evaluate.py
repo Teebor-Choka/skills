@@ -115,30 +115,34 @@ def parse_scores(text):
     return scores, reasons
 
 
-def run_item(runner, models, it, profile, train, seed, rnd, k_ex):
-    rec = {"id": it["id"], "band": it["band"], "channel": it["channel"], "audience": it["audience"],
-           "context": it["context"], "original": it["text"], "excluded": None, "identified": None,
-           "picked": None, "scores": None, "reasons": {}}
-    meta = {"item_id": it["id"], "original": it["text"], "band": it["band"], "channel": it["channel"],
-            "context": it["context"]}
-    ext = None
+def extract_point(runner, model, it, meta):
+    """(extraction, None, attempts) or (None, reason, attempts): one strict retry after a leak or
+    an error; a point sharing 4+ words with the message is a leak."""
+    excluded = None
     for attempt in (1, 2):
-        rec["extract_attempts"] = attempt
         try:
-            out = runner.complete("extract", models["extract"], SYS_EXTRACT, extract_prompt(it, attempt > 1),
+            out = runner.complete("extract", model, SYS_EXTRACT, extract_prompt(it, attempt > 1),
                                   dict(meta, attempt=attempt))
         except m.RunnerError:
             continue
         ext = m.parse_json(out)
         said = " ".join(str(ext.get(k, "")) for k in ("point", "context", "intent")) if ext else ""
         if ext and isinstance(ext.get("point"), str) and not m.point_leaks(said, it["text"]):
-            break
-        rec["excluded"] = "point_leak" if ext and isinstance(ext.get("point"), str) else "error"
-        ext = None
+            return ext, None, attempt
+        excluded = "point_leak" if ext and isinstance(ext.get("point"), str) else "error"
+    return None, excluded or "error", 2
+
+
+def run_item(runner, models, it, profile, train, seed, rnd, k_ex):
+    rec = {"id": it["id"], "band": it["band"], "channel": it["channel"], "audience": it["audience"],
+           "context": it["context"], "original": it["text"], "excluded": None, "identified": None,
+           "picked": None, "scores": None, "reasons": {}}
+    meta = {"item_id": it["id"], "original": it["text"], "band": it["band"], "channel": it["channel"],
+            "context": it["context"]}
+    ext, excluded, rec["extract_attempts"] = extract_point(runner, models["extract"], it, meta)
     if ext is None:
-        rec["excluded"] = rec["excluded"] or "error"
+        rec["excluded"] = excluded
         return rec
-    rec["excluded"] = None
     rec["point"] = ext["point"]
     try:
         gen = runner.complete("generate", models["generate"], SYS_GENERATE, generate_prompt(profile, it, ext),
@@ -222,6 +226,13 @@ def report_md(rep):
     return "\n".join(lines) + "\n"
 
 
+def cost_calls(models, profile, items):
+    """(role, model, prompt chars) of one item's calls, for the budget preflight."""
+    n = max((len(it["text"]) + len(it.get("context") or "") for it in items), default=0)
+    return [("extract", models["extract"], n + 600), ("extract", models["extract"], n + 700), ("generate", models["generate"], len(profile) + n + 300),
+            ("identify", models["judge"], 4 * n + 1500), ("score", models["judge"], 4 * n + 2000)]
+
+
 def dev_reports(rounds):
     out = []
     for k in range(1, MAX_DEV_ROUNDS + 2):
@@ -275,6 +286,9 @@ def main():
     p.add_argument("--exemplars", type=int, default=4, help="TRAIN exemplars shown to the judge")
     p.add_argument("--jobs", type=int, default=1, help="items run in parallel (results keep slice order)")
     p.add_argument("--rerun-test", metavar="REASON", help="run the sealed test slice again, recording why")
+    p.add_argument("--max-cost-usd", type=float, help="refuse the call that would pass this total (exit 4)")
+    p.add_argument("--call-estimate-usd", type=float, default=0.5,
+                   help="cost assumed for a role and model with no ledger history")
     p.add_argument("--max-id-rate", type=float, default=m.THRESHOLDS["max_id_rate"])
     p.add_argument("--min-rubric", type=float, default=m.THRESHOLDS["min_rubric"])
     p.add_argument("--min-n", type=int, default=m.THRESHOLDS["min_n"])
@@ -302,7 +316,7 @@ def main():
         raise m.Fail("profile invalid, fix it first:\n" + "\n".join(errs))
 
     sealed = d / "split" / "test.sealed"
-    seal = {}
+    seal = []
     history = dev_reports(rounds) if a.slice == "dev" and rounds.is_dir() else []
     if a.slice == "dev":
         if not n_folds and not dev:
@@ -313,10 +327,7 @@ def main():
             raise m.Fail(f"dev revision is capped at {MAX_DEV_ROUNDS} rounds; run evaluate.py select now")
         train, items_in = m.fold_view(train, fold, m.example_ids(profile)) if n_folds else (train, dev)
     else:
-        if sealed.exists():
-            seal = json.loads(sealed.read_text(encoding="utf-8") or "{}")
-            if not a.rerun_test:
-                raise m.Fail("the test slice was already used; pass --rerun-test REASON to run it again (it overfits)")
+        seal = m.seal_check(sealed, a.rerun_test)
         items_in = test
     if not items_in:
         raise m.Fail(f"the {a.slice} slice is empty")
@@ -328,17 +339,23 @@ def main():
     if env_models["judge"][1] != "reasoning":
         warnings.append(f"judge model {models['judge']} is not the reasoning tier: the verdict is weaker")
 
-    runner = m.make_runner(a.runner, a.stub_script)  # before the seal: a broken runner must not burn it
+    ledger = m.Ledger(d / "ledger.jsonl", a.max_cost_usd, a.call_estimate_usd, tool="evaluate")
+    runner = m.make_runner(a.runner, a.stub_script, ledger)  # before the seal: a broken runner must not burn it
     prof_hash = hashlib.sha256(profile.encode("utf-8")).hexdigest()[:16]
     runs = []
     if a.slice == "test":
-        runs = seal.get("runs", []) + [{"round": rnd, "profile": prof_hash, "reason": a.rerun_test,
-                                         "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}]
-        m.write_json(sealed, {"runs": runs})
+        m.preflight(ledger, cost_calls(models, profile, items_in), len(items_in), "the sealed test")
+        runs = m.seal_write(sealed, seal, {"round": rnd, "profile": prof_hash, "reason": a.rerun_test})
 
-    with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
-        items = list(pool.map(lambda it: run_item(runner, models, it, profile, train, a.seed, rnd, a.exemplars),
-                              items_in))
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
+            items = list(pool.map(lambda it: run_item(runner, models, it, profile, train, a.seed, rnd, a.exemplars),
+                                  items_in))
+    except m.BudgetExceeded as e:
+        if a.slice == "test":
+            m.seal_abort(sealed, runs, "budget")
+            raise m.BudgetExceeded(f"{e}; no result was written, so the test slice is not used up") from e
+        raise
     th = {"max_id_rate": a.max_id_rate, "min_rubric": a.min_rubric, "min_n": a.min_n, "dim_floor": a.dim_floor}
     rep = m.summarize(items, th)
     rep["warnings"] = warnings + rep["warnings"]

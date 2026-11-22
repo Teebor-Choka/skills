@@ -24,10 +24,12 @@ Ask for a missing persona, channel or point. Do not guess them.
 State dir: `$PERSONA_STATE_HOME/<persona>/`, else `~/.config/agents/state/persona/<persona>/`
 (the old `MIMIC_STATE_HOME` still works for one release).
 
-1. Read `profile.md` there. If it is missing, or `profile.py validate --persona <persona>` of the
-   `build` skill does not print `valid`, stop and say so. Do not draft from a guess.
-2. If `map.md` exists, read it too. It adds beliefs, decision rules and reactions; the profile's
-   format rules still win on form.
+1. Read `map.md` there (the default build path) and check it with
+   `world.py validate --persona <persona>` of the `build` skill. Its format rules per band and
+   channel are the profile.
+2. If `profile.md` exists (the legacy path), read it too, after
+   `profile.py validate --persona <persona>` prints `valid`; on form, its format rules win. With
+   neither file valid, stop and say so. Do not draft from a guess.
 3. Never read `test.jsonl`, `items.jsonl` or a report. They are evaluation data.
 
 ## Draft
