@@ -61,6 +61,14 @@ def policy_get(loader, repo, key):
     return val if out.returncode == 0 and val.lower() not in UNSET else None
 
 
+def traversed(depth):
+    """Rungs decomposed for a dialed depth: interfaces down to and including it. No default rung."""
+    d = (depth or "").lower()
+    if d not in LADDER:
+        raise ValueError(f"'{depth}' is not one of {'|'.join(LADDER)}")
+    return LADDER[: LADDER.index(d) + 1]
+
+
 def _invalid(field, value):
     if field == "depth":
         return None if value.lower() in LADDER else f"'{value}' is not one of {'|'.join(LADDER)}"

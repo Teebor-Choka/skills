@@ -34,6 +34,8 @@ the main flow (`depth-dial.md`) but is a different process: do not merge them.
      edits in lockstep. Pull it behind one.
    - **Pass-through / temporal decomposition** — a layer that only forwards calls, or modules split by
      _when_ things run rather than _what_ they know. Collapse or re-cut the seam.
+   - **Conjoined methods** — two methods (or modules) that cannot be understood or changed apart; the
+     split is cosmetic. Merge them or move the shared knowledge behind one interface.
    - **Boundary leak** — implementation types (an ORM row, a transport frame) escaping their module.
 3. **Rank by leverage, not count.** Order candidates by complexity hidden ÷ interface widened, times
    blast radius — the change that deepens the most behind the smallest, safest interface wins. Cite
