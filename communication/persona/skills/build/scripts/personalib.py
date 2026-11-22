@@ -58,8 +58,9 @@ def state_dir(args):
         raise Fail("pass --persona or --state-dir")
     if not PERSONA_RE.match(args.persona):
         raise Fail(f"bad persona name {args.persona!r}: use [a-z0-9_-], 64 chars at most")
-    base = os.environ.get("MIMIC_STATE_HOME") or os.path.join(
-        os.path.expanduser("~"), ".config", "agents", "state", "voice")
+    # MIMIC_STATE_HOME is the old name, honoured for one release.
+    base = os.environ.get("PERSONA_STATE_HOME") or os.environ.get("MIMIC_STATE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config", "agents", "state", "persona")
     return Path(os.path.abspath(base)) / args.persona
 
 

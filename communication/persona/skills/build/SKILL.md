@@ -16,8 +16,10 @@ threshold and failure path, is [references/spec.md](references/spec.md).
 Tell the user this first, in one or two lines:
 
 - Samples, splits, profile and reports stay in the state dir,
-  `~/.config/agents/state/persona/<persona>/` (or `$MIMIC_STATE_HOME/<persona>/`), created 0700.
-  They are never committed. The scripts refuse a path that a git work tree would track (exit 3)
+  `~/.config/agents/state/persona/<persona>/` (or `$PERSONA_STATE_HOME/<persona>/`), created 0700.
+  They are never committed. Migrating from the old `voice` plugin: `mv ~/.config/agents/state/voice ~/.config/agents/state/persona`
+  (the old `MIMIC_STATE_HOME` still works for one release.)
+  The scripts refuse a path that a git work tree would track (exit 3)
   unless `--allow-git-worktree` is passed.
 - Imitate a third party only with their consent, or from their public material for study. Never
   send a generated message as if the person wrote it. See [references/privacy.md](references/privacy.md).

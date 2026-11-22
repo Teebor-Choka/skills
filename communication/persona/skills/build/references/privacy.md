@@ -5,8 +5,8 @@ and temperament, and every report, which holds their messages.
 
 ## Where the data lives
 
-- Default: `~/.config/agents/state/persona/<persona>/`. Override with `MIMIC_STATE_HOME` (the
-  persona dir goes under it) or `--state-dir`.
+- Default: `~/.config/agents/state/persona/<persona>/`. Override with `PERSONA_STATE_HOME` (the
+  persona dir goes under it; the old `MIMIC_STATE_HOME` is a fallback for one release) or `--state-dir`.
 - Directories are created 0700 and files 0600.
 - Never in a repository. Before any write, the scripts look for a git work tree above the target.
   Inside one, `git check-ignore` must confirm git ignores the path, else they exit 3 and write

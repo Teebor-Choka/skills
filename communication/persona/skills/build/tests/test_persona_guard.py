@@ -27,15 +27,29 @@ class StateDirGuard(unittest.TestCase):
     def test_default_dir_is_under_config_agents_state_and_private(self):
         r = self.sb.run("ingest.py", "--persona", "pat", self.src)
         self.assertEqual(r.returncode, 0, r.stderr)
-        d = self.sb.home / ".config" / "agents" / "state" / "voice" / "pat"
+        d = self.sb.home / ".config" / "agents" / "state" / "persona" / "pat"
         self.assertEqual(stat.S_IMODE(d.stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE((d / "corpus.jsonl").stat().st_mode), 0o600)
 
     def test_env_override(self):
         base = self.sb.root / "elsewhere"
+        r = self.sb.run("ingest.py", "--persona", "pat", self.src, env={"PERSONA_STATE_HOME": str(base)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((base / "pat" / "corpus.jsonl").is_file())
+
+    def test_old_env_name_still_works_as_a_fallback(self):
+        base = self.sb.root / "legacy"
         r = self.sb.run("ingest.py", "--persona", "pat", self.src, env={"MIMIC_STATE_HOME": str(base)})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue((base / "pat" / "corpus.jsonl").is_file())
+
+    def test_new_env_name_wins_over_the_old_one(self):
+        new, old = self.sb.root / "new", self.sb.root / "old"
+        r = self.sb.run("ingest.py", "--persona", "pat", self.src,
+                        env={"PERSONA_STATE_HOME": str(new), "MIMIC_STATE_HOME": str(old)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((new / "pat" / "corpus.jsonl").is_file())
+        self.assertFalse(old.exists())
 
     def test_refuses_an_unignored_path_inside_a_work_tree(self):
         repo = git_repo(self.sb.root / "repo")
@@ -46,9 +60,9 @@ class StateDirGuard(unittest.TestCase):
 
     def test_allows_an_ignored_path_inside_a_work_tree(self):
         repo = git_repo(self.sb.root / "agents", ignore="/*\n!/.gitignore\n!/AGENTS.md\n")
-        r = self.sb.run("ingest.py", "--state-dir", repo / "state" / "voice" / "pat", self.src)
+        r = self.sb.run("ingest.py", "--state-dir", repo / "state" / "persona" / "pat", self.src)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue((repo / "state" / "voice" / "pat" / "corpus.jsonl").is_file())
+        self.assertTrue((repo / "state" / "persona" / "pat" / "corpus.jsonl").is_file())
 
     def test_default_dir_inside_a_dotagents_style_repo(self):
         git_repo(self.sb.home / ".config" / "agents", ignore="/*\n!/.gitignore\n")

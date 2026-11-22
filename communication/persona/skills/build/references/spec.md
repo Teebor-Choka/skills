@@ -26,7 +26,7 @@ except the `claude` runner.
 ## Valid inputs
 
 - Persona name: `^[a-z0-9][a-z0-9_-]{0,63}$`. Anything else exits 2.
-- State dir: `--state-dir DIR`, else `$MIMIC_STATE_HOME/<persona>/`, else
+- State dir: `--state-dir DIR`, else `$PERSONA_STATE_HOME/<persona>/`, else `$MIMIC_STATE_HOME/<persona>/` (old name, one release), else
   `~/.config/agents/state/persona/<persona>/` (agent usage data lives under `~/.config/agents/`).
   Created with mode 0700; files written 0600.
 - Guard, before anything is written: when the target sits inside a git work tree (a `.git` dir
@@ -314,8 +314,8 @@ Offline, with the stub runner, in `tests/test_persona_*.py`:
 - [ ] AT-1 guard: an unignored path inside a git work tree exits 3 and writes nothing; an
       ignored path inside one (the dotagents allowlist) and a path outside any work tree are
       allowed; an unresolvable `.git` file is refused; `--allow-git-worktree` lets it through;
-      the default dir is `~/.config/agents/state/persona/<persona>`, `MIMIC_STATE_HOME` overrides
-      it, the dir is created 0700 and files 0600.
+      the default dir is `~/.config/agents/state/persona/<persona>`, `PERSONA_STATE_HOME` overrides
+      it (the old `MIMIC_STATE_HOME` as a fallback), the dir is created 0700 and files 0600.
 - [ ] AT-2 ingest: txt with `---` and with blank lines, md front matter, jsonl with
       `reply_to` by id and by text, `--author` filter, eml and mbox with quotes and signature
       stripped, empty dropped, duplicates counted, casing, emoji and dashes preserved, band marked,

@@ -90,11 +90,11 @@ class Sandbox:
         self.home = self.root / "home"
         self.home.mkdir()
         self.env = dict(os.environ, HOME=str(self.home))
-        for k in ("AGENT_TIERS_FILE", "AGENT_HARNESS", "MIMIC_STATE_HOME", "GIT_DIR", "GIT_WORK_TREE"):
+        for k in ("AGENT_TIERS_FILE", "AGENT_HARNESS", "PERSONA_STATE_HOME", "MIMIC_STATE_HOME", "GIT_DIR", "GIT_WORK_TREE"):
             self.env.pop(k, None)
 
     def state(self, persona="pat"):
-        return self.home / ".config" / "agents" / "state" / "voice" / persona
+        return self.home / ".config" / "agents" / "state" / "persona" / persona
 
     def run(self, script, *args, env=None):
         e = dict(self.env, **(env or {}))
