@@ -43,6 +43,33 @@ Content-Type: text/plain
 second mail body
 """
 
+VTT = """WEBVTT
+Kind: captions
+Language: en
+
+NOTE made by a machine
+
+00:00:00.000 --> 00:00:02.000 align:start position:0%
+so today we <00:00:00.500><c>talk</c><00:00:01.000><c> about</c> [Music]
+
+00:00:02.000 --> 00:00:04.000
+so today we talk about\ncaching. it is <c.colorE5E5E5>hard</c>
+
+00:00:04.000 --> 00:00:06.000
+caching. it is hard
+but worth it
+"""
+
+SRT = """1
+00:00:01,000 --> 00:00:03,000
+first line of
+a cut sentence.
+
+2
+00:00:03,100 --> 00:00:05,000
+second one here
+"""
+
 
 class Ingest(unittest.TestCase):
     def setUp(self):
@@ -146,6 +173,49 @@ class Ingest(unittest.TestCase):
         r = self.sb.run("ingest.py", "--persona", "pat", "--exclude-pattern", "([", p)
         self.assertEqual(r.returncode, 2)
         self.assertIn("exclude-pattern", r.stderr)
+
+    def test_vtt_header_timing_tags_and_sound_cues_removed(self):
+        recs, _ = self.ingest(self.write("a.vtt", VTT))
+        text = " ".join(r["text"] for r in recs)
+        for junk in ("WEBVTT", "Kind", "NOTE", "-->", "align", "<", "[Music]", "0%"):
+            self.assertNotIn(junk, text)
+        self.assertIn("so today we talk about", text)
+
+    def test_vtt_rolling_duplicate_line_collapses_and_lines_join(self):
+        recs, _ = self.ingest(self.write("a.vtt", VTT))
+        self.assertEqual([r["text"] for r in recs],
+                         ["so today we talk about caching.", "it is hard but worth it"])
+
+    def test_srt_numbered_cues_split_on_sentence_end_and_pause(self):
+        recs, _ = self.ingest(self.write("a.srt", SRT))
+        self.assertEqual([r["text"] for r in recs], ["first line of a cut sentence.", "second one here"])
+
+    def test_long_pause_splits_without_punctuation(self):
+        vtt = ("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nalpha beta\n\n"
+               "00:00:01.200 --> 00:00:02.000\ngamma\n\n00:00:09.000 --> 00:00:10.000\ndelta\n")
+        recs, _ = self.ingest(self.write("p.vtt", vtt))
+        self.assertEqual([r["text"] for r in recs], ["alpha beta gamma", "delta"])
+
+    def test_caption_wording_and_given_channel_kept(self):
+        vtt = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nuh we gonna ship it\n"
+        recs, _ = self.ingest(self.write("talk.vtt", vtt), extra=["--channel", "spoken"])
+        self.assertEqual(recs[0]["text"], "uh we gonna ship it")
+        self.assertEqual(recs[0]["channel"], "spoken")
+
+    def test_empty_caption_file_exits_2(self):
+        r = self.sb.run("ingest.py", "--persona", "pat", self.write("e.vtt", ""))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no caption text", r.stderr)
+
+    def test_caption_file_with_only_cues_exits_2(self):
+        vtt = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n[Music]\n\n00:00:01.000 --> 00:00:02.000\n<c></c>\n"
+        r = self.sb.run("ingest.py", "--persona", "pat", self.write("m.vtt", vtt))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no caption text", r.stderr)
+
+    def test_txt_with_timing_like_text_still_ingests_as_before(self):
+        recs, _ = self.ingest(self.write("t.txt", "00:00:01.000 --> 00:00:02.000 [Music]\n\nplain\n"))
+        self.assertEqual([r["text"] for r in recs], ["00:00:01.000 --> 00:00:02.000 [Music]", "plain"])
 
 
 if __name__ == "__main__":

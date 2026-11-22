@@ -3,8 +3,9 @@
 
 Formats: .txt/.md (messages split on a `---` line, else on blank lines), .jsonl/.ndjson/.json
 (objects with `text` and optional channel, audience, ts, reply_to, context, author, id),
-.eml/.mbox (text/plain body, quotes and signature removed). Text is kept as written; only exact
-duplicates collapse, with a count.
+.eml/.mbox (text/plain body, quotes and signature removed), .vtt/.srt auto-captions (header, timing,
+tags, [Music] cues and rolling duplicate lines removed; cues join into sentence-ish records). Text is
+kept as written; only exact duplicates collapse, with a count.
 
   ingest.py --persona NAME [--author A] [--channel C] [--audience A] FILE...
 """
@@ -12,6 +13,7 @@ duplicates collapse, with a count.
 import argparse
 import email
 import email.policy
+import html
 import json
 import mailbox
 import re
@@ -22,6 +24,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import personalib as m  # noqa: E402
 
 WROTE_RE = re.compile(r"^On .+wrote:\s*$")
+CUE_TIME_RE = re.compile(r"(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{3})\s*-->\s*(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{3})")
+CUE_NOISE_RE = re.compile(r"<[^>]*>|\[[^\]]*\]")
+SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s+")
+PAUSE_SECONDS = 2.0  # a gap between cues longer than this starts a new record
 
 
 def clean(text):
@@ -51,6 +57,35 @@ def from_text(path, ext):
         if end != -1:
             text = text[end + 5:]
     return [{"text": b} for b in split_blocks(text)]
+
+
+def from_captions(path):
+    sentences, buf, prev_end, last_line = [], "", None, None
+    text = path.read_text(encoding="utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+    for block in re.split(r"\n\s*\n", text):
+        lines = block.split("\n")
+        at = next((i for i, ln in enumerate(lines) if CUE_TIME_RE.search(ln)), None)
+        if at is None:
+            continue  # WEBVTT header, NOTE, STYLE, REGION
+        g = [int(x or 0) for x in CUE_TIME_RE.search(lines[at]).groups()]
+        start, end = (g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 1000, g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 1000)
+        body = [" ".join(html.unescape(CUE_NOISE_RE.sub("", ln)).split()) for ln in lines[at + 1:]]
+        body = [ln for ln in body if ln]
+        if body and body[0] == last_line:
+            body = body[1:]  # rolling caption: the cue repeats the previous cue's last line
+        if body:
+            last_line = body[-1]
+            if prev_end is not None and start - prev_end > PAUSE_SECONDS and buf:
+                sentences.append(buf)
+                buf = ""
+            *done, buf = SENTENCE_END_RE.split((buf + " " + " ".join(body)).strip())
+            sentences.extend(done)
+        prev_end = end
+    if buf:
+        sentences.append(buf)
+    if not sentences:
+        raise m.Fail(f"{path}: no caption text")
+    return [{"text": s} for s in sentences]
 
 
 def from_records(path, ext):
@@ -124,12 +159,14 @@ def load(path, author):
     ext = path.suffix.lower()
     if ext in (".txt", ".md"):
         loader = from_text
+    elif ext in (".vtt", ".srt"):
+        return from_captions(require_file(path))
     elif ext in (".jsonl", ".ndjson", ".json"):
         loader = from_records
     elif ext in (".eml", ".mbox"):
         return from_mail(require_file(path), ext, author)
     else:
-        raise m.Fail(f"{path}: unknown extension {ext!r} (txt, md, jsonl, ndjson, json, eml, mbox)")
+        raise m.Fail(f"{path}: unknown extension {ext!r} (txt, md, jsonl, ndjson, json, eml, mbox, vtt, srt)")
     rows = loader(require_file(path), ext)
     if author:
         rows = [r for r in rows if r.get("author") in (None, author)]
