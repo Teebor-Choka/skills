@@ -452,9 +452,9 @@ def main():
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--depth", help="decomposition rung: interfaces|modules|components|functions")
     ap.add_argument("--scope", help="what the depth applies to")
-    ap.add_argument("--destination", help="where the work packages are filed (default: policy work-package, else issues)")
+    ap.add_argument("--destination", help="where the work packages are filed (default: policy work-package, else work.tracker, else issues)")
     ap.add_argument("--target", help=":improve target: repo, subtree or module")
-    ap.add_argument("--output", help=":improve output location (default: policy work.tracker, else github issues)")
+    ap.add_argument("--output", help=":improve output location (default: policy work-package, else work.tracker, else issues)")
     ap.add_argument("--cap", help=":improve box cap (default 5)")
     ap.add_argument("--repo", default=".", help="repo whose .agents/policy supplies missing inputs")
     ap.add_argument("--policy-loader", default=None, help="path to the policy skill's policy_loader.py")
@@ -483,7 +483,8 @@ def main():
         def src(f):
             kind, _, name = r[f]["source"].partition(" ")
             return f"invocation arg `{name}`" if kind == "arg" else (
-                f"policy key `{name}`" if kind == "policy" else "the stated default")
+                f"policy key `{name}`" if kind == "policy" else "the stated default"
+            ) + (f"; `{r[f]['ignored']}` ignored" if "ignored" in r[f] else "")
         if mode == "design":
             rungs = resolve_input.traversed(r["depth"]["value"])
             sub.update(depth=r["depth"]["value"], scope=r["scope"]["value"], given=src("depth"),
@@ -491,7 +492,7 @@ def main():
                        acc_rows="\n".join(f"| {x} | FILL-IN |" for x in rungs))
         else:
             sub.update(target=r["target"]["value"], target_src=src("target"), output=r["output"]["value"],
-                       output_src=src("output") + (" `work.tracker` unset" if r["output"]["source"] == "default" else ""),
+                       output_src=src("output") + (" `work-package` unset" if r["output"]["source"] == "default" else ""),
                        cap=r["cap"]["value"], cap_src=src("cap"))
 
     if args.improve:

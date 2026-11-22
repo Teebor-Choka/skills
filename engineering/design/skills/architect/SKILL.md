@@ -71,7 +71,7 @@ result (`scripts/resolve_input.py`, called by `scaffold.py`; exit 3) that names 
 the arg or policy key that supplies it: decomposition depth (`--depth`, `architect.depth`), scope
 (`--scope`, `architect.scope`), `:improve` target (`--target`, `architect.improve-target`). With
 `--interactive`, scaffold returns status `ask` (exit 4) and you put the question, then rerun with the
-answer as an arg. Stated defaults only: output location (policy `work.tracker`, else GitHub issues)
+answer as an arg. Stated defaults only: output location (policy `work-package`, else deprecated `work.tracker`, else `issues`)
 and `:improve` box cap (5, written into the report). Never default a rung, a scope or a target.
 
 ## Workflow

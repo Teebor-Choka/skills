@@ -341,7 +341,7 @@ def test_improve_doc_names_the_report_and_the_boundary():
 
 def test_decompose_filing_guard_for_packages():
     guide = (SKILL.parent / "decompose" / "references" / "filing.md").read_text()
-    for needle in ("Blocked by", "Blocks", "never opens", "work.tracker"):
+    for needle in ("Blocked by", "Blocks", "never opens", "work-package", "work.tracker"):
         assert needle in guide, needle
 
 
@@ -442,7 +442,7 @@ def test_improve_defaults_are_stated_and_written_into_the_report(tmp_path):
     assert out.returncode == 0
     text = (root / "improve-report.md").read_text()
     assert "**Box cap:** 5" in text and "default" in text
-    assert "github issues" in text.lower() and "work.tracker" in text
+    assert "**Output location:** issues" in text and "`work-package` unset" in text
     assert "src/billing" in text
 
 
@@ -529,6 +529,78 @@ def test_destination_comes_from_the_work_package_policy_key(tmp_path):
                          policy={"work-package": "beads"})
     line = next(ln for ln in (root / "t-spec.md").read_text().splitlines() if "**Destination:**" in ln)
     assert "beads" in line and "work-package" in line and "issues" not in line
+
+
+def dest_line(root):
+    return next(ln for ln in (root / "t-spec.md").read_text().splitlines() if "**Destination:**" in ln)
+
+
+DESIGN = ("--tier", "small", "--depth", "modules", "--scope", "svc")
+
+
+def test_destination_falls_back_to_deprecated_work_tracker(tmp_path):
+    out, root = scaffold(tmp_path, *DESIGN, policy={"work.tracker": "beads"})
+    line = dest_line(root)
+    assert "beads" in line and "work.tracker" in line and "default" not in line
+
+
+def test_destination_work_package_wins_and_report_notes_ignored_tracker(tmp_path):
+    out, root = scaffold(tmp_path, *DESIGN, policy={"work-package": "beads", "work.tracker": "jira"})
+    line = dest_line(root)
+    assert "beads" in line and "jira" not in line
+    assert "`work-package`" in line and "`work.tracker` ignored" in line
+
+
+def test_destination_no_ignored_note_when_both_keys_agree(tmp_path):
+    out, root = scaffold(tmp_path, *DESIGN, policy={"work-package": "beads", "work.tracker": "beads"})
+    assert "ignored" not in dest_line(root)
+
+
+def test_destination_github_issues_alias_reads_as_issues(tmp_path):
+    out, root = scaffold(tmp_path, *DESIGN, policy={"work-package": "GitHub Issues"})
+    assert "**Destination:** issues " in dest_line(root)
+
+
+def test_destination_github_spelling_is_left_alone(tmp_path):
+    out, root = scaffold(tmp_path, *DESIGN, policy={"work.tracker": "github"})
+    assert "**Destination:** github " in dest_line(root)
+
+
+def improve_line(root):
+    return next(ln for ln in (root / "improve-report.md").read_text().splitlines() if "**Output location:**" in ln)
+
+
+def test_improve_output_reads_work_package(tmp_path):
+    out, root = scaffold(tmp_path, "--improve", "--target", "x", policy={"work-package": "beads"})
+    line = improve_line(root)
+    assert "**Output location:** beads" in line and "`work-package`" in line
+
+
+def test_improve_output_falls_back_to_work_tracker(tmp_path):
+    out, root = scaffold(tmp_path, "--improve", "--target", "x", policy={"work.tracker": "jira"})
+    line = improve_line(root)
+    assert "**Output location:** jira" in line and "`work.tracker`" in line
+
+
+def test_improve_output_work_package_wins_and_notes_ignored_tracker(tmp_path):
+    out, root = scaffold(tmp_path, "--improve", "--target", "x",
+                         policy={"work-package": "beads", "work.tracker": "jira"})
+    line = improve_line(root)
+    assert "beads" in line and "jira" not in line and "`work.tracker` ignored" in line
+
+
+def test_improve_output_github_issues_alias_reads_as_issues(tmp_path):
+    out, root = scaffold(tmp_path, "--improve", "--target", "x", "--output", "github issues")
+    assert "**Output location:** issues" in improve_line(root)
+
+
+def test_destination_and_output_agree_for_the_same_policy(tmp_path):
+    pol = {"work-package": "beads", "work.tracker": "jira"}
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    _, d = scaffold(tmp_path / "a", *DESIGN, policy=pol)
+    _, i = scaffold(tmp_path / "b", "--improve", "--target", "x", policy=pol)
+    assert "beads" in dest_line(d) and "beads" in improve_line(i)
 
 
 def test_destination_arg_beats_policy(tmp_path):

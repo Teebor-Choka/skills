@@ -5,7 +5,8 @@ Order per field: (1) the invocation arg, (2) a `.agents/policy` key, (3) a quest
 interactive channel exists. Non-interactive (the default) with a field still missing: HALT with a
 structured `needs-input` result that names each missing field and the exact arg or policy key that
 supplies it. A rung, scope or target is never defaulted. Stated defaults: output location (policy
-`work.tracker`, else GitHub issues) and box cap (5), both written into the report.
+`work-package`, else deprecated `work.tracker`, else `issues`) and box cap (5), both written into the
+report. `destination` reads the same key chain, so the two cannot disagree.
 
 Result (one JSON object): {"status": "ready"|"needs-input"|"ask", "resolved": {field: {value, source}},
 "missing": [{field, arg, policy_key, why}]}. Exit codes: 0 ready, 3 needs-input, 4 ask.
@@ -20,15 +21,16 @@ import sys
 
 LADDER = ["interfaces", "modules", "components", "functions"]
 DEFAULT_CAP = 5
-DEFAULT_OUTPUT = "github issues"
-DEFAULT_DESTINATION = "issues"
+DEFAULT_OUTPUT = DEFAULT_DESTINATION = "issues"
+DEPRECATED_KEY = "work.tracker"  # fallback for the canonical `work-package`
+ALIASES = {"github issues": "issues"}
 
 # field -> (invocation arg, policy key)
 FIELDS = {
     "depth": ("--depth", "architect.depth"),
     "scope": ("--scope", "architect.scope"),
     "target": ("--target", "architect.improve-target"),
-    "output": ("--output", "work.tracker"),
+    "output": ("--output", "work-package"),
     "cap": ("--cap", "architect.box-cap"),
     "destination": ("--destination", "work-package"),
 }
@@ -85,8 +87,15 @@ def resolve(mode, args, loader, repo, interactive=False):
     for field in NEEDS[mode]:
         arg, key = FIELDS[field]
         value, source = args.get(field), f"arg {arg}"
+        ignored = None
         if value is None:
             value, source = policy_get(loader, repo, key), f"policy {key}"
+            if key == "work-package":
+                old = policy_get(loader, repo, DEPRECATED_KEY)
+                if value is None and old is not None:
+                    value, source = old, f"policy {DEPRECATED_KEY}"
+                elif value is not None and old is not None and old != value:
+                    ignored = DEPRECATED_KEY
         if value is None and field in DEFAULTS:
             value, source = DEFAULTS[field], "default"
         if value is None:
@@ -96,7 +105,11 @@ def resolve(mode, args, loader, repo, interactive=False):
         if bad:
             missing.append({"field": field, "arg": arg, "policy_key": key, "why": bad})
             continue
+        if field in ("output", "destination"):
+            value = ALIASES.get(value.strip().lower(), value)
         resolved[field] = {"value": value.lower() if field == "depth" else value, "source": source}
+        if ignored:
+            resolved[field]["ignored"] = ignored
     status = "ready" if not missing else ("ask" if interactive else "needs-input")
     return {"status": status, "mode": mode, "resolved": resolved, "missing": missing}
 

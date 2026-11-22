@@ -8,8 +8,8 @@ toolchain: [code-index, pytest] # automated tools grounding/verification may use
 practices: # injected at the level they belong to
   scope: ATDD
   task: TDD
-work: # where work items / packages land; read dotted, e.g. work.tracker
-  tracker: github # github | gitlab | jira | beads | none (a binding resolves the verbs)
+work-package: issues # where work items / packages are filed: issues | github | gitlab | jira | beads | none (a binding resolves the verbs)
+work: # grouped work settings; read dotted, e.g. work.isolation
   isolation: worktree # worktree | branch | none — workspace per parallel writer
 ramble: # per-skill section: overrides the global key for `ramble` only
   interaction: dialog
@@ -32,8 +32,10 @@ process constant here, never baked into a skill.
 - **grounding** — `auto` uses a code indexing MCP when present, else plain reads.
 - **gate** — how "done" is judged: a plain checklist, executable `tests`, or a `rubric` (judge).
 - **practices** — e.g. ATDD at the scope level, TDD at the task level; empty forces none.
-- **work.tracker** — where work items and architect packages are filed; a binding maps the abstract
-  verbs (file item, checks, integrate) to the named tool. Read dotted (`work.tracker`); unset and
+- **work-package** — where work items and architect packages are filed; a binding maps the abstract
+  verbs (file item, checks, integrate) to the named tool. `issues` (alias `github issues`) is the
+  default spelling; `github` still works. `work.tracker` is the deprecated fallback, read only when
+  `work-package` is unset; if both are set and differ, `work-package` wins. Unset and
   inside a GitHub repo with `gh`, the suite defaults to `github`, else `none` (no tracker).
 - **work.isolation** — the workspace each parallel writer gets: `worktree`, `branch` or `none`
   (read-only roles need none). Read dotted (`work.isolation`); unset, parallel writers default to

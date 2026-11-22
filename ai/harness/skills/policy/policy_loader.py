@@ -256,7 +256,7 @@ def get(resolved, key, skill=None, target=None, default=None):
       3. the global key
       4. `default` — the skill's own fallback for a key the baseline does not define
 
-    A dotted `key` ("work.tracker") reads into a nested map: the head resolves by the precedence
+    A dotted `key` ("work.isolation") reads into a nested map: the head resolves by the precedence
     above, then the remaining path descends by plain key; any missing level yields `default`.
 
     `target` is the path (relative to the repo) the skill is acting on; omit it for a repo-wide read."""
@@ -307,7 +307,7 @@ def _selfcheck():
         os.makedirs(os.path.join(d, ".agents"))
         with open(os.path.join(d, ".agents", "policy.md"), "w") as f:
             f.write('---\ninteraction: batch\nramble:\n  interaction: dialog\n'
-                    'work:\n  tracker: github\n'
+                    'work:\n  isolation: worktree\n'
                     'files:\n  "*.md":\n    gate: rubric\n  "docs/*.md":\n    gate: plain\n---\n')
         r = resolve(d, global_path=gpath)
         check("local overrides global per key", r["interaction"] == "batch")
@@ -324,7 +324,7 @@ def _selfcheck():
         check("per-file: no glob match -> baseline gate=plain",
               get(r, "gate", target="main.py") == "plain")
         # 4c. dotted key reads into a nested map; absent path -> default
-        check("dotted: work.tracker -> github", get(r, "work.tracker") == "github")
+        check("dotted: work.isolation -> worktree", get(r, "work.isolation") == "worktree")
         check("dotted: absent leaf -> default", get(r, "work.missing", default="none") == "none")
         check("dotted: absent root -> default", get(r, "absent.key", default="x") == "x")
         # 5. unknown key passes through (open schema), skill default for absent key
