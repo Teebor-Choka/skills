@@ -549,6 +549,17 @@ class StubRunner:
         raise RunnerError(f"unknown role {role}")
 
 
+def _todo(*_a, **_k):
+    raise NotImplementedError("budget guard: not implemented yet")
+
+
+Ledger = Metered = parse_cli_reply = _todo
+
+
+class BudgetExceeded(Fail):
+    pass
+
+
 def make_runner(spec, stub_script=None):
     """Build and preflight a runner, so a typo fails before the test slice is sealed."""
     if spec == "stub":

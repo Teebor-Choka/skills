@@ -147,7 +147,7 @@ class LeakChecks(unittest.TestCase):
 class Runners(unittest.TestCase):
     def test_claude_argv_is_isolated(self):
         argv = personalib.claude_argv("opus", "SYS")
-        self.assertEqual(argv, ["claude", "-p", "--model", "opus", "--no-session-persistence", "--tools", "",
+        self.assertEqual(argv, ["claude", "-p", "--output-format", "json", "--model", "opus", "--no-session-persistence", "--tools", "",
                                 "--strict-mcp-config", "--setting-sources", "", "--system-prompt", "SYS"])
 
     def test_tier_resolution(self):
