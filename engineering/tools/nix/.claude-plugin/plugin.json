@@ -1,5 +1,5 @@
 {
   "name": "nix",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Operate correctly inside Nix + direnv development repos — dev-shell entry, nix fmt over cargo fmt, the result-symlink and crane-rustflags build traps, and a lightweight pre-commit override."
 }

@@ -11,7 +11,7 @@ A **run** is one session plus every subagent it started, scored as a whole. Scri
 
 1. **Scope.** A single session (default) or a cross-session scope the user names. With no window for a cross-session scope, ask for one. A continued session is one run: pass all its transcripts with `--run`. An orchestrator's shared log goes in with `--coordination`. Add transcripts of other sessions to judge them too.
 2. **Check what exists first.** Before proposing any control, read the current config, hook, skill or instruction file it would touch. An existing control that is unwired or too broad is the finding, not a new control. For a finding that names a file, run `fixed.py` (git log on the file): a finding last seen before the fix commit is FIXED. Do this before routing any model-tier, hook or skill fix.
-3. **Measure, by lens.** Run the scripts named in the lenses below. Window by event time, never file mtime, and report each session's in-window share. State the basis of every share (per session or per turn). Re-check any dollar figure quoted from an earlier round. For the weekly numbers run `report.py` ([`references/metrics.md`](references/metrics.md)).
+3. **Measure, by lens.** Run the scripts named in the lenses in `references/lenses.md`. Window by event time, never file mtime, and report each session's in-window share. State the basis of every share (per session or per turn). Re-check any dollar figure quoted from an earlier round. For the weekly numbers run `report.py` ([`references/metrics.md`](references/metrics.md)).
 4. **Read flagged moments only.** Read every human `steer` and `correction` in the main transcript. For a multi-agent run or many sessions, give each group (by agent type, plus the main transcript, plus run-level moments) to one cheap subagent that returns findings in the schema from [`references/friction-signals.md`](references/friction-signals.md). Quote only text a script wrote to a file, and check each quote against its source by exact match or sha256. If a compression proxy sits between you and the tools, turn it off for the run or say in the report that it was on. Ask for numbers as compact JSON, not prose tables.
 5. **Synthesize.** Run `synthesize.py` over the findings from all readers and rounds: it groups by mechanism and flags opposite verdicts. A root-cause or REFUTED claim needs a full count, not a top-N sample, before it enters the ranking.
 6. **Classify and route** each finding (below). A **mechanical** violation gets a check that can fail; prose is for judgement calls.
@@ -19,17 +19,7 @@ A **run** is one session plus every subagent it started, scored as a whole. Scri
 
 ## Lenses: a run covers each one
 
-| Lens                           | What to look for                                                                                                                                                                               | Numbers from                                                               |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| User prompts and inputs        | Vague or late specs, corrections that restate the task, short "continue" loops (human as the loop), queued messages. Judge only `human` turns, never skill bodies, summaries or notifications. | `scan-sessions.py` (steers, corrections, `outcome.human_loop`), `drill.py` |
-| Always-on instructions         | Size, dead lines, rules that load every session but fire rarely.                                                                                                                               | `context-audit.py --always-on`                                             |
-| Skill dispatch                 | Offered versus used, per-skill rate, listing size and per-source share. Exclude hook-forced loads before blaming wording.                                                                      | `context-audit.py` (`skill_rates`, listing by source)                      |
-| Hook outcomes                  | Deny versus non-blocking error versus context injection. A hook said to block that never denies.                                                                                               | `scan-sessions.py --summary --blocking-claims`                             |
-| Tool misuse                    | Repeated reads and commands, errors, tools offered but never called (only if offered), a tool whose cost exceeds its return.                                                                   | `scan-sessions.py` (`tools`, errors), `context-audit.py`                   |
-| Orchestration and coordination | Rework, failed or unfinished agents, outlier agent cost, peer messages, coordination events. Check the lead's sizing and briefs.                                                               | `scan-sessions.py` (members, `--coordination`), `drill.py --agent`         |
-| Cost and context               | Dollars two ways (cost state, per-message usage), per model, compaction, context pressure.                                                                                                     | `cost.py`                                                                  |
-| Session operations and metrics | Window share, turns, long-session share on both bases, weekly trend, first and last seen.                                                                                                      | `scan-sessions.py --summary`, `metrics.py`, `report.py`                    |
-| Positive outcomes              | What worked, so a fix does not break it: artifact produced, ended with evidence, abandoned. Compare friction of good and bad runs before routing.                                              | `scan-sessions.py --summary` (`outcomes`)                                  |
+Read [`references/lenses.md`](references/lenses.md) for the table of lenses (what to look for, and which script gives the numbers). A run covers every lens; step 3 runs the scripts it names.
 
 ## Routing: where each fix lands
 
@@ -44,13 +34,6 @@ A **run** is one session plus every subagent it started, scored as a whole. Scri
 - **A weak or ambiguous user prompt:** a prompt template, an intake question in the skill that starts the work, or a one-line pointer for the user. Not a rule for the agent.
 
 A new rule goes where it is read when needed, not into always-loaded steering.
-
-## Metrics and the change log
-
-- `metrics.py record <transcript>` prints one JSON line per session; `outcomes.py` labels the PRs those sessions touched; `report.py` prints the twelve metrics against the previous window and the north star, cost per merged PR. Definitions and formulas: [`references/metrics.md`](references/metrics.md). Targets and alert thresholds: [`references/metrics.toml`](references/metrics.toml).
-- **Goodhart guard.** Never quote the north star without merged share, hours to merge and review rounds. `report.py` withholds it.
-- **Change log.** Every change the user accepts gets one row in `reflect/changes.jsonl` (`{"date", "rule", "metric", "baseline"}`). Start the next run with `report.py --changes`: it prints each metric since its change date, and flags a change that moved nothing after 14 days as a candidate for removal.
-- The run order, the three-round shape and the verification tags are in [`references/pipeline.md`](references/pipeline.md); known traps in [`references/gotchas.md`](references/gotchas.md). Hooks, statusline, ledger, scheduling and a dashboard are not built here: propose them, the user wires them.
 
 ## Metrics and the change log
 
