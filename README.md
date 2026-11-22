@@ -32,6 +32,7 @@ Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`; a domain with one plugin i
 |                | `voice-style`       | Always-on plain-voice output style and its `unslop-mode` command        |
 | `persona`      | `build`             | Learn a person's voice from samples; prove it with a blind judge        |
 |                | `write`             | Draft a message as a persona from its validated profile                 |
+|                | `advise`            | Answer a question as a persona's advisor, grounded in its map           |
 | `presentation` | `patterns`          | Plan, build or review a talk with 88 patterns and antipatterns          |
 |                | `prep`              | Prepare a talk end to end: structure, build, rehearse                   |
 | `publishing`   | `blog-syndication`  | Cross-post one blog post to Astro, dev.to, Medium and Substack          |

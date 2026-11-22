@@ -1,0 +1,38 @@
+{
+  "skill_name": "persona:advise",
+  "outcome_evals": [],
+  "trigger_evals": [
+    {
+      "query": "ask the cofounder advisor whether we should take the bridge round",
+      "should_trigger": true
+    },
+    {
+      "query": "what would the ops-lead persona advise about delaying the release",
+      "should_trigger": true
+    },
+    {
+      "query": "advise me as the mentor persona: should I hire a second engineer now",
+      "should_trigger": true
+    },
+    {
+      "query": "how would the persona react if I push the deadline a week",
+      "should_trigger": true
+    },
+    {
+      "query": "write as the cofounder persona: a short reply declining the friday call",
+      "should_trigger": false
+    },
+    {
+      "query": "learn how my colleague writes from these 300 messages and build a persona",
+      "should_trigger": false
+    },
+    {
+      "query": "should I use postgres or sqlite for a small internal tool",
+      "should_trigger": false
+    },
+    {
+      "query": "this paragraph sounds like ChatGPT, de-slop it",
+      "should_trigger": false
+    }
+  ]
+}
