@@ -1,5 +1,5 @@
 {
   "name": "persona",
-  "version": "2.2.0",
-  "description": "Personas from samples: build learns one person's voice into a world model map (or a validated profile) and proves it on held-out messages with a blind judge; write drafts a message as that persona."
+  "version": "2.3.0",
+  "description": "Personas from samples: build learns one person's voice into a world model map (or a validated profile) and proves it on held-out messages with a blind judge; write drafts a message as that persona; advise answers a question as that persona's advisor, grounded in the map."
 }

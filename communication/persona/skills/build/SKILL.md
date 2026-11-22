@@ -1,6 +1,6 @@
 ---
 name: build
-description: Learn how one person communicates from samples of their messages into a world model map (predicting each message before learning from it) or a voice profile that lets a model write as them, chat replies and one-liners included, then prove it on held-out messages with a blind judge. Use for "write like me", "imitate this person", "learn my voice from these samples", "build a voice profile". Not for drafting a message from a finished profile (persona:write), generic de-slop or removing AI tells (writing:unslop), nor for editing your own draft while keeping your voice (prose-craft voice matching).
+description: Learn how one person communicates from samples of their messages into a world model map (predicting each message before learning from it) or a voice profile that lets a model write as them, chat replies and one-liners included, then prove it on held-out messages with a blind judge. Use for "write like me", "imitate this person", "learn my voice from these samples", "build a voice profile". Not for drafting a message from a finished profile (persona:write), nor for answering a question as the persona (persona:advise), generic de-slop or removing AI tells (writing:unslop), nor for editing your own draft while keeping your voice (prose-craft voice matching).
 license: MIT
 compatibility: Python 3.13 or newer, standard library only. The live judge needs the claude CLI or any command that reads a prompt on stdin.
 ---

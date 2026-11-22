@@ -1,6 +1,6 @@
 ---
 name: write
-description: Draft a message as a persona from its validated profile (later also its world model map), in the requested channel and length band. Input is the persona name, the channel, the situation or point, and an optional length target. Use for "write as the persona", "draft this in the persona's voice", "reply as the persona", "answer that chat message the way the persona would". Needs a profile built by persona:build. Not for plain de-slop (writing:unslop), not for editing the user's own draft while keeping their voice (prose-craft), and not for building the profile.
+description: Draft a message as a persona from its validated profile (later also its world model map), in the requested channel and length band. Input is the persona name, the channel, the situation or point, and an optional length target. Use for "write as the persona", "draft this in the persona's voice", "reply as the persona", "answer that chat message the way the persona would". Needs a profile built by persona:build. Not for plain de-slop (writing:unslop), not for editing the user's own draft while keeping their voice (prose-craft), not for answering a question as the persona (persona:advise), and not for building the profile.
 license: MIT
 compatibility: Any agent that can read files. No scripts.
 ---
