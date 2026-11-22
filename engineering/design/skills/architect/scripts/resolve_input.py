@@ -21,6 +21,7 @@ import sys
 LADDER = ["interfaces", "modules", "components", "functions"]
 DEFAULT_CAP = 5
 DEFAULT_OUTPUT = "github issues"
+DEFAULT_DESTINATION = "issues"
 
 # field -> (invocation arg, policy key)
 FIELDS = {
@@ -29,9 +30,10 @@ FIELDS = {
     "target": ("--target", "architect.improve-target"),
     "output": ("--output", "work.tracker"),
     "cap": ("--cap", "architect.box-cap"),
+    "destination": ("--destination", "work-package"),
 }
-NEEDS = {"design": ["depth", "scope"], "improve": ["target", "output", "cap"]}
-DEFAULTS = {"output": DEFAULT_OUTPUT, "cap": str(DEFAULT_CAP)}
+NEEDS = {"design": ["depth", "scope", "destination"], "improve": ["target", "output", "cap"]}
+DEFAULTS = {"destination": DEFAULT_DESTINATION, "output": DEFAULT_OUTPUT, "cap": str(DEFAULT_CAP)}
 UNSET = {"", "none", "null", "-"}
 
 

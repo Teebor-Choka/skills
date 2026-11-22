@@ -199,6 +199,8 @@ Write-sets must be disjoint across blocks that can run together. Where two block
 disjoint, order them with a `Depends on` edge, or declare the same `Coordination channel:` line in
 both blocks (a marker only; the executor runs the channel).
 
+**Destination:** $destination · from $dest_src (`references/work-packages.md`)
+
 ## Decomposition depth
 
 Depth and scope come from the invocation or policy; the architect never picks a rung
@@ -221,6 +223,8 @@ $acc_rows
 **Architecture.** FILL-IN.
 **Interfaces.** Input: FILL-IN · Output: FILL-IN · Config surface: FILL-IN.
 **Satisfies:** REQ-FILL-IN.
+**Blocked by:** none
+**Blocks:** 1
 
 Verification (positive) tests:
 
@@ -240,6 +244,8 @@ Adversarial (negative) tests:
 **Architecture.** FILL-IN.
 **Interfaces.** Input: FILL-IN · Output: FILL-IN · Config surface: FILL-IN.
 **Satisfies:** REQ-FILL-IN.
+**Blocked by:** 0
+**Blocks:** none
 
 Verification (positive) tests:
 
@@ -446,6 +452,7 @@ def main():
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--depth", help="decomposition rung: interfaces|modules|components|functions")
     ap.add_argument("--scope", help="what the depth applies to")
+    ap.add_argument("--destination", help="where the work packages are filed (default: policy work-package, else issues)")
     ap.add_argument("--target", help=":improve target: repo, subtree or module")
     ap.add_argument("--output", help=":improve output location (default: policy work.tracker, else github issues)")
     ap.add_argument("--cap", help=":improve box cap (default 5)")
@@ -480,6 +487,7 @@ def main():
         if mode == "design":
             rungs = resolve_input.traversed(r["depth"]["value"])
             sub.update(depth=r["depth"]["value"], scope=r["scope"]["value"], given=src("depth"),
+                       destination=r["destination"]["value"], dest_src=src("destination"),
                        acc_rows="\n".join(f"| {x} | FILL-IN |" for x in rungs))
         else:
             sub.update(target=r["target"]["value"], target_src=src("target"), output=r["output"]["value"],

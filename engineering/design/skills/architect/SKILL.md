@@ -60,7 +60,7 @@ proposal + decision-log + spec), `full` (the whole linked set, for a fleet or a 
 Read `references/deliverable.md` before writing any artifact: it has the rungs, the full artifact
 table, and the `scaffold.py` / `lint.py` usage. Read `references/document-set.md` for each
 artifact's required sections and skeleton. `references/execution.md` lists what to specify for
-verification and observation.
+verification and observation. `references/work-packages.md` covers the isolated split, `Blocked by / blocks`, the policy destination and the channel marker.
 
 ## Inputs the architect never guesses
 

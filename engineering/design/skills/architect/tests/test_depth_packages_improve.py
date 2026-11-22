@@ -468,3 +468,87 @@ def test_docs_state_the_two_path_rule(name):
     text = (SKILL / name).read_text()
     assert "needs-input" in text, name
     assert "ask the user" not in text.lower() and "**ask**" not in text, name
+
+
+# --- #43 work packages: explicit edges, policy destination, declared channel ----------------
+
+IDX = ["| 0 | pre | x | - | src/p | R1 |", "| 1 | a | x | 0 | src/a | R1 |", "| 2 | b | x | 0,1 | src/b | R1 |"]
+
+
+def blocks(b0="none", n0="1, 2", b1="0", n1="2", b2="0, 1", n2="none"):
+    def blk(i, by, bl):
+        return f"## Block {i}: x\n\n**Blocked by:** {by}\n**Blocks:** {bl}\n\n"
+    return blk(0, b0, n0) + blk(1, b1, n1) + blk(2, b2, n2)
+
+
+def edge_errs(text):
+    errs = []
+    lint.check_block_edges(text, errs)
+    return errs
+
+
+def test_block_edge_summary_matching_the_index_passes():
+    assert edge_errs(spec(IDX, blocks())) == []
+
+
+def test_block_without_a_blocked_by_blocks_summary_fails():
+    text = spec(IDX, blocks()).replace("**Blocks:** 2\n", "", 1)
+    assert any("E11" in e for e in edge_errs(text))
+
+
+def test_blocked_by_that_disagrees_with_the_index_fails():
+    assert any("E11" in e for e in edge_errs(spec(IDX, blocks(b2="0"))))
+
+
+def test_blocks_that_disagrees_with_the_index_fails():
+    assert any("E11" in e for e in edge_errs(spec(IDX, blocks(n0="1"))))
+
+
+def test_none_is_the_explicit_empty_summary_and_a_blank_is_not():
+    assert any("E11" in e for e in edge_errs(spec(IDX, blocks(n2=""))))
+
+
+def test_scaffolded_blocks_carry_a_blocked_by_blocks_summary_that_lints_clean(tmp_path):
+    out, root = scaffold(tmp_path, "--tier", "small", "--depth", "modules", "--scope", "svc")
+    text = (root / "t-spec.md").read_text()
+    assert "**Blocked by:**" in text and "**Blocks:**" in text
+    errs = []
+    lint.check_block_edges(text, errs)
+    assert errs == []
+
+
+def test_destination_defaults_to_issues_and_says_so(tmp_path):
+    out, root = scaffold(tmp_path, "--tier", "small", "--depth", "modules", "--scope", "svc")
+    assert out.returncode == 0
+    line = next(ln for ln in (root / "t-spec.md").read_text().splitlines() if "**Destination:**" in ln)
+    assert "issues" in line and "default" in line
+
+
+def test_destination_comes_from_the_work_package_policy_key(tmp_path):
+    out, root = scaffold(tmp_path, "--tier", "small", "--depth", "modules", "--scope", "svc",
+                         policy={"work-package": "beads"})
+    line = next(ln for ln in (root / "t-spec.md").read_text().splitlines() if "**Destination:**" in ln)
+    assert "beads" in line and "work-package" in line and "issues" not in line
+
+
+def test_destination_arg_beats_policy(tmp_path):
+    out, root = scaffold(tmp_path, "--tier", "small", "--depth", "modules", "--scope", "svc",
+                         "--destination", "gitlab", policy={"work-package": "beads"})
+    line = next(ln for ln in (root / "t-spec.md").read_text().splitlines() if "**Destination:**" in ln)
+    assert "gitlab" in line and "beads" not in line
+
+
+def test_unset_destination_never_halts_the_run(tmp_path):
+    out, _ = scaffold(tmp_path, "--tier", "small", "--depth", "modules", "--scope", "svc")
+    assert out.returncode == 0
+
+
+def test_work_packages_doc_states_the_boundary_and_is_pointed_to_once():
+    doc = (SKILL / "references" / "work-packages.md").read_text()
+    for needle in ("Blocked by", "Blocks", "work-package", "Coordination channel", "graph-engine",
+                   "never dispatches", "E10", "E11"):
+        assert needle in doc, needle
+    skill = (SKILL / "SKILL.md").read_text()
+    assert skill.count("references/work-packages.md") == 1
+    assert len(skill.encode()) < 8192
+    assert "—" not in doc
