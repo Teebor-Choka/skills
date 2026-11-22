@@ -1,5 +1,5 @@
 {
   "name": "harness",
-  "version": "3.2.0",
+  "version": "3.1.3",
   "description": "Agent harness: harness:pull (alias swarm, peer-to-peer) and harness:assign (alias direct, thin dispatcher) over a shared work board with claim/lease/reap mechanics, charter, escalation ladder and role cards; tracker (live dependency map of a build's progress); policy (layered .agents/policy settings and their loader); session-hygiene (handoffs and session nudges); guard hooks for polling wakes, unlinked messages, repeated review spawns, secret reads, large whole-file reads and empty questions; session hooks that nudge a handoff or a session name, state a duration before a slow command, remind after compaction and lint the hooks and memory index; a statusline script."
 }

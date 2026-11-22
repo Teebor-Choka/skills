@@ -1,6 +1,6 @@
 # Board contract
 
-The board is a tracker. Which one: the charter's `board` field, else the policy key `work-package` (deprecated fallback `work.tracker`)
+The board is a tracker. Which one: the charter's `board` field, else the policy key `work.tracker`
 (read through the `policy` skill; `github`, `gitlab`, `jira`, `beads`, `none`). A binding maps the
 verbs below to the tool. `file` and `link` are the same verbs `architect/references/filing.md`
 uses; `claim`, `heartbeat`, `release`, `note`, `transition` and `close` are the run's additions.

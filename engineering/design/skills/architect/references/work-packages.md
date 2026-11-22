@@ -26,9 +26,9 @@ fails a block with a missing line or a list that disagrees with the index.
 ## Destination
 
 Where the packages are filed is a policy input, never hardcoded: the `--destination` arg, then the
-`.agents/policy` key `work-package` (for example `work-package: issues`), read by the same policy
+`.agents/policy` key `work.tracker` (for example `work: {tracker: issues}`), read by the same policy
 loader and with the same arg-then-policy order as every other input (`scripts/resolve_input.py`).
-`work.tracker` is the deprecated fallback; when both are set and differ `work-package` wins and the line notes `work.tracker` was ignored. `:improve` output reads the same chain. Unset, it defaults to `issues` (`github issues` reads as `issues`), a stated default written into the spec's `**Destination:**` line
+`:improve` output reads the same chain. Unset, it defaults to `issues` (`github issues` reads as `issues`), a stated default written into the spec's `**Destination:**` line
 with its source. The schema of the key's value is not settled yet.
 
 ## Optional coordination channel (declaration only)
