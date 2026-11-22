@@ -227,6 +227,46 @@ class WorldBudget(unittest.TestCase):
         with self.assertRaises(m.BudgetExceeded):
             led.reserve("score", "y", 1)
 
+    def test_final_preflight_scales_the_loops_costs_to_a_stronger_tier(self):
+        self.assertEqual(self.world("run").returncode, 0)
+        spent = sum(x["cost_usd"] for x in read_jsonl(self.d / "ledger.jsonl"))
+        # the roles the final adds (generate, and identify and score on the stronger judge) have no
+        # history: the flat default (0.5 x 2 attempts each, about $50) would not fit this cap
+        r = self.world("final", "--max-cost-usd", str(spent + 15))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.d / "split" / "test.sealed").exists())
+
+    def test_final_preflight_still_refuses_a_real_projection_over_the_cap(self):
+        self.assertEqual(self.world("run").returncode, 0)
+        spent = sum(x["cost_usd"] for x in read_jsonl(self.d / "ledger.jsonl"))
+        r = self.world("final", "--max-cost-usd", str(spent + 0.5))
+        self.assertEqual(r.returncode, 4, r.stderr)
+        self.assertIn("the sealed slice is untouched", r.stderr)
+        self.assertFalse((self.d / "split" / "test.sealed").exists())
+
+    def test_status_reports_measured_and_estimated_cost_apart(self):
+        self.script.write_text(json.dumps({"cost_default": 0.01, "score_default": 1, "cost_unknown": ["update"]}))
+        self.assertEqual(self.world("run", "--max-steps", "3", "--call-estimate-usd", "0.05").returncode, 0)
+        cost = json.loads(self.world("status").stdout)["cost"]
+        self.assertIn("measured", cost)
+        self.assertIn("estimated", cost)
+        rows = read_jsonl(self.d / "ledger.jsonl")
+        self.assertAlmostEqual(cost["estimated"], sum(x["cost_usd"] for x in rows if x["estimated"]))
+        self.assertAlmostEqual(cost["measured"], sum(x["cost_usd"] for x in rows if not x["estimated"]))
+        self.assertGreater(cost["estimated"], 0)
+        self.assertAlmostEqual(cost["measured"] + cost["estimated"], cost["total"])
+
+    def test_cap_basis_measured_ignores_estimated_rows(self):
+        self.script.write_text(json.dumps({"cost_default": 0.01, "score_default": 1, "cost_unknown": ["update"]}))
+        flags = ("--max-steps", "20", "--max-cost-usd", "0.5", "--call-estimate-usd", "0.05")
+        self.assertEqual(self.world("run", *flags).returncode, 4)  # default: measured + estimated
+        both = json.loads((self.d / "state.json").read_text())["next"]
+        self.assertEqual(self.world("run", "--resume", *flags).returncode, 4)  # the same cap, no room left
+        self.assertEqual(json.loads((self.d / "state.json").read_text())["next"], both)
+        r = self.world("run", "--resume", *flags, "--cap-basis", "measured")
+        self.assertIn(r.returncode, (0, 4), r.stderr)
+        self.assertGreater(json.loads((self.d / "state.json").read_text())["next"], both)
+
     def test_cost_estimate_runs_n_steps_and_projects(self):
         r = self.world("cost-estimate", "--steps", "5")
         self.assertEqual(r.returncode, 0, r.stderr)

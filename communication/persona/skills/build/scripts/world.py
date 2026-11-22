@@ -3,6 +3,7 @@
 
   world.py init          --persona P [--seed S] [--force]
   world.py run           --persona P --runner R [--max-steps N] [--max-cost-usd X] [--resume]
+                         [--max-failed N] [--retry-failed]
   world.py cost-estimate --persona P --runner R --steps N [--max-cost-usd X]
   world.py status        --persona P
   world.py final         --persona P --runner R [--max-cost-usd X] [--rerun-test REASON]
@@ -46,6 +47,10 @@ MISSED = ("format", "length", "content", "belief", "reaction", "vocabulary")
 SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
 MAX_TEXT = 280
 MAX_PATCHES = 24
+# relative cost of a call per model tier, for pricing a stronger tier from the loop's history; a guess
+# (the repo has no price table), kept below the real gap so a cap is not refused on a worst case
+TIER_COST = {"execution": 1.0, "reasoning": 3.0}
+MAX_FAILED = 3  # consecutive failed attempts at one step before the loop halts
 OPS = ("add", "strengthen", "weaken", "revise", "remove", "merge", "add_edge", "remove_edge")
 CONSOLIDATE_OPS = tuple(o for o in OPS if o != "add")
 ROLE_DEFAULTS = {"extract": "execution", "predict": "reasoning", "score": "execution", "update": "reasoning",
@@ -761,8 +766,24 @@ def commit(d, i, mp, row, st, opts):
     return st
 
 
-def run(d, runner, opts, max_steps=None, resume=False, echo=None):
-    """Run steps until the stream ends or max_steps; return the number of steps done."""
+def step_failure(row):
+    """Why a step's model calls failed (a call error, no pick, no scores, an unusable update), else None.
+    A leaked point or a copied prediction is a result, not a failure."""
+    if row["excluded"] == "error":
+        return "extract or predict failed"
+    if row["excluded"] is None and row["identified"] is None:
+        return "identify failed"
+    if row["excluded"] is None and row["scores"] is None:
+        return "score failed"
+    if row["update_error"]:
+        return f"update {row['update_error']}"
+    return None
+
+
+def run(d, runner, opts, max_steps=None, resume=False, echo=None, max_failed=MAX_FAILED, retry_failed=False):
+    """Run steps until the stream ends or max_steps; return the number of steps done. A step whose
+    calls fail is repeated in place; after max_failed failures in a row the loop halts (exit 5) with
+    the stream index on that step."""
     d = Path(d)
     stream, train, _ = check_split(d)
     items = load_items(train, stream)
@@ -772,13 +793,34 @@ def run(d, runner, opts, max_steps=None, resume=False, echo=None):
         st = pin_opts(d, st, opts)
         if st["next"] > 0 and not resume:
             raise m.Fail(f"the loop already ran {st['next']} of {len(ids)} steps: pass --resume to continue")
+        if st.get("failed"):
+            f = st["failed"]
+            if not retry_failed:
+                raise m.Fail(f"step {f['step'] + 1} failed {f['attempts']} times ({'; '.join(f['reasons'])}): fix "
+                             "the cause, then run --resume --retry-failed", code=5)
+            st = {k: v for k, v in st.items() if k != "failed"}
+            write_atomic(d / "state.json", dumps(st))
         mp = json.loads((d / "map.json").read_text(encoding="utf-8"))
         done = 0
         while st["next"] < len(ids) and (max_steps is None or done < max_steps):
             i = st["next"]
             if getattr(runner, "tags", None) is not None:
                 runner.tags = {"tool": "world", "step": i}
-            row, mp = do_step(i, items[ids[i]], ids, items, mp, runner, opts)
+            reasons = []
+            while True:
+                row, new_mp = do_step(i, items[ids[i]], ids, items, mp, runner, opts)
+                why = step_failure(row)
+                if why is None:
+                    break
+                reasons.append(why)
+                if echo:
+                    echo(f"step {i + 1}/{len(ids)}: {why} (attempt {len(reasons)}/{max_failed})")
+                if len(reasons) >= max_failed:
+                    st = dict(st, failed={"step": i, "item": ids[i], "attempts": len(reasons), "reasons": reasons})
+                    write_atomic(d / "state.json", dumps(st))
+                    raise m.Fail(f"step {i + 1} failed {len(reasons)} times ({'; '.join(reasons)}): the loop "
+                                 "halted before it; fix the cause, then run --resume --retry-failed", code=5)
+            mp = new_mp
             st = commit(d, i, mp, row, st, opts)
             done += 1
             if echo:
@@ -795,8 +837,28 @@ def cost_summary(d):
     for r in rows:
         by_role[r["role"]] = round(by_role.get(r["role"], 0) + float(r["cost_usd"]), 6)
         by_tool[r.get("tool", "?")] = round(by_tool.get(r.get("tool", "?"), 0) + float(r["cost_usd"]), 6)
-    return {"total": round(sum(by_role.values()), 6), "by_role": by_role, "by_tool": by_tool,
+    est = sum(float(r["cost_usd"]) for r in rows if r.get("estimated"))
+    return {"total": round(sum(by_role.values()), 6), "measured": round(sum(by_role.values()) - est, 6),
+            "estimated": round(est, 6), "by_role": by_role, "by_tool": by_tool,
             "estimated_calls": sum(1 for r in rows if r.get("estimated"))}
+
+
+def final_stand_in(ledger):
+    """Estimate for a sealed-final call whose role and model have no measured history: the loop's
+    per-call cost for the same call type (generate ~ predict), scaled by the tier."""
+    def est(role, model, chars):
+        rows = [r for r in ledger.rows() if r.get("tool") == "world" and not r.get("estimated")]
+        if any(r["role"] == role and r["model"] == model for r in rows):
+            return None
+        src = [r for r in rows if r["role"] == ("predict" if role == "generate" else role)]
+        if not src:
+            return None
+        src_model = src[-1]["model"]
+        to, frm = m.resolve_model(model)[1], m.resolve_model(src_model)[1]
+        if to not in TIER_COST or frm not in TIER_COST:
+            return None
+        return ledger.estimate(src[-1]["role"], src_model, chars) * TIER_COST[to] / TIER_COST[frm]
+    return est
 
 
 def final(d, runner, opts, ledger=None, rerun=None, gen_model="reasoning", judge_model="reasoning"):
@@ -819,7 +881,8 @@ def final(d, runner, opts, ledger=None, rerun=None, gen_model="reasoning", judge
         warnings = []
         if m.resolve_model(judge_model)[1] != "reasoning":
             warnings.append(f"judge model {models['judge']} is not the reasoning tier: the verdict is weaker")
-        m.preflight(ledger, ev.cost_calls(models, profile, test), len(test), "the sealed final")
+        m.preflight(ledger, ev.cost_calls(models, profile, test), len(test), "the sealed final",
+                    stand_in=final_stand_in(ledger) if ledger else None)
         runs = m.seal_write(sealed, seal, {"tool": "world", "map": st["map_hash"], "reason": rerun})
         if getattr(runner, "tags", None) is not None:
             runner.tags = {"tool": "world-final"}
@@ -933,8 +996,13 @@ def main():
     p.add_argument("--force", action="store_true", help="init: start over")
     p.add_argument("--resume", action="store_true", help="run: continue after the last checkpoint")
     p.add_argument("--max-steps", type=int, help="run: stop after this many steps")
+    p.add_argument("--max-failed", type=int, default=MAX_FAILED, metavar="N",
+                   help=f"run: halt after N failed attempts at one step (default {MAX_FAILED})")
+    p.add_argument("--retry-failed", action="store_true", help="run: replay the step the loop halted on")
     p.add_argument("--steps", type=int, default=10, help="cost-estimate: steps to run")
     p.add_argument("--max-cost-usd", type=float, help="refuse the call that would pass this total (exit 4)")
+    p.add_argument("--cap-basis", choices=["total", "measured"], default="total",
+                   help="spend the cap applies to: measured + estimated (default) or measured only")
     p.add_argument("--call-estimate-usd", type=float, default=0.5,
                    help="cost assumed for a role and model with no ledger history")
     p.add_argument("--rerun-test", metavar="REASON", help="final: judge the sealed slice again, recording why")
@@ -975,12 +1043,13 @@ def main():
     if a.command == "status":
         print(json.dumps(status(d, opts), indent=1))
         return 0
-    ledger = m.Ledger(d / "ledger.jsonl", a.max_cost_usd, a.call_estimate_usd, tool="world")
+    ledger = m.Ledger(d / "ledger.jsonl", a.max_cost_usd, a.call_estimate_usd, tool="world",
+                       cap_basis=a.cap_basis)
     runner = m.make_runner(a.runner, a.stub_script, ledger)
     runner.name = a.runner
     echo = lambda s: print(s, flush=True)  # noqa: E731
     if a.command == "run":
-        n = run(d, runner, opts, a.max_steps, a.resume, echo)
+        n = run(d, runner, opts, a.max_steps, a.resume, echo, a.max_failed, a.retry_failed)
         st = load_json(d / "state.json", "world.py init")
         print(f"{n} steps run; {st['next']}/{st['steps_total']} done; spent ${st['ledger_total']:.4f}")
         return 0

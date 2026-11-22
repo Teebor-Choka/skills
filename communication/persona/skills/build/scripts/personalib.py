@@ -575,8 +575,9 @@ class Ledger:
     together. commit() replaces the reservation with the real cost, or the estimate when the cost
     is unknown (never 0)."""
 
-    def __init__(self, path, max_cost=None, call_estimate=0.5, tool="evaluate"):
+    def __init__(self, path, max_cost=None, call_estimate=0.5, tool="evaluate", cap_basis="total"):
         self.path, self.max_cost, self.call_estimate, self.tool = Path(path), max_cost, call_estimate, tool
+        self.cap_basis = cap_basis  # "total" counts estimated rows against the cap, "measured" does not
         self._lock = threading.Lock()
         self._rows = read_jsonl(self.path)
         self._reserved, self._next = {}, 0
@@ -586,6 +587,12 @@ class Ledger:
 
     def total(self):
         return sum(float(r.get("cost_usd") or 0) for r in self._rows)
+
+    def spent(self):
+        """Spend the cap applies to: every row, or only the measured ones."""
+        if self.cap_basis == "measured":
+            return sum(float(r.get("cost_usd") or 0) for r in self._rows if not r.get("estimated"))
+        return self.total()
 
     def estimate(self, role, model, chars):
         """1.5 x the larger of the top cost seen for this role and model and the top cost per prompt
@@ -604,7 +611,7 @@ class Ledger:
         with self._lock:
             self._rows = read_jsonl(self.path)
             est = self.estimate(role, model, chars) * attempts
-            spent, held = self.total(), sum(self._reserved.values())
+            spent, held = self.spent(), sum(self._reserved.values())
             if self.max_cost is not None and spent + held + est > self.max_cost + 1e-9:
                 raise BudgetExceeded(
                     f"budget: the next {role} call ({model}, about ${est:.4f}) would pass --max-cost-usd "
@@ -666,14 +673,16 @@ class Metered:
         return text
 
 
-def preflight(ledger, calls, n_items, what, attempts=2):
+def preflight(ledger, calls, n_items, what, attempts=2, stand_in=None):
     """Refuse (exit 4) before a sealed run whose estimated cost would pass the cap. Counts every
-    paid attempt a call may make, so a run that passes rarely meets the cap mid-way."""
+    paid attempt a call may make, so a run that passes rarely meets the cap mid-way. `stand_in(role,
+    model, chars)` may return an estimate for a call with no history of its own, else None."""
     if ledger is None or ledger.max_cost is None:
         return
     ledger._rows = read_jsonl(ledger.path)
-    per = attempts * sum(ledger.estimate(role, model, chars) for role, model, chars in calls)
-    spent = ledger.total()
+    per = attempts * sum((stand_in(role, model, chars) if stand_in else None) or ledger.estimate(role, model, chars)
+                         for role, model, chars in calls)
+    spent = ledger.spent()
     if spent + per * n_items > ledger.max_cost + 1e-9:
         raise BudgetExceeded(
             f"budget: {what} needs about ${per * n_items:.4f} ({n_items} items x ${per:.4f}) on top of "

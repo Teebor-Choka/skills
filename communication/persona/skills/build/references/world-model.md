@@ -31,6 +31,7 @@ Python 3.13, stdlib only, deterministic for a given input, seed and runner, offl
 ```
 world.py init     --persona P [--seed S] [--force]
 world.py run      --persona P --runner R [--max-steps N] [--max-cost-usd X] [--resume]
+                  [--max-failed N] [--retry-failed] [--cap-basis total|measured]
 world.py cost-estimate --persona P --runner R --steps N [--max-cost-usd X]
 world.py status   --persona P
 world.py final    --persona P --runner R [--max-cost-usd X] [--rerun-test REASON]
@@ -45,7 +46,8 @@ Model flags take a tier or a model: `--extract-model` (default `execution`), `--
 and `--judge-model` (`reasoning`). Loop knobs: `--threshold` (0.3), `--window` (20),
 `--consolidate-every` (10), `--max-nodes` (120), `--max-map-bytes` (16384), `--exemplars` (4),
 `--seed` (for `init` the stream seed, default the split seed; for `run` the judge's position
-seed, default 1337). Budget: `--max-cost-usd`, `--call-estimate-usd` (0.50).
+seed, default 1337). Budget: `--max-cost-usd`, `--call-estimate-usd` (0.50), `--cap-basis` (see Budget guard).
+The tier map is `AGENT_TIERS_FILE`.
 
 The first `run` pins the models and loop knobs (all but `--window`) in `state.json`. Later runs
 fill unset flags from there; a flag that differs from the pinned value exits 2, so a resumed run
@@ -70,7 +72,11 @@ cannot drift. `validate` checks against the pinned caps.
 
 ## One step
 
-Step `i` handles stream item `x_i`. Calls are tagged with the step in the ledger.
+Step `i` handles stream item `x_i`. Calls are tagged with the step in the ledger. A step whose
+calls fail (extract or predict error, no judge pick, no scores, an unusable update) is repeated
+on the same map, up to `--max-failed` (3) attempts; then `state.json` records `failed`, `run`
+exits 5 and `next` stays at `i`. `run --resume --retry-failed` replays it. A leaked point or a
+copied prediction is a result, not a failure.
 
 1. **EXTRACT.** The extractor of `evaluate.py` writes the point, intent and context of `x_i`
    without its words, with the same point-leak check and one strict retry. On a second failure
@@ -192,6 +198,9 @@ any other rule.
 - Estimate for the next call: 1.5 times the largest cost seen for the same role and model, or 1.5
   times that role and model's largest cost per prompt character times this prompt's length,
   whichever is larger; with no history `--call-estimate-usd` (default 0.50).
+- `status` and the final report give `measured` and `estimated` cost apart (estimated: calls of
+  unknown cost, charged their estimate). `--cap-basis total` (default) holds the cap against both;
+  `measured` against measured spend only, so estimated charges do not stop a run.
 - With `--max-cost-usd X`, before each call the guard re-reads the ledger (so another process's
   spend on the same state dir counts) and reserves the estimate times the runner's attempts under
   a lock (so parallel `--jobs` cannot overshoot together). It refuses when ledger total plus
@@ -202,7 +211,10 @@ any other rule.
   ledger total plus items times the per-item estimate (2 attempts of each call, the extractor's
   retry included) exceeds the cap. If the cap still stops a sealed run, no result is written and
   the run is marked `aborted` in `test.sealed`: it does not use up the slice, and the next run
-  needs no `--rerun-test`.
+  needs no `--rerun-test`. In `world.py final`, a call with no measured history at its own role and
+  model (generate, and the judge calls on a stronger tier) is priced from the loop's cost for the
+  same call type (generate from predict), scaled by tier (`TIER_COST` in `world.py`: execution 1,
+  reasoning 3, a guess); the flat default is the last resort.
 - `cost-estimate --steps N` runs up to N real steps (they count; `run --resume` continues after
   them), then prints the mean and maximum cost per step, the projected total for the remaining
   stream (consolidations only at the rate they occurred in the sampled steps), and the projected final from the per-role means at the final's
@@ -228,18 +240,19 @@ any other rule.
 
 ## Failure
 
-| Condition                                              | Behaviour                               |
-| ------------------------------------------------------ | --------------------------------------- |
-| state dir tracked by git                               | exit 3, nothing written                 |
-| no split, no init, split changed since init            | exit 2 naming the step                  |
-| `init` twice without `--force`                         | exit 2                                  |
-| `run` after a commit without `--resume`; second runner | exit 2                                  |
-| `map.json` edited outside `world.py`                   | exit 2                                  |
-| budget cap would be passed                             | exit 4, last checkpoint kept            |
-| extract fails twice or leaks                           | step excluded, unscored update          |
-| bad patch                                              | rejected with reason in the log         |
-| update or consolidate reply unparseable or fails twice | no patches; logged; the cap still holds |
-| `final` before the loop ends; second `final`           | exit 2 (second: needs `--rerun-test`)   |
+| Condition                                              | Behaviour                                       |
+| ------------------------------------------------------ | ----------------------------------------------- |
+| state dir tracked by git                               | exit 3, nothing written                         |
+| no split, no init, split changed since init            | exit 2 naming the step                          |
+| `init` twice without `--force`                         | exit 2                                          |
+| `run` after a commit without `--resume`; second runner | exit 2                                          |
+| `map.json` edited outside `world.py`                   | exit 2                                          |
+| budget cap would be passed                             | exit 4, last checkpoint kept                    |
+| extract fails twice or leaks                           | step excluded, unscored update                  |
+| a step's calls fail 3 times (`--max-failed`)           | exit 5, `next` stays; `--resume --retry-failed` |
+| bad patch                                              | rejected with reason in the log                 |
+| update or consolidate reply unparseable or fails twice | no patches; logged; the cap still holds         |
+| `final` before the loop ends; second `final`           | exit 2 (second: needs `--rerun-test`)           |
 
 ## AI-gap closed
 

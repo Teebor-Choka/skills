@@ -289,6 +289,101 @@ class Threshold(Base):
         self.assertFalse(any(c["role"] in ("predict", "identify", "score") and c["step"] == 1 for c in rec.calls))
 
 
+class FailedSteps(Base):
+    """A step whose model calls fail is retried in place, then halts the loop; the index never passes it."""
+
+    def _setup(self, k=2):
+        d = split_state(self.sb)
+        world.init(d)
+        ids = stream_ids(d)
+        return d, ids, {"predict": {ids[k]: "error"}}
+
+    def _predicts(self, rec, k):
+        return [c for c in rec.calls if c["role"] == "predict" and c["step"] == k]
+
+    def test_three_failed_attempts_halt_without_advancing(self):
+        d, ids, bad = self._setup()
+        rec = Recorder(stub(bad))
+        with self.assertRaises(world.m.Fail) as e:
+            world.run(d, rec, opts())
+        self.assertEqual(e.exception.code, 5)
+        self.assertEqual(len(self._predicts(rec, 2)), 3)
+        self.assertEqual(len(self._predicts(rec, 3)), 0)
+        st = json.loads((d / "state.json").read_text())
+        self.assertEqual(st["next"], 2)
+        self.assertEqual([r["step"] for r in read_jsonl(d / "log.jsonl")], [0, 1])
+        self.assertEqual((st["failed"]["step"], st["failed"]["attempts"]), (2, 3))
+
+    def test_max_failed_sets_the_attempts(self):
+        d, ids, bad = self._setup()
+        rec = Recorder(stub(bad))
+        with self.assertRaises(world.m.Fail):
+            world.run(d, rec, opts(), max_failed=1)
+        self.assertEqual(len(self._predicts(rec, 2)), 1)
+
+    def test_resume_refuses_until_retry_failed_then_replays_the_step(self):
+        d, ids, bad = self._setup()
+        with self.assertRaises(world.m.Fail):
+            world.run(d, stub(bad), opts())
+        with self.assertRaises(world.m.Fail) as e:
+            world.run(d, stub(), opts(), resume=True)
+        self.assertIn("--retry-failed", str(e.exception))
+        self.assertEqual(json.loads((d / "state.json").read_text())["next"], 2)
+        world.run(d, stub(), opts(), resume=True, retry_failed=True)
+        st = json.loads((d / "state.json").read_text())
+        self.assertEqual(st["next"], len(ids))
+        self.assertNotIn("failed", st)
+        rows = read_jsonl(d / "log.jsonl")
+        self.assertEqual([r["step"] for r in rows], list(range(len(ids))))
+        self.assertIsNotNone(rows[2]["prediction"])
+
+    def test_a_transient_failure_is_retried_and_the_run_completes(self):
+        d, ids, _ = self._setup()
+        calls = []
+
+        class Flaky:
+            def complete(s, role, model, system, prompt, meta):
+                if role == "predict" and meta.get("step") == 2:
+                    calls.append(1)
+                    if len(calls) == 1:
+                        raise world.m.RunnerError("blip")
+                return stub().complete(role, model, system, prompt, meta)
+
+        world.run(d, Flaky(), opts())
+        rows = read_jsonl(d / "log.jsonl")
+        self.assertEqual([r["step"] for r in rows], list(range(len(ids))))
+        self.assertIsNone(rows[2]["excluded"])
+        self.assertIsNotNone(rows[2]["prediction"])
+        self.assertNotIn("failed", json.loads((d / "state.json").read_text()))
+
+    def test_a_failed_update_and_a_failed_score_count_as_failures(self):
+        for script in ({"update_default": "error"}, {"score_default": "garbage"}):
+            sb = Sandbox()
+            try:
+                d = split_state(sb)
+                world.init(d)
+                with self.assertRaises(world.m.Fail):
+                    world.run(d, stub(script), opts())
+                self.assertEqual(json.loads((d / "state.json").read_text())["failed"]["step"], 0)
+            finally:
+                sb.close()
+
+    def test_cli_exit_5_then_retry_failed(self):
+        d, ids, bad = self._setup()
+        script = self.sb.root / "stub.json"
+        script.write_text(json.dumps(bad))
+        args = ("--persona", "pat", "--runner", "stub", "--stub-script", script)
+        r = self.sb.run("world.py", "run", *args)
+        self.assertEqual(r.returncode, 5, r.stderr)
+        self.assertIn("step 3", r.stderr)
+        script.write_text("{}")
+        r = self.sb.run("world.py", "run", *args, "--resume")
+        self.assertEqual(r.returncode, 5, r.stderr)
+        r = self.sb.run("world.py", "run", *args, "--resume", "--retry-failed")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads((d / "state.json").read_text())["next"], len(ids))
+
+
 class Guard(Base):
     def test_state_dir_inside_a_git_work_tree_exits_3_and_writes_nothing(self):
         repo = self.sb.root / "repo"
