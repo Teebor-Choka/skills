@@ -30,7 +30,8 @@ Tell the user this first:
 Scripts live in `scripts/`. Run each with `--persona <name>`. Steps 1 and 2 are shared.
 
 1. **Ingest.** `ingest.py --persona P [--author A] [--channel C] [--audience A] FILES...` reads
-   txt, md, jsonl (`text`, `channel`, `audience`, `ts`, `reply_to`), json, eml and mbox. Text
+   txt, md, jsonl (`text`, `channel`, `audience`, `ts`, `reply_to`), json, eml, mbox and
+   vtt/srt captions (cleaned into sentence records). Text
    stays as written. Ask for channel and audience when the
    files carry none. Drop lines that are not the person's (other
    speakers, bots) with `--exclude-pattern REGEX`; never edit the split files afterwards.

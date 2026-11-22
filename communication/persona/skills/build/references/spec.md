@@ -62,6 +62,14 @@ except the `claude` runner.
 whitespace and trailing spaces per line are trimmed), `channel`, `audience`, `ts`, `context`,
 `source`, `words`, `band`, `count`.
 
+- `.vtt` and `.srt` captions become transcript records: the WEBVTT header, cue numbers, timing lines,
+  cue settings, cue tags, inline timestamps and bracketed cues such as `[Music]` are dropped; a cue
+  repeating the previous cue's last line (rolling auto-captions) collapses; cut lines join into
+  running text, split after `.`, `!` or `?` or at a gap between cues over `PAUSE_SECONDS` (2.0 in
+  `ingest.py`). Wording is not fixed. A caption file with no text left exits 2 ("no caption text").
+  The channel is the given `--channel`, not the file name. This removes caption cut points and
+  glitches so the generator and the judge compare clean text; whether it makes the spoken channel
+  converge is untested (no data in the repo).
 - Empty or whitespace-only messages are dropped.
 - Exact duplicates (same text after whitespace collapse) collapse into one record with `count`
   incremented. Frequency is a habit signal and is kept.
@@ -225,9 +233,11 @@ beyond the noise of a 25 to 35 item test slice, and one persona is simpler.
 
 - Short written text can approach the pass band. Hard length caps, one claim per message and a cap on
   marked quirks per message are what move the rate.
-- Spoken text taken from auto-generated captions does not converge: captions carry cut points and
-  glitches that a clean generator does not reproduce, and the judge uses them as a tell. Use clean
-  transcripts or the person's own writing for a spoken channel, or treat that channel as out of reach.
+- Spoken text taken from raw auto-generated captions did not converge: captions carry cut points and
+  glitches that a clean generator does not reproduce, and the judge uses them as a tell. `ingest.py`
+  now cleans `.vtt`/`.srt` captions; whether that makes the spoken channel converge is untested (no
+  data in the repo). Otherwise use clean transcripts or the person's own writing, or treat the channel
+  as out of reach.
 - Treat one test slice as a trend. The best of several dev rounds is optimistic, so expect the sealed
   test to land worse than the dev rounds.
 - Check the stop signal before dispatching another revision round: a round after a plateau stop is
@@ -319,7 +329,7 @@ Offline, with the stub runner, in `tests/test_persona_*.py`:
       allowed; an unresolvable `.git` file is refused; `--allow-git-worktree` lets it through;
       the default dir is `~/.config/agents/state/persona/<persona>`, `PERSONA_STATE_HOME` overrides
       it (the old `MIMIC_STATE_HOME` as a fallback), the dir is created 0700 and files 0600.
-- [ ] AT-2 ingest: txt with `---` and with blank lines, md front matter, jsonl with
+- [ ] AT-2 ingest: vtt/srt caption cleaning, txt with `---` and with blank lines, md front matter, jsonl with
       `reply_to` by id and by text, `--author` filter, eml and mbox with quotes and signature
       stripped, empty dropped, duplicates counted, casing, emoji and dashes preserved, band marked,
       bad JSON line and unknown extension exit 2.
