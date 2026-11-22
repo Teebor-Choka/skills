@@ -1,5 +1,5 @@
 {
   "name": "writing",
-  "version": "2.0.3",
-  "description": "Plain, human prose: unslop (remove AI tells) and prose-craft (compose and tighten)."
+  "version": "2.1.1",
+  "description": "Plain, human prose: unslop (remove AI tells), prose-craft (compose and tighten) and voice-style (the always-on plain-voice output style and the command that sets its depth and length for a session)."
 }

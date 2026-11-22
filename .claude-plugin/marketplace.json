@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Public AI agent skills — practical skills spanning multiple domains, from engineering, idea validation all the way to knowledge management.",
-    "version": "8.0.0"
+    "version": "8.4.0"
   },
   "plugins": [
     {
@@ -24,25 +24,25 @@
       "source": "./ai/model",
       "strict": true,
       "metadata": {
-        "version": "4.0.0"
+        "version": "4.0.1"
       }
     },
     {
       "name": "writing",
-      "description": "Plain, human prose: unslop (remove AI tells) and prose-craft (compose and tighten).",
+      "description": "Plain, human prose: unslop (remove AI tells), prose-craft (compose and tighten) and voice-style (the always-on plain-voice output style and the command that sets its depth and length for a session).",
       "source": "./communication/writing",
       "strict": true,
       "metadata": {
-        "version": "2.0.2"
+        "version": "2.1.1"
       }
     },
     {
-      "name": "voice",
-      "description": "The always-on plain-voice output style and the command that sets its depth and length for a session; mimic learns one person's voice from samples into a profile and proves it on held-out messages with a blind judge.",
-      "source": "./communication/voice",
+      "name": "persona",
+      "description": "Personas from samples: build learns one person's voice into a world model map (or a validated profile) and proves it on held-out messages with a blind judge; write drafts a message as that persona; advise answers a question as that persona's advisor, grounded in the map.",
+      "source": "./communication/persona",
       "strict": true,
       "metadata": {
-        "version": "1.0.0"
+        "version": "2.3.1"
       }
     },
     {
@@ -78,7 +78,7 @@
       "source": "./engineering/design",
       "strict": true,
       "metadata": {
-        "version": "6.0.0"
+        "version": "6.0.1"
       }
     },
     {
@@ -114,7 +114,7 @@
       "source": "./engineering/tools/git",
       "strict": true,
       "metadata": {
-        "version": "1.2.5"
+        "version": "1.2.6"
       }
     },
     {
@@ -132,7 +132,7 @@
       "source": "./engineering/tools/nix",
       "strict": true,
       "metadata": {
-        "version": "1.2.3"
+        "version": "1.2.4"
       }
     },
     {
@@ -141,7 +141,7 @@
       "source": "./engineering/tools/security/yubikey",
       "strict": true,
       "metadata": {
-        "version": "1.0.0"
+        "version": "1.0.1"
       }
     },
     {
@@ -159,7 +159,7 @@
       "source": "./research",
       "strict": true,
       "metadata": {
-        "version": "1.0.0"
+        "version": "1.0.1"
       }
     }
   ],
