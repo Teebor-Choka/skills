@@ -134,6 +134,8 @@ def _parse_frontmatter(block, src):
         parent = stack[-1][1]
         if not isinstance(parent, dict):
             raise PolicyError(f"{src}:{lineno}: '{key}' is nested under a non-map value")
+        if key in parent:
+            raise PolicyError(f"{src}:{lineno}: key '{key}' is repeated at the same level")
         if val == "":                     # `key:` alone opens a nested map
             m = {}
             parent[key] = m
