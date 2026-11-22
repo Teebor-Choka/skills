@@ -29,8 +29,9 @@ Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`; a domain with one plugin i
 |                | `tiers`             | Route each subagent to the cheapest model tier (agents, guard hook)     |
 | `writing`      | `unslop`            | Remove AI tells from prose                                              |
 |                | `prose-craft`       | Compose and tighten prose                                               |
-| `voice`        | `voice-style`       | Always-on plain-voice output style and its `unslop-mode` command        |
-|                | `mimic`             | Learn a person's voice from samples; prove it with a blind judge        |
+|                | `voice-style`       | Always-on plain-voice output style and its `unslop-mode` command        |
+| `persona`      | `build`             | Learn a person's voice from samples; prove it with a blind judge        |
+|                | `write`             | Draft a message as a persona from its validated profile                 |
 | `presentation` | `patterns`          | Plan, build or review a talk with 88 patterns and antipatterns          |
 |                | `prep`              | Prepare a talk end to end: structure, build, rehearse                   |
 | `publishing`   | `blog-syndication`  | Cross-post one blog post to Astro, dev.to, Medium and Substack          |
