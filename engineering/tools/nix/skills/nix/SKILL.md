@@ -100,38 +100,11 @@ locally.
 
 ## The deploy path fails but your probe passes
 
-A probe that runs the same hops (sudo, launchctl, ssh) but not the real generated script proves
-nothing. Do this first, before you test theories:
-
-1. Build the target. Read line 1 and the sudo or launchctl hops of the generated activation
-   script (for example `result/activate`). A shebang such as `#!/usr/bin/env -i <bash>` scrubs the
-   environment.
-2. List which env vars survive that environment (`SSH_AUTH_SOCK` does not under `env -i`). Hand
-   such state over in a file, not in the environment.
-3. Reproduce with the real script, not a lookalike.
-
-Report a deploy-affecting change as `built: yes / activated: no (needs sudo)`, with the exact
-rebuild command. An activation you did not run is never "works". A dirty-tree warning on the
-build output means the build did not include your last edit state: say so.
-
-Run ssh probes with `-o ControlPath=none -F <temp config>`. End every probe session with
-`ssh -O exit` and one line that lists what you left running. A leftover ControlMaster gives the
-user's later check a false result.
+Read [references/deploy-path-debugging.md](references/deploy-path-debugging.md) when a deploy or activation fails but your probe passes, or before reporting a deploy-affecting change.
 
 ## Silencing direnv shell-enter noise
 
-Every command run in a direnv-managed directory re-enters the shell and prints a
-`direnv: loading …` / `direnv: export +AR …` banner, which buries real command output and
-eats context. Silence it by exporting an empty log format _before_ the direnv hook runs — put
-it in `~/.zshenv` (or wherever the parent shell sources its profile):
-
-```sh
-export DIRENV_LOG_FORMAT=""
-```
-
-Verify by running any command and confirming the output starts with the command's own stdout,
-not `direnv: loading …`. A repo-specific banner (a project `shellHook` that `echo`s a header)
-is separate — it comes from the nix shell, not direnv, and is gated in the repo's `flake.nix`.
+Read [references/direnv-noise.md](references/direnv-noise.md) when `direnv: loading …` banners bury command output.
 
 ## Lightweight pre-commit override
 

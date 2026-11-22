@@ -15,7 +15,7 @@
       "source": "./ai/harness",
       "strict": true,
       "metadata": {
-        "version": "3.1.2"
+        "version": "3.1.3"
       }
     },
     {
@@ -24,7 +24,7 @@
       "source": "./ai/model",
       "strict": true,
       "metadata": {
-        "version": "4.0.0"
+        "version": "4.0.1"
       }
     },
     {
@@ -33,7 +33,7 @@
       "source": "./communication/writing",
       "strict": true,
       "metadata": {
-        "version": "2.1.0"
+        "version": "2.1.1"
       }
     },
     {
@@ -78,7 +78,7 @@
       "source": "./engineering/design",
       "strict": true,
       "metadata": {
-        "version": "6.0.0"
+        "version": "6.0.1"
       }
     },
     {
@@ -114,7 +114,7 @@
       "source": "./engineering/tools/git",
       "strict": true,
       "metadata": {
-        "version": "1.2.5"
+        "version": "1.2.6"
       }
     },
     {
@@ -132,7 +132,7 @@
       "source": "./engineering/tools/nix",
       "strict": true,
       "metadata": {
-        "version": "1.2.3"
+        "version": "1.2.4"
       }
     },
     {
@@ -141,7 +141,7 @@
       "source": "./engineering/tools/security/yubikey",
       "strict": true,
       "metadata": {
-        "version": "1.0.0"
+        "version": "1.0.1"
       }
     },
     {
@@ -159,7 +159,7 @@
       "source": "./research",
       "strict": true,
       "metadata": {
-        "version": "1.0.0"
+        "version": "1.0.1"
       }
     }
   ],

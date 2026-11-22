@@ -91,19 +91,7 @@ test.
 
 ## The judge
 
-Per item: an extractor writes the point of the original without its words; the generator writes
-the message from the profile and the point; a blind judge call sees TRAIN exemplars and both
-messages in seeded random order and names the original; a second call scores the generated one on
-the [rubric](references/rubric.md). Defaults: PASS when the identification rate is within 0.35 to 0.65
-and the mean rubric at least 3.5, on at least 20 items. Below 0.35 the generated messages overdo the habits (caricature). A judge that
-always picks one position, or too many excluded items, makes the round INVALID.
-
-Runners: `--runner claude`, `cmd:'<command>'` (another harness, prompt on stdin) or `stub` (offline
-tests). Generator and judge default to the `reasoning` tier, the extractor to `execution`; model
-flags and `AGENT_TIERS_FILE` are in [references/world-model.md](references/world-model.md).
-
-Every call's cost lands in `<state>/ledger.jsonl`. `--max-cost-usd X` refuses the call that would
-pass `X` (exit 4); sealed runs check the estimate before sealing.
+Read [references/judge.md](references/judge.md) when running or interpreting the judge: per-item flow, PASS thresholds (identification rate 0.35 to 0.65, rubric mean 3.5 or more, 20 items or more), runners, tiers and the cost ledger.
 
 ## Drafting as the persona
 
