@@ -28,6 +28,7 @@ The rules, keyed to the document set:
       user gave it, and carries acceptance criteria at every rung from interfaces down to it
   E10 two blocks whose write-sets overlap are ordered by a dependency edge or both declare the same
       `Coordination channel:`; sharing a write-set implicitly is an error
+      E11 each block's `Blocked by:` / `Blocks:` summary matches the Block index
   W1  a spec block declares a requirement backlink (task -> requirement traceability)
   W2  the README names a hinge decision and lists open items
   W3  the Block index has no Write-set column, so isolation cannot be checked
@@ -237,6 +238,30 @@ def check_write_sets(text, errs, warns):
                 continue
             errs.append(f"E10 spec: blocks {a} and {b} share a write-set with no dependency edge "
                         "and no shared 'Coordination channel:' declared in both")
+
+
+def check_block_edges(text, errs):
+    """E11: every block states `Blocked by` / `Blocks` (ids or `none`), matching the Block index."""
+    pred, succ = {}, {}
+    for dep, node in parse_block_deps(text):
+        pred.setdefault(node, set()).add(dep)
+        succ.setdefault(dep, set()).add(node)
+
+    def stated(chunk, label):
+        m = re.search(rf"{label}:\*{{0,2}}[ \t]*(.*)", chunk)
+        if not m:
+            return None
+        v = m.group(1).strip()
+        return set() if v.lower() == "none" else (set(re.split(r"[,;\s]+", v)) - {""} if v else None)
+
+    for n, chunk in _block_chunks(text).items():
+        for label, want in (("Blocked by", pred), ("Blocks", succ)):
+            got = stated(chunk, label)
+            if got is None:
+                errs.append(f"E11 spec Block {n}: no '{label}:' summary (ids, or 'none')")
+            elif got != want.get(n, set()):
+                errs.append(f"E11 spec Block {n}: '{label}:' {sorted(got)} disagrees with the Block index "
+                            f"{sorted(want.get(n, set()))}")
 
 
 def check_improve(text, errs):
@@ -494,6 +519,7 @@ def main():
         check_spec(spec, errs, warns)
         check_depth(read(spec), errs)
         check_write_sets(read(spec), errs, warns)
+        check_block_edges(read(spec), errs)
     dlog = os.path.join(root, "decision-log.md")
     if os.path.exists(dlog):
         check_decision_log(dlog, errs)

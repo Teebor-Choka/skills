@@ -5,7 +5,8 @@ Order per field: (1) the invocation arg, (2) a `.agents/policy` key, (3) a quest
 interactive channel exists. Non-interactive (the default) with a field still missing: HALT with a
 structured `needs-input` result that names each missing field and the exact arg or policy key that
 supplies it. A rung, scope or target is never defaulted. Stated defaults: output location (policy
-`work.tracker`, else GitHub issues) and box cap (5), both written into the report.
+`work.tracker`, else `issues`) and box cap (5), both written into the
+report. `destination` reads the same key chain, so the two cannot disagree.
 
 Result (one JSON object): {"status": "ready"|"needs-input"|"ask", "resolved": {field: {value, source}},
 "missing": [{field, arg, policy_key, why}]}. Exit codes: 0 ready, 3 needs-input, 4 ask.
@@ -20,7 +21,8 @@ import sys
 
 LADDER = ["interfaces", "modules", "components", "functions"]
 DEFAULT_CAP = 5
-DEFAULT_OUTPUT = "github issues"
+DEFAULT_OUTPUT = DEFAULT_DESTINATION = "issues"
+ALIASES = {"github issues": "issues"}
 
 # field -> (invocation arg, policy key)
 FIELDS = {
@@ -29,9 +31,10 @@ FIELDS = {
     "target": ("--target", "architect.improve-target"),
     "output": ("--output", "work.tracker"),
     "cap": ("--cap", "architect.box-cap"),
+    "destination": ("--destination", "work.tracker"),
 }
-NEEDS = {"design": ["depth", "scope"], "improve": ["target", "output", "cap"]}
-DEFAULTS = {"output": DEFAULT_OUTPUT, "cap": str(DEFAULT_CAP)}
+NEEDS = {"design": ["depth", "scope", "destination"], "improve": ["target", "output", "cap"]}
+DEFAULTS = {"destination": DEFAULT_DESTINATION, "output": DEFAULT_OUTPUT, "cap": str(DEFAULT_CAP)}
 UNSET = {"", "none", "null", "-"}
 
 
@@ -94,6 +97,8 @@ def resolve(mode, args, loader, repo, interactive=False):
         if bad:
             missing.append({"field": field, "arg": arg, "policy_key": key, "why": bad})
             continue
+        if field in ("output", "destination"):
+            value = ALIASES.get(value.strip().lower(), value)
         resolved[field] = {"value": value.lower() if field == "depth" else value, "source": source}
     status = "ready" if not missing else ("ask" if interactive else "needs-input")
     return {"status": status, "mode": mode, "resolved": resolved, "missing": missing}

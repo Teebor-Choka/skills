@@ -52,7 +52,7 @@ the main flow (`depth-dial.md`) but is a different process: do not merge them.
    output location. Findings are listed all together, ranked by importance, scope and impact, and the
    top rows up to the cap become boxes. The rest go in the "Not emitted" tail note.
 5. **Resolve where the output goes, then feed the pick into the main flow.** The location comes from
-   `--output`, else policy `work.tracker`, else GitHub issues (a stated default, written into the report). The chosen deepening becomes a normal architect package at
+   `--output`, else policy `work.tracker`, else `issues` (a stated default, written into the report). The chosen deepening becomes a normal architect package at
    its blast-radius tier (often `small`: a proposal + decision-log + spec with tests), each box
    carrying **ATDD acceptance + end-to-end tests**, filed to the tracker `work.tracker` resolves to
    (typically a GitHub issue) — the destination is confirmed in an interactive session, or taken as resolved above when there is none, before handing off to `decompose`. Carry the

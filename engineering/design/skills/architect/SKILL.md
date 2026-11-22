@@ -60,7 +60,7 @@ proposal + decision-log + spec), `full` (the whole linked set, for a fleet or a 
 Read `references/deliverable.md` before writing any artifact: it has the rungs, the full artifact
 table, and the `scaffold.py` / `lint.py` usage. Read `references/document-set.md` for each
 artifact's required sections and skeleton. `references/execution.md` lists what to specify for
-verification and observation.
+verification and observation. `references/work-packages.md` covers the isolated split, `Blocked by / blocks`, the policy destination and the channel marker.
 
 ## Inputs the architect never guesses
 
@@ -71,7 +71,7 @@ result (`scripts/resolve_input.py`, called by `scaffold.py`; exit 3) that names 
 the arg or policy key that supplies it: decomposition depth (`--depth`, `architect.depth`), scope
 (`--scope`, `architect.scope`), `:improve` target (`--target`, `architect.improve-target`). With
 `--interactive`, scaffold returns status `ask` (exit 4) and you put the question, then rerun with the
-answer as an arg. Stated defaults only: output location (policy `work.tracker`, else GitHub issues)
+answer as an arg. Stated defaults only: output location (policy `work.tracker`, else `issues`)
 and `:improve` box cap (5, written into the report). Never default a rung, a scope or a target.
 
 ## Workflow

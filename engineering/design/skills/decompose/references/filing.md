@@ -14,7 +14,9 @@ policy_loader.py <repo> --get work.tracker
 
 The value selects a **binding** (`github`, `gitlab`, `jira`, `beads`, …) that resolves the abstract
 verbs — file an item, link a dependency. Adding a tracker is adding a binding, not changing this
-skill. Unset: default to `github` when the repo has a GitHub remote and `gh` is available, else
+skill. The value `issues` (what architect writes when the key is unset; `github issues` reads as `issues`) means the repo's own issue
+tracker: the `github` binding when the repo has a GitHub remote and `gh` is available. Unset: default to
+`github` when the repo has a GitHub remote and `gh` is available, else
 `none` — file nothing to a tracker, and the package directory stands as the deliverable.
 
 ## What gets filed
