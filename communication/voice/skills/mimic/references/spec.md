@@ -217,6 +217,22 @@ Defaults: `--max-id-rate 0.65`, `--min-rubric 3.5`, `--min-n 20`, `--dim-floor 3
 - Without folds (under 100 clusters) there is no revision loop: build the profile once, then run
   the test. Tiny corpora (under 50) still run, but the verdict is INCONCLUSIVE.
 
+## Channel strategy
+
+For a person who writes in several channels (short posts, spoken transcripts), default to one persona
+with per-channel sections in the profile. A separate persona per channel was tried and did not beat it
+beyond the noise of a 25 to 35 item test slice, and one persona is simpler.
+
+- Short written text can approach the pass band. Hard length caps, one claim per message and a cap on
+  marked quirks per message are what move the rate.
+- Spoken text taken from auto-generated captions does not converge: captions carry cut points and
+  glitches that a clean generator does not reproduce, and the judge uses them as a tell. Use clean
+  transcripts or the person's own writing for a spoken channel, or treat that channel as out of reach.
+- Treat one test slice as a trend. The best of several dev rounds is optimistic, so expect the sealed
+  test to land worse than the dev rounds.
+- Check the stop signal before dispatching another revision round: a round after a plateau stop is
+  refused.
+
 ## Runners and tiers
 
 - A runner turns `(role, model, prompt)` into text. `--runner claude` runs
