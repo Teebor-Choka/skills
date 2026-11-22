@@ -3,9 +3,12 @@
 then a blind judge picks the original and a second judge call scores the generated one.
 
   evaluate.py run --persona NAME --slice dev|test [--runner claude|stub|cmd:'<command>']
+  evaluate.py select --persona NAME
 
-Dev rounds (at most 3) write aggregates-only feedback.json for revision. The test slice runs once;
-a second run needs --rerun-test REASON. See ../references/spec.md.
+Dev rounds judge a rotating TRAIN fold and write aggregates-only feedback.json for revision, until
+the stop rule fires (converged, plateau, or 10 rounds). select records the round whose profile the
+sealed test then uses; the test slice runs once, a second run needs --rerun-test REASON.
+See ../references/spec.md.
 """
 
 import argparse
@@ -21,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mimiclib as m  # noqa: E402
 
-MAX_DEV_ROUNDS = 3
+MAX_DEV_ROUNDS = 10
 
 RUBRIC = """Score the CANDIDATE against how this person writes, 0 to 5 per dimension:
 - voice: would someone who knows them believe they wrote it (word choice, rhythm, idiolect)
@@ -198,25 +201,71 @@ def report_md(rep):
         f"short exact matches (signal only, not judged): {rep['short_exact_match']['matches']} of "
         f"{rep['short_exact_match']['n']}",
         "",
-        "| group | n | id rate | rubric |",
-        "| ----- | - | ------- | ------ |",
+        "| group | n | id rate | rubric | verdict |",
+        "| ----- | - | ------- | ------ | ------- |",
     ]
     for kind in ("by_band", "by_channel"):
         for g, v in rep[kind].items():
-            lines.append(f"| {kind[3:]}: {g} | {v['n']} | {v['id_rate']:.2f} | {v['mean_rubric']:.2f} |")
+            lines.append(f"| {kind[3:]}: {g} | {v['n']} | {v['id_rate']:.2f} | {v['mean_rubric']:.2f} "
+                         f"| {v.get('verdict', '')} |")
     lines += ["", "worst items (ids; text stays in items.jsonl): " + ", ".join(rep["worst"])]
     lines += ["models: " + ", ".join(f"{k} {v}" for k, v in rep["models"].items()) + f" (runner {rep['runner']})"]
     if rep.get("test_runs"):
         lines.append(f"test runs: {rep['test_runs']}" + (f" (rerun: {rep['rerun_reason']})" if rep.get("rerun_reason") else ""))
+    if rep.get("fold") is not None:
+        lines.append(f"fold: {rep['fold']}; profile revised since the last round: {rep.get('revised')}")
+    if rep.get("stop"):
+        lines.append(f"stop: {rep['stop']} ({rep.get('stop_detail', '')}); next: evaluate.py select")
+    if rep.get("selected_round"):
+        lines.append(f"profile: dev round {rep['selected_round']} (rounds/selection.json)")
     lines += [f"warning: {w}" for w in rep["warnings"]]
     return "\n".join(lines) + "\n"
 
 
+def dev_reports(rounds):
+    out = []
+    for k in range(1, MAX_DEV_ROUNDS + 2):
+        f = rounds / f"dev-{k}" / "report.json"
+        if not f.exists():
+            break
+        out.append(json.loads(f.read_text(encoding="utf-8")))
+    return out
+
+
+def select(d, min_rubric):
+    rounds = d / "rounds"
+    if (d / "split" / "test.sealed").exists():
+        raise m.Fail("the test slice was already run: the selection is final")
+    sel = m.select_round(dev_reports(rounds) if rounds.is_dir() else [], min_rubric)
+    snap = rounds / f"dev-{sel['round']}" / "profile.md"
+    sel.update(profile_bytes=len(m.require(snap, "a dev round").read_bytes()),
+               at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    m.write_json(rounds / "selection.json", sel)
+    print(json.dumps(sel, indent=1))
+    print(f"\nrecorded in {rounds / 'selection.json'}: the sealed test runs on {snap}")
+    return 0
+
+
+def selected_profile(d):
+    """The profile text the sealed test must use, and the selected round (None without dev rounds)."""
+    rounds = d / "rounds"
+    if not (rounds / "dev-1").exists():
+        return (m.require(d / "profile.md", "profile.py skeleton").read_text(encoding="utf-8"), None)
+    sel_path = rounds / "selection.json"
+    if not sel_path.exists():
+        raise m.Fail("dev rounds ran but no selection is recorded: run evaluate.py select first")
+    sel = json.loads(sel_path.read_text(encoding="utf-8"))
+    text = m.require(rounds / f"dev-{sel['round']}" / "profile.md", "a dev round").read_text(encoding="utf-8")
+    if hashlib.sha256(text.encode("utf-8")).hexdigest()[:16] != sel["profile_hash"]:
+        raise m.Fail(f"rounds/dev-{sel['round']}/profile.md changed after the selection was recorded")
+    return text, sel["round"]
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["run"])
+    p.add_argument("command", choices=["run", "select"])
     m.add_state_args(p)
-    p.add_argument("--slice", choices=["dev", "test"], required=True)
+    p.add_argument("--slice", choices=["dev", "test"])
     p.add_argument("--runner", default="claude", help="claude, stub, or cmd:'<command>'")
     p.add_argument("--stub-script", type=Path, help="scripted verdicts for --runner stub")
     p.add_argument("--seed", type=int, default=1337)
@@ -233,24 +282,36 @@ def main():
     a = p.parse_args()
     d = m.state_dir(a)
     m.guard(d, a.allow_git_worktree)
+    if a.command == "select":
+        return select(d, a.min_rubric)
+    if not a.slice:
+        p.error("run needs --slice dev or --slice test")
     manifest, train, dev, test = m.load_split(d)
-    prof_path = m.require(d / "profile.md", "profile.py skeleton")
-    profile = prof_path.read_text(encoding="utf-8")
-    errs = m.validate_profile(d, profile)
-    if errs:
-        raise m.Fail("profile invalid, fix it first:\n" + "\n".join(errs))
-
     rounds = d / "rounds"
     done = sorted(rounds.glob(f"{a.slice}-*")) if rounds.is_dir() else []
     rnd = len(done) + 1
+    n_folds = manifest.get("folds", 0)
+    fold = (rnd - 1) % n_folds if a.slice == "dev" and n_folds else None
+    selected = None
+    if a.slice == "dev":
+        profile = m.require(d / "profile.md", "profile.py skeleton").read_text(encoding="utf-8")
+    else:
+        profile, selected = selected_profile(d)
+    errs = m.validate_profile(d, profile, fold)
+    if errs:
+        raise m.Fail("profile invalid, fix it first:\n" + "\n".join(errs))
+
     sealed = d / "split" / "test.sealed"
     seal = {}
+    history = dev_reports(rounds) if a.slice == "dev" and rounds.is_dir() else []
     if a.slice == "dev":
-        if not dev:
-            raise m.Fail("no dev slice (corpus under the dev minimum): skip revision and run --slice test once")
+        if not n_folds and not dev:
+            raise m.Fail("no folds (corpus under the fold minimum): skip revision and run --slice test once")
+        if history and history[-1].get("stop"):
+            raise m.Fail(f"the revision loop stopped ({history[-1]['stop']}): run evaluate.py select, then the test")
         if rnd > MAX_DEV_ROUNDS:
-            raise m.Fail(f"dev revision is capped at {MAX_DEV_ROUNDS} rounds; run --slice test now")
-        items_in = dev
+            raise m.Fail(f"dev revision is capped at {MAX_DEV_ROUNDS} rounds; run evaluate.py select now")
+        train, items_in = m.fold_view(train, fold, m.example_ids(profile)) if n_folds else (train, dev)
     else:
         if sealed.exists():
             seal = json.loads(sealed.read_text(encoding="utf-8") or "{}")
@@ -284,15 +345,21 @@ def main():
     rep.update(persona=a.persona or d.name, slice=a.slice, round=rnd, seed=a.seed, runner=a.runner,
                models=models, profile_hash=prof_hash, corpus_hash=manifest["corpus_hash"])
     if a.slice == "test":
-        rep.update(test_runs=len(runs), rerun_reason=a.rerun_test)
+        rep.update(test_runs=len(runs), rerun_reason=a.rerun_test, selected_round=selected)
+    else:
+        rep.update(fold=fold, revised=(prof_hash != history[-1]["profile_hash"]) if history else None)
+        stop, detail = m.stop_rule(history + [rep], MAX_DEV_ROUNDS, a.min_rubric,
+                                   m.THRESHOLDS["caricature"], a.max_id_rate)
+        rep.update(stop=stop, stop_detail=detail)
     out = rounds / f"{a.slice}-{rnd}"
     m.write_jsonl(out / "items.jsonl", items)
     m.write_json(out / "report.json", rep)
     md = report_md(rep)
     m.write_text(out / "report.md", md)
     if a.slice == "dev":
+        m.write_text(out / "profile.md", profile)
         m.write_json(out / "feedback.json",
-                     feedback(rep, items, [t["text"] for t in dev + test], a.dim_floor))
+                     feedback(rep, items, [t["text"] for t in dev + test + items_in], a.dim_floor))
     print(md, end="")
     print(f"\nwritten to {out}" + (" (feedback.json: the only file revision may read)" if a.slice == "dev" else ""))
     return 0

@@ -32,24 +32,37 @@ Scripts live in `scripts/`. Run each with `--persona <name>`.
    stays as written; repeats collapse with a count. Ask for channel and audience when the
    files carry none: the profile depends on them. Drop lines that are not the person's (other
    speakers, bots) with `--exclude-pattern REGEX`; never edit the split files afterwards.
-2. **Split.** `split.py --persona P` makes train and test (80/20, at least 20 test items), or
-   train, dev and test (70/10/20) from 100 distinct messages. Near duplicates of a held-out
-   message never reach train. Once `profile.md` exists, re-splitting needs `--force`.
-   Under 50 messages the verdict will be INCONCLUSIVE: say so and ask for more.
-3. **Skeleton.** `profile.py skeleton --persona P` writes `profile.md` with measured stats from
-   TRAIN, worked-example candidates and a `TODO` per section. Sections are in
-   [references/profile-schema.md](references/profile-schema.md).
-4. **Write the profile from TRAIN only** (`split/train.jsonl`). Never open `dev.jsonl` or
-   `test.jsonl`. Read every train message, then fill each section with observable rules and
-   rates, not adjectives. Give short messages their own rules: most persona failures are
-   one-liners. Follow [references/short-messages.md](references/short-messages.md).
-5. **Validate.** `profile.py validate --persona P` until it prints `valid`.
-6. **Revise on dev (only with a dev slice).** `evaluate.py run --persona P --slice dev`. Read
-   only the round's `feedback.json` (aggregates and sanitized judge reasons) plus TRAIN. Fix the
-   failed dimensions, validate, run again. Three rounds at most; stop early on PASS.
-7. **Test once.** `evaluate.py run --persona P --slice test`. This seals the test slice. Report
-   the printed verdict, identification rate, rubric means and the per-band rows. A second test
-   run needs `--rerun-test "<reason>"` and is recorded as such.
+2. **Split.** `split.py --persona P` makes train and test (80/20, at least 20 test items). From
+   100 distinct messages it also deals TRAIN into 5 folds for revision. Near duplicates of a
+   held-out message never reach train. Once `profile.md` exists, re-splitting needs `--force`.
+   Under 50 messages the verdict will be INCONCLUSIVE: say so and ask for more. For a persona
+   built from a subset of another's corpus (one channel), `--derive-from OTHER` reuses that split.
+   Whether one persona with channel sections or one persona per channel imitates a multi-channel
+   person better is still open; a channel experiment will decide it. Do not recommend either yet.
+3. **Analyze.** `profile.py analyze --persona P` writes `analysis-stats.md` from TRAIN. Then a
+   reasoning-tier agent that reads only TRAIN and those stats writes `analysis.md` in the state
+   dir: the person's mental model (beliefs, framing, reasoning moves, emotional range, stance,
+   reactions, decisions, and how the same mind shows up compressed in short messages and expanded
+   in long form). Paraphrase; never quote.
+4. **Skeleton.** `profile.py skeleton --persona P` writes `profile.md` with measured stats,
+   worked-example candidates and a `TODO` per section and mental model subsection. Sections are
+   in [references/profile-schema.md](references/profile-schema.md).
+5. **Write the profile from TRAIN and `analysis.md` only.** Never open `test.jsonl`. Write the
+   mental model first, then derive the rules per format (Short messages, Long messages) from it,
+   with rates, not adjectives. Keep 3 to 6 worked examples. Most persona failures are one-liners:
+   follow [references/short-messages.md](references/short-messages.md).
+6. **Validate.** `profile.py validate --persona P` until it prints `valid`.
+7. **Revise on folds (only with folds).** `evaluate.py run --persona P --slice dev` judges round k
+   on TRAIN fold `(k - 1) mod 5`. The writer of each revision sees only TRAIN without that fold
+   (`profile.py validate --fold F` checks it), `analysis.md` and the round's `feedback.json`.
+   Read the per-band rows first: format closeness (short and long) is the goal. Repeat until the
+   round prints a stop: converged, plateau or 10 rounds.
+8. **Select.** `evaluate.py select --persona P` records the round whose profile the test uses
+   (worst band closest to 0.5 at rubric 3.5 or more, ties within noise to the latest). Do it
+   before the test, and say which round it picked and why.
+9. **Test once.** `evaluate.py run --persona P --slice test`. This seals the test slice and runs
+   the selected snapshot. Report the verdict, identification rate, rubric means and the per-band
+   and per-channel rows with their verdicts. A second test run needs `--rerun-test "<reason>"`.
 
 Never read `items.jsonl` or a report's worst items to revise the profile: that is training on the
 test.
@@ -72,7 +85,7 @@ a model.
 
 ## Drafting as the persona
 
-The validated `profile.md` is the input of the `voice-style` skill: load it as the voice for text
+The selected round's `profile.md` is the input of the `voice-style` skill: load it as the voice for text
 written as that person. For a message the user will send themselves, draft it, then check it
 against the profile's Short messages and Never sections. Say which profile and round you used and
 its last verdict. Without a PASS, call the draft an approximation.
