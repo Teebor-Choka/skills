@@ -69,8 +69,7 @@ Step `i` handles stream item `x_i`. Calls are tagged with the step in the ledger
    the curve, and still goes to UPDATE as an unscored item (the map learns from it; surprise is
    `null`).
 2. **PREDICT.** The predictor sees `map.md`, the item's channel, audience, context, point and
-   intent, and its length band. It never sees `x_i`'s text, any later stream item, or any sealed
-   item. A prediction that `copied()` the actual is a leak: the step is excluded as `copied`.
+   intent. It never sees `x_i`'s text or band, any later stream item, or any sealed item. A prediction that `copied()` the actual is a leak: the step is excluded as `copied`.
 3. **SCORE.** The blind pairwise pick of `evaluate.py` (`identify_prompt`, seeded position) and its
    rubric (`score_prompt`) compare the prediction with the actual. The judge's exemplars come
    only from the stream items before `i`, so the curve stays prequential. The rubric call also
@@ -134,6 +133,9 @@ The current item id is added to the evidence of every node a patch adds or chang
 patch names must be stream items already seen (`stream[0..i]`); any other id, including a sealed
 or a future id, rejects the patch. An `add` past `max_nodes`, a duplicate id, an unknown op, type,
 node or edge, a bad slug, text out of length, or a confidence outside `[0, 1]` rejects the patch.
+A reply carries at most 24 patches; the rest are rejected. Consolidation may not `add`, and adds
+no evidence (it sees no item). The predictor is not told the length band: format is learned like
+any other rule.
 
 ## Files in the state dir
 

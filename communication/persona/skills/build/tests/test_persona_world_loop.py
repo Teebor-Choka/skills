@@ -39,8 +39,8 @@ class Stream(Base):
         recs = synth_records(40)
         for i, r in enumerate(recs):
             # mixed formats, reverse of the file order
-            r["ts"] = (f"2026-03-{40 - i:02d}T10:00:00" if i % 2 else
-                       f"Mon, {40 - i:02d} Mar 2026 10:00:00 +0000") if i < 30 else f"2026-02-{40 - i:02d}"
+            r["ts"] = (f"2026-03-{31 - i:02d}T10:00:00" if i % 2 else
+                       f"Mon, {31 - i:02d} Mar 2026 10:00:00 +0000") if i < 30 else f"2026-02-{40 - i:02d}"
         d = split_state(self.sb, records=recs)
         s = world.init(d)
         self.assertEqual(s["order"], "chronological")
@@ -50,7 +50,8 @@ class Stream(Base):
 
     def test_seeded_when_a_ts_is_missing_and_recorded(self):
         recs = synth_records(40)
-        recs[3]["ts"] = "sometime last week"
+        for r in recs:
+            r["ts"] = "sometime last week"
         d = split_state(self.sb, records=recs)
         s1 = world.init(d)
         self.assertEqual(s1["order"], "seeded")
@@ -192,12 +193,6 @@ class Leaks(Base):
 
 
 class Threshold(Base):
-    def _run(self, script, n_steps=3):
-        d = split_state(self.sb)
-        world.init(d)
-        world.run(d, stub(script), opts(threshold=0.3), max_steps=n_steps)
-        return d, read_jsonl(d / "log.jsonl"), stream_ids(d)
-
     def test_low_surprise_skips_the_update_but_not_on_a_new_entity_or_belief(self):
         d = split_state(self.sb)
         world.init(d)

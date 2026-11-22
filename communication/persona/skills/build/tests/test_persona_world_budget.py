@@ -129,7 +129,7 @@ class WorldBudget(unittest.TestCase):
                            "--stub-script", self.script, *args[1:])
 
     def test_run_stops_with_exit_4_and_keeps_the_last_checkpoint(self):
-        r = self.world("run", "--max-cost-usd", "0.2")
+        r = self.world("run", "--max-cost-usd", "0.2", "--call-estimate-usd", "0.02")
         self.assertEqual(r.returncode, 4, r.stderr)
         self.assertIn("budget", r.stderr)
         rows = read_jsonl(self.d / "ledger.jsonl")
