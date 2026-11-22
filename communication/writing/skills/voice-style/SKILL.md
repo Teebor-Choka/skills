@@ -23,8 +23,8 @@ Run the mode command's steps by hand: state the depth and the length once, then 
 
 ## A persona profile
 
-The `mimic` skill writes a validated `profile.md` for one person in its state dir
-(`~/.config/agents/state/voice/<persona>/`). For text drafted as that person, load the profile
+The `persona:build` skill writes a validated `profile.md` for one person in its state dir
+(`~/.config/agents/state/persona/<persona>/`). For text drafted as that person, load the profile
 after the style. Its measured habits (casing, punctuation, emoji, dashes, length, signature
 phrases) win over the style's surface rules, as the style's own precedence puts the author's voice
 above any anti-slop rule. The floor still holds: facts, code, exact strings and security warnings
