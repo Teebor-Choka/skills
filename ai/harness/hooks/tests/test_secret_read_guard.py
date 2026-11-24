@@ -473,6 +473,48 @@ class EndToEnd(unittest.TestCase):
         self.assertIsNone(self.decision({"tool_name": "Bash", "tool_input": {"command": "cat README.md"}}))
         self.assertIsNone(self.decision({"tool_name": "Read", "tool_input": {"file_path": "/p/README.md"}}))
 
+    CTX = "mcp__plugin_context-mode_context-mode__ctx_"
+
+    def test_context_mode_tools_ask_on_secret_input(self):
+        cases = [
+            ("execute", {"language": "shell", "code": "wc -l", "file": "/p/.env"}),
+            ("execute", {"language": "python", "code": "print(open('/p/vault.kdbx').read())"}),
+            ("execute", {"language": "shell", "code": "cat ~/.ssh/id_ed25519"}),
+            ("execute", {"language": "shell", "code": "printenv GITHUB_TOKEN"}),
+            ("index", {"path": "/home/u/.config/fun/kauki/token"}),
+            ("batch", {"commands": [{"label": "k", "command": "cat .env"}], "queries": ["x"]}),
+            ("execute", {"language": "python", "code": "print(\"don't\"); open(\".env\").read()"}),
+            ("execute", {"language": "javascript", "code": "fs.readFileSync(`/p/.env`)"}),
+            ("execute", {"code": "printenv"}),
+            ("index", {"path": "/home/u/.config/fun/kauki/"}),
+            ("index", {"path": "/home/u/.config/fun/kauki"}),
+            ("index", {"path": "/home/u/.ssh"}),
+            ("index", {"url": "file:///p/.env"}),
+        ]
+        for tool, args in cases:
+            with self.subTest(tool=tool, args=args):
+                out = self.decision({"tool_name": self.CTX + tool, "tool_input": args})
+                self.assertEqual(out["permissionDecision"], "ask")
+
+    def test_context_mode_tools_silent_on_clean_input(self):
+        cases = [
+            ("execute", {"language": "shell", "code": "wc -l", "file": "/p/README.md"}),
+            ("execute", {"language": "python", "code": "print(open('/p/app.log').read()[:10])"}),
+            ("index", {"path": "/p/docs/guide.md"}),
+            ("index", {"content": "plain text", "source": "notes"}),
+            ("batch", {"commands": [{"label": "ls", "command": "ls"}], "queries": ["x"]}),
+            ("search", {"queries": [".env handling"]}),
+            ("execute", {"language": "python", "code": "d = cfg[\"credentials\"]"}),
+            ("execute", {"language": "javascript", "code": "console.log(require(\"process.env\"))"}),
+            ("execute", {"language": "shell", "code": "grep -c TOKEN \".env\""}),
+            ("index", {"path": "/home/u/.config/fun/kauki/ssh_config"}),
+            ("batch", {"commands": "cat .env"}),
+            ("batch", {"commands": [None, 1, {"command": 5}]}),
+        ]
+        for tool, args in cases:
+            with self.subTest(tool=tool, args=args):
+                self.assertIsNone(self.decision({"tool_name": self.CTX + tool, "tool_input": args}))
+
     def test_other_tools_and_malformed_fail_open(self):
         self.assertIsNone(self.decision({"tool_name": "Edit", "tool_input": {"file_path": "/p/.env"}}))
         for bad in ["", "not json", "[]", "null", json.dumps({"tool_name": "Bash"}),
