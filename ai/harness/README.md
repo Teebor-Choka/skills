@@ -15,7 +15,7 @@ All 13 hook scripts run for every user who enables the plugin, the personal sess
 | `schedule-wakeup-guard`   | before `ScheduleWakeup`, `CronCreate` | Denies a wake that polls `gh pr\|issue\|run`, sleeps or waits on a subagent. A repeated non-polling prompt passes: a dynamic loop re-issues one prompt each tick. No state.      |
 | `send-message-guard`      | before `SendMessage`                  | Denies a long free-text message that carries no `#N` or URL.                                                                                                                     |
 | `review-dedup-guard`      | before `Agent`                        | Per PR and session: the first two review spawns pass, the third asks, the fourth and later are denied.                                                                           |
-| `secret-read-guard`       | before Bash, Read, Grep               | Asks before a call prints a secret: key files, `.env*`, env dumps, keychain passwords                                                                                            |
+| `secret-read-guard`       | before Bash, Read, Grep, ctx_*        | Asks before a call prints a secret: key files, `.env*`, env dumps, keychain passwords                                                                                            |
 | `read-size-nudge`         | before Read                           | Nudges on a whole-file read over 40 KB; denies it for a source file in an indexed repo                                                                                           |
 | `long-command-nudge`      | before Bash                           | Warns once per session before a slow foreground command.                                                                                                                         |
 | `ask-question-guard`      | before `AskUserQuestion`              | Blocks a question call with no questions.                                                                                                                                        |
@@ -94,6 +94,11 @@ reason.
 `secret-read-guard` also asks before a `Grep` in `content` mode over a secret path, or with a `glob` that names secret
 files (`.env*`, `*.pem`, `credentials*`). Listing modes only name files and pass. `Glob` lists names only and is not
 guarded.
+
+It also guards the context-mode plugin's `ctx_execute`, `ctx_index` and `ctx_batch`, which bypass Bash and Read and
+store their output in plaintext in `~/.context-mode`: a secret `file`, `path` or `file://` url, a secret directory
+(`~/.ssh`, `~/.kube`, `~/.config/fun/<org>`), shell `code` or batch `commands` the Bash rules ask on, and a secret
+path token in other-language `code` (`open(".env")`). A path built from parts at run time is not caught.
 
 The built-in rules resolve a path against the working directory and any earlier `cd`, so `cd ~/.ssh && cat id_rsa`
 asks. Compound keywords and braces (`if`, `do`, `{`) and wrappers with arguments (`nice -n 5`, `env -u X`,
