@@ -122,6 +122,17 @@
         "matcher": "compact"
       }
     ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/subagent-rules.py\"",
+            "timeout": 10,
+            "type": "command"
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [

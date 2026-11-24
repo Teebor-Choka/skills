@@ -109,6 +109,13 @@
       "script": "hooks/ask-question-guard.py",
       "timeout": 10,
       "enforce": "block"
+    },
+    {
+      "id": "subagent-rules",
+      "event": "subagent.start",
+      "script": "hooks/subagent-rules.py",
+      "timeout": 10,
+      "enforce": "warn"
     }
   ]
 }
