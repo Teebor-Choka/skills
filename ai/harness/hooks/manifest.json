@@ -36,6 +36,13 @@
       "enforce": "warn"
     },
     {
+      "id": "secret-read-guard-ctx",
+      "event": "tool.before",
+      "matcher": "mcp__plugin_context-mode_context-mode__ctx_(execute|index|batch)",
+      "script": "hooks/secret-read-guard",
+      "enforce": "warn"
+    },
+    {
       "id": "read-size-nudge",
       "event": "tool.before",
       "tools": ["file.read"],

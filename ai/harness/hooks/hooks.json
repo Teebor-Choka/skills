@@ -49,6 +49,15 @@
       {
         "hooks": [
           {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/secret-read-guard\"",
+            "type": "command"
+          }
+        ],
+        "matcher": "mcp__plugin_context-mode_context-mode__ctx_(execute|index|batch)"
+      },
+      {
+        "hooks": [
+          {
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/read-size-nudge\"",
             "type": "command"
           }
