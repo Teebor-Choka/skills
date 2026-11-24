@@ -496,6 +496,46 @@ class EndToEnd(unittest.TestCase):
                 out = self.decision({"tool_name": self.CTX + tool, "tool_input": args})
                 self.assertEqual(out["permissionDecision"], "ask")
 
+    def test_context_mode_tools_resolve_paths_against_the_payload_cwd(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            ssh = os.path.join(d, ".ssh")
+            fun = os.path.join(d, ".config", "fun", "kauki")
+            os.makedirs(ssh)
+            os.makedirs(fun)
+            os.symlink(ssh, os.path.join(d, "k"))
+            cases = [
+                (ssh, "index", {"path": "."}),
+                (d, "index", {"path": ".ssh/."}),
+                (d, "index", {"path": "k"}),
+                (os.path.dirname(fun), "index", {"path": "kauki"}),
+                (fun, "index", {"path": "token"}),
+                (fun, "execute", {"language": "python", "code": "open('./token')"}),
+                (ssh, "batch", {"commands": [{"command": "cat id_rsa"}]}),
+            ]
+            for cwd, tool, args in cases:
+                with self.subTest(cwd=cwd, tool=tool, args=args):
+                    out = self.decision({"tool_name": self.CTX + tool, "cwd": cwd, "tool_input": args})
+                    self.assertEqual(out["permissionDecision"], "ask")
+
+    def test_context_mode_code_asks_on_secret_names_that_exist_in_the_cwd(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            for name in ("credentials.json", "prod.env", "kubeconfig.yaml"):
+                open(os.path.join(d, name), "w").close()
+            cases = [("open('credentials.json')", d), ("open('prod.env')", d), ("open('kubeconfig.yaml')", d),
+                     ("open('VAULT.KDBX')", None)]
+            for code, cwd in cases:
+                with self.subTest(code=code):
+                    out = self.decision({"tool_name": self.CTX + "execute", "cwd": cwd,
+                                         "tool_input": {"language": "python", "code": code}})
+                    self.assertEqual(out["permissionDecision"], "ask")
+            # the same words as code, with no such file next to the call, stay silent
+            for code in ("x = process.env", "credentials.get(k)", "cfg.kubeconfig.yaml"):
+                with self.subTest(code=code):
+                    self.assertIsNone(self.decision({"tool_name": self.CTX + "execute", "cwd": d,
+                                                     "tool_input": {"language": "javascript", "code": code}}))
+
     def test_context_mode_tools_silent_on_clean_input(self):
         cases = [
             ("execute", {"language": "shell", "code": "wc -l", "file": "/p/README.md"}),
