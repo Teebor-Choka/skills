@@ -1,5 +1,5 @@
 {
   "name": "yubikey",
-  "version": "1.0.1",
-  "description": "Developer security setup: hardware-backed keys with YubiKey (offline OpenPGP root key, on-card daily subkeys, FIDO2 SSH keys, signed commits, GitHub 2FA), plus the loss and recovery runbook."
+  "version": "1.1.0",
+  "description": "Developer security setup: hardware-backed keys with YubiKey (offline OpenPGP root key, on-card daily subkeys, FIDO2 SSH keys, signed commits, GitHub 2FA), the loss and recovery runbook, and an offline CA root key held on two YubiKeys (PIV)."
 }
