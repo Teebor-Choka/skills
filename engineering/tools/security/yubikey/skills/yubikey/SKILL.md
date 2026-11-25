@@ -6,7 +6,7 @@ description: >
 license: MIT
 compatibility: any
 metadata:
-  version: "0.2.1"
+  version: "0.3.0"
 ---
 
 # YubiKey hardware keys
@@ -77,7 +77,7 @@ Each phase has an exit check. Do not start the next phase until it passes.
    of B2) and `c-check.sh` pass for every key; `ssh -T`
    greets the user with each key; GitHub shows the keys, the GPG key, and two security keys with recovery codes saved; a
    test signed commit shows `Good signature`.
-4. **D. SOPS and KMS** (optional; `references/sops-kms.md`).
+4. **D. SOPS and KMS** (optional; the `sops-kms` skill).
 5. **E. Recovery readiness** (`references/recovery.md`). Exit: the user can say where the root key, stick 1, stick 2 and
    the recovery codes are, and has read the loss runbook once.
 
@@ -101,7 +101,6 @@ Read `references/state.md` for the full done-means list; every item must hold be
 | ----------------------------- | ---------------------------------------------------------------------------------- |
 | `references/ceremony.md`      | Preparing or running the ceremony, or answering "which window wants which secret". |
 | `references/daily-machine.md` | After the ceremony: tools, import, SSH, GitHub, Git signing, daily habits.         |
-| `references/sops-kms.md`      | The user wants secrets encryption with a KMS (SOPS with Google Cloud KMS).         |
 | `references/recovery.md`      | A key is lost, broken or stolen, or a subkey expires or needs a new date.          |
 | `references/team.md`          | Scope is a team: registry, release gate, offboarding, rehearsal.                   |
 | `references/known-gaps.md`    | A step behaves differently than written, or before publishing changes.             |

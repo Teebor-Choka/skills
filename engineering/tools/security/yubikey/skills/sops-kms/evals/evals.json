@@ -1,0 +1,67 @@
+{
+  "skill_name": "sops-kms",
+  "outcome_evals": [],
+  "trigger_evals": [
+    {
+      "query": "set up SOPS with Google Cloud KMS for our repo",
+      "should_trigger": true
+    },
+    {
+      "query": "how do I encrypt the secrets/ folder in git so only our team can read it",
+      "should_trigger": true
+    },
+    {
+      "query": "write a .sops.yaml that uses two KMS keys in different regions",
+      "should_trigger": true
+    },
+    {
+      "query": "we added a key to the KMS list, how do I re-encrypt the existing files",
+      "should_trigger": true
+    },
+    {
+      "query": "create the keyring and key for sops in europe-west1 and us-central1",
+      "should_trigger": true
+    },
+    {
+      "query": "a laptop was stolen, how do I revoke its application default credentials",
+      "should_trigger": true
+    },
+    {
+      "query": "verify the sops binary signature before installing it on Debian",
+      "should_trigger": true
+    },
+    {
+      "query": "edit an encrypted yaml without leaving cleartext on disk",
+      "should_trigger": true
+    },
+    {
+      "query": "set up my YubiKey for SSH and commit signing",
+      "should_trigger": false
+    },
+    {
+      "query": "generate an offline OpenPGP root key and move subkeys onto cards",
+      "should_trigger": false
+    },
+    {
+      "query": "put our private CA root key on two YubiKeys",
+      "should_trigger": false
+    },
+    {
+      "query": "store application secrets in HashiCorp Vault with the Kubernetes auth method",
+      "should_trigger": false
+    },
+    {
+      "query": "rotate the AWS access keys for our CI user",
+      "should_trigger": false
+    },
+    {
+      "query": "encrypt a single file with age for a coworker",
+      "should_trigger": false
+    },
+    { "query": "my YubiKey PIN is blocked, what now", "should_trigger": false },
+    {
+      "query": "create a Google Cloud project with billing for our team",
+      "should_trigger": false
+    }
+  ]
+}
