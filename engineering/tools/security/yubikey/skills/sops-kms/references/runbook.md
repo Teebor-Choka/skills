@@ -1,4 +1,4 @@
-# SOPS with Google Cloud KMS (optional)
+# SOPS with Google Cloud KMS
 
 SOPS encrypts each file data key to two Cloud KMS keys, one in Europe and one in the United States. Cloud IAM controls
 who can use them.
@@ -6,7 +6,7 @@ who can use them.
 **Trust boundary.** The YubiKey protects the Google sign-in in the browser. It does not approve each KMS call once local
 Application Default Credentials (ADC) exist. The ADC refresh token is a software credential in
 `$HOME/.config/gcloud/application_default_credentials.json`. Any process that can read it has your IAM permissions.
-Require full-disk encryption. Say this limit out loud to the user before they enable the option.
+Require full-disk encryption. Say this limit out loud to the user before they start.
 
 ## Prerequisites
 
@@ -22,7 +22,8 @@ The person who owns the Google Cloud project must provide:
 Use the release the user or team has approved. Check the current release and its signatures at
 https://github.com/getsops/sops/releases before pinning a version.
 
-- macOS: `brew install sops cosign slsa-verifier` (use `brew install --cask google-cloud-sdk` for gcloud).
+- macOS: `brew install sops cosign slsa-verifier` (use `brew install --cask google-cloud-sdk` for gcloud). This installs
+  the current release and runs none of the checks below. Compare `sops --version` with the approved release.
 - Debian/Ubuntu: install `cosign` and `slsa-verifier` first. Neither is in the Debian archive. Use the signed releases of
   sigstore/cosign and slsa-framework/slsa-verifier, verified as their release pages describe, or your workstation
   management. Then download the SOPS binary and verify it before install: `cosign verify-blob` on the checksum file,
@@ -63,10 +64,15 @@ Any failed check stops the script before `sudo install`. The `cosign` identity i
 rejects it for a release you approved, inspect the certificate and fix the pattern: do not loosen it to a bare
 organization match.
 
+Read back: `sops --version` prints the approved release.
+
 ## Create the KMS keys
+
+Replace both placeholders. Run the loop one region at a time: set `location` to one region and run its body, then repeat.
 
 ```bash
 GCP_PROJECT=replace-with-project-id
+KEY_USERS_GROUP=replace-with-key-user-group@your-domain
 gcloud config set project "$GCP_PROJECT"
 gcloud services enable cloudkms.googleapis.com
 
@@ -76,10 +82,19 @@ for location in europe-west1 us-central1; do
     --keyring sops --purpose encryption
   gcloud kms keys add-iam-policy-binding secrets \
     --location "$location" --keyring sops \
-    --member "group:secrets-users@example.org" \
+    --member "group:${KEY_USERS_GROUP}" \
     --role roles/cloudkms.cryptoKeyEncrypterDecrypter
 done
 ```
+
+Read back, for each region:
+
+```bash
+gcloud kms keys list --location europe-west1 --keyring sops
+gcloud kms keys list --location us-central1 --keyring sops
+```
+
+Expect the key `secrets` in each, with state `ENABLED`.
 
 ## Configure the repository
 
@@ -102,7 +117,13 @@ gcloud auth application-default login
 
 To revoke on a machine that you still control: `gcloud auth application-default revoke`. For a lost laptop, revoke
 through the account response process. IAM changes are eventually consistent. Treat access as live until a denial test
-fails.
+fails. Denial test, run as the user or machine whose access was removed:
+
+```bash
+sops --decrypt secrets/prod.yaml > /dev/null
+```
+
+Expect a permission error from Cloud KMS, not a decrypt.
 
 ## Create and edit a file without cleartext on disk
 
@@ -127,4 +148,10 @@ fi
 
 Edit with `sops secrets/prod.yaml`. Read with `sops --decrypt` or `sops exec-env secrets/prod.yaml 'your-app'`, in a
 pipe or controlled terminal. Never redirect decrypted output to a file in a repository. Add `*.dec.yaml` and
-`secrets/*.plain.*` to `.gitignore`. Check every SOPS change for cleartext before commit.
+`secrets/*.plain.*` to `.gitignore`. Check every SOPS change for cleartext before commit:
+
+```bash
+git diff --cached -- secrets/
+```
+
+Read it. Expect every value as `ENC[...]` and a `sops:` block that lists both KMS resource IDs. Stop if a value is clear.

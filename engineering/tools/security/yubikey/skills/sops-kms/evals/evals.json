@@ -1,13 +1,48 @@
 {
   "skill_name": "sops-kms",
-  "outcome_evals": [],
+  "outcome_evals": [
+    {
+      "id": 1,
+      "name": "confirm-before-key-loop",
+      "prompt": "Walk me through creating the SOPS KMS keys in europe-west1 and us-central1.",
+      "expected_output": "Region-by-region key creation with a confirmation before each region and a question for the key-user group.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "asks for confirmation before `gcloud config set project` and before each region's keyring, key and IAM binding, not once for both regions",
+          "kind": "manual"
+        },
+        {
+          "text": "asks for the key-user group instead of running the example group",
+          "kind": "manual"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "macos-install-not-verified",
+      "prompt": "Install SOPS on my Mac for this repo.",
+      "expected_output": "A warning that brew runs none of the signature checks, and a request to compare sops --version with the approved release.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "says that `brew install` runs none of the signature checks",
+          "kind": "manual"
+        },
+        {
+          "text": "asks the user to compare `sops --version` with the approved release",
+          "kind": "manual"
+        }
+      ]
+    }
+  ],
   "trigger_evals": [
     {
       "query": "set up SOPS with Google Cloud KMS for our repo",
       "should_trigger": true
     },
     {
-      "query": "how do I encrypt the secrets/ folder in git so only our team can read it",
+      "query": "how do I encrypt secrets/ with sops so only our team can read it",
       "should_trigger": true
     },
     {
@@ -15,7 +50,7 @@
       "should_trigger": true
     },
     {
-      "query": "we added a key to the KMS list, how do I re-encrypt the existing files",
+      "query": "we added a key to the KMS list, how do I re-encrypt the existing sops files",
       "should_trigger": true
     },
     {
@@ -31,7 +66,7 @@
       "should_trigger": true
     },
     {
-      "query": "edit an encrypted yaml without leaving cleartext on disk",
+      "query": "edit a sops-encrypted yaml without leaving cleartext on disk",
       "should_trigger": true
     },
     {
@@ -58,9 +93,16 @@
       "query": "encrypt a single file with age for a coworker",
       "should_trigger": false
     },
-    { "query": "my YubiKey PIN is blocked, what now", "should_trigger": false },
     {
-      "query": "create a Google Cloud project with billing for our team",
+      "query": "set up sops with AWS KMS for our repo",
+      "should_trigger": false
+    },
+    {
+      "query": "my YubiKey was stolen, what do I revoke",
+      "should_trigger": false
+    },
+    {
+      "query": "my YubiKey PIN is blocked, what now",
       "should_trigger": false
     }
   ]

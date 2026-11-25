@@ -93,7 +93,7 @@ A2|Tails stick
 A3|Format sticks
 B|Ceremony
 C|Daily machine
-D|SOPS and KMS
+D|SOPS and KMS (optional, sops-kms skill)
 E|Recovery
 LIST
 }

@@ -77,7 +77,7 @@ Each phase has an exit check. Do not start the next phase until it passes.
    of B2) and `c-check.sh` pass for every key; `ssh -T`
    greets the user with each key; GitHub shows the keys, the GPG key, and two security keys with recovery codes saved; a
    test signed commit shows `Good signature`.
-4. **D. SOPS and KMS** (optional; the `sops-kms` skill).
+4. **D. SOPS and KMS** (optional, skippable; the `sops-kms` skill holds it and its exit check). Phase E does not wait for D.
 5. **E. Recovery readiness** (`references/recovery.md`). Exit: the user can say where the root key, stick 1, stick 2 and
    the recovery codes are, and has read the loss runbook once.
 
