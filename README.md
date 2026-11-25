@@ -45,6 +45,7 @@ Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`; a domain with one plugin i
 | `git`          | `workflow`          | Git and PR workflow; git-guard hooks and the pr-watcher agent           |
 | `ows`          | `reader`            | Read and validate OWS workflow files: tasks, floors, catalog, manifest  |
 | `yubikey`      | `yubikey`           | Hardware-backed keys: offline OpenPGP root, FIDO2 SSH, signing          |
+|                | `piv-ca`            | Offline CA root key on two YubiKeys (PIV, Tails)                        |
 
 ## Install
 

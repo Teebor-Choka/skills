@@ -2,11 +2,11 @@
 name: yubikey
 description: >
   Set up, verify or repair YubiKey-backed SSH, GPG, FIDO2 and commit signing. Use only when
-  the user asks. Not for OTP, PIV or smart-card login, other tokens, or generic SSH key rotation.
+  the user asks. Not for OTP, PIV smart-card login, other tokens, or generic SSH key rotation. For an offline CA root key on PIV, use the piv-ca skill.
 license: MIT
 compatibility: any
 metadata:
-  version: "0.2.0"
+  version: "0.2.1"
 ---
 
 # YubiKey hardware keys
