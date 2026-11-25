@@ -1,0 +1,70 @@
+{
+  "skill_name": "piv-ca",
+  "outcome_evals": [],
+  "trigger_evals": [
+    {
+      "query": "I want the root key of our private CA to live on a YubiKey",
+      "should_trigger": true
+    },
+    {
+      "query": "how do I sign an intermediate CA offline and keep the root on hardware",
+      "should_trigger": true
+    },
+    {
+      "query": "import the same CA root key into two YubiKeys using Tails",
+      "should_trigger": true
+    },
+    {
+      "query": "can one YubiKey hold the CA key and my OpenPGP keys at the same time",
+      "should_trigger": true
+    },
+    {
+      "query": "walk me through ykman piv keys import for slot 9c with touch required",
+      "should_trigger": true
+    },
+    {
+      "query": "generate a root certificate with pathlen 1 and a name-constrained intermediate",
+      "should_trigger": true
+    },
+    {
+      "query": "what happens to the CA key if I lose both YubiKeys",
+      "should_trigger": true
+    },
+    {
+      "query": "move my private PKI root off disk and onto a smart card",
+      "should_trigger": true
+    },
+    {
+      "query": "set up YubiKey SSH keys with FIDO2 for GitHub",
+      "should_trigger": false
+    },
+    {
+      "query": "sign my git commits with a key on the YubiKey",
+      "should_trigger": false
+    },
+    {
+      "query": "log in to Windows with a YubiKey smart card",
+      "should_trigger": false
+    },
+    {
+      "query": "issue a short-lived server certificate from our online intermediate",
+      "should_trigger": false
+    },
+    {
+      "query": "set up a Let's Encrypt wildcard certificate with DNS validation",
+      "should_trigger": false
+    },
+    {
+      "query": "encrypt repo secrets with SOPS and Google Cloud KMS",
+      "should_trigger": false
+    },
+    {
+      "query": "rotate our CA root and cross-sign the new one",
+      "should_trigger": false
+    },
+    {
+      "query": "my YubiKey is not recognised on Linux",
+      "should_trigger": false
+    }
+  ]
+}

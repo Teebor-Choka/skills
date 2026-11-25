@@ -22,8 +22,6 @@ FIDO2 `ssh-keygen -t ed25519-sk` works on Tails. `ykman openpgp access set-signa
 | Phone flows                               | NFC for GitHub 2FA and OpenPGP over NFC on Android untested. iOS OpenPGP on this card is unsupported.                                                              | Test on the actual phone and browser.                                                                     |
 | Windows                                   | Unsupported.                                                                                                                                                       | A candidate build must pass the full set in `team.md`.                                                    |
 
-- **SOPS cosign identity.** `references/sops-kms.md` pins the SOPS release workflow (`release.yml` at a `v` tag). The workflow
-  file exists upstream, but the pattern was not run against a real release bundle. A mismatch fails closed.
 - **ykman cache.** `nix_bin` caches the store path of `ykman` in the state dir until it is garbage collected or the file
   `nixbin.ykman` is deleted, so the version can lag nixpkgs.
 
@@ -36,7 +34,6 @@ FIDO2 `ssh-keygen -t ed25519-sk` works on Tails. `ykman openpgp access set-signa
   single-user session.
 - A cached OpenPGP touch stays valid for about 15 seconds.
 - Nothing closes the GnuPG PIN cache automatically.
-- The ADC refresh token for KMS is a software credential and widens the trust boundary beyond the key.
 - A handle made from the card is useless without the key, PIN and touch, but it exposes a credential ID. A file that only
   looks like a handle is a different matter: check the key type (`ED25519-SK`) and the fingerprint against the paper from B8.
 
@@ -44,4 +41,3 @@ FIDO2 `ssh-keygen -t ed25519-sk` works on Tails. `ykman openpgp access set-signa
 
 - YubiKey firmware 5.7.4 or later (advisories in `sources.md`).
 - GnuPG 2.2 or later, OpenSSH 8.4 or later (`verify-required`), `ykman` 5.x syntax.
-- SOPS: pin one approved release and verify its signatures before use.

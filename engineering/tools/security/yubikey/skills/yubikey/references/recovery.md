@@ -56,7 +56,7 @@ Work on the other daily key meanwhile.
    to B8). Never copy credentials from the remaining key.
 7. Register the replacement on GitHub. Update the team registry if one exists (`team.md`).
 
-If the key was in a lost laptop, also revoke that laptop's credentials, including ADC (`sops-kms.md`).
+If the key was in a lost laptop, also revoke that laptop's credentials, including ADC (the `sops-kms` skill).
 
 ## Both daily keys lost or stolen
 

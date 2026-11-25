@@ -137,11 +137,11 @@
     },
     {
       "name": "yubikey",
-      "description": "Developer security setup: hardware-backed keys with YubiKey (offline OpenPGP root key, on-card daily subkeys, FIDO2 SSH keys, signed commits, GitHub 2FA), the loss and recovery runbook, and an offline CA root key held on two YubiKeys (PIV).",
+      "description": "Developer security setup: hardware-backed keys with YubiKey (offline OpenPGP root key, on-card daily subkeys, FIDO2 SSH keys, signed commits, GitHub 2FA), the loss and recovery runbook, an offline CA root key held on two YubiKeys (PIV), and SOPS with Google Cloud KMS or OpenBao.",
       "source": "./engineering/tools/security/yubikey",
       "strict": true,
       "metadata": {
-        "version": "1.1.0"
+        "version": "1.2.0"
       }
     },
     {
