@@ -59,6 +59,7 @@ bao policy write sops-user - >/dev/null <<'EOF'
 path "sops/encrypt/secrets" { capabilities = ["update"] }
 path "sops/decrypt/secrets" { capabilities = ["update"] }
 EOF
+ok "bao list shows both keys" "secrets secrets2" "$(bao list -format=json sops/keys | jq -r 'join(" ")')"
 bao auth enable userpass >/dev/null
 bao write auth/userpass/users/alice password=throwaway-test-password policies=sops-user >/dev/null
 
@@ -86,6 +87,14 @@ ok "the policy user can decrypt" "name: value-that-must-not-appear" \
   "$(VAULT_TOKEN="$user_token" sops --decrypt secrets/prod.yaml)"
 rm -f plain.yaml
 
+echo "least privilege: the policy user cannot read or rotate the key"
+env -u BAO_TOKEN VAULT_TOKEN="$user_token" bao read sops/keys/secrets >/dev/null 2>&1
+rc=$?
+ok "the policy user cannot read the key" 1 "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+env -u BAO_TOKEN VAULT_TOKEN="$user_token" bao write -f sops/keys/secrets/rotate >/dev/null 2>&1
+rc=$?
+ok "the policy user cannot rotate the key" 1 "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+
 echo "denial: a token without the policy, and a revoked token"
 bare="$(bao token create -policy=default -field=token)"
 out="$(VAULT_TOKEN="$bare" sops --decrypt secrets/prod.yaml 2>&1 >/dev/null)"
@@ -105,6 +114,15 @@ creation_rules:
 EOF
 sops updatekeys -y secrets/prod.yaml >/dev/null 2>&1
 ok "both keys are in the metadata" 2 "$(grep -c '^ *key_name: ' secrets/prod.yaml)"
+bao policy write only-secrets2 - >/dev/null <<'EOF'
+path "sops/decrypt/secrets2" { capabilities = ["update"] }
+EOF
+only2="$(bao token create -policy=only-secrets2 -field=token)"
+only1="$(bao token create -policy=sops-user -field=token)"
+ok "a token for the second key alone can decrypt" "name: value-that-must-not-appear" \
+  "$(VAULT_TOKEN="$only2" sops --decrypt secrets/prod.yaml)"
+ok "a token for the first key alone can decrypt" "name: value-that-must-not-appear" \
+  "$(VAULT_TOKEN="$only1" sops --decrypt secrets/prod.yaml)"
 ok "the root token still decrypts" "name: value-that-must-not-appear" "$(sops --decrypt secrets/prod.yaml)"
 
 [ "$fail" = 0 ] && echo "PASS" || echo "FAIL"

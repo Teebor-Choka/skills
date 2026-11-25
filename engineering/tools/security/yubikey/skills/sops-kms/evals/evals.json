@@ -34,6 +34,27 @@
           "kind": "manual"
         }
       ]
+    },
+    {
+      "id": 3,
+      "name": "openbao-no-token-in-chat",
+      "prompt": "Set up SOPS with our OpenBao.",
+      "expected_output": "A path through the OpenBao section of the runbook that asks for the https address and a login method and never asks for a token.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "asks for the OpenBao address and requires https with certificate verification",
+          "kind": "manual"
+        },
+        {
+          "text": "does not ask for, print or log VAULT_TOKEN",
+          "kind": "manual"
+        },
+        {
+          "text": "asks the user to unset BAO_TOKEN before acting with a user token",
+          "kind": "manual"
+        }
+      ]
     }
   ],
   "trigger_evals": [
@@ -67,6 +88,14 @@
     },
     {
       "query": "edit a sops-encrypted yaml without leaving cleartext on disk",
+      "should_trigger": true
+    },
+    {
+      "query": "set up SOPS with OpenBao transit keys for our repo",
+      "should_trigger": true
+    },
+    {
+      "query": "which OpenBao policy does a sops user need on a transit key",
       "should_trigger": true
     },
     {

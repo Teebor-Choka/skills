@@ -46,7 +46,7 @@ Layout: `<domain>/[<group>/]<plugin>/skills/<skill>`; a domain with one plugin i
 | `ows`          | `reader`            | Read and validate OWS workflow files: tasks, floors, catalog, manifest  |
 | `yubikey`      | `yubikey`           | Hardware-backed keys: offline OpenPGP root, FIDO2 SSH, signing          |
 |                | `piv-ca`            | Offline CA root key on two YubiKeys (PIV, Tails)                        |
-|                | `sops-kms`          | Encrypt repo secrets with SOPS and Google Cloud KMS                     |
+|                | `sops-kms`          | Encrypt repo secrets with SOPS and Cloud KMS or OpenBao                 |
 
 ## Install
 

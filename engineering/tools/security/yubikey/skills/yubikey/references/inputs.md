@@ -5,8 +5,8 @@
 4. Identity: query the user, with defaults where available: `git config user.email`, and for GitHub the verified emails
    of the account (`gh api user/emails`), GitHub being the default source. Confirm the exact `Name <email>`. For commits
    to show as verified, the email must match a verified email at the Git host.
-5. Secrets encryption with a KMS (optional, skippable). The `sops-kms` skill documents SOPS with Google Cloud KMS
-   (a project, billing and KMS rights). Another KMS, such as OpenBao, follows the same pattern: ask which one exists.
+5. Secrets encryption with a KMS (optional, skippable). The `sops-kms` skill covers SOPS with Google Cloud KMS
+   (a project, billing and KMS rights) and with OpenBao transit (a reachable OpenBao and policy rights). Ask which one exists.
 6. Hardware: one root key and two daily keys from the YubiKey 5 series, firmware 5.7.4 or later (read it with
    `ykman info`; the `ykman` tool itself needs 5.x), and three USB sticks (1: 8 GB or more for Tails; 2: LUKS for the
    backup; 3: FAT for the public key and these scripts).
